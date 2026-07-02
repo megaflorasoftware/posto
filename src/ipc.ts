@@ -136,6 +136,10 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     case "ping_dev_server":
       return true;
     case "fetch_page":
+      // Simulate a route with no page, for testing preview-navigation checks.
+      if (((args?.route as string) ?? "").startsWith("/blog/no-slug")) {
+        throw new Error("Dev server returned 404 for /blog/no-slug");
+      }
       return [
         "<html><head>",
         "<title>Mock Page Title That Is Somewhat Long For Testing Truncation In Google</title>",

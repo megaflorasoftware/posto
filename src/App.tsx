@@ -83,8 +83,26 @@ function App() {
     const collection = path.match(/\/src\/(?:content\/)?([^/]+)\/([^/]+)\.(?:md|mdx|markdown)$/);
     if (!collection) return null;
     const [, name, file] = collection;
-    if (["pages", "components", "layouts", "assets", "styles"].includes(name)) return null;
+    // "content" as the collection name means the file sits directly in
+    // src/content (e.g. src/content/home.md) — data files, not pages.
+    if (["pages", "components", "layouts", "assets", "styles", "content"].includes(name)) {
+      return null;
+    }
     return `/${name}/${frontmatterSlug(content) ?? file}`;
+  }
+
+  // Collection markdown doesn't necessarily have its own page (e.g. works
+  // rendered only inside gallery pages), so a derived route is just a guess —
+  // confirm the dev server actually serves it before pointing the preview at
+  // it. Unverifiable (server not up yet) counts as servable.
+  async function routeIsServable(route: string): Promise<boolean> {
+    if (server().state !== "running") return true;
+    try {
+      await invoke("fetch_page", { route });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -188,7 +206,10 @@ function App() {
       setSaveState("saved");
       if (navigatePreview) {
         const route = routeForFile(path, content);
-        if (route) setPreviewRoute(route);
+        if (route && route !== previewRoute() && (await routeIsServable(route))) {
+          // Bail if the user already opened another file during the check.
+          if (filePath() === path) setPreviewRoute(route);
+        }
       }
     } catch (e) {
       setPublishState(String(e));
