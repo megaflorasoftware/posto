@@ -4,6 +4,7 @@ import type { FileEntry, FileGroup } from "./ipc";
 import { EMPTY_CONFIG, matchEntry, parsePagesConfig, type PagesConfig } from "./pagescms/config";
 import { parseFile } from "./pagescms/frontmatter";
 import { FormEditor } from "./components/FormEditor";
+import { SeoPreview } from "./components/SeoPreview";
 
 import "@awesome.me/webawesome/dist/styles/webawesome.css";
 import "@awesome.me/webawesome/dist/styles/themes/default.css";
@@ -47,6 +48,8 @@ function App() {
   // not receive pointer events or it swallows the drag mid-motion.
   const [dragging, setDragging] = createSignal(false);
   const [previewRoute, setPreviewRoute] = createSignal("/");
+  // Bumped after each successful save so the SEO preview refetches the page.
+  const [saveTick, setSaveTick] = createSignal(0);
 
   function frontmatterSlug(content: string): string | null {
     const fm = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -136,6 +139,7 @@ function App() {
       await invoke("write_text_file", { path, content });
       setSaveState("saved");
       updateSidebarTitle(path, content);
+      setSaveTick((t) => t + 1);
     } catch {
       setSaveState("error");
     }
@@ -438,7 +442,7 @@ function App() {
                   }
                 >
                   <wa-tab-group
-                    class="editor-tabs"
+                    class="pane-tabs"
                     prop:active={rawPreferred() ? "raw" : "form"}
                     on:wa-tab-show={(e: CustomEvent<{ name: string }>) =>
                       setRawPreferred(e.detail.name === "raw")
@@ -470,34 +474,56 @@ function App() {
             </div>
 
             <div slot="end" class="pane preview-pane">
-              <Show when={server().state === "starting" || server().state === "installing"}>
-                <div class="pane-placeholder">
-                  <wa-spinner></wa-spinner>
-                  <span>
-                    {server().state === "installing"
-                      ? "Installing dependencies…"
-                      : "Starting dev server…"}
-                  </span>
-                </div>
-              </Show>
-              <Show when={server().state === "error"}>
-                <div class="pane-placeholder">
-                  <wa-callout variant="danger">
-                    {(server() as { message: string }).message}
-                  </wa-callout>
-                  <wa-button size="s" onClick={() => startServer(root()!)}>
-                    Retry
-                  </wa-button>
-                </div>
-              </Show>
-              <Show when={server().state === "running"}>
-                <iframe
-                  ref={previewFrame}
-                  class="preview"
-                  classList={{ "no-pointer": dragging() }}
-                  title="Site preview"
-                />
-              </Show>
+              <wa-tab-group class="pane-tabs">
+                <wa-tab attr:panel="site">Preview</wa-tab>
+                <wa-tab attr:panel="seo">Search/Socials</wa-tab>
+                <wa-tab-panel attr:name="site">
+                  <Show when={server().state === "starting" || server().state === "installing"}>
+                    <div class="pane-placeholder">
+                      <wa-spinner></wa-spinner>
+                      <span>
+                        {server().state === "installing"
+                          ? "Installing dependencies…"
+                          : "Starting dev server…"}
+                      </span>
+                    </div>
+                  </Show>
+                  <Show when={server().state === "error"}>
+                    <div class="pane-placeholder">
+                      <wa-callout variant="danger">
+                        {(server() as { message: string }).message}
+                      </wa-callout>
+                      <wa-button size="s" onClick={() => startServer(root()!)}>
+                        Retry
+                      </wa-button>
+                    </div>
+                  </Show>
+                  <Show when={server().state === "running"}>
+                    <iframe
+                      ref={previewFrame}
+                      class="preview"
+                      classList={{ "no-pointer": dragging() }}
+                      title="Site preview"
+                    />
+                  </Show>
+                </wa-tab-panel>
+                <wa-tab-panel attr:name="seo">
+                  <Show
+                    when={server().state === "running"}
+                    fallback={
+                      <div class="pane-placeholder">
+                        Search/social previews need the dev server running.
+                      </div>
+                    }
+                  >
+                    <SeoPreview
+                      route={previewRoute()}
+                      port={(server() as { port: number }).port}
+                      refreshKey={saveTick()}
+                    />
+                  </Show>
+                </wa-tab-panel>
+              </wa-tab-group>
             </div>
           </wa-split-panel>
         </div>

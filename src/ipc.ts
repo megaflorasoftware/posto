@@ -135,6 +135,22 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       return 1420;
     case "ping_dev_server":
       return true;
+    case "fetch_page":
+      return [
+        "<html><head>",
+        "<title>Mock Page Title That Is Somewhat Long For Testing Truncation In Google</title>",
+        '<meta name="description" content="A mock description used to exercise the SEO preview cards. It is deliberately written to be long enough that Google-style truncation kicks in somewhere around one hundred and sixty characters of text.">',
+        '<meta property="og:title" content="Mock OG Title">',
+        '<meta property="og:description" content="Mock OG description for social cards.">',
+        '<meta property="og:image" content="https://example.com/og.png">',
+        '<meta property="og:url" content="https://example.com' +
+          ((args?.route as string) ?? "/") +
+          '">',
+        '<meta property="og:site_name" content="Mock Site">',
+        '<meta name="twitter:card" content="summary_large_image">',
+        '<link rel="icon" href="/favicon.svg">',
+        "</head><body></body></html>",
+      ].join("");
     case "stop_dev_server":
       return null;
     case "publish":

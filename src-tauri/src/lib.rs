@@ -553,6 +553,85 @@ fn ping_dev_server(state: tauri::State<'_, AppState>) -> Result<bool, String> {
     Ok(up)
 }
 
+fn dechunk(mut data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    loop {
+        let Some(pos) = data.windows(2).position(|w| w == b"\r\n") else {
+            break;
+        };
+        let size_line = String::from_utf8_lossy(&data[..pos]);
+        let size = usize::from_str_radix(size_line.trim().split(';').next().unwrap_or(""), 16)
+            .unwrap_or(0);
+        if size == 0 {
+            break;
+        }
+        let start = pos + 2;
+        if data.len() < start + size {
+            out.extend_from_slice(&data[start..]);
+            break;
+        }
+        out.extend_from_slice(&data[start..start + size]);
+        let next = start + size + 2; // skip trailing \r\n
+        if next >= data.len() {
+            break;
+        }
+        data = &data[next..];
+    }
+    out
+}
+
+/// Fetches a page's HTML from the internal dev server, for SEO previews that
+/// parse the rendered <head>. Done in Rust so the webview needs no CORS
+/// cooperation from the dev server.
+#[tauri::command]
+async fn fetch_page(state: tauri::State<'_, AppState>, route: String) -> Result<String, String> {
+    use std::io::{Read, Write};
+    if !route.starts_with('/') || route.contains("\r") || route.contains("\n") {
+        return Err(format!("Invalid route: {route}"));
+    }
+    let port = {
+        let guard = state.server.lock().unwrap();
+        guard
+            .as_ref()
+            .map(|s| s.port)
+            .ok_or("No dev server running")?
+    };
+    let mut stream = connect_localhost(port).map_err(|e| e.to_string())?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .map_err(|e| e.to_string())?;
+    let request = format!(
+        "GET {route} HTTP/1.1\r\nHost: localhost:{port}\r\nAccept: text/html\r\nConnection: close\r\n\r\n"
+    );
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|e| e.to_string())?;
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .map_err(|e| format!("Failed to read page: {e}"))?;
+    let header_end = response
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .ok_or("Malformed HTTP response")?
+        + 4;
+    let head = String::from_utf8_lossy(&response[..header_end]).to_lowercase();
+    let status = head
+        .lines()
+        .next()
+        .and_then(|l| l.split_whitespace().nth(1))
+        .unwrap_or("");
+    if !status.starts_with('2') {
+        return Err(format!("Dev server returned {status} for {route}"));
+    }
+    let body = if head.contains("transfer-encoding: chunked") {
+        dechunk(&response[header_end..])
+    } else {
+        response[header_end..].to_vec()
+    };
+    Ok(String::from_utf8_lossy(&body).into_owned())
+}
+
 fn settings_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     app.path()
         .app_config_dir()
@@ -736,6 +815,7 @@ pub fn run() {
             start_dev_server,
             stop_dev_server,
             ping_dev_server,
+            fetch_page,
             get_last_route,
             needs_install,
             install_dependencies,
