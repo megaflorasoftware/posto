@@ -220,6 +220,57 @@ export function matchEntry(
   return null;
 }
 
+export const EMPTY_CONFIG: PagesConfig = { media: [], content: [] };
+
+function inferField(name: string, value: unknown): Field {
+  if (Array.isArray(value)) {
+    const items = value.filter((v) => v !== null && v !== undefined && !Array.isArray(v));
+    if (value.length > 0 && items.length === 0) {
+      // Arrays of arrays (or all-null) have no editable item shape.
+      return { name, type: "text", list: true };
+    }
+    const objects = items.filter(
+      (v): v is Record<string, unknown> => typeof v === "object" && v !== null,
+    );
+    if (objects.length > 0) {
+      // Union of keys across items, so sparse objects stay fully editable.
+      const keys: string[] = [];
+      for (const item of objects) {
+        for (const key of Object.keys(item)) {
+          if (!keys.includes(key)) keys.push(key);
+        }
+      }
+      return {
+        name,
+        type: "object",
+        list: true,
+        fields: keys.map((key) => inferField(key, objects[0][key])),
+      };
+    }
+    return { ...inferField(name, items[0]), list: true };
+  }
+  if (value !== null && typeof value === "object") {
+    return {
+      name,
+      type: "object",
+      fields: Object.entries(value).map(([key, child]) => inferField(key, child)),
+    };
+  }
+  if (typeof value === "boolean") return { name, type: "boolean" };
+  if (typeof value === "number") return { name, type: "number" };
+  if (typeof value === "string" && value.includes("\n")) return { name, type: "text" };
+  return { name, type: "string" };
+}
+
+/**
+ * Builds a field list from the shape of existing frontmatter, for markdown
+ * files with no schema in `.pages.yml`. Every key becomes editable; no
+ * validation attributes are inferred.
+ */
+export function inferFields(values: Record<string, unknown>): Field[] {
+  return Object.entries(values).map(([name, value]) => inferField(name, value));
+}
+
 /** Media source for an image field: `options.media` by name, else the first. */
 export function resolveMedia(config: PagesConfig, field: Field): MediaEntry | null {
   const name = field.options?.media;

@@ -44,7 +44,8 @@ const mockFiles: Record<string, string> = {
     "",
   ].join("\n"),
   "/mock/site/index.md": "# Home\n\nWelcome.\n",
-  "/mock/site/posts/first.md": "# First post\n\nHello world.\n",
+  "/mock/site/posts/first.md":
+    "---\ntitle: First post\npublished: true\ncount: 3\ntags:\n  - alpha\n  - beta\nauthor:\n  name: Henry\n  email: h@example.com\nlinks:\n  - label: Home\n    url: /\n  - label: About\n    url: /about\n---\n\nHello world.\n",
   "/mock/site/notes.txt": "Some notes.\n",
   "/mock/site/src/blog/with-slug.mdx":
     "---\ntitle: X\nslug: custom-slug\nimages:\n  - src: /public/images/photo.jpg\n    alt: A photo\n  - src: /public/images/nested/logo.png\n    alt: The logo\n---\n\nBody.\n",

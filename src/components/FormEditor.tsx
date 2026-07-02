@@ -2,7 +2,7 @@ import { For, Show, createEffect, createSignal } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 
 import type { ContentEntry, Field, PagesConfig } from "../pagescms/config";
-import { frontmatterFields } from "../pagescms/config";
+import { frontmatterFields, inferFields } from "../pagescms/config";
 import {
   type ParsedFile,
   type ValuePath,
@@ -34,7 +34,9 @@ function plainValues(parsed: ParsedFile): Record<string, unknown> {
  */
 export function FormEditor(props: {
   content: string;
-  entry: ContentEntry;
+  /** null for markdown files without a schema — fields are inferred from the
+   * frontmatter's shape instead, with no validation. */
+  entry: ContentEntry | null;
   config: PagesConfig;
   root: string;
   groups: FileGroup[];
@@ -51,7 +53,13 @@ export function FormEditor(props: {
   // textarea but restored verbatim on save.
   let bodyPrefix = parsed.body.match(/^\r?\n/)?.[0] ?? "";
 
-  const fields = () => frontmatterFields(props.entry);
+  // Inferred fields are recomputed only when external content arrives (file
+  // switch, raw edits) — never from this component's own edits, so fields
+  // don't shift around while the user types.
+  const [inferred, setInferred] = createSignal<Field[]>(
+    props.entry ? [] : inferFields(plainValues(parsed)),
+  );
+  const fields = () => (props.entry ? frontmatterFields(props.entry) : inferred());
   const [values, setValues] = createStore<Record<string, unknown>>(plainValues(parsed));
   const [body, setBody] = createSignal(parsed.body.slice(bodyPrefix.length));
   const [errors, setErrors] = createSignal<Errors>(validateForm(fields(), plainValues(parsed)));
@@ -65,6 +73,7 @@ export function FormEditor(props: {
     defaultsApplied = false;
     setParseError(parsed.error ?? null);
     setValues(reconcile(plainValues(parsed)));
+    if (!props.entry) setInferred(inferFields(plainValues(parsed)));
     bodyPrefix = parsed.body.match(/^\r?\n/)?.[0] ?? "";
     setBody(parsed.body.slice(bodyPrefix.length));
     setErrors(validateForm(fields(), plainValues(parsed)));
@@ -121,6 +130,9 @@ export function FormEditor(props: {
     },
     edit: (path, value) => {
       beforeEdit();
+      // Without a schema, a cleared control writes "" instead of deleting the
+      // key — inferred fields exist only while their key does.
+      if (value === undefined && !props.entry) value = "";
       if (value === undefined) deleteValue(parsed.doc, path);
       else setValue(parsed.doc, path, value);
       emit();

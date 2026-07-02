@@ -1,7 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onMount } from "solid-js";
 import { invoke, openDirectory } from "./ipc";
 import type { FileEntry, FileGroup } from "./ipc";
-import { matchEntry, parsePagesConfig, type PagesConfig } from "./pagescms/config";
+import { EMPTY_CONFIG, matchEntry, parsePagesConfig, type PagesConfig } from "./pagescms/config";
 import { parseFile } from "./pagescms/frontmatter";
 import { FormEditor } from "./components/FormEditor";
 
@@ -335,6 +335,12 @@ function App() {
     return matchEntry(config, dir, path);
   });
 
+  // Markdown files always get a Form tab: schema-driven when a content entry
+  // matches, otherwise with fields inferred from the frontmatter's shape.
+  const showForm = createMemo(
+    () => entry() !== null || /\.(md|mdx|markdown)$/i.test(filePath() ?? ""),
+  );
+
   const FileList = (props: { files: FileEntry[] }) => (
     <For each={props.files}>
       {(file) => (
@@ -421,7 +427,7 @@ function App() {
                   </wa-callout>
                 </Show>
                 <Show
-                  when={entry()}
+                  when={showForm()}
                   fallback={
                     <textarea
                       class="editor"
@@ -431,36 +437,34 @@ function App() {
                     />
                   }
                 >
-                  {(activeEntry) => (
-                    <wa-tab-group
-                      class="editor-tabs"
-                      prop:active={rawPreferred() ? "raw" : "form"}
-                      on:wa-tab-show={(e: CustomEvent<{ name: string }>) =>
-                        setRawPreferred(e.detail.name === "raw")
-                      }
-                    >
-                      <wa-tab attr:panel="form">Form</wa-tab>
-                      <wa-tab attr:panel="raw">Raw</wa-tab>
-                      <wa-tab-panel attr:name="form">
-                        <FormEditor
-                          content={fileContent()}
-                          entry={activeEntry()}
-                          config={pagesConfig()!}
-                          root={root()!}
-                          groups={groups()}
-                          onChange={onFormEdit}
-                        />
-                      </wa-tab-panel>
-                      <wa-tab-panel attr:name="raw">
-                        <textarea
-                          class="editor"
-                          spellcheck={false}
-                          value={fileContent()}
-                          onInput={(e) => onEdit(e.currentTarget.value)}
-                        />
-                      </wa-tab-panel>
-                    </wa-tab-group>
-                  )}
+                  <wa-tab-group
+                    class="editor-tabs"
+                    prop:active={rawPreferred() ? "raw" : "form"}
+                    on:wa-tab-show={(e: CustomEvent<{ name: string }>) =>
+                      setRawPreferred(e.detail.name === "raw")
+                    }
+                  >
+                    <wa-tab attr:panel="form">Form</wa-tab>
+                    <wa-tab attr:panel="raw">Raw</wa-tab>
+                    <wa-tab-panel attr:name="form">
+                      <FormEditor
+                        content={fileContent()}
+                        entry={entry()}
+                        config={pagesConfig() ?? EMPTY_CONFIG}
+                        root={root()!}
+                        groups={groups()}
+                        onChange={onFormEdit}
+                      />
+                    </wa-tab-panel>
+                    <wa-tab-panel attr:name="raw">
+                      <textarea
+                        class="editor"
+                        spellcheck={false}
+                        value={fileContent()}
+                        onInput={(e) => onEdit(e.currentTarget.value)}
+                      />
+                    </wa-tab-panel>
+                  </wa-tab-group>
                 </Show>
               </Show>
             </div>
