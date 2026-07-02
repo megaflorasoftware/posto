@@ -152,6 +152,265 @@ body {
   background: transparent;
 }
 
+.config-error {
+  margin: 0.5rem 0.75rem 0;
+  font-size: 0.8rem;
+}
+
+/* Form/Raw tabs fill the editor pane; panels stretch to full height. */
+.editor-tabs {
+  flex: 1;
+  min-height: 0;
+  --track-width: 1px;
+}
+
+.editor-tabs::part(base) {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-tabs::part(nav) {
+  flex-shrink: 0;
+}
+
+.editor-tabs::part(body) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-tabs wa-tab {
+  font-size: 0.8rem;
+}
+
+.editor-tabs wa-tab::part(base) {
+  padding: 0.5rem 1rem;
+}
+
+/* Document styles outrank the component's :host rules, so hide/show must be
+   restated here alongside the flex layout. */
+.editor-tabs wa-tab-panel:not([active]) {
+  display: none;
+}
+
+.editor-tabs wa-tab-panel[active] {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-tabs wa-tab-panel::part(base) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.form-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.form-fields {
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.form-unavailable {
+  padding: 0.75rem;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.field-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--wa-color-text-quiet);
+}
+
+.field-required {
+  color: var(--wa-color-danger-fill-loud, #c00);
+  margin-left: 0.15rem;
+}
+
+.field-description {
+  font-size: 0.75rem;
+  color: var(--wa-color-text-quiet);
+}
+
+.field-error {
+  font-size: 0.75rem;
+  color: var(--wa-color-danger-fill-loud, #c00);
+}
+
+.object-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.6rem;
+  border: 1px solid var(--wa-color-surface-border);
+  border-radius: 6px;
+}
+
+.list-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.25rem;
+  padding: 0.5rem;
+  border: 1px solid var(--wa-color-surface-border);
+  border-radius: 6px;
+}
+
+.list-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Item editors reuse FieldEditor with the label suppressed; strip the
+   double border when the item itself is an object. */
+.list-item-body .object-fields {
+  border: none;
+  padding: 0;
+}
+
+.list-item-actions {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.collapsed-item {
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.expanded-item {
+  align-items: flex-start;
+}
+
+.drag-handle {
+  cursor: grab;
+  color: var(--wa-color-text-quiet);
+  user-select: none;
+  -webkit-user-select: none;
+  padding: 0.25rem 0.1rem;
+  flex-shrink: 0;
+}
+
+.list-item.drag-over {
+  border-color: var(--wa-color-brand-fill-loud, #4a7);
+  background: var(--wa-color-surface-lowered);
+}
+
+.thumb {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+  background: var(--wa-color-surface-lowered);
+}
+
+.thumb-placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+}
+
+.item-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+.image-field {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.image-field wa-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.form-body {
+  flex: 1;
+  min-height: 12rem;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--wa-color-surface-border);
+}
+
+.form-body .field-label {
+  padding: 0.5rem 0.75rem 0;
+}
+
+.form-body-editor {
+  min-height: 10rem;
+}
+
+.picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.picker-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.picker-item:hover {
+  background: var(--wa-color-surface-lowered);
+}
+
+.picker-item-path {
+  font-size: 0.75rem;
+  color: var(--wa-color-text-quiet);
+}
+
+.picker-empty,
+.picker-error {
+  color: var(--wa-color-text-quiet);
+  font-size: 0.85rem;
+}
+
 .pane-placeholder {
   flex: 1;
   display: flex;

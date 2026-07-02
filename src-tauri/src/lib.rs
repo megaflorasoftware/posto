@@ -19,6 +19,48 @@ const SKIP_DIRS: &[&str] = &["node_modules", "_site", "dist", "build", "out", "t
 struct FileEntry {
     name: String,
     path: String,
+    /// Display label from frontmatter (`title:`, else `name:`), when present.
+    title: Option<String>,
+}
+
+const FRONTMATTER_TITLE_EXTENSIONS: &[&str] = &["md", "mdx", "markdown"];
+
+fn frontmatter_scalar(value: &str) -> Option<String> {
+    let trimmed = value
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .trim()
+        .to_string();
+    (!trimmed.is_empty()).then_some(trimmed)
+}
+
+/// Extracts `title:` (falling back to `name:`) from a markdown file's leading
+/// frontmatter block. Line-based on purpose: sidebar labels don't warrant a
+/// YAML parser, and multiline scalars simply fall back to the filename.
+fn frontmatter_title(path: &Path, ext: &str) -> Option<String> {
+    if !FRONTMATTER_TITLE_EXTENSIONS.contains(&ext) {
+        return None;
+    }
+    let content = std::fs::read_to_string(path).ok()?;
+    let mut lines = content.lines();
+    if lines.next()?.trim_end() != "---" {
+        return None;
+    }
+    let mut title = None;
+    let mut name = None;
+    for line in lines {
+        let end = line.trim_end();
+        if end == "---" || end == "..." {
+            break;
+        }
+        if let Some(v) = line.strip_prefix("title:") {
+            title = frontmatter_scalar(v);
+        } else if let Some(v) = line.strip_prefix("name:") {
+            name = frontmatter_scalar(v);
+        }
+    }
+    title.or(name)
 }
 
 /// One flat sidebar section: a directory that directly contains text files.
@@ -54,6 +96,7 @@ fn collect_groups(root: &Path, dir: &Path, groups: &mut Vec<FileGroup>) {
                 .unwrap_or_default();
             if TEXT_EXTENSIONS.contains(&ext.as_str()) {
                 files.push(FileEntry {
+                    title: frontmatter_title(&path, &ext),
                     name,
                     path: path.to_string_lossy().to_string(),
                 });
@@ -61,7 +104,8 @@ fn collect_groups(root: &Path, dir: &Path, groups: &mut Vec<FileGroup>) {
         }
     }
     if !files.is_empty() {
-        files.sort_by(|a, b| a.name.cmp(&b.name));
+        // Sort by what the sidebar displays: frontmatter title, else filename.
+        files.sort_by_key(|f| f.title.as_ref().unwrap_or(&f.name).to_lowercase());
         groups.push(FileGroup {
             label: dir
                 .strip_prefix(root)
@@ -88,6 +132,51 @@ fn list_files(root: String) -> Result<Vec<FileGroup>, String> {
     // Root files first, then directories alphabetically by their path label.
     groups.sort_by(|a, b| a.label.cmp(&b.label));
     Ok(groups)
+}
+
+fn collect_dir_files(dir: &Path, extensions: &[String], out: &mut Vec<FileEntry>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+        if path.is_dir() {
+            if !SKIP_DIRS.contains(&name.as_str()) {
+                collect_dir_files(&path, extensions, out);
+            }
+        } else {
+            let ext = path
+                .extension()
+                .map(|e| e.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+            if extensions.is_empty() || extensions.iter().any(|e| e == &ext) {
+                out.push(FileEntry {
+                    name,
+                    path: path.to_string_lossy().to_string(),
+                    title: None,
+                });
+            }
+        }
+    }
+}
+
+/// Lists files under `dir` recursively, filtered by extension (any file when
+/// `extensions` is empty). Used by media browsers, whose files (images) are
+/// outside `list_files`'s text-only view.
+#[tauri::command]
+fn list_dir_files(dir: String, extensions: Vec<String>) -> Result<Vec<FileEntry>, String> {
+    let path = Path::new(&dir);
+    if !path.is_dir() {
+        return Err(format!("Not a directory: {dir}"));
+    }
+    let mut files = Vec::new();
+    collect_dir_files(path, &extensions, &mut files);
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(files)
 }
 
 #[tauri::command]
@@ -641,6 +730,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             list_files,
+            list_dir_files,
             read_text_file,
             write_text_file,
             start_dev_server,

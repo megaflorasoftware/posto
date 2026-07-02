@@ -1,5 +1,9 @@
-import { For, Show, createEffect, createSignal, onMount } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onMount } from "solid-js";
 import { invoke, openDirectory } from "./ipc";
+import type { FileEntry, FileGroup } from "./ipc";
+import { matchEntry, parsePagesConfig, type PagesConfig } from "./pagescms/config";
+import { parseFile } from "./pagescms/frontmatter";
+import { FormEditor } from "./components/FormEditor";
 
 import "@awesome.me/webawesome/dist/styles/webawesome.css";
 import "@awesome.me/webawesome/dist/styles/themes/default.css";
@@ -8,19 +12,11 @@ import "@awesome.me/webawesome/dist/components/split-panel/split-panel.js";
 import "@awesome.me/webawesome/dist/components/details/details.js";
 import "@awesome.me/webawesome/dist/components/spinner/spinner.js";
 import "@awesome.me/webawesome/dist/components/callout/callout.js";
+import "@awesome.me/webawesome/dist/components/tab-group/tab-group.js";
+import "@awesome.me/webawesome/dist/components/tab/tab.js";
+import "@awesome.me/webawesome/dist/components/tab-panel/tab-panel.js";
 
 import "./App.css";
-
-interface FileEntry {
-  name: string;
-  path: string;
-}
-
-interface FileGroup {
-  label: string;
-  path: string;
-  files: FileEntry[];
-}
 
 type ServerStatus =
   | { state: "idle" }
@@ -38,7 +34,13 @@ function App() {
   const [groups, setGroups] = createSignal<FileGroup[]>([]);
   const [filePath, setFilePath] = createSignal<string | null>(null);
   const [fileContent, setFileContent] = createSignal("");
-  const [saveState, setSaveState] = createSignal<"saved" | "saving" | "error">("saved");
+  const [saveState, setSaveState] = createSignal<"saved" | "saving" | "error" | "invalid">(
+    "saved",
+  );
+  const [pagesConfig, setPagesConfig] = createSignal<PagesConfig | null>(null);
+  const [configError, setConfigError] = createSignal<string | null>(null);
+  // "Raw" tab choice sticks for the session; Form is the default when available.
+  const [rawPreferred, setRawPreferred] = createSignal(false);
   const [server, setServer] = createSignal<ServerStatus>({ state: "idle" });
   const [publishState, setPublishState] = createSignal<string | null>(null);
   // While the split-panel divider is being dragged, the preview iframe must
@@ -100,11 +102,40 @@ function App() {
     previewFrame.src = `http://localhost:${s.port}${route}`;
   });
 
+  // Sidebar labels come from frontmatter titles; keep them in sync when a
+  // save changes the title (list_files only runs on directory selection).
+  function sidebarTitle(path: string, content: string): string | null {
+    if (!/\.(md|mdx|markdown)$/i.test(path)) return null;
+    const parsed = parseFile(content);
+    if (parsed.error) return null;
+    const value = parsed.doc.get("title") ?? parsed.doc.get("name");
+    if (typeof value === "string" && value.trim() !== "") return value;
+    if (typeof value === "number") return String(value);
+    return null;
+  }
+
+  function updateSidebarTitle(path: string, content: string) {
+    const title = sidebarTitle(path, content);
+    setGroups((current) =>
+      current.map((group) =>
+        group.files.some((file) => file.path === path)
+          ? {
+              ...group,
+              files: group.files.map((file) =>
+                file.path === path && file.title !== title ? { ...file, title } : file,
+              ),
+            }
+          : group,
+      ),
+    );
+  }
+
   async function saveNow(path: string, content: string) {
     setSaveState("saving");
     try {
       await invoke("write_text_file", { path, content });
       setSaveState("saved");
+      updateSidebarTitle(path, content);
     } catch {
       setSaveState("error");
     }
@@ -116,6 +147,19 @@ function App() {
       saveTimer = undefined;
       const path = filePath();
       if (path) void saveNow(path, fileContent());
+    }
+  }
+
+  // Form edits only reach disk while the form validates; invalid states keep
+  // the in-memory content (so Raw shows it) but never save.
+  function onFormEdit(content: string, valid: boolean) {
+    if (valid) {
+      onEdit(content);
+    } else {
+      setFileContent(content);
+      clearTimeout(saveTimer);
+      saveTimer = undefined;
+      setSaveState("invalid");
     }
   }
 
@@ -220,6 +264,22 @@ function App() {
     }
   }
 
+  async function loadPagesConfig(dir: string) {
+    setPagesConfig(null);
+    setConfigError(null);
+    let source: string;
+    try {
+      source = await invoke<string>("read_text_file", { path: dir + "/.pages.yml" });
+    } catch {
+      return; // no config file — form editing simply isn't offered
+    }
+    try {
+      setPagesConfig(parsePagesConfig(source));
+    } catch (e) {
+      setConfigError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function selectRoot(dir: string) {
     flushPendingSave();
     setRoot(dir);
@@ -227,6 +287,7 @@ function App() {
     setFileContent("");
     setPublishState(null);
     setPreviewRoute("/");
+    void loadPagesConfig(dir);
     try {
       setGroups(await invoke<FileGroup[]>("list_files", { root: dir }));
     } catch (e) {
@@ -265,6 +326,15 @@ function App() {
   const rootName = () => root()?.split("/").filter(Boolean).pop() ?? "";
   const fileName = () => filePath()?.split("/").pop() ?? "";
 
+  // Content entry (from .pages.yml) describing the open file's fields, if any.
+  const entry = createMemo(() => {
+    const dir = root();
+    const path = filePath();
+    const config = pagesConfig();
+    if (!dir || !path || !config) return null;
+    return matchEntry(config, dir, path);
+  });
+
   const FileList = (props: { files: FileEntry[] }) => (
     <For each={props.files}>
       {(file) => (
@@ -272,8 +342,9 @@ function App() {
           class="file-item"
           classList={{ active: filePath() === file.path }}
           onClick={() => void openFile(file.path)}
+          title={file.name}
         >
-          {file.name}
+          {file.title ?? file.name}
         </button>
       )}
     </For>
@@ -331,20 +402,66 @@ function App() {
               >
                 <div class="pane-header">
                   <span class="pane-title">{fileName()}</span>
-                  <span class="save-state" classList={{ error: saveState() === "error" }}>
+                  <span
+                    class="save-state"
+                    classList={{ error: saveState() === "error" || saveState() === "invalid" }}
+                  >
                     {saveState() === "saved"
                       ? "Saved"
                       : saveState() === "saving"
                         ? "Saving…"
-                        : "Save failed"}
+                        : saveState() === "invalid"
+                          ? "Not saved — fix errors"
+                          : "Save failed"}
                   </span>
                 </div>
-                <textarea
-                  class="editor"
-                  spellcheck={false}
-                  value={fileContent()}
-                  onInput={(e) => onEdit(e.currentTarget.value)}
-                />
+                <Show when={configError()}>
+                  <wa-callout variant="warning" class="config-error">
+                    Form editing disabled: .pages.yml is invalid — {configError()}
+                  </wa-callout>
+                </Show>
+                <Show
+                  when={entry()}
+                  fallback={
+                    <textarea
+                      class="editor"
+                      spellcheck={false}
+                      value={fileContent()}
+                      onInput={(e) => onEdit(e.currentTarget.value)}
+                    />
+                  }
+                >
+                  {(activeEntry) => (
+                    <wa-tab-group
+                      class="editor-tabs"
+                      prop:active={rawPreferred() ? "raw" : "form"}
+                      on:wa-tab-show={(e: CustomEvent<{ name: string }>) =>
+                        setRawPreferred(e.detail.name === "raw")
+                      }
+                    >
+                      <wa-tab attr:panel="form">Form</wa-tab>
+                      <wa-tab attr:panel="raw">Raw</wa-tab>
+                      <wa-tab-panel attr:name="form">
+                        <FormEditor
+                          content={fileContent()}
+                          entry={activeEntry()}
+                          config={pagesConfig()!}
+                          root={root()!}
+                          groups={groups()}
+                          onChange={onFormEdit}
+                        />
+                      </wa-tab-panel>
+                      <wa-tab-panel attr:name="raw">
+                        <textarea
+                          class="editor"
+                          spellcheck={false}
+                          value={fileContent()}
+                          onInput={(e) => onEdit(e.currentTarget.value)}
+                        />
+                      </wa-tab-panel>
+                    </wa-tab-group>
+                  )}
+                </Show>
               </Show>
             </div>
 
