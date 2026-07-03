@@ -262,8 +262,13 @@ body,
 
 /* --- MDX constructs inside the rich body editor. --- */
 
-.mdx-import {
-  margin: 0.35rem 0;
+/* Inline-flex so consecutive import chips flow onto one wrapped row instead
+   of stacking; margins act as the gap between them. Tiptap wraps each React
+   node view in a `.node-mdxImport` container — that's the block to inline. */
+.body-rich-content .node-mdxImport {
+  display: inline-flex;
+  vertical-align: top;
+  margin: 0 0.35rem 0.35rem 0;
 }
 
 .mdx-pill {
