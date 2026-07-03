@@ -1,4 +1,5 @@
-import { For, Show, createEffect, createMemo, createSignal, onMount } from "solid-js";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Button, Loader, MantineProvider, Tabs } from "@mantine/core";
 import { invoke, openDirectory } from "./ipc";
 import type { FileEntry, FileGroup } from "./ipc";
 import { EMPTY_CONFIG, matchEntry, parsePagesConfig, type PagesConfig } from "./pagescms/config";
@@ -6,17 +7,7 @@ import { parseFile } from "./pagescms/frontmatter";
 import { FormEditor } from "./components/FormEditor";
 import { SeoPreview } from "./components/SeoPreview";
 
-import "@awesome.me/webawesome/dist/styles/webawesome.css";
-import "@awesome.me/webawesome/dist/styles/themes/default.css";
-import "@awesome.me/webawesome/dist/components/button/button.js";
-import "@awesome.me/webawesome/dist/components/split-panel/split-panel.js";
-import "@awesome.me/webawesome/dist/components/details/details.js";
-import "@awesome.me/webawesome/dist/components/spinner/spinner.js";
-import "@awesome.me/webawesome/dist/components/callout/callout.js";
-import "@awesome.me/webawesome/dist/components/tab-group/tab-group.js";
-import "@awesome.me/webawesome/dist/components/tab/tab.js";
-import "@awesome.me/webawesome/dist/components/tab-panel/tab-panel.js";
-
+import "@mantine/core/styles.css";
 import "./App.css";
 
 type ServerStatus =
@@ -30,109 +21,144 @@ const AUTOSAVE_DELAY_MS = 800;
 const PING_INTERVAL_MS = 500;
 const PING_TIMEOUT_MS = 60_000;
 
-function App() {
-  const [root, setRoot] = createSignal<string | null>(null);
-  const [groups, setGroups] = createSignal<FileGroup[]>([]);
-  const [filePath, setFilePath] = createSignal<string | null>(null);
-  const [fileContent, setFileContent] = createSignal("");
-  const [saveState, setSaveState] = createSignal<"saved" | "saving" | "error" | "invalid">(
-    "saved",
+function frontmatterSlug(content: string): string | null {
+  const fm = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!fm) return null;
+  const line = fm[1].split(/\r?\n/).find((l) => /^slug:/.test(l));
+  if (!line) return null;
+  const value = line
+    .slice("slug:".length)
+    .trim()
+    .replace(/^["']|["']$/g, "");
+  return value || null;
+}
+
+// File-based routing (Astro-style): a file under src/pages maps to the
+// route its slug implies — src/pages/about.mdx → /about,
+// src/pages/blog/index.astro → /blog. Dynamic segments ([slug]) can't be
+// resolved from the filename, so those keep the current route.
+// Markdown in a content collection (src/<coll>/post.mdx or
+// src/content/<coll>/post.mdx) maps to /<coll>/<slug>, where the slug
+// comes from frontmatter when present, else the filename.
+function routeForFile(path: string, content: string): string | null {
+  const marker = "/src/pages/";
+  const idx = path.indexOf(marker);
+  if (idx !== -1) {
+    let rel = path.slice(idx + marker.length).replace(/\.[^/.]+$/, "");
+    if (rel.includes("[")) return null;
+    if (rel === "index" || rel.endsWith("/index")) rel = rel.slice(0, -"index".length);
+    const route = "/" + rel;
+    return route.length > 1 && route.endsWith("/") ? route.slice(0, -1) : route;
+  }
+  const collection = path.match(/\/src\/(?:content\/)?([^/]+)\/([^/]+)\.(?:md|mdx|markdown)$/);
+  if (!collection) return null;
+  const [, name, file] = collection;
+  // "content" as the collection name means the file sits directly in
+  // src/content (e.g. src/content/home.md) — data files, not pages.
+  if (["pages", "components", "layouts", "assets", "styles", "content"].includes(name)) {
+    return null;
+  }
+  return `/${name}/${frontmatterSlug(content) ?? file}`;
+}
+
+// Sidebar labels come from frontmatter titles; keep them in sync when a
+// save changes the title (list_files only runs on directory selection).
+function sidebarTitle(path: string, content: string): string | null {
+  if (!/\.(md|mdx|markdown)$/i.test(path)) return null;
+  const parsed = parseFile(content);
+  if (parsed.error) return null;
+  const value = parsed.doc.get("title") ?? parsed.doc.get("name");
+  if (typeof value === "string" && value.trim() !== "") return value;
+  if (typeof value === "number") return String(value);
+  return null;
+}
+
+function FileList(props: {
+  files: FileEntry[];
+  activePath: string | null;
+  onOpen: (path: string) => void;
+}) {
+  return (
+    <>
+      {props.files.map((file) => (
+        <button
+          key={file.path}
+          className={`file-item${props.activePath === file.path ? " active" : ""}`}
+          onClick={() => props.onOpen(file.path)}
+          title={file.name}
+        >
+          {file.title ?? file.name}
+        </button>
+      ))}
+    </>
   );
-  const [pagesConfig, setPagesConfig] = createSignal<PagesConfig | null>(null);
-  const [configError, setConfigError] = createSignal<string | null>(null);
+}
+
+function App() {
+  const [root, setRoot] = useState<string | null>(null);
+  const [groups, setGroups] = useState<FileGroup[]>([]);
+  const [filePath, setFilePath] = useState<string | null>(null);
+  const [fileContent, setFileContent] = useState("");
+  const [saveState, setSaveState] = useState<"saved" | "saving" | "error" | "invalid">("saved");
+  const [pagesConfig, setPagesConfig] = useState<PagesConfig | null>(null);
+  const [configError, setConfigError] = useState<string | null>(null);
   // "Raw" tab choice sticks for the session; Form is the default when available.
-  const [rawPreferred, setRawPreferred] = createSignal(false);
-  const [server, setServer] = createSignal<ServerStatus>({ state: "idle" });
-  const [publishState, setPublishState] = createSignal<string | null>(null);
-  // While the split-panel divider is being dragged, the preview iframe must
-  // not receive pointer events or it swallows the drag mid-motion.
-  const [dragging, setDragging] = createSignal(false);
-  const [previewRoute, setPreviewRoute] = createSignal("/");
+  const [rawPreferred, setRawPreferred] = useState(false);
+  const [server, setServer] = useState<ServerStatus>({ state: "idle" });
+  const [publishState, setPublishState] = useState<string | null>(null);
+  // While the split divider is being dragged, the preview iframe must not
+  // receive pointer events or it swallows the drag mid-motion.
+  const [dragging, setDragging] = useState(false);
+  const [split, setSplit] = useState(33);
+  const [previewRoute, setPreviewRoute] = useState("/");
   // Bumped after each successful save so the SEO preview refetches the page.
-  const [saveTick, setSaveTick] = createSignal(0);
+  const [saveTick, setSaveTick] = useState(0);
 
-  function frontmatterSlug(content: string): string | null {
-    const fm = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-    if (!fm) return null;
-    const line = fm[1].split(/\r?\n/).find((l) => /^slug:/.test(l));
-    if (!line) return null;
-    const value = line
-      .slice("slug:".length)
-      .trim()
-      .replace(/^["']|["']$/g, "");
-    return value || null;
-  }
+  // Latest values for callbacks that outlive the render they were created in
+  // (autosave timer, server/route polling intervals, awaited file opens).
+  const rootRef = useRef(root);
+  rootRef.current = root;
+  const groupsRef = useRef(groups);
+  groupsRef.current = groups;
+  const filePathRef = useRef(filePath);
+  filePathRef.current = filePath;
+  const fileContentRef = useRef(fileContent);
+  fileContentRef.current = fileContent;
+  const previewRouteRef = useRef(previewRoute);
+  previewRouteRef.current = previewRoute;
+  const serverRef = useRef(server);
+  serverRef.current = server;
 
-  // File-based routing (Astro-style): a file under src/pages maps to the
-  // route its slug implies — src/pages/about.mdx → /about,
-  // src/pages/blog/index.astro → /blog. Dynamic segments ([slug]) can't be
-  // resolved from the filename, so those keep the current route.
-  // Markdown in a content collection (src/<coll>/post.mdx or
-  // src/content/<coll>/post.mdx) maps to /<coll>/<slug>, where the slug
-  // comes from frontmatter when present, else the filename.
-  function routeForFile(path: string, content: string): string | null {
-    const marker = "/src/pages/";
-    const idx = path.indexOf(marker);
-    if (idx !== -1) {
-      let rel = path.slice(idx + marker.length).replace(/\.[^/.]+$/, "");
-      if (rel.includes("[")) return null;
-      if (rel === "index" || rel.endsWith("/index")) rel = rel.slice(0, -"index".length);
-      const route = "/" + rel;
-      return route.length > 1 && route.endsWith("/") ? route.slice(0, -1) : route;
-    }
-    const collection = path.match(/\/src\/(?:content\/)?([^/]+)\/([^/]+)\.(?:md|mdx|markdown)$/);
-    if (!collection) return null;
-    const [, name, file] = collection;
-    // "content" as the collection name means the file sits directly in
-    // src/content (e.g. src/content/home.md) — data files, not pages.
-    if (["pages", "components", "layouts", "assets", "styles", "content"].includes(name)) {
-      return null;
-    }
-    return `/${name}/${frontmatterSlug(content) ?? file}`;
-  }
+  const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const pingTimer = useRef<ReturnType<typeof setInterval>>(undefined);
+  const routeTimer = useRef<ReturnType<typeof setInterval>>(undefined);
+  const previewFrame = useRef<HTMLIFrameElement | null>(null);
+  const lastNavigatedRoute = useRef<string | undefined>(undefined);
+  const lastServedRoute = useRef<string | null>(null);
+  const panesEl = useRef<HTMLDivElement | null>(null);
+
+  // Navigate the preview imperatively, and only when the target route truly
+  // changes. Saves and unrelated re-renders never touch the iframe — content
+  // updates are the dev server's job (hot reload).
+  useEffect(() => {
+    if (server.state !== "running" || !previewFrame.current) return;
+    if (previewRoute === lastNavigatedRoute.current) return;
+    lastNavigatedRoute.current = previewRoute;
+    previewFrame.current.src = `http://localhost:${server.port}${previewRoute}`;
+  }, [server, previewRoute]);
 
   // Collection markdown doesn't necessarily have its own page (e.g. works
   // rendered only inside gallery pages), so a derived route is just a guess —
   // confirm the dev server actually serves it before pointing the preview at
   // it. Unverifiable (server not up yet) counts as servable.
   async function routeIsServable(route: string): Promise<boolean> {
-    if (server().state !== "running") return true;
+    if (serverRef.current.state !== "running") return true;
     try {
       await invoke("fetch_page", { route });
       return true;
     } catch {
       return false;
     }
-  }
-
-  let saveTimer: ReturnType<typeof setTimeout> | undefined;
-  let pingTimer: ReturnType<typeof setInterval> | undefined;
-  let routeTimer: ReturnType<typeof setInterval> | undefined;
-  let previewFrame: HTMLIFrameElement | undefined;
-  let lastNavigatedRoute: string | undefined;
-
-  // Navigate the preview imperatively, and only when the target route truly
-  // changes. Saves and unrelated re-renders never touch the iframe — content
-  // updates are the dev server's job (hot reload).
-  createEffect(() => {
-    const route = previewRoute();
-    const s = server();
-    if (s.state !== "running" || !previewFrame) return;
-    if (route === lastNavigatedRoute) return;
-    lastNavigatedRoute = route;
-    previewFrame.src = `http://localhost:${s.port}${route}`;
-  });
-
-  // Sidebar labels come from frontmatter titles; keep them in sync when a
-  // save changes the title (list_files only runs on directory selection).
-  function sidebarTitle(path: string, content: string): string | null {
-    if (!/\.(md|mdx|markdown)$/i.test(path)) return null;
-    const parsed = parseFile(content);
-    if (parsed.error) return null;
-    const value = parsed.doc.get("title") ?? parsed.doc.get("name");
-    if (typeof value === "string" && value.trim() !== "") return value;
-    if (typeof value === "number") return String(value);
-    return null;
   }
 
   function updateSidebarTitle(path: string, content: string) {
@@ -164,11 +190,11 @@ function App() {
   }
 
   function flushPendingSave() {
-    if (saveTimer !== undefined) {
-      clearTimeout(saveTimer);
-      saveTimer = undefined;
-      const path = filePath();
-      if (path) void saveNow(path, fileContent());
+    if (saveTimer.current !== undefined) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = undefined;
+      const path = filePathRef.current;
+      if (path) void saveNow(path, fileContentRef.current);
     }
   }
 
@@ -179,8 +205,8 @@ function App() {
       onEdit(content);
     } else {
       setFileContent(content);
-      clearTimeout(saveTimer);
-      saveTimer = undefined;
+      clearTimeout(saveTimer.current);
+      saveTimer.current = undefined;
       setSaveState("invalid");
     }
   }
@@ -188,27 +214,29 @@ function App() {
   function onEdit(content: string) {
     setFileContent(content);
     setSaveState("saving");
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-      saveTimer = undefined;
-      const path = filePath();
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      saveTimer.current = undefined;
+      const path = filePathRef.current;
       if (path) void saveNow(path, content);
     }, AUTOSAVE_DELAY_MS);
   }
 
   async function openFile(path: string, navigatePreview = true) {
-    if (path === filePath()) return;
+    if (path === filePathRef.current) return;
     flushPendingSave();
     try {
       const content = await invoke<string>("read_text_file", { path });
       setFilePath(path);
+      filePathRef.current = path;
       setFileContent(content);
+      fileContentRef.current = content;
       setSaveState("saved");
       if (navigatePreview) {
         const route = routeForFile(path, content);
-        if (route && route !== previewRoute() && (await routeIsServable(route))) {
+        if (route && route !== previewRouteRef.current && (await routeIsServable(route))) {
           // Bail if the user already opened another file during the check.
-          if (filePath() === path) setPreviewRoute(route);
+          if (filePathRef.current === path) setPreviewRoute(route);
         }
       }
     } catch (e) {
@@ -223,7 +251,7 @@ function App() {
   // navigation or repeat stale routes). Polling, not iframe load events:
   // WebKit doesn't reliably re-fire load for navigations inside the frame.
   function fileForRoute(route: string): string | null {
-    for (const group of groups()) {
+    for (const group of groupsRef.current) {
       for (const file of group.files) {
         if (routeForFile(file.path, "") === route) return file.path;
       }
@@ -231,19 +259,17 @@ function App() {
     return null;
   }
 
-  let lastServedRoute: string | null = null;
-
   function watchPreviewRoute() {
-    clearInterval(routeTimer);
-    lastServedRoute = null;
-    routeTimer = setInterval(async () => {
+    clearInterval(routeTimer.current);
+    lastServedRoute.current = null;
+    routeTimer.current = setInterval(async () => {
       const route = await invoke<string | null>("get_last_route");
-      if (route === lastServedRoute) return;
-      lastServedRoute = route;
-      if (!route || route === previewRoute()) return;
+      if (route === lastServedRoute.current) return;
+      lastServedRoute.current = route;
+      if (!route || route === previewRouteRef.current) return;
       // The user navigated inside the preview: sync route state without
       // re-navigating the iframe, and select the matching file.
-      lastNavigatedRoute = route;
+      lastNavigatedRoute.current = route;
       setPreviewRoute(route);
       const file = fileForRoute(route);
       if (file) void openFile(file, false);
@@ -251,31 +277,31 @@ function App() {
   }
 
   function watchServer(port: number) {
-    clearInterval(pingTimer);
+    clearInterval(pingTimer.current);
     const startedAt = Date.now();
-    pingTimer = setInterval(async () => {
+    pingTimer.current = setInterval(async () => {
       try {
         const up = await invoke<boolean>("ping_dev_server");
         if (up) {
-          clearInterval(pingTimer);
+          clearInterval(pingTimer.current);
           // Fresh server → fresh iframe; make the effect issue the initial load.
-          lastNavigatedRoute = undefined;
+          lastNavigatedRoute.current = undefined;
           setServer({ state: "running", port });
           watchPreviewRoute();
         } else if (Date.now() - startedAt > PING_TIMEOUT_MS) {
-          clearInterval(pingTimer);
+          clearInterval(pingTimer.current);
           setServer({ state: "error", message: "Dev server did not start within 60 seconds." });
         }
       } catch (e) {
-        clearInterval(pingTimer);
+        clearInterval(pingTimer.current);
         setServer({ state: "error", message: String(e) });
       }
     }, PING_INTERVAL_MS);
   }
 
   async function startServer(dir: string) {
-    clearInterval(pingTimer);
-    clearInterval(routeTimer);
+    clearInterval(pingTimer.current);
+    clearInterval(routeTimer.current);
     try {
       if (await invoke<boolean>("needs_install", { root: dir })) {
         setServer({ state: "installing" });
@@ -309,12 +335,15 @@ function App() {
     flushPendingSave();
     setRoot(dir);
     setFilePath(null);
+    filePathRef.current = null;
     setFileContent("");
     setPublishState(null);
     setPreviewRoute("/");
     void loadPagesConfig(dir);
     try {
-      setGroups(await invoke<FileGroup[]>("list_files", { root: dir }));
+      const listed = await invoke<FileGroup[]>("list_files", { root: dir });
+      setGroups(listed);
+      groupsRef.current = listed;
     } catch (e) {
       setGroups([]);
       setPublishState(String(e));
@@ -328,16 +357,26 @@ function App() {
     if (typeof dir === "string") void selectRoot(dir);
   }
 
-  onMount(async () => {
+  useEffect(() => {
     const stopDragging = () => setDragging(false);
     window.addEventListener("pointerup", stopDragging);
     window.addEventListener("pointercancel", stopDragging);
-    const last = await invoke<string | null>("get_last_root");
-    if (last && !root()) void selectRoot(last);
-  });
+    void (async () => {
+      const last = await invoke<string | null>("get_last_root");
+      if (last && !rootRef.current) void selectRoot(last);
+    })();
+    return () => {
+      window.removeEventListener("pointerup", stopDragging);
+      window.removeEventListener("pointercancel", stopDragging);
+      clearTimeout(saveTimer.current);
+      clearInterval(pingTimer.current);
+      clearInterval(routeTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function publish() {
-    const dir = root();
+    const dir = rootRef.current;
     if (!dir) return;
     flushPendingSave();
     setPublishState("Publishing…");
@@ -348,208 +387,192 @@ function App() {
     }
   }
 
-  const rootName = () => root()?.split("/").filter(Boolean).pop() ?? "";
-  const fileName = () => filePath()?.split("/").pop() ?? "";
+  function onDividerPointerMove(e: React.PointerEvent) {
+    if (!dragging || !panesEl.current) return;
+    const rect = panesEl.current.getBoundingClientRect();
+    const pct = ((e.clientX - rect.left) / rect.width) * 100;
+    setSplit(Math.min(85, Math.max(15, pct)));
+  }
+
+  const rootName = root?.split("/").filter(Boolean).pop() ?? "";
+  const fileName = filePath?.split("/").pop() ?? "";
 
   // Content entry (from .pages.yml) describing the open file's fields, if any.
-  const entry = createMemo(() => {
-    const dir = root();
-    const path = filePath();
-    const config = pagesConfig();
-    if (!dir || !path || !config) return null;
-    return matchEntry(config, dir, path);
-  });
+  const entry = useMemo(() => {
+    if (!root || !filePath || !pagesConfig) return null;
+    return matchEntry(pagesConfig, root, filePath);
+  }, [root, filePath, pagesConfig]);
 
   // Markdown files always get a Form tab: schema-driven when a content entry
   // matches, otherwise with fields inferred from the frontmatter's shape.
-  const showForm = createMemo(
-    () => entry() !== null || /\.(md|mdx|markdown)$/i.test(filePath() ?? ""),
-  );
+  const showForm = entry !== null || /\.(md|mdx|markdown)$/i.test(filePath ?? "");
 
-  const FileList = (props: { files: FileEntry[] }) => (
-    <For each={props.files}>
-      {(file) => (
-        <button
-          class="file-item"
-          classList={{ active: filePath() === file.path }}
-          onClick={() => void openFile(file.path)}
-          title={file.name}
-        >
-          {file.title ?? file.name}
-        </button>
-      )}
-    </For>
+  const rawEditor = (
+    <textarea
+      className="editor"
+      spellCheck={false}
+      value={fileContent}
+      onChange={(e) => onEdit(e.currentTarget.value)}
+    />
   );
 
   return (
-    <div class="app">
-      <header class="navbar">
-        <wa-button size="s" onClick={chooseDirectory}>
-          {root() ? rootName() : "Choose directory"}
-        </wa-button>
-        <span class="navbar-status">{publishState()}</span>
-        <wa-button size="s" variant="brand" disabled={!root()} onClick={publish}>
-          Publish
-        </wa-button>
-      </header>
+    <MantineProvider>
+      <div className="app">
+        <header className="navbar">
+          <Button size="xs" variant="default" onClick={() => void chooseDirectory()}>
+            {root ? rootName : "Choose directory"}
+          </Button>
+          <span className="navbar-status">{publishState}</span>
+          <Button size="xs" disabled={!root} onClick={() => void publish()}>
+            Publish
+          </Button>
+        </header>
 
-      <Show
-        when={root()}
-        fallback={
-          <div class="empty-state">
+        {!root ? (
+          <div className="empty-state">
             <p>Select the folder that holds your site to get started.</p>
-            <wa-button variant="brand" onClick={chooseDirectory}>
-              Choose directory
-            </wa-button>
+            <Button onClick={() => void chooseDirectory()}>Choose directory</Button>
           </div>
-        }
-      >
-        <div class="body">
-          <aside class="sidebar">
-            <For each={groups()}>
-              {(group) => (
-                <Show when={group.label} fallback={<FileList files={group.files} />}>
-                  <wa-details attr:summary={group.label} attr:open={true}>
-                    <FileList files={group.files} />
-                  </wa-details>
-                </Show>
-              )}
-            </For>
-          </aside>
-
-          <wa-split-panel
-            class="panes"
-            attr:position="33"
-            onPointerDown={(e: PointerEvent) => {
-              // Pointer-downs on slotted pane content target the slotted
-              // elements; only the shadow divider targets the host itself.
-              if (e.target === e.currentTarget) setDragging(true);
-            }}
-          >
-            <div slot="start" class="pane editor-pane">
-              <Show
-                when={filePath()}
-                fallback={<div class="pane-placeholder">Select a file to edit</div>}
-              >
-                <div class="pane-header">
-                  <span class="pane-title">{fileName()}</span>
-                  <span
-                    class="save-state"
-                    classList={{ error: saveState() === "error" || saveState() === "invalid" }}
-                  >
-                    {saveState() === "saved"
-                      ? "Saved"
-                      : saveState() === "saving"
-                        ? "Saving…"
-                        : saveState() === "invalid"
-                          ? "Not saved — fix errors"
-                          : "Save failed"}
-                  </span>
-                </div>
-                <Show when={configError()}>
-                  <wa-callout variant="warning" class="config-error">
-                    Form editing disabled: .pages.yml is invalid — {configError()}
-                  </wa-callout>
-                </Show>
-                <Show
-                  when={showForm()}
-                  fallback={
-                    <textarea
-                      class="editor"
-                      spellcheck={false}
-                      value={fileContent()}
-                      onInput={(e) => onEdit(e.currentTarget.value)}
+        ) : (
+          <div className="body">
+            <aside className="sidebar">
+              {groups.map((group) =>
+                group.label ? (
+                  <details key={group.path} open>
+                    <summary>{group.label}</summary>
+                    <FileList
+                      files={group.files}
+                      activePath={filePath}
+                      onOpen={(path) => void openFile(path)}
                     />
-                  }
-                >
-                  <wa-tab-group
-                    class="pane-tabs"
-                    prop:active={rawPreferred() ? "raw" : "form"}
-                    on:wa-tab-show={(e: CustomEvent<{ name: string }>) =>
-                      setRawPreferred(e.detail.name === "raw")
-                    }
-                  >
-                    <wa-tab attr:panel="form">Form</wa-tab>
-                    <wa-tab attr:panel="raw">Raw</wa-tab>
-                    <wa-tab-panel attr:name="form">
-                      <FormEditor
-                        content={fileContent()}
-                        entry={entry()}
-                        config={pagesConfig() ?? EMPTY_CONFIG}
-                        root={root()!}
-                        groups={groups()}
-                        onChange={onFormEdit}
-                      />
-                    </wa-tab-panel>
-                    <wa-tab-panel attr:name="raw">
-                      <textarea
-                        class="editor"
-                        spellcheck={false}
-                        value={fileContent()}
-                        onInput={(e) => onEdit(e.currentTarget.value)}
-                      />
-                    </wa-tab-panel>
-                  </wa-tab-group>
-                </Show>
-              </Show>
-            </div>
+                  </details>
+                ) : (
+                  <FileList
+                    key={group.path}
+                    files={group.files}
+                    activePath={filePath}
+                    onOpen={(path) => void openFile(path)}
+                  />
+                ),
+              )}
+            </aside>
 
-            <div slot="end" class="pane preview-pane">
-              <wa-tab-group class="pane-tabs">
-                <wa-tab attr:panel="site">Preview</wa-tab>
-                <wa-tab attr:panel="seo">Search/Socials</wa-tab>
-                <wa-tab-panel attr:name="site">
-                  <Show when={server().state === "starting" || server().state === "installing"}>
-                    <div class="pane-placeholder">
-                      <wa-spinner></wa-spinner>
-                      <span>
-                        {server().state === "installing"
-                          ? "Installing dependencies…"
-                          : "Starting dev server…"}
+            <div className="panes" ref={panesEl}>
+              <div className="pane editor-pane" style={{ flexBasis: `${split}%` }}>
+                {!filePath ? (
+                  <div className="pane-placeholder">Select a file to edit</div>
+                ) : (
+                  <>
+                    <div className="pane-header">
+                      <span className="pane-title">{fileName}</span>
+                      <span
+                        className={`save-state${
+                          saveState === "error" || saveState === "invalid" ? " error" : ""
+                        }`}
+                      >
+                        {saveState === "saved"
+                          ? "Saved"
+                          : saveState === "saving"
+                            ? "Saving…"
+                            : saveState === "invalid"
+                              ? "Not saved — fix errors"
+                              : "Save failed"}
                       </span>
                     </div>
-                  </Show>
-                  <Show when={server().state === "error"}>
-                    <div class="pane-placeholder">
-                      <wa-callout variant="danger">
-                        {(server() as { message: string }).message}
-                      </wa-callout>
-                      <wa-button size="s" onClick={() => startServer(root()!)}>
-                        Retry
-                      </wa-button>
-                    </div>
-                  </Show>
-                  <Show when={server().state === "running"}>
-                    <iframe
-                      ref={previewFrame}
-                      class="preview"
-                      classList={{ "no-pointer": dragging() }}
-                      title="Site preview"
-                    />
-                  </Show>
-                </wa-tab-panel>
-                <wa-tab-panel attr:name="seo">
-                  <Show
-                    when={server().state === "running"}
-                    fallback={
-                      <div class="pane-placeholder">
+                    {configError && (
+                      <Alert color="yellow" className="config-error">
+                        Form editing disabled: .pages.yml is invalid — {configError}
+                      </Alert>
+                    )}
+                    {!showForm ? (
+                      rawEditor
+                    ) : (
+                      <Tabs
+                        className="pane-tabs"
+                        value={rawPreferred ? "raw" : "form"}
+                        onChange={(value) => setRawPreferred(value === "raw")}
+                      >
+                        <Tabs.List>
+                          <Tabs.Tab value="form">Form</Tabs.Tab>
+                          <Tabs.Tab value="raw">Raw</Tabs.Tab>
+                        </Tabs.List>
+                        <Tabs.Panel value="form">
+                          <FormEditor
+                            key={filePath}
+                            content={fileContent}
+                            entry={entry}
+                            config={pagesConfig ?? EMPTY_CONFIG}
+                            root={root}
+                            groups={groups}
+                            onChange={onFormEdit}
+                          />
+                        </Tabs.Panel>
+                        <Tabs.Panel value="raw">{rawEditor}</Tabs.Panel>
+                      </Tabs>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div
+                className="pane-divider"
+                onPointerDown={(e) => {
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                  setDragging(true);
+                }}
+                onPointerMove={onDividerPointerMove}
+              />
+
+              <div className="pane preview-pane">
+                <Tabs className="pane-tabs" defaultValue="site">
+                  <Tabs.List>
+                    <Tabs.Tab value="site">Preview</Tabs.Tab>
+                    <Tabs.Tab value="seo">Search/Socials</Tabs.Tab>
+                  </Tabs.List>
+                  <Tabs.Panel value="site">
+                    {(server.state === "starting" || server.state === "installing") && (
+                      <div className="pane-placeholder">
+                        <Loader size="sm" />
+                        <span>
+                          {server.state === "installing"
+                            ? "Installing dependencies…"
+                            : "Starting dev server…"}
+                        </span>
+                      </div>
+                    )}
+                    {server.state === "error" && (
+                      <div className="pane-placeholder">
+                        <Alert color="red">{server.message}</Alert>
+                        <Button size="xs" variant="default" onClick={() => void startServer(root)}>
+                          Retry
+                        </Button>
+                      </div>
+                    )}
+                    {server.state === "running" && (
+                      <iframe
+                        ref={previewFrame}
+                        className={`preview${dragging ? " no-pointer" : ""}`}
+                        title="Site preview"
+                      />
+                    )}
+                  </Tabs.Panel>
+                  <Tabs.Panel value="seo">
+                    {server.state === "running" ? (
+                      <SeoPreview route={previewRoute} port={server.port} refreshKey={saveTick} />
+                    ) : (
+                      <div className="pane-placeholder">
                         Search/social previews need the dev server running.
                       </div>
-                    }
-                  >
-                    <SeoPreview
-                      route={previewRoute()}
-                      port={(server() as { port: number }).port}
-                      refreshKey={saveTick()}
-                    />
-                  </Show>
-                </wa-tab-panel>
-              </wa-tab-group>
+                    )}
+                  </Tabs.Panel>
+                </Tabs>
+              </div>
             </div>
-          </wa-split-panel>
-        </div>
-      </Show>
-    </div>
+          </div>
+        )}
+      </div>
+    </MantineProvider>
   );
 }
 

@@ -1,10 +1,5 @@
-import { For, Show, createSignal, type JSX } from "solid-js";
-
-import "@awesome.me/webawesome/dist/components/input/input.js";
-import "@awesome.me/webawesome/dist/components/textarea/textarea.js";
-import "@awesome.me/webawesome/dist/components/select/select.js";
-import "@awesome.me/webawesome/dist/components/option/option.js";
-import "@awesome.me/webawesome/dist/components/switch/switch.js";
+import { useState, type ReactNode } from "react";
+import { ActionIcon, Button, NumberInput, Select, Switch, Textarea, TextInput } from "@mantine/core";
 
 import type { Field, PagesConfig } from "../pagescms/config";
 import { mediaInputPath, resolveMedia } from "../pagescms/config";
@@ -19,7 +14,7 @@ export interface FieldContext {
   root: string;
   groups: FileGroup[];
   errors: () => Errors;
-  /** Reactive read of the current value at a frontmatter path. */
+  /** Current value at a frontmatter path. */
   value: (path: ValuePath) => unknown;
   edit: (path: ValuePath, value: unknown) => void;
   listAppend: (path: ValuePath, value: unknown) => void;
@@ -63,15 +58,11 @@ function selectValues(field: Field): SelectValue[] {
 }
 
 export function FieldEditor(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
-  return (
-    <Show when={!props.field.hidden}>
-      <Show
-        when={props.field.list}
-        fallback={<SingleField field={props.field} path={props.path} ctx={props.ctx} />}
-      >
-        <ListField field={props.field} path={props.path} ctx={props.ctx} />
-      </Show>
-    </Show>
+  if (props.field.hidden) return null;
+  return props.field.list ? (
+    <ListField field={props.field} path={props.path} ctx={props.ctx} />
+  ) : (
+    <SingleField field={props.field} path={props.path} ctx={props.ctx} />
   );
 }
 
@@ -80,32 +71,26 @@ function FieldShell(props: {
   field: Field;
   path: ValuePath;
   ctx: FieldContext;
-  children: JSX.Element;
+  children: ReactNode;
 }) {
-  const error = () => props.ctx.errors().get(props.path.join("."));
+  const error = props.ctx.errors().get(props.path.join("."));
   return (
-    <div class="form-field" classList={{ invalid: !!error() }}>
-      <Show when={props.field.label !== false}>
-        <label class="field-label">
+    <div className={`form-field${error ? " invalid" : ""}`}>
+      {props.field.label !== false && (
+        <label className="field-label">
           {typeof props.field.label === "string" ? props.field.label : props.field.name}
-          <Show when={props.field.required}>
-            <span class="field-required">*</span>
-          </Show>
+          {props.field.required && <span className="field-required">*</span>}
         </label>
-      </Show>
+      )}
       {props.children}
-      <Show when={props.field.description}>
-        <div class="field-description">{props.field.description}</div>
-      </Show>
-      <Show when={error()}>
-        <div class="field-error">{error()}</div>
-      </Show>
+      {props.field.description && <div className="field-description">{props.field.description}</div>}
+      {error && <div className="field-error">{error}</div>}
     </div>
   );
 }
 
 function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
-  const value = () => props.ctx.value(props.path);
+  const value = props.ctx.value(props.path);
   // Cleared text-like inputs delete the key so optional fields don't leave
   // `key: ""` litter behind in the frontmatter.
   const editText = (raw: string) => props.ctx.edit(props.path, raw === "" ? undefined : raw);
@@ -115,59 +100,53 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
     switch (field.type) {
       case "string":
         return (
-          <wa-input
-            attr:size="s"
-            prop:value={asString(value())}
-            on:input={(e: InputEvent) => editText((e.target as HTMLInputElement).value)}
+          <TextInput
+            size="xs"
+            value={asString(value)}
+            onChange={(e) => editText(e.currentTarget.value)}
           />
         );
       case "number":
         return (
-          <wa-input
-            attr:size="s"
-            attr:type="number"
-            attr:min={props.field.options?.min}
-            attr:max={props.field.options?.max}
-            prop:value={asString(value())}
-            on:input={(e: InputEvent) => {
-              const raw = (e.target as HTMLInputElement).value;
-              props.ctx.edit(props.path, raw === "" ? undefined : Number(raw));
-            }}
+          <NumberInput
+            size="xs"
+            min={typeof field.options?.min === "number" ? field.options.min : undefined}
+            max={typeof field.options?.max === "number" ? field.options.max : undefined}
+            value={typeof value === "number" ? value : asString(value)}
+            onChange={(raw) =>
+              props.ctx.edit(
+                props.path,
+                raw === "" ? undefined : typeof raw === "number" ? raw : Number(raw),
+              )
+            }
           />
         );
       case "date":
         return (
-          <wa-input
-            attr:size="s"
-            attr:type={field.options?.time ? "datetime-local" : "date"}
-            prop:value={asString(value())}
-            on:input={(e: InputEvent) => editText((e.target as HTMLInputElement).value)}
+          <TextInput
+            size="xs"
+            type={field.options?.time ? "datetime-local" : "date"}
+            value={asString(value)}
+            onChange={(e) => editText(e.currentTarget.value)}
           />
         );
       case "boolean":
         return (
-          <wa-switch
-            attr:size="s"
-            prop:checked={value() === true}
-            on:change={(e: Event) =>
-              props.ctx.edit(props.path, (e.target as HTMLInputElement).checked)
-            }
+          <Switch
+            size="sm"
+            checked={value === true}
+            onChange={(e) => props.ctx.edit(props.path, e.currentTarget.checked)}
           />
         );
       case "select":
         return (
-          <wa-select
-            attr:size="s"
-            attr:with-clear={!field.required || undefined}
-            prop:value={asString(value())}
-            on:input={(e: Event) => editText((e.target as HTMLSelectElement).value)}
-          >
-            <For each={selectValues(field)}>
-              {(option) => (
-                <wa-option attr:value={option.value}>{option.label}</wa-option>
-              )}
-            </For>
-          </wa-select>
+          <Select
+            size="xs"
+            clearable={!field.required}
+            data={selectValues(field)}
+            value={asString(value) || null}
+            onChange={(raw) => editText(raw ?? "")}
+          />
         );
       case "image":
         return <ImageField field={field} path={props.path} ctx={props.ctx} />;
@@ -175,23 +154,26 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
         return <ReferenceField field={field} path={props.path} ctx={props.ctx} />;
       case "object":
         return (
-          <div class="object-fields">
-            <For each={field.fields ?? []}>
-              {(child) => (
-                <FieldEditor field={child} path={[...props.path, child.name]} ctx={props.ctx} />
-              )}
-            </For>
+          <div className="object-fields">
+            {(field.fields ?? []).map((child) => (
+              <FieldEditor
+                key={child.name}
+                field={child}
+                path={[...props.path, child.name]}
+                ctx={props.ctx}
+              />
+            ))}
           </div>
         );
       default:
         // text and anything the form doesn't know how to render
         return (
-          <wa-textarea
-            attr:size="s"
-            attr:rows="3"
-            attr:resize="auto"
-            prop:value={asString(value())}
-            on:input={(e: InputEvent) => editText((e.target as HTMLTextAreaElement).value)}
+          <Textarea
+            size="xs"
+            autosize
+            minRows={3}
+            value={asString(value)}
+            onChange={(e) => editText(e.currentTarget.value)}
           />
         );
     }
@@ -226,45 +208,45 @@ function remapAfterRemove(expanded: Set<number>, removed: number): Set<number> {
 }
 
 function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
-  const items = () => {
-    const value = props.ctx.value(props.path);
-    return Array.isArray(value) ? value : [];
-  };
-  const limits = () => (typeof props.field.list === "object" ? props.field.list : {});
-  const itemField = (): Field => ({ ...props.field, list: undefined, label: false, required: false });
-  const isObjectList = () => props.field.type === "object";
-  const imageChild = () => props.field.fields?.find((f) => f.type === "image" && !f.hidden);
+  const rawItems = props.ctx.value(props.path);
+  const items = Array.isArray(rawItems) ? rawItems : [];
+  const limits = typeof props.field.list === "object" ? props.field.list : {};
+  const itemField: Field = { ...props.field, list: undefined, label: false, required: false };
+  const isObjectList = props.field.type === "object";
+  const imageChild = props.field.fields?.find((f) => f.type === "image" && !f.hidden);
 
   // Object-list items collapse to a summary row; existing items start
   // collapsed, newly added ones open for editing.
-  const [expanded, setExpanded] = createSignal<Set<number>>(new Set());
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
   // Rows only become draggable while the pointer is down on their handle, so
   // text selection inside expanded item fields keeps working.
-  const [dragArmed, setDragArmed] = createSignal<number | null>(null);
-  const [dragFrom, setDragFrom] = createSignal<number | null>(null);
-  const [dragOver, setDragOver] = createSignal<number | null>(null);
+  const [dragArmed, setDragArmed] = useState<number | null>(null);
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
 
   function setItemExpanded(index: number, on: boolean) {
-    const next = new Set(expanded());
-    if (on) next.add(index);
-    else next.delete(index);
-    setExpanded(next);
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (on) next.add(index);
+      else next.delete(index);
+      return next;
+    });
   }
 
   function addItem() {
-    const newIndex = items().length;
+    const newIndex = items.length;
     props.ctx.listAppend(props.path, newItemValue(props.field));
-    if (isObjectList()) setItemExpanded(newIndex, true);
+    if (isObjectList) setItemExpanded(newIndex, true);
   }
 
   function removeItem(index: number) {
     props.ctx.listRemove(props.path, index);
-    setExpanded(remapAfterRemove(expanded(), index));
+    setExpanded((current) => remapAfterRemove(current, index));
   }
 
   function moveItem(from: number, to: number) {
     props.ctx.listMove(props.path, from, to);
-    setExpanded(remapAfterMove(expanded(), from, to));
+    setExpanded((current) => remapAfterMove(current, from, to));
   }
 
   function resetDrag() {
@@ -282,9 +264,8 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
 
   function itemSummary(index: number): string {
     const record = itemRecord(index);
-    const img = imageChild();
-    if (img) {
-      const value = record[img.name];
+    if (imageChild) {
+      const value = record[imageChild.name];
       if (typeof value === "string" && value !== "") {
         return value.split("/").pop() ?? value;
       }
@@ -300,11 +281,10 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
   }
 
   function thumbSrc(index: number): string | null {
-    const img = imageChild();
-    if (!img) return null;
-    const value = itemRecord(index)[img.name];
+    if (!imageChild) return null;
+    const value = itemRecord(index)[imageChild.name];
     if (typeof value !== "string" || value === "") return null;
-    const media = resolveMedia(props.ctx.config, img);
+    const media = resolveMedia(props.ctx.config, imageChild);
     if (!media) return null;
     const absolute = mediaInputPath(props.ctx.root, media, value);
     return absolute ? assetUrl(absolute) : null;
@@ -312,7 +292,7 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
 
   const dragHandle = (index: number) => (
     <span
-      class="drag-handle"
+      className="drag-handle"
       title="Drag to reorder"
       onMouseDown={() => setDragArmed(index)}
       onMouseUp={() => setDragArmed(null)}
@@ -321,194 +301,179 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
     </span>
   );
 
-  // Static handlers only — the reactive `draggable` flag is bound inline on
-  // each row (values inside a spread don't reliably update in Solid).
-  const dragProps = (index: () => number) => ({
-    onDragStart: (e: DragEvent) => {
-      setDragFrom(index());
-      e.dataTransfer?.setData("text/plain", String(index()));
-      if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+  const dragProps = (index: number) => ({
+    draggable: dragArmed === index,
+    onDragStart: (e: React.DragEvent) => {
+      setDragFrom(index);
+      e.dataTransfer.setData("text/plain", String(index));
+      e.dataTransfer.effectAllowed = "move";
     },
     onDragEnd: resetDrag,
-    onDragOver: (e: DragEvent) => {
-      if (dragFrom() === null) return;
+    onDragOver: (e: React.DragEvent) => {
+      if (dragFrom === null) return;
       e.preventDefault();
-      setDragOver(index());
+      setDragOver(index);
     },
-    onDrop: (e: DragEvent) => {
+    onDrop: (e: React.DragEvent) => {
       e.preventDefault();
-      const from = dragFrom();
-      if (from !== null && from !== index()) moveItem(from, index());
+      if (dragFrom !== null && dragFrom !== index) moveItem(dragFrom, index);
       resetDrag();
     },
   });
 
-  const objectRow = (index: () => number) => (
-    <Show
-      when={expanded().has(index())}
-      fallback={
-        <div
-          class="list-item collapsed-item"
-          classList={{ "drag-over": dragOver() === index() }}
-          draggable={dragArmed() === index()}
-          {...dragProps(index)}
-        >
-          {dragHandle(index())}
-          <Show when={imageChild()}>
-            <Show
-              when={thumbSrc(index())}
-              fallback={<span class="thumb thumb-placeholder">🖼</span>}
-            >
-              {(src) => <img class="thumb" src={src()} alt="" />}
-            </Show>
-          </Show>
-          <span class="item-summary">{itemSummary(index())}</span>
-          <div class="list-item-actions">
-            <wa-button
-              attr:size="s"
-              attr:appearance="plain"
-              title="Edit"
-              onClick={() => setItemExpanded(index(), true)}
-            >
-              ✎
-            </wa-button>
-            <wa-button
-              attr:size="s"
-              attr:appearance="plain"
-              attr:disabled={items().length <= (limits().min ?? 0) || undefined}
-              title="Remove"
-              onClick={() => removeItem(index())}
-            >
-              ✕
-            </wa-button>
-          </div>
-        </div>
-      }
-    >
+  const objectRow = (index: number) => {
+    const thumb = thumbSrc(index);
+    return expanded.has(index) ? (
       <div
-        class="list-item expanded-item"
-        classList={{ "drag-over": dragOver() === index() }}
-        draggable={dragArmed() === index()}
+        key={index}
+        className={`list-item expanded-item${dragOver === index ? " drag-over" : ""}`}
         {...dragProps(index)}
       >
-        {dragHandle(index())}
-        <div class="list-item-body">
-          <FieldEditor field={itemField()} path={[...props.path, index()]} ctx={props.ctx} />
+        {dragHandle(index)}
+        <div className="list-item-body">
+          <FieldEditor field={itemField} path={[...props.path, index]} ctx={props.ctx} />
         </div>
-        <div class="list-item-actions">
-          <wa-button
-            attr:size="s"
-            attr:appearance="plain"
+        <div className="list-item-actions">
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size="sm"
             title="Done"
-            onClick={() => setItemExpanded(index(), false)}
+            onClick={() => setItemExpanded(index, false)}
           >
             ✓
-          </wa-button>
+          </ActionIcon>
         </div>
       </div>
-    </Show>
-  );
-
-  const scalarRow = (index: () => number) => (
-    <div class="list-item">
-      <div class="list-item-body">
-        <FieldEditor field={itemField()} path={[...props.path, index()]} ctx={props.ctx} />
+    ) : (
+      <div
+        key={index}
+        className={`list-item collapsed-item${dragOver === index ? " drag-over" : ""}`}
+        {...dragProps(index)}
+      >
+        {dragHandle(index)}
+        {imageChild &&
+          (thumb ? (
+            <img className="thumb" src={thumb} alt="" />
+          ) : (
+            <span className="thumb thumb-placeholder">🖼</span>
+          ))}
+        <span className="item-summary">{itemSummary(index)}</span>
+        <div className="list-item-actions">
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size="sm"
+            title="Edit"
+            onClick={() => setItemExpanded(index, true)}
+          >
+            ✎
+          </ActionIcon>
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size="sm"
+            disabled={items.length <= (limits.min ?? 0)}
+            title="Remove"
+            onClick={() => removeItem(index)}
+          >
+            ✕
+          </ActionIcon>
+        </div>
       </div>
-      <div class="list-item-actions">
-        <wa-button
-          attr:size="s"
-          attr:appearance="plain"
-          attr:disabled={index() === 0 || undefined}
+    );
+  };
+
+  const scalarRow = (index: number) => (
+    <div key={index} className="list-item">
+      <div className="list-item-body">
+        <FieldEditor field={itemField} path={[...props.path, index]} ctx={props.ctx} />
+      </div>
+      <div className="list-item-actions">
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          size="sm"
+          disabled={index === 0}
           title="Move up"
-          onClick={() => props.ctx.listMove(props.path, index(), index() - 1)}
+          onClick={() => props.ctx.listMove(props.path, index, index - 1)}
         >
           ↑
-        </wa-button>
-        <wa-button
-          attr:size="s"
-          attr:appearance="plain"
-          attr:disabled={index() === items().length - 1 || undefined}
+        </ActionIcon>
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          size="sm"
+          disabled={index === items.length - 1}
           title="Move down"
-          onClick={() => props.ctx.listMove(props.path, index(), index() + 1)}
+          onClick={() => props.ctx.listMove(props.path, index, index + 1)}
         >
           ↓
-        </wa-button>
-        <wa-button
-          attr:size="s"
-          attr:appearance="plain"
-          attr:disabled={items().length <= (limits().min ?? 0) || undefined}
+        </ActionIcon>
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          size="sm"
+          disabled={items.length <= (limits.min ?? 0)}
           title="Remove"
-          onClick={() => removeItem(index())}
+          onClick={() => removeItem(index)}
         >
           ✕
-        </wa-button>
+        </ActionIcon>
       </div>
     </div>
   );
 
   return (
     <FieldShell field={props.field} path={props.path} ctx={props.ctx}>
-      <div class="list-field">
-        <For each={items()}>
-          {(_item, index) => (isObjectList() ? objectRow(index) : scalarRow(index))}
-        </For>
-        <wa-button
-          attr:size="s"
-          attr:disabled={
-            (limits().max !== undefined && items().length >= limits().max!) || undefined
-          }
+      <div className="list-field">
+        {items.map((_item, index) => (isObjectList ? objectRow(index) : scalarRow(index)))}
+        <Button
+          size="xs"
+          variant="default"
+          disabled={limits.max !== undefined && items.length >= limits.max}
           onClick={addItem}
         >
           Add item
-        </wa-button>
+        </Button>
       </div>
     </FieldShell>
   );
 }
 
 function ImageField(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
-  const [pickerOpen, setPickerOpen] = createSignal(false);
-  const media = () => resolveMedia(props.ctx.config, props.field);
-  const value = () => asString(props.ctx.value(props.path));
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const media = resolveMedia(props.ctx.config, props.field);
+  const value = asString(props.ctx.value(props.path));
 
   return (
-    <div class="image-field">
-      <wa-input
-        attr:size="s"
-        attr:readonly={true}
-        attr:placeholder="No image selected"
-        prop:value={value()}
-      />
-      <wa-button
-        attr:size="s"
-        attr:disabled={!media() || undefined}
-        onClick={() => setPickerOpen(true)}
-      >
+    <div className="image-field">
+      <TextInput size="xs" readOnly placeholder="No image selected" value={value} />
+      <Button size="xs" variant="default" disabled={!media} onClick={() => setPickerOpen(true)}>
         Browse…
-      </wa-button>
-      <Show when={value()}>
-        <wa-button
-          attr:size="s"
-          attr:appearance="plain"
+      </Button>
+      {value && (
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          size="sm"
           title="Clear"
           onClick={() => props.ctx.edit(props.path, undefined)}
         >
           ✕
-        </wa-button>
-      </Show>
-      <Show when={pickerOpen() && media()}>
-        {(m) => (
-          <ImagePicker
-            root={props.ctx.root}
-            media={m()}
-            onClose={() => setPickerOpen(false)}
-            onPick={(outputPath) => {
-              setPickerOpen(false);
-              props.ctx.edit(props.path, outputPath);
-            }}
-          />
-        )}
-      </Show>
+        </ActionIcon>
+      )}
+      {pickerOpen && media && (
+        <ImagePicker
+          root={props.ctx.root}
+          media={media}
+          onClose={() => setPickerOpen(false)}
+          onPick={(outputPath) => {
+            setPickerOpen(false);
+            props.ctx.edit(props.path, outputPath);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -528,14 +493,12 @@ function referenceLabel(ctx: FieldContext, value: string): string {
 }
 
 function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
-  const collection = () =>
-    props.ctx.config.content.find(
-      (entry) => entry.type === "collection" && entry.name === props.field.options?.collection,
-    );
-  const files = () => {
-    const target = collection();
-    if (!target) return [];
-    const dir = props.ctx.root + "/" + target.path;
+  const collection = props.ctx.config.content.find(
+    (entry) => entry.type === "collection" && entry.name === props.field.options?.collection,
+  );
+  const files = (() => {
+    if (!collection) return [];
+    const dir = props.ctx.root + "/" + collection.path;
     return props.ctx.groups
       .filter((group) => group.path === dir || group.path.startsWith(dir + "/"))
       .flatMap((group) => group.files)
@@ -544,27 +507,18 @@ function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContex
         value: file.path.slice(props.ctx.root.length + 1),
         label: file.title ?? file.name,
       }));
-  };
-  const value = () => asString(props.ctx.value(props.path));
-  const missing = () => value() !== "" && !files().some((f) => f.value === value());
+  })();
+  const value = asString(props.ctx.value(props.path));
+  const missing = value !== "" && !files.some((f) => f.value === value);
 
   return (
-    <wa-select
-      attr:size="s"
-      attr:with-clear={!props.field.required || undefined}
-      attr:placeholder={collection() ? undefined : "Unknown collection"}
-      prop:value={value()}
-      on:input={(e: Event) => {
-        const raw = (e.target as HTMLSelectElement).value;
-        props.ctx.edit(props.path, raw === "" ? undefined : raw);
-      }}
-    >
-      <Show when={missing()}>
-        <wa-option attr:value={value()}>{value()} (missing)</wa-option>
-      </Show>
-      <For each={files()}>
-        {(file) => <wa-option attr:value={file.value}>{file.label}</wa-option>}
-      </For>
-    </wa-select>
+    <Select
+      size="xs"
+      clearable={!props.field.required}
+      placeholder={collection ? undefined : "Unknown collection"}
+      data={missing ? [{ value, label: `${value} (missing)` }, ...files] : files}
+      value={value || null}
+      onChange={(raw) => props.ctx.edit(props.path, raw === null || raw === "" ? undefined : raw)}
+    />
   );
 }

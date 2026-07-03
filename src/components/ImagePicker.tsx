@@ -1,6 +1,5 @@
-import { For, Show, createResource } from "solid-js";
-
-import "@awesome.me/webawesome/dist/components/dialog/dialog.js";
+import { useEffect, useState } from "react";
+import { Modal } from "@mantine/core";
 
 import { invoke } from "../ipc";
 import type { FileEntry } from "../ipc";
@@ -15,50 +14,54 @@ export function ImagePicker(props: {
   onClose: () => void;
   onPick: (outputPath: string) => void;
 }) {
-  const [files] = createResource(
-    () => props.root + "/" + props.media.input,
-    (dir) => invoke<FileEntry[]>("list_dir_files", { dir, extensions: IMAGE_EXTENSIONS }),
-  );
+  const [files, setFiles] = useState<FileEntry[] | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const dir = props.root + "/" + props.media.input;
+
+  useEffect(() => {
+    let cancelled = false;
+    setFiles(null);
+    setError(null);
+    invoke<FileEntry[]>("list_dir_files", { dir, extensions: IMAGE_EXTENSIONS })
+      .then((list) => {
+        if (!cancelled) setFiles(list);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dir]);
 
   return (
-    <wa-dialog
-      attr:label={props.media.label ?? "Choose image"}
-      prop:open={true}
-      on:wa-hide={(e: Event) => {
-        // Nested WA components (e.g. inputs) also emit wa-hide; only react to
-        // the dialog's own.
-        if (e.target === e.currentTarget) props.onClose();
-      }}
-    >
-      <Show when={files.error}>
-        <div class="picker-error">Could not read {props.media.input}: {String(files.error)}</div>
-      </Show>
-      <Show when={files()}>
-        {(list) => (
-          <Show
-            when={list().length > 0}
-            fallback={<div class="picker-empty">No images in {props.media.input}</div>}
-          >
-            <div class="picker-list">
-              <For each={list()}>
-                {(file) => {
-                  const output = mediaOutputPath(props.root, props.media, file.path);
-                  return (
-                    <button
-                      class="picker-item"
-                      disabled={output === null}
-                      onClick={() => output !== null && props.onPick(output)}
-                    >
-                      <span class="picker-item-name">{file.name}</span>
-                      <span class="picker-item-path">{output ?? file.path}</span>
-                    </button>
-                  );
-                }}
-              </For>
-            </div>
-          </Show>
-        )}
-      </Show>
-    </wa-dialog>
+    <Modal opened onClose={props.onClose} title={props.media.label ?? "Choose image"}>
+      {error != null && (
+        <div className="picker-error">
+          Could not read {props.media.input}: {String(error)}
+        </div>
+      )}
+      {files &&
+        (files.length === 0 ? (
+          <div className="picker-empty">No images in {props.media.input}</div>
+        ) : (
+          <div className="picker-list">
+            {files.map((file) => {
+              const output = mediaOutputPath(props.root, props.media, file.path);
+              return (
+                <button
+                  key={file.path}
+                  className="picker-item"
+                  disabled={output === null}
+                  onClick={() => output !== null && props.onPick(output)}
+                >
+                  <span className="picker-item-name">{file.name}</span>
+                  <span className="picker-item-path">{output ?? file.path}</span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
+    </Modal>
   );
 }
