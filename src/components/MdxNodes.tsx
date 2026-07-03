@@ -1,5 +1,7 @@
 import { createContext, useContext } from "react";
-import { Node, type MarkdownToken } from "@tiptap/core";
+import { Extension, Node, type MarkdownToken } from "@tiptap/core";
+import { Plugin } from "@tiptap/pm/state";
+import type { Node as PmNode } from "@tiptap/pm/model";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import { Card, Textarea, TextInput } from "@mantine/core";
 import { SquareArrowDownRight } from "lucide-react";
@@ -344,4 +346,64 @@ export const MdxRawInline = Node.create({
   renderMarkdown: (node) => String(node.attrs?.source ?? ""),
 });
 
-export const mdxNodes = [MdxImport, MdxComponent, MdxRawBlock, MdxRawInline];
+/* --- Import cleanup: deleting a component's last use drops its import. ---- */
+
+/**
+ * Component names referenced anywhere in the document: component cards (their
+ * props and children can hold nested JSX too) and preserved raw JSX.
+ */
+function usedComponentNames(doc: PmNode): Set<string> {
+  const names = new Set<string>();
+  const scanJsx = (text: string) => {
+    for (const match of text.matchAll(/<([A-Z][\w.]*)[\s/>]/g)) names.add(match[1]);
+  };
+  doc.descendants((node) => {
+    if (node.type.name === "mdxComponent") {
+      names.add(String(node.attrs.name));
+      scanJsx(String(node.attrs.propsSource ?? "") + " " + String(node.attrs.children ?? ""));
+    } else if (node.type.name === "mdxRawBlock" || node.type.name === "mdxRawInline") {
+      scanJsx(String(node.attrs.source));
+    }
+    return true;
+  });
+  return names;
+}
+
+export const MdxImportCleanup = Extension.create({
+  name: "mdxImportCleanup",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        appendTransaction: (transactions, oldState, newState) => {
+          if (!transactions.some((tr) => tr.docChanged)) return null;
+          const before = usedComponentNames(oldState.doc);
+          const after = usedComponentNames(newState.doc);
+          const dropped = [...before].filter((name) => !after.has(name));
+          if (dropped.length === 0) return null;
+
+          // Remove imports whose bindings all became unused by this change.
+          // Imports that were already unused before it are left alone.
+          const ranges: { from: number; to: number }[] = [];
+          newState.doc.descendants((node, pos) => {
+            if (node.type.name !== "mdxImport") return true;
+            const { names } = importInfo(String(node.attrs.statement));
+            if (
+              names.length > 0 &&
+              names.every((name) => !after.has(name)) &&
+              names.some((name) => dropped.includes(name))
+            ) {
+              ranges.push({ from: pos, to: pos + node.nodeSize });
+            }
+            return false;
+          });
+          if (ranges.length === 0) return null;
+          const tr = newState.tr;
+          for (const range of ranges.reverse()) tr.delete(range.from, range.to);
+          return tr;
+        },
+      }),
+    ];
+  },
+});
+
+export const mdxNodes = [MdxImport, MdxComponent, MdxRawBlock, MdxRawInline, MdxImportCleanup];

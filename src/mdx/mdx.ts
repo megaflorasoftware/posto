@@ -244,6 +244,27 @@ export function resolveImportPath(filePath: string, spec: string): string | null
   return segments.join("/");
 }
 
+/** Relative module specifier importing `toFile` from `fromFile`'s directory. */
+export function relativeImportPath(fromFile: string, toFile: string): string {
+  const from = fromFile.split("/").slice(0, -1);
+  const to = toFile.split("/");
+  let common = 0;
+  while (common < from.length && common < to.length - 1 && from[common] === to[common]) common++;
+  const ups = from.length - common;
+  const down = to.slice(common).join("/");
+  return ups === 0 ? `./${down}` : `${"../".repeat(ups)}${down}`;
+}
+
+/** Component name for a file: `captioned-image.astro` → `CaptionedImage`. */
+export function componentNameFromFile(fileName: string): string {
+  const base = fileName.replace(/\.[^.]+$/, "");
+  return base
+    .split(/[-_. ]+/)
+    .filter((part) => part !== "")
+    .map((part) => part[0].toUpperCase() + part.slice(1))
+    .join("");
+}
+
 export interface AstroPropDef {
   name: string;
   type: string;

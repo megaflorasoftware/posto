@@ -4,17 +4,21 @@ import { useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import { Markdown } from "@tiptap/markdown";
-import { Image as ImageIcon } from "lucide-react";
+import { Blocks, Image as ImageIcon } from "lucide-react";
 
 import { assetUrl, invoke } from "../ipc";
+import type { FileEntry } from "../ipc";
 import { mediaInputPath, type MediaEntry } from "../pagescms/config";
 import {
   type AstroPropDef,
+  componentNameFromFile,
   extractImports,
   importInfo,
   parseAstroProps,
+  relativeImportPath,
   resolveImportPath,
 } from "../mdx/mdx";
+import { ComponentPicker } from "./ComponentPicker";
 import { ImagePicker } from "./ImagePicker";
 import { MdxSchemaContext, mdxNodes } from "./MdxNodes";
 
@@ -37,6 +41,7 @@ export function BodyEditor(props: {
   onChange: (markdown: string) => void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [componentPickerOpen, setComponentPickerOpen] = useState(false);
   const [schemas, setSchemas] = useState<Record<string, AstroPropDef[]>>({});
   // Markdown emitted by this editor; used to ignore the echo when it comes
   // back through props so only genuinely external changes reset the document.
@@ -121,6 +126,39 @@ export function BodyEditor(props: {
     };
   }, [importsKey, props.path]);
 
+  // Inserts the picked component at the cursor and, when it isn't imported
+  // yet, adds the import at the top of the document.
+  function insertComponent(file: FileEntry) {
+    if (!editor) return;
+    const name = componentNameFromFile(file.name);
+    const alreadyImported = extractImports(editor.getMarkdown()).some((statement) =>
+      importInfo(statement).names.includes(name),
+    );
+    // Component first, import second: inserting content leaves it selected,
+    // so the reverse order would make the second insert replace the first.
+    const chain = editor
+      .chain()
+      .focus()
+      .insertContent({
+        type: "mdxComponent",
+        attrs: { name, props: [], propsSource: "", children: null, raw: null },
+      });
+    if (!alreadyImported) {
+      const spec = relativeImportPath(props.path, file.path);
+      chain.insertContentAt(
+        0,
+        {
+          type: "mdxImport",
+          attrs: { statement: `import ${name} from '${spec}';` },
+        },
+        // Keep the selection where it is: a selected atom node would be
+        // replaced wholesale by the next insertion or keystroke.
+        { updateSelection: false },
+      );
+    }
+    chain.run();
+  }
+
   return (
     // Component-card node views render through portals inside the content
     // element, so this provider reaches them.
@@ -163,6 +201,15 @@ export function BodyEditor(props: {
           >
             <ImageIcon size={16} />
           </RichTextEditor.Control>
+          {props.mdx && (
+            <RichTextEditor.Control
+              title="Insert component"
+              aria-label="Insert component"
+              onClick={() => setComponentPickerOpen(true)}
+            >
+              <Blocks size={16} />
+            </RichTextEditor.Control>
+          )}
         </RichTextEditor.ControlsGroup>
         <RichTextEditor.ControlsGroup>
           <RichTextEditor.Undo />
@@ -178,6 +225,16 @@ export function BodyEditor(props: {
           onPick={(outputPath) => {
             setPickerOpen(false);
             editor?.chain().focus().setImage({ src: outputPath }).run();
+          }}
+        />
+      )}
+      {componentPickerOpen && (
+        <ComponentPicker
+          root={props.root}
+          onClose={() => setComponentPickerOpen(false)}
+          onPick={(file) => {
+            setComponentPickerOpen(false);
+            insertComponent(file);
           }}
         />
       )}

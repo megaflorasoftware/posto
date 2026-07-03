@@ -97,6 +97,15 @@ const mockFiles: Record<string, string> = {
     "---",
     "<figure><img src={src} alt={alt} width={width} /><figcaption>{caption}</figcaption></figure>",
   ].join("\n"),
+  "/mock/site/src/components/pull-quote.astro": [
+    "---",
+    "interface Props {",
+    "  author: string;",
+    "  source?: string;",
+    "}",
+    "---",
+    "<blockquote><slot /><cite>{Astro.props.author}</cite></blockquote>",
+  ].join("\n"),
   "/mock/site/src/components/Callout.astro": [
     "---",
     "interface Props {",
@@ -166,11 +175,19 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
         ...group,
         files: group.files.map((file) => ({ ...file, title: mockTitle(file.path) })),
       }));
-    case "list_dir_files":
+    case "list_dir_files": {
+      const dir = args?.dir as string;
+      if (dir.endsWith("/components")) {
+        if (dir !== "/mock/site/src/components") throw new Error(`Not a directory: ${dir}`);
+        return Object.keys(mockFiles)
+          .filter((path) => path.startsWith(dir + "/"))
+          .map((path) => ({ name: path.split("/").pop() as string, path }));
+      }
       return [
-        { name: "photo.jpg", path: `${args?.dir}/photo.jpg` },
-        { name: "logo.png", path: `${args?.dir}/nested/logo.png` },
+        { name: "photo.jpg", path: `${dir}/photo.jpg` },
+        { name: "logo.png", path: `${dir}/nested/logo.png` },
       ];
+    }
     case "read_text_file": {
       const path = args?.path as string;
       // Missing dotfile reads must fail like the real backend so ".pages.yml
