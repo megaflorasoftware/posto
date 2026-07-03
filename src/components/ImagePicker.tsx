@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Modal } from "@mantine/core";
 
-import { invoke } from "../ipc";
+import { assetUrl, invoke } from "../ipc";
 import type { FileEntry } from "../ipc";
 import type { MediaEntry } from "../pagescms/config";
 import { mediaOutputPath } from "../pagescms/config";
@@ -35,7 +35,7 @@ export function ImagePicker(props: {
   }, [dir]);
 
   return (
-    <Modal opened onClose={props.onClose} title={props.media.label ?? "Choose image"}>
+    <Modal opened onClose={props.onClose} title={props.media.label ?? "Choose image"} size="xl">
       {error != null && (
         <div className="picker-error">
           Could not read {props.media.input}: {String(error)}
@@ -45,16 +45,24 @@ export function ImagePicker(props: {
         (files.length === 0 ? (
           <div className="picker-empty">No images in {props.media.input}</div>
         ) : (
-          <div className="picker-list">
+          <div className="picker-grid">
             {files.map((file) => {
               const output = mediaOutputPath(props.root, props.media, file.path);
+              const src = assetUrl(file.path);
               return (
                 <button
                   key={file.path}
-                  className="picker-item"
+                  className="picker-card"
                   disabled={output === null}
                   onClick={() => output !== null && props.onPick(output)}
                 >
+                  <span className="picker-card-preview">
+                    {src !== null ? (
+                      <img src={src} alt={file.name} loading="lazy" />
+                    ) : (
+                      <span className="picker-card-noimg">No preview</span>
+                    )}
+                  </span>
                   <span className="picker-item-name">{file.name}</span>
                   <span className="picker-item-path">{output ?? file.path}</span>
                 </button>
