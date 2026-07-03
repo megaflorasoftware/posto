@@ -8,6 +8,7 @@ import { FormEditor } from "./components/FormEditor";
 import { SeoPreview } from "./components/SeoPreview";
 
 import "@mantine/core/styles.css";
+import "@mantine/tiptap/styles.css";
 import "./App.css";
 
 type ServerStatus =
@@ -595,6 +596,7 @@ function App() {
                           // parsed document survives switching between them.
                           <FormEditor
                             key={filePath}
+                            path={filePath}
                             view={editorTab}
                             content={fileContent}
                             entry={entry}

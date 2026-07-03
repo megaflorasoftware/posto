@@ -17,6 +17,7 @@ import {
 } from "../pagescms/frontmatter";
 import { type Errors, validateForm } from "../pagescms/validate";
 import type { FileGroup } from "../ipc";
+import { BodyEditor } from "./BodyEditor";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
 
 function plainValues(parsed: ParsedFile): Record<string, unknown> {
@@ -34,6 +35,8 @@ function plainValues(parsed: ParsedFile): Record<string, unknown> {
  */
 export function FormEditor(props: {
   content: string;
+  /** Absolute path of the open file; decides rich vs plain body editing. */
+  path: string;
   /** Which half of the form to show: frontmatter fields or the body editor. */
   view: "fields" | "body";
   /** null for markdown files without a schema — fields are inferred from the
@@ -192,7 +195,16 @@ export function FormEditor(props: {
   }
 
   if (props.view === "body") {
-    return (
+    // MDX bodies can hold JSX components that a rich-text round-trip would
+    // mangle, so only plain markdown files get the rich editor.
+    return /\.(md|markdown)$/i.test(props.path) ? (
+      <BodyEditor
+        value={body}
+        root={props.root}
+        media={props.config.media[0] ?? null}
+        onChange={onBodyEdit}
+      />
+    ) : (
       <textarea
         className="editor"
         spellCheck={false}
