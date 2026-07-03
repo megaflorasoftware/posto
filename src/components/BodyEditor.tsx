@@ -6,9 +6,17 @@ import Image from "@tiptap/extension-image";
 import { Markdown } from "@tiptap/markdown";
 import { Image as ImageIcon } from "lucide-react";
 
-import { assetUrl } from "../ipc";
+import { assetUrl, invoke } from "../ipc";
 import { mediaInputPath, type MediaEntry } from "../pagescms/config";
+import {
+  type AstroPropDef,
+  extractImports,
+  importInfo,
+  parseAstroProps,
+  resolveImportPath,
+} from "../mdx/mdx";
 import { ImagePicker } from "./ImagePicker";
+import { MdxSchemaContext, mdxNodes } from "./MdxNodes";
 
 /**
  * Rich-text editor for the markdown body. Tiptap owns the document; markdown
@@ -19,12 +27,17 @@ import { ImagePicker } from "./ImagePicker";
  */
 export function BodyEditor(props: {
   value: string;
+  /** Absolute path of the file being edited; resolves relative MDX imports. */
+  path: string;
+  /** MDX mode adds import pills, component cards, and raw-JSX preservation. */
+  mdx: boolean;
   root: string;
   /** First media source from .pages.yml, if any — enables image insertion. */
   media: MediaEntry | null;
   onChange: (markdown: string) => void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [schemas, setSchemas] = useState<Record<string, AstroPropDef[]>>({});
   // Markdown emitted by this editor; used to ignore the echo when it comes
   // back through props so only genuinely external changes reset the document.
   const lastEmitted = useRef<string | null>(null);
@@ -53,7 +66,9 @@ export function BodyEditor(props: {
           return ["img", { ...HTMLAttributes, src: resolveRef.current(HTMLAttributes.src) }];
         },
       }),
+      ...(props.mdx ? mdxNodes : []),
     ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
@@ -76,7 +91,40 @@ export function BodyEditor(props: {
     editor.commands.setContent(props.value, { contentType: "markdown", emitUpdate: false });
   }, [editor, props.value]);
 
+  // Astro components declare their props in a `Props` interface — load it for
+  // each relatively-imported .astro component so its card can offer all keys.
+  // Keyed on the import statements themselves, not the whole body, so typing
+  // in text doesn't refetch.
+  const importsKey = props.mdx ? extractImports(props.value).join("\u0000") : "";
+  useEffect(() => {
+    if (importsKey === "") return;
+    let cancelled = false;
+    void (async () => {
+      const loaded: Record<string, AstroPropDef[]> = {};
+      for (const statement of importsKey.split("\u0000")) {
+        const { names, spec } = importInfo(statement);
+        if (!spec || !spec.endsWith(".astro") || names.length === 0) continue;
+        const file = resolveImportPath(props.path, spec);
+        if (!file) continue;
+        try {
+          const source = await invoke<string>("read_text_file", { path: file });
+          const defs = parseAstroProps(source);
+          if (defs.length > 0) for (const name of names) loaded[name] = defs;
+        } catch {
+          // Unresolvable import — the card just shows the props already set.
+        }
+      }
+      if (!cancelled) setSchemas(loaded);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [importsKey, props.path]);
+
   return (
+    // Component-card node views render through portals inside the content
+    // element, so this provider reaches them.
+    <MdxSchemaContext.Provider value={schemas}>
     <RichTextEditor
       editor={editor}
       className="body-rich-editor"
@@ -134,5 +182,6 @@ export function BodyEditor(props: {
         />
       )}
     </RichTextEditor>
+    </MdxSchemaContext.Provider>
   );
 }

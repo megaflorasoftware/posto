@@ -64,6 +64,47 @@ const mockFiles: Record<string, string> = {
   "/mock/site/src/blog/with-slug.mdx":
     "---\ntitle: X\nslug: custom-slug\nrelated: src/blog/no-slug.mdx\nsee_also:\n  - src/blog/no-slug.mdx\nworks:\n  - src: src/blog/no-slug.mdx\n  - src: src/blog/with-slug.mdx\nimages:\n  - src: /public/images/photo.jpg\n    alt: A photo\n  - src: /public/images/nested/logo.png\n    alt: The logo\n---\n\nBody.\n",
   "/mock/site/src/blog/no-slug.mdx": "---\ntitle: Y\n---\n\nBody.\n",
+  "/mock/site/src/blog/mdx-demo.mdx": [
+    "---",
+    "title: MDX demo",
+    "---",
+    "",
+    "import CaptionedImage from '../components/CaptionedImage.astro';",
+    "import Callout from '../components/Callout.astro';",
+    "",
+    "# A post with components",
+    "",
+    "Some **markdown** ahead of a component, with inline <Callout kind=\"tip\" /> JSX.",
+    "",
+    "<CaptionedImage src=\"/images/photo.jpg\" width={640}>",
+    "  A caption with *emphasis*.",
+    "</CaptionedImage>",
+    "",
+    "export const updated = '2026-07-03';",
+    "",
+    "Regular paragraph after.",
+    "",
+  ].join("\n"),
+  "/mock/site/src/components/CaptionedImage.astro": [
+    "---",
+    "interface Props {",
+    "  src: string;",
+    "  alt?: string;",
+    "  width?: number;",
+    "  caption?: string;",
+    "}",
+    "const { src, alt = '', width, caption } = Astro.props;",
+    "---",
+    "<figure><img src={src} alt={alt} width={width} /><figcaption>{caption}</figcaption></figure>",
+  ].join("\n"),
+  "/mock/site/src/components/Callout.astro": [
+    "---",
+    "interface Props {",
+    "  kind: 'tip' | 'warning';",
+    "}",
+    "---",
+    "<aside class={Astro.props.kind}><slot /></aside>",
+  ].join("\n"),
 };
 
 function mockTitle(path: string): string | null {
@@ -118,6 +159,7 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
           files: [
             { name: "no-slug.mdx", path: "/mock/site/src/blog/no-slug.mdx" },
             { name: "with-slug.mdx", path: "/mock/site/src/blog/with-slug.mdx" },
+            { name: "mdx-demo.mdx", path: "/mock/site/src/blog/mdx-demo.mdx" },
           ],
         },
       ].map((group) => ({

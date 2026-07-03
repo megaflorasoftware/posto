@@ -260,6 +260,92 @@ body,
   max-width: 100%;
 }
 
+/* --- MDX constructs inside the rich body editor. --- */
+
+.mdx-import {
+  margin: 0.35rem 0;
+}
+
+.mdx-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.7rem;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 999px;
+  background: var(--mantine-color-default);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  user-select: none;
+}
+
+.mdx-pill svg {
+  flex-shrink: 0;
+  color: var(--mantine-color-dimmed);
+}
+
+.mdx-component {
+  margin: 0.75rem 0;
+}
+
+.mdx-component-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.mdx-component-name {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.mdx-component-card .field-label {
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 500;
+}
+
+.mdx-component-unparsed code {
+  font-size: 0.75rem;
+  word-break: break-all;
+}
+
+.mdx-expr-hint {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.7rem;
+  color: var(--mantine-color-dimmed);
+}
+
+.mdx-children-input {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.8rem;
+}
+
+.mdx-raw-block {
+  margin: 0.75rem 0;
+}
+
+.mdx-raw-block pre {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px dashed var(--mantine-color-default-border);
+  border-radius: 6px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.75rem;
+  overflow-x: auto;
+  color: var(--mantine-color-dimmed);
+}
+
+.mdx-raw-inline code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.85em;
+  padding: 0.1em 0.3em;
+  border: 1px dashed var(--mantine-color-default-border);
+  border-radius: 4px;
+  color: var(--mantine-color-dimmed);
+}
+
 .form-field {
   display: flex;
   flex-direction: column;

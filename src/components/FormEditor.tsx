@@ -195,11 +195,13 @@ export function FormEditor(props: {
   }
 
   if (props.view === "body") {
-    // MDX bodies can hold JSX components that a rich-text round-trip would
-    // mangle, so only plain markdown files get the rich editor.
-    return /\.(md|markdown)$/i.test(props.path) ? (
+    // Rich editing for the markdown family (MDX mode adds import pills,
+    // component cards, and raw-JSX preservation); plain text for anything else.
+    return /\.(md|mdx|markdown)$/i.test(props.path) ? (
       <BodyEditor
         value={body}
+        path={props.path}
+        mdx={/\.mdx$/i.test(props.path)}
         root={props.root}
         media={props.config.media[0] ?? null}
         onChange={onBodyEdit}
