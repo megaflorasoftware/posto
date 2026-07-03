@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Modal } from "@mantine/core";
+import { Button, Modal } from "@mantine/core";
 
-import { assetUrl, invoke } from "../ipc";
+import { assetUrl, invoke, openPath } from "../ipc";
 import type { FileEntry } from "../ipc";
 import type { MediaEntry } from "../pagescms/config";
 import { mediaOutputPath } from "../pagescms/config";
@@ -70,6 +70,9 @@ export function ImagePicker(props: {
             })}
           </div>
         ))}
+      <Button fullWidth variant="light" mt="sm" onClick={() => void openPath(dir)}>
+        Open Media Folder
+      </Button>
     </Modal>
   );
 }

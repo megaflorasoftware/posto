@@ -1,5 +1,6 @@
 import { convertFileSrc, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { open as tauriOpen } from "@tauri-apps/plugin-dialog";
+import { openPath as tauriOpenPath } from "@tauri-apps/plugin-opener";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 
@@ -262,3 +263,8 @@ export const openDirectory: () => Promise<string | null> = inTauri
 export function assetUrl(absolutePath: string): string | null {
   return inTauri ? convertFileSrc(absolutePath) : null;
 }
+
+/** Open a path in the OS file manager; no-op outside Tauri. */
+export const openPath: (absolutePath: string) => Promise<void> = inTauri
+  ? tauriOpenPath
+  : async () => {};
