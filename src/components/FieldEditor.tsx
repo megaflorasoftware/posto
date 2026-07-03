@@ -1,5 +1,21 @@
 import { useState, type ReactNode } from "react";
 import { ActionIcon, Button, NumberInput, Select, Switch, Textarea, TextInput } from "@mantine/core";
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 import type { Field, PagesConfig } from "../pagescms/config";
 import { mediaInputPath, resolveMedia } from "../pagescms/config";
@@ -207,6 +223,29 @@ function remapAfterRemove(expanded: Set<number>, removed: number): Set<number> {
   return next;
 }
 
+/**
+ * One list row, draggable by its handle (dnd-kit sortable, the pattern
+ * Mantine's DnD examples use). Rows are identified by index: order only
+ * changes at drop time, so index ids stay stable for the whole drag.
+ */
+function SortableRow(props: { index: number; className: string; children: ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: String(props.index),
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`${props.className}${isDragging ? " dragging" : ""}`}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+    >
+      <span className="drag-handle" title="Drag to reorder" {...attributes} {...listeners}>
+        ⠿
+      </span>
+      {props.children}
+    </div>
+  );
+}
+
 function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
   const rawItems = props.ctx.value(props.path);
   const items = Array.isArray(rawItems) ? rawItems : [];
@@ -218,11 +257,19 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
   // Object-list items collapse to a summary row; existing items start
   // collapsed, newly added ones open for editing.
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
-  // Rows only become draggable while the pointer is down on their handle, so
-  // text selection inside expanded item fields keeps working.
-  const [dragArmed, setDragArmed] = useState<number | null>(null);
-  const [dragFrom, setDragFrom] = useState<number | null>(null);
-  const [dragOver, setDragOver] = useState<number | null>(null);
+
+  // Drags start from the handle only (and need 5px of travel), so text
+  // selection and clicks inside item fields keep working.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  function onDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    moveItem(Number(active.id), Number(over.id));
+  }
 
   function setItemExpanded(index: number, on: boolean) {
     setExpanded((current) => {
@@ -247,12 +294,6 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
   function moveItem(from: number, to: number) {
     props.ctx.listMove(props.path, from, to);
     setExpanded((current) => remapAfterMove(current, from, to));
-  }
-
-  function resetDrag() {
-    setDragArmed(null);
-    setDragFrom(null);
-    setDragOver(null);
   }
 
   function itemRecord(index: number): Record<string, unknown> {
@@ -290,46 +331,10 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
     return absolute ? assetUrl(absolute) : null;
   }
 
-  const dragHandle = (index: number) => (
-    <span
-      className="drag-handle"
-      title="Drag to reorder"
-      onMouseDown={() => setDragArmed(index)}
-      onMouseUp={() => setDragArmed(null)}
-    >
-      ⠿
-    </span>
-  );
-
-  const dragProps = (index: number) => ({
-    draggable: dragArmed === index,
-    onDragStart: (e: React.DragEvent) => {
-      setDragFrom(index);
-      e.dataTransfer.setData("text/plain", String(index));
-      e.dataTransfer.effectAllowed = "move";
-    },
-    onDragEnd: resetDrag,
-    onDragOver: (e: React.DragEvent) => {
-      if (dragFrom === null) return;
-      e.preventDefault();
-      setDragOver(index);
-    },
-    onDrop: (e: React.DragEvent) => {
-      e.preventDefault();
-      if (dragFrom !== null && dragFrom !== index) moveItem(dragFrom, index);
-      resetDrag();
-    },
-  });
-
   const objectRow = (index: number) => {
     const thumb = thumbSrc(index);
     return expanded.has(index) ? (
-      <div
-        key={index}
-        className={`list-item expanded-item${dragOver === index ? " drag-over" : ""}`}
-        {...dragProps(index)}
-      >
-        {dragHandle(index)}
+      <SortableRow key={index} index={index} className="list-item expanded-item">
         <div className="list-item-body">
           <FieldEditor field={itemField} path={[...props.path, index]} ctx={props.ctx} />
         </div>
@@ -344,14 +349,9 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
             ✓
           </ActionIcon>
         </div>
-      </div>
+      </SortableRow>
     ) : (
-      <div
-        key={index}
-        className={`list-item collapsed-item${dragOver === index ? " drag-over" : ""}`}
-        {...dragProps(index)}
-      >
-        {dragHandle(index)}
+      <SortableRow key={index} index={index} className="list-item collapsed-item">
         {imageChild &&
           (thumb ? (
             <img className="thumb" src={thumb} alt="" />
@@ -380,36 +380,16 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
             ✕
           </ActionIcon>
         </div>
-      </div>
+      </SortableRow>
     );
   };
 
   const scalarRow = (index: number) => (
-    <div key={index} className="list-item">
+    <SortableRow key={index} index={index} className="list-item scalar-item">
       <div className="list-item-body">
         <FieldEditor field={itemField} path={[...props.path, index]} ctx={props.ctx} />
       </div>
       <div className="list-item-actions">
-        <ActionIcon
-          variant="subtle"
-          color="gray"
-          size="sm"
-          disabled={index === 0}
-          title="Move up"
-          onClick={() => props.ctx.listMove(props.path, index, index - 1)}
-        >
-          ↑
-        </ActionIcon>
-        <ActionIcon
-          variant="subtle"
-          color="gray"
-          size="sm"
-          disabled={index === items.length - 1}
-          title="Move down"
-          onClick={() => props.ctx.listMove(props.path, index, index + 1)}
-        >
-          ↓
-        </ActionIcon>
         <ActionIcon
           variant="subtle"
           color="gray"
@@ -421,13 +401,20 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
           ✕
         </ActionIcon>
       </div>
-    </div>
+    </SortableRow>
   );
 
   return (
     <FieldShell field={props.field} path={props.path} ctx={props.ctx}>
       <div className="list-field">
-        {items.map((_item, index) => (isObjectList ? objectRow(index) : scalarRow(index)))}
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+          <SortableContext
+            items={items.map((_item, index) => String(index))}
+            strategy={verticalListSortingStrategy}
+          >
+            {items.map((_item, index) => (isObjectList ? objectRow(index) : scalarRow(index)))}
+          </SortableContext>
+        </DndContext>
         <Button
           size="xs"
           variant="default"

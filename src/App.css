@@ -305,13 +305,21 @@ body,
   color: var(--mantine-color-dimmed);
   user-select: none;
   -webkit-user-select: none;
+  touch-action: none;
   padding: 0.25rem 0.1rem;
   flex-shrink: 0;
+  border: none;
+  background: none;
+  outline-offset: 2px;
 }
 
-.list-item.drag-over {
+/* The row being dragged floats above its siblings while they shift around. */
+.list-item.dragging {
+  position: relative;
+  z-index: 1;
+  background: var(--mantine-color-body);
+  box-shadow: var(--mantine-shadow-md);
   border-color: var(--mantine-primary-color-filled);
-  background: var(--mantine-color-default-hover);
 }
 
 .thumb {
