@@ -457,7 +457,7 @@ function App() {
   );
 
   return (
-    <MantineProvider>
+    <MantineProvider defaultColorScheme="auto">
       <div className="app">
         <header className="navbar">
           <Button size="xs" variant="default" onClick={() => void chooseDirectory()}>

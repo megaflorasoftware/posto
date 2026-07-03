@@ -4,7 +4,16 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#000000" />
+    <meta name="color-scheme" content="light dark" />
     <title>Posto</title>
+    <!-- Resolve the system color scheme before first paint so a dark-mode
+         launch doesn't flash a light frame while React mounts. -->
+    <script>
+      document.documentElement.setAttribute(
+        "data-mantine-color-scheme",
+        window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
+      );
+    </script>
   </head>
 
   <body>
