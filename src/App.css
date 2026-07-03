@@ -169,7 +169,7 @@ body,
   font-size: 0.8rem;
 }
 
-/* Form/Raw tabs fill the editor pane; panels stretch to full height. */
+/* Fields/Body/Raw tabs fill the editor pane; panels stretch to full height. */
 .pane-tabs {
   flex: 1;
   min-height: 0;
@@ -358,22 +358,6 @@ body,
 .image-field .mantine-TextInput-root {
   flex: 1;
   min-width: 0;
-}
-
-.form-body {
-  flex: 1;
-  min-height: 12rem;
-  display: flex;
-  flex-direction: column;
-  border-top: 1px solid var(--mantine-color-default-border);
-}
-
-.form-body .field-label {
-  padding: 0.5rem 0.75rem 0;
-}
-
-.form-body-editor {
-  min-height: 10rem;
 }
 
 /* --- SEO / social previews. Cards keep fixed light colors to mimic the real

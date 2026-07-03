@@ -121,8 +121,8 @@ function App() {
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error" | "invalid">("saved");
   const [pagesConfig, setPagesConfig] = useState<PagesConfig | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
-  // "Raw" tab choice sticks for the session; Form is the default when available.
-  const [rawPreferred, setRawPreferred] = useState(false);
+  // Editor tab choice sticks for the session; Fields is the default when available.
+  const [editorTab, setEditorTab] = useState<"fields" | "body" | "raw">("fields");
   const [server, setServer] = useState<ServerStatus>({ state: "idle" });
   const [publishState, setPublishState] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
@@ -580,16 +580,22 @@ function App() {
                     ) : (
                       <Tabs
                         className="pane-tabs"
-                        value={rawPreferred ? "raw" : "form"}
-                        onChange={(value) => setRawPreferred(value === "raw")}
+                        value={editorTab}
+                        onChange={(value) => setEditorTab(value as typeof editorTab)}
                       >
                         <Tabs.List>
-                          <Tabs.Tab value="form">Form</Tabs.Tab>
+                          <Tabs.Tab value="fields">Fields</Tabs.Tab>
+                          <Tabs.Tab value="body">Body</Tabs.Tab>
                           <Tabs.Tab value="raw">Raw</Tabs.Tab>
                         </Tabs.List>
-                        <Tabs.Panel value="form">
+                        {editorTab === "raw" ? (
+                          rawEditor
+                        ) : (
+                          // One FormEditor spans the Fields and Body tabs so the
+                          // parsed document survives switching between them.
                           <FormEditor
                             key={filePath}
+                            view={editorTab}
                             content={fileContent}
                             entry={entry}
                             config={pagesConfig ?? EMPTY_CONFIG}
@@ -597,8 +603,7 @@ function App() {
                             groups={groups}
                             onChange={onFormEdit}
                           />
-                        </Tabs.Panel>
-                        <Tabs.Panel value="raw">{rawEditor}</Tabs.Panel>
+                        )}
                       </Tabs>
                     )}
                   </>

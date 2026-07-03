@@ -34,6 +34,8 @@ function plainValues(parsed: ParsedFile): Record<string, unknown> {
  */
 export function FormEditor(props: {
   content: string;
+  /** Which half of the form to show: frontmatter fields or the body editor. */
+  view: "fields" | "body";
   /** null for markdown files without a schema — fields are inferred from the
    * frontmatter's shape instead, with no validation. */
   entry: ContentEntry | null;
@@ -189,21 +191,23 @@ export function FormEditor(props: {
     );
   }
 
+  if (props.view === "body") {
+    return (
+      <textarea
+        className="editor"
+        spellCheck={false}
+        value={body}
+        onChange={(e) => onBodyEdit(e.currentTarget.value)}
+      />
+    );
+  }
+
   return (
     <div className="form-editor">
       <div className="form-fields">
         {fields.map((field) => (
           <FieldEditor key={field.name} field={field} path={[field.name]} ctx={ctx} />
         ))}
-      </div>
-      <div className="form-body">
-        <label className="field-label">Body</label>
-        <textarea
-          className="editor form-body-editor"
-          spellCheck={false}
-          value={body}
-          onChange={(e) => onBodyEdit(e.currentTarget.value)}
-        />
       </div>
     </div>
   );
