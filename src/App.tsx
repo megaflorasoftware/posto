@@ -341,6 +341,16 @@ function App() {
     }
   }
 
+  async function restartServer(dir: string) {
+    setServer({ state: "starting" });
+    try {
+      await invoke("stop_dev_server");
+    } catch {
+      // Best effort — an already-dead server shouldn't block the restart.
+    }
+    void startServer(dir);
+  }
+
   async function loadPagesConfig(dir: string) {
     setPagesConfig(null);
     setConfigError(null);
@@ -623,6 +633,17 @@ function App() {
               />
 
               <div className="pane preview-pane">
+                <div className="pane-header">
+                  <span className="pane-title">{previewRoute}</span>
+                  <Button
+                    size="xs"
+                    variant="default"
+                    disabled={server.state === "installing" || server.state === "starting"}
+                    onClick={() => void restartServer(root)}
+                  >
+                    Restart Preview
+                  </Button>
+                </div>
                 <Tabs className="pane-tabs" defaultValue="site">
                   <Tabs.List>
                     <Tabs.Tab value="site">Preview</Tabs.Tab>

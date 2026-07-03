@@ -132,6 +132,9 @@ body,
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* 30px = Mantine xs button height (preview header), so headers without
+     a button stay the same height as those with one. */
+  min-height: calc(30px + 2 * 0.35rem + 1px);
   padding: 0.35rem 0.75rem;
   border-bottom: 1px solid var(--mantine-color-default-border);
   font-size: 0.8rem;
