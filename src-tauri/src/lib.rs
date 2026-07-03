@@ -672,14 +672,38 @@ fn run_git(root: &str, args: &[&str]) -> Result<String, String> {
     }
 }
 
+#[derive(Serialize)]
+struct ChangedFile {
+    /// Porcelain XY status collapsed to one code: "M", "A", "D", "R", "??", ...
+    status: String,
+    path: String,
+}
+
 #[tauri::command]
-async fn publish(root: String) -> Result<String, String> {
+fn changed_files(root: String) -> Result<Vec<ChangedFile>, String> {
+    let output = run_git(&root, &["status", "--porcelain"])?;
+    Ok(output
+        .lines()
+        .filter(|line| line.len() > 3)
+        .map(|line| ChangedFile {
+            status: line[..2].trim().to_string(),
+            path: line[3..].to_string(),
+        })
+        .collect())
+}
+
+#[tauri::command]
+async fn publish(root: String, message: Option<String>) -> Result<String, String> {
     run_git(&root, &["add", "-A"])?;
     let status = run_git(&root, &["status", "--porcelain"])?;
     if status.trim().is_empty() {
         return Ok("Nothing to publish — no local changes.".to_string());
     }
-    run_git(&root, &["commit", "-m", "Site updates"])?;
+    let message = message
+        .map(|m| m.trim().to_string())
+        .filter(|m| !m.is_empty())
+        .unwrap_or_else(|| "Site updates".to_string());
+    run_git(&root, &["commit", "-m", &message])?;
     run_git(&root, &["push", "origin", "HEAD"])?;
     Ok("Published.".to_string())
 }
@@ -821,6 +845,7 @@ pub fn run() {
             install_dependencies,
             get_last_root,
             set_last_root,
+            changed_files,
             publish
         ])
         .build(tauri::generate_context!())

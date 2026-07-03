@@ -16,6 +16,12 @@ export interface FileGroup {
   files: FileEntry[];
 }
 
+export interface ChangedFile {
+  /** Git porcelain status collapsed to one code: "M", "A", "D", "R", "??", … */
+  status: string;
+  path: string;
+}
+
 // Browser-only mock so the UI can be developed and tested outside the Tauri
 // shell (invoke/dialog are unavailable there).
 const mockFiles: Record<string, string> = {
@@ -165,6 +171,12 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       ].join("");
     case "stop_dev_server":
       return null;
+    case "changed_files":
+      return [
+        { status: "M", path: "src/blog/with-slug.mdx" },
+        { status: "??", path: "src/blog/new-post.mdx" },
+        { status: "D", path: "src/blog/retired.mdx" },
+      ];
     case "publish":
       return "Published (mock).";
     case "get_last_route":

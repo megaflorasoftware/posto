@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, Loader, MantineProvider, Tabs } from "@mantine/core";
+import { Alert, Badge, Button, Loader, MantineProvider, Modal, Tabs, TextInput } from "@mantine/core";
 import { invoke, openDirectory } from "./ipc";
-import type { FileEntry, FileGroup } from "./ipc";
+import type { ChangedFile, FileEntry, FileGroup } from "./ipc";
 import { EMPTY_CONFIG, matchEntry, parsePagesConfig, type PagesConfig } from "./pagescms/config";
 import { parseFile } from "./pagescms/frontmatter";
 import { FormEditor } from "./components/FormEditor";
@@ -16,6 +16,9 @@ type ServerStatus =
   | { state: "starting" }
   | { state: "running"; port: number }
   | { state: "error"; message: string };
+
+// Must match the backend's fallback commit message in publish().
+const DEFAULT_COMMIT_MESSAGE = "Site updates";
 
 const AUTOSAVE_DELAY_MS = 800;
 const PING_INTERVAL_MS = 500;
@@ -73,6 +76,22 @@ function sidebarTitle(path: string, content: string): string | null {
   return null;
 }
 
+function statusBadge(status: string): { label: string; color: string } {
+  if (status === "??") return { label: "new", color: "green" };
+  switch (status[0]) {
+    case "M":
+      return { label: "modified", color: "yellow" };
+    case "A":
+      return { label: "added", color: "green" };
+    case "D":
+      return { label: "deleted", color: "red" };
+    case "R":
+      return { label: "renamed", color: "blue" };
+    default:
+      return { label: status, color: "gray" };
+  }
+}
+
 function FileList(props: {
   files: FileEntry[];
   activePath: string | null;
@@ -106,6 +125,11 @@ function App() {
   const [rawPreferred, setRawPreferred] = useState(false);
   const [server, setServer] = useState<ServerStatus>({ state: "idle" });
   const [publishState, setPublishState] = useState<string | null>(null);
+  const [publishOpen, setPublishOpen] = useState(false);
+  // null while the modal is loading the change list.
+  const [changes, setChanges] = useState<ChangedFile[] | null>(null);
+  const [changesError, setChangesError] = useState<string | null>(null);
+  const [commitMessage, setCommitMessage] = useState(DEFAULT_COMMIT_MESSAGE);
   // While the split divider is being dragged, the preview iframe must not
   // receive pointer events or it swallows the drag mid-motion.
   const [dragging, setDragging] = useState(false);
@@ -375,13 +399,29 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function publish() {
+  async function openPublishModal() {
+    const dir = rootRef.current;
+    if (!dir) return;
+    // Pending edits must hit disk before git status, or they won't show.
+    flushPendingSave();
+    setChanges(null);
+    setChangesError(null);
+    setCommitMessage(DEFAULT_COMMIT_MESSAGE);
+    setPublishOpen(true);
+    try {
+      setChanges(await invoke<ChangedFile[]>("changed_files", { root: dir }));
+    } catch (e) {
+      setChangesError(String(e));
+    }
+  }
+
+  async function publish(message: string) {
     const dir = rootRef.current;
     if (!dir) return;
     flushPendingSave();
     setPublishState("Publishing…");
     try {
-      setPublishState(await invoke<string>("publish", { root: dir }));
+      setPublishState(await invoke<string>("publish", { root: dir, message }));
     } catch (e) {
       setPublishState(`Publish failed: ${e}`);
     }
@@ -424,10 +464,60 @@ function App() {
             {root ? rootName : "Choose directory"}
           </Button>
           <span className="navbar-status">{publishState}</span>
-          <Button size="xs" disabled={!root} onClick={() => void publish()}>
-            Publish
+          <Button size="xs" disabled={!root} onClick={() => void openPublishModal()}>
+            Publish…
           </Button>
         </header>
+
+        <Modal
+          opened={publishOpen}
+          onClose={() => setPublishOpen(false)}
+          title="Publish changes"
+        >
+          {changesError !== null ? (
+            <Alert color="red">Could not read changes: {changesError}</Alert>
+          ) : changes === null ? (
+            <div className="publish-loading">
+              <Loader size="sm" />
+            </div>
+          ) : changes.length === 0 ? (
+            <div className="publish-empty">No changes to publish.</div>
+          ) : (
+            <div className="publish-list">
+              {changes.map((file) => {
+                const badge = statusBadge(file.status);
+                return (
+                  <div key={file.path} className="publish-item">
+                    <Badge size="sm" variant="light" color={badge.color}>
+                      {badge.label}
+                    </Badge>
+                    <span className="publish-path" title={file.path}>
+                      {file.path}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <TextInput
+            mt="md"
+            size="xs"
+            label="Commit message"
+            value={commitMessage}
+            onChange={(e) => setCommitMessage(e.currentTarget.value)}
+          />
+          <Button
+            fullWidth
+            mt="md"
+            disabled={changes === null || changes.length === 0 || commitMessage.trim() === ""}
+            onClick={() => {
+              setPublishOpen(false);
+              void publish(commitMessage.trim());
+            }}
+          >
+            Publish
+          </Button>
+        </Modal>
 
         {!root ? (
           <div className="empty-state">

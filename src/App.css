@@ -611,6 +611,45 @@ body,
   font-size: 0.85rem;
 }
 
+.publish-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.publish-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.publish-item .mantine-Badge-root {
+  flex-shrink: 0;
+  width: 5.5rem;
+}
+
+.publish-path {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.publish-loading {
+  display: flex;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.publish-empty {
+  color: var(--mantine-color-dimmed);
+  font-size: 0.85rem;
+}
+
 .pane-placeholder {
   flex: 1;
   display: flex;
