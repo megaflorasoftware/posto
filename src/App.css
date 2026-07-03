@@ -301,6 +301,8 @@ body,
 }
 
 .drag-handle {
+  display: inline-flex;
+  align-items: center;
   cursor: grab;
   color: var(--mantine-color-dimmed);
   user-select: none;

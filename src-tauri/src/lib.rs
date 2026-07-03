@@ -821,6 +821,11 @@ mod tests {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Apps launched from Finder get launchd's minimal PATH, so the preview
+    // pane's dev server can't find node/npx. Recover the login shell's PATH.
+    if let Err(e) = fix_path_env::fix() {
+        eprintln!("failed to fix PATH: {e}");
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())

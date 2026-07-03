@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { ActionIcon, Button, NumberInput, Select, Switch, Textarea, TextInput } from "@mantine/core";
+import { Check, GripVertical, Image, Pencil, X } from "lucide-react";
 import {
   closestCenter,
   DndContext,
@@ -239,7 +240,7 @@ function SortableRow(props: { index: number; className: string; children: ReactN
       style={{ transform: CSS.Transform.toString(transform), transition }}
     >
       <span className="drag-handle" title="Drag to reorder" {...attributes} {...listeners}>
-        ⠿
+        <GripVertical size={14} />
       </span>
       {props.children}
     </div>
@@ -346,7 +347,7 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
             title="Done"
             onClick={() => setItemExpanded(index, false)}
           >
-            ✓
+            <Check size={14} />
           </ActionIcon>
         </div>
       </SortableRow>
@@ -356,7 +357,9 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
           (thumb ? (
             <img className="thumb" src={thumb} alt="" />
           ) : (
-            <span className="thumb thumb-placeholder">🖼</span>
+            <span className="thumb thumb-placeholder">
+              <Image size={16} />
+            </span>
           ))}
         <span className="item-summary">{itemSummary(index)}</span>
         <div className="list-item-actions">
@@ -367,7 +370,7 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
             title="Edit"
             onClick={() => setItemExpanded(index, true)}
           >
-            ✎
+            <Pencil size={14} />
           </ActionIcon>
           <ActionIcon
             variant="subtle"
@@ -377,7 +380,7 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
             title="Remove"
             onClick={() => removeItem(index)}
           >
-            ✕
+            <X size={14} />
           </ActionIcon>
         </div>
       </SortableRow>
@@ -398,7 +401,7 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
           title="Remove"
           onClick={() => removeItem(index)}
         >
-          ✕
+          <X size={14} />
         </ActionIcon>
       </div>
     </SortableRow>
@@ -447,7 +450,7 @@ function ImageField(props: { field: Field; path: ValuePath; ctx: FieldContext })
           title="Clear"
           onClick={() => props.ctx.edit(props.path, undefined)}
         >
-          ✕
+          <X size={14} />
         </ActionIcon>
       )}
       {pickerOpen && media && (
