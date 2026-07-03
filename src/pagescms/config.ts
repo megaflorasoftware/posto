@@ -285,6 +285,17 @@ export function resolveMedia(config: PagesConfig, field: Field): MediaEntry | nu
  * output path stored in content (e.g. input `public`, output `/`,
  * `<root>/public/og.png` → `/og.png`).
  */
+/**
+ * Output prefixes are compared with a leading slash and no trailing slash
+ * ("src/media" ≡ "/src/media"; "/" ≡ ""), matching how Pages CMS writes
+ * values regardless of how the config spells the output path.
+ */
+function normalizedOutput(media: MediaEntry): string {
+  const trimmed = media.output.replace(/\/+$/, "");
+  if (trimmed === "") return "";
+  return trimmed.startsWith("/") ? trimmed : "/" + trimmed;
+}
+
 export function mediaOutputPath(
   root: string,
   media: MediaEntry,
@@ -293,8 +304,7 @@ export function mediaOutputPath(
   const inputDir = root + "/" + media.input + "/";
   if (!absolutePath.startsWith(inputDir)) return null;
   const rel = absolutePath.slice(inputDir.length);
-  const output = media.output.replace(/\/+$/, "");
-  return output + "/" + rel;
+  return normalizedOutput(media) + "/" + rel;
 }
 
 /** Inverse of {@link mediaOutputPath}: public output path → absolute file path. */
@@ -303,7 +313,8 @@ export function mediaInputPath(
   media: MediaEntry,
   outputPath: string,
 ): string | null {
-  const output = media.output.replace(/\/+$/, "");
-  if (!outputPath.startsWith(output + "/")) return null;
-  return root + "/" + media.input + "/" + outputPath.slice(output.length + 1);
+  const output = normalizedOutput(media);
+  const value = outputPath.startsWith("/") ? outputPath : "/" + outputPath;
+  if (!value.startsWith(output + "/")) return null;
+  return root + "/" + media.input + "/" + value.slice(output.length + 1);
 }

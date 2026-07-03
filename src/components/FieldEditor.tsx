@@ -291,7 +291,9 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
     }
     for (const child of props.field.fields ?? []) {
       const value = record[child.name];
-      if (typeof value === "string" && value.trim() !== "") return value;
+      if (typeof value === "string" && value.trim() !== "") {
+        return child.type === "reference" ? referenceLabel(props.ctx, value) : value;
+      }
       if (typeof value === "number") return String(value);
     }
     return `Item ${index + 1}`;
@@ -509,6 +511,20 @@ function ImageField(props: { field: Field; path: ValuePath; ctx: FieldContext })
       </Show>
     </div>
   );
+}
+
+/**
+ * Display label for a stored reference value (a repo-root-relative file
+ * path): the target file's frontmatter title, else its filename, else the
+ * raw value when the file isn't among the listed groups.
+ */
+function referenceLabel(ctx: FieldContext, value: string): string {
+  const path = ctx.root + "/" + value;
+  for (const group of ctx.groups) {
+    const file = group.files.find((f) => f.path === path);
+    if (file) return file.title ?? file.name;
+  }
+  return value;
 }
 
 function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContext }) {

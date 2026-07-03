@@ -40,6 +40,14 @@ const mockFiles: Record<string, string> = {
     "        fields:",
     "          - { name: src, label: Image, type: image }",
     "          - { name: alt, label: Description, type: string }",
+    "      - { name: related, label: Related post, type: reference, options: { collection: blog } }",
+    "      - { name: see_also, label: See also, type: reference, list: true, options: { collection: blog } }",
+    "      - name: works",
+    "        label: Works (in descending order)",
+    "        type: object",
+    "        list: true",
+    "        fields:",
+    "          - { name: src, label: Work, type: reference, options: { collection: blog } }",
     "      - { name: body, label: Body, type: rich-text }",
     "",
   ].join("\n"),
@@ -48,7 +56,7 @@ const mockFiles: Record<string, string> = {
     "---\ntitle: First post\npublished: true\ncount: 3\ntags:\n  - alpha\n  - beta\nauthor:\n  name: Henry\n  email: h@example.com\nlinks:\n  - label: Home\n    url: /\n  - label: About\n    url: /about\n---\n\nHello world.\n",
   "/mock/site/notes.txt": "Some notes.\n",
   "/mock/site/src/blog/with-slug.mdx":
-    "---\ntitle: X\nslug: custom-slug\nimages:\n  - src: /public/images/photo.jpg\n    alt: A photo\n  - src: /public/images/nested/logo.png\n    alt: The logo\n---\n\nBody.\n",
+    "---\ntitle: X\nslug: custom-slug\nrelated: src/blog/no-slug.mdx\nsee_also:\n  - src/blog/no-slug.mdx\nworks:\n  - src: src/blog/no-slug.mdx\n  - src: src/blog/with-slug.mdx\nimages:\n  - src: /public/images/photo.jpg\n    alt: A photo\n  - src: /public/images/nested/logo.png\n    alt: The logo\n---\n\nBody.\n",
   "/mock/site/src/blog/no-slug.mdx": "---\ntitle: Y\n---\n\nBody.\n",
 };
 
