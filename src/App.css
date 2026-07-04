@@ -223,7 +223,7 @@ body,
 .pane-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 0.5rem;
   /* 30px = Mantine xs button height (preview header), so headers without
      a button stay the same height as those with one. */
   min-height: calc(30px + 2 * 0.35rem + 1px);
@@ -234,6 +234,8 @@ body,
 
 .pane-title {
   font-weight: 600;
+  /* Pushes whatever follows (save state, schema badge, buttons) to the right. */
+  margin-right: auto;
 }
 
 .save-state {

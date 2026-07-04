@@ -15,6 +15,7 @@ import { invoke, openDirectory } from "./ipc";
 import type { ChangedFile, FileEntry, FileGroup } from "./ipc";
 import {
   EMPTY_CONFIG,
+  matchCollectionForDir,
   matchEntry,
   parsePagesConfig,
   type Field,
@@ -708,6 +709,38 @@ function App() {
   const entrySource =
     entry === null ? null : astroConfig?.content.includes(entry) ? "astro" : "pages";
 
+  // Sidebar groups: loose root files stay at the very top, then groups whose
+  // directory belongs to a defined collection — taking that collection's
+  // label and sorting alphabetically regardless of schema source — and plain
+  // directory groups follow in backend order.
+  const displayGroups = useMemo(() => {
+    if (!root || !config) return groups;
+    return groups
+      .map((group, original) => {
+        const collection = group.label ? matchCollectionForDir(config, root, group.path) : null;
+        const exact = collection !== null && group.path === root + "/" + collection.path;
+        return {
+          // Subfolder groups of a collection sort with it but keep their
+          // directory label, so nested dirs stay distinguishable.
+          group: exact ? { ...group, label: collection.label ?? collection.name } : group,
+          tier: !group.label ? 0 : collection ? 1 : 2,
+          collectionLabel: collection ? (collection.label ?? collection.name) : "",
+          exact,
+          original,
+        };
+      })
+      .sort(
+        (a, b) =>
+          a.tier - b.tier ||
+          a.collectionLabel.localeCompare(b.collectionLabel, undefined, {
+            sensitivity: "base",
+          }) ||
+          Number(b.exact) - Number(a.exact) ||
+          a.original - b.original,
+      )
+      .map((d) => d.group);
+  }, [groups, config, root]);
+
   // Markdown files always get a Form tab: schema-driven when a content entry
   // matches, otherwise with fields inferred from the frontmatter's shape.
   const showForm = entry !== null || /\.(md|mdx|markdown)$/i.test(filePath ?? "");
@@ -803,7 +836,7 @@ function App() {
         ) : (
           <div className="body">
             <aside className="sidebar">
-              {groups.map((group) =>
+              {displayGroups.map((group) =>
                 group.label ? (
                   <details key={group.path} open>
                     <summary>
@@ -853,21 +886,6 @@ function App() {
                   <>
                     <div className="pane-header">
                       <span className="pane-title">{fileName}</span>
-                      {entry && (
-                        <Badge
-                          size="sm"
-                          variant="light"
-                          color={entrySource === "astro" ? "grape" : "blue"}
-                          title={
-                            entrySource === "astro"
-                              ? "Schema from Astro content collections"
-                              : "Schema from .pages.yml"
-                          }
-                        >
-                          {entrySource === "astro" ? "Astro" : ".pages.yml"} ·{" "}
-                          {entry.label ?? entry.name}
-                        </Badge>
-                      )}
                       <span
                         className={`save-state${
                           saveState === "error" || saveState === "invalid" ? " error" : ""
@@ -881,6 +899,20 @@ function App() {
                               ? "Not saved — fix errors"
                               : "Save failed"}
                       </span>
+                      {entry && (
+                        <Badge
+                          size="sm"
+                          variant="light"
+                          color={entrySource === "astro" ? "grape" : "blue"}
+                          title={
+                            entrySource === "astro"
+                              ? "Schema from Astro content collections"
+                              : "Schema from .pages.yml"
+                          }
+                        >
+                          {entrySource === "astro" ? "Astro" : ".pages.yml"}
+                        </Badge>
+                      )}
                     </div>
                     {configError && (
                       <Alert color="yellow" className="config-error">
