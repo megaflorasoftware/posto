@@ -27,7 +27,7 @@ import {
   parseLoaderConfig,
   type LoaderInfo,
 } from "./astro/collections";
-import { parseFile } from "./pagescms/frontmatter";
+import { parseFile, type ParsedFile } from "./pagescms/frontmatter";
 import { FormEditor } from "./components/FormEditor";
 import { NewFileModal } from "./components/NewFileModal";
 import { SeoPreview } from "./components/SeoPreview";
@@ -101,6 +101,16 @@ function sidebarTitle(path: string, content: string): string | null {
   if (typeof value === "string" && value.trim() !== "") return value;
   if (typeof value === "number") return String(value);
   return null;
+}
+
+// Whether the Fields tab would have anything to show: a matched schema entry,
+// or existing frontmatter to infer fields from. A broken frontmatter block
+// still counts — FormEditor's YAML-error alert explains it.
+function contentHasFields(entry: unknown, parsed: ParsedFile): boolean {
+  if (entry !== null) return true;
+  if (parsed.hadFrontmatter && parsed.error) return true;
+  const values: unknown = parsed.doc.toJS();
+  return !!values && typeof values === "object" && Object.keys(values).length > 0;
 }
 
 function statusBadge(status: string): { label: string; color: string } {
@@ -364,6 +374,22 @@ function App() {
       setFileContent(content);
       fileContentRef.current = content;
       setSaveState("saved");
+      // On opening a markdown file, keep the last selected tab when it has
+      // content to show, otherwise fall over to the tab that does: no fields
+      // → Body; empty body but fields present → Fields. Raw stays sticky.
+      if (/\.(md|mdx|markdown)$/i.test(path)) {
+        const dir = rootRef.current;
+        const cfg = configRef.current;
+        const openedEntry = dir && cfg ? matchEntry(cfg, dir, path) : null;
+        const parsed = parseFile(content);
+        const hasFields = contentHasFields(openedEntry, parsed);
+        const hasBody = parsed.body.trim() !== "";
+        setEditorTab((last) => {
+          if (last === "fields" && !hasFields) return "body";
+          if (last === "body" && !hasBody && hasFields) return "fields";
+          return last;
+        });
+      }
       if (navigatePreview) {
         const route = routeForFile(path, content);
         if (route && route !== previewRouteRef.current && (await routeIsServable(route))) {
@@ -743,6 +769,8 @@ function App() {
       content: [...(pagesConfig?.content ?? []), ...(astroConfig?.content ?? [])],
     };
   }, [pagesConfig, astroConfig]);
+  const configRef = useRef(config);
+  configRef.current = config;
 
   // Content entry describing the open file's fields, if any.
   const entry = useMemo(() => {
@@ -790,17 +818,12 @@ function App() {
   // matches, otherwise with fields inferred from the frontmatter's shape.
   const showForm = entry !== null || /\.(md|mdx|markdown)$/i.test(filePath ?? "");
 
-  // Whether the Fields tab has anything to show: a schema entry, or existing
-  // frontmatter to infer fields from. README-style files (no schema, no
-  // frontmatter) hide the tab and land on Body instead. A broken frontmatter
-  // block still counts — FormEditor's YAML-error alert explains it.
+  // Whether the Fields tab has anything to show. README-style files (no
+  // schema, no frontmatter) hide the tab and land on Body instead.
   const hasFields = useMemo(() => {
     if (entry !== null) return true;
     if (!showForm) return false;
-    const parsed = parseFile(fileContent);
-    if (parsed.hadFrontmatter && parsed.error) return true;
-    const values: unknown = parsed.doc.toJS();
-    return !!values && typeof values === "object" && Object.keys(values).length > 0;
+    return contentHasFields(null, parseFile(fileContent));
   }, [entry, showForm, fileContent]);
 
   // The sticky tab choice, remapped while Fields is hidden; the state keeps
