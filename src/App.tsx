@@ -745,6 +745,23 @@ function App() {
   // matches, otherwise with fields inferred from the frontmatter's shape.
   const showForm = entry !== null || /\.(md|mdx|markdown)$/i.test(filePath ?? "");
 
+  // Whether the Fields tab has anything to show: a schema entry, or existing
+  // frontmatter to infer fields from. README-style files (no schema, no
+  // frontmatter) hide the tab and land on Body instead. A broken frontmatter
+  // block still counts — FormEditor's YAML-error alert explains it.
+  const hasFields = useMemo(() => {
+    if (entry !== null) return true;
+    if (!showForm) return false;
+    const parsed = parseFile(fileContent);
+    if (parsed.hadFrontmatter && parsed.error) return true;
+    const values: unknown = parsed.doc.toJS();
+    return !!values && typeof values === "object" && Object.keys(values).length > 0;
+  }, [entry, showForm, fileContent]);
+
+  // The sticky tab choice, remapped while Fields is hidden; the state keeps
+  // "fields" so schema-backed files still open on their form.
+  const activeTab = !hasFields && editorTab === "fields" ? "body" : editorTab;
+
   const rawEditor = (
     <textarea
       className="editor"
@@ -926,15 +943,15 @@ function App() {
                     ) : (
                       <Tabs
                         className="pane-tabs"
-                        value={editorTab}
+                        value={activeTab}
                         onChange={(value) => setEditorTab(value as typeof editorTab)}
                       >
                         <Tabs.List>
-                          <Tabs.Tab value="fields">Fields</Tabs.Tab>
+                          {hasFields && <Tabs.Tab value="fields">Fields</Tabs.Tab>}
                           <Tabs.Tab value="body">Body</Tabs.Tab>
                           <Tabs.Tab value="raw">Raw</Tabs.Tab>
                         </Tabs.List>
-                        {editorTab === "raw" ? (
+                        {activeTab === "raw" ? (
                           rawEditor
                         ) : (
                           // One FormEditor spans the Fields and Body tabs so the
@@ -942,7 +959,7 @@ function App() {
                           <FormEditor
                             key={filePath}
                             path={filePath}
-                            view={editorTab}
+                            view={activeTab}
                             content={fileContent}
                             entry={entry}
                             config={config ?? EMPTY_CONFIG}
