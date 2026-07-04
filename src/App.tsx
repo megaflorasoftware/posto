@@ -11,7 +11,7 @@ import {
   TextInput,
 } from "@mantine/core";
 import { ChevronDown, Plus, Undo2, X } from "lucide-react";
-import { invoke, openDirectory } from "./ipc";
+import { invoke, onFsChanged, openDirectory } from "./ipc";
 import type { ChangedFile, FileEntry, FileGroup } from "./ipc";
 import {
   EMPTY_CONFIG,
@@ -540,6 +540,7 @@ function App() {
     await refreshGroups(dir);
     void startServer(dir);
     void invoke("set_last_root", { root: dir });
+    void invoke("watch_root", { root: dir });
   }
 
   async function onFileCreated(path: string) {
@@ -559,10 +560,53 @@ function App() {
     if (typeof dir === "string") void selectRoot(dir);
   }
 
+  // Files changed outside the app (other editors, git, `astro sync`, …):
+  // refresh whatever the paths affect. Our own saves also echo through here,
+  // but resolve to no-ops (content already matches).
+  function onExternalChanges(paths: string[]) {
+    const dir = rootRef.current;
+    if (!dir) return;
+    void refreshGroups(dir);
+    if (paths.includes(dir + "/.pages.yml")) void loadPagesConfig(dir);
+    if (
+      paths.some(
+        (p) =>
+          p.startsWith(dir + "/.astro/collections") ||
+          p === dir + "/src/content.config.ts" ||
+          p === dir + "/src/content/config.ts",
+      )
+    ) {
+      void loadAstroConfig(dir);
+    }
+    const open = filePathRef.current;
+    // Reload the open file only while no local edit is pending — the user's
+    // in-progress changes must never be clobbered by an external write.
+    if (open && paths.includes(open) && saveTimer.current === undefined) {
+      void (async () => {
+        let content: string;
+        try {
+          content = await invoke<string>("read_text_file", { path: open });
+        } catch {
+          return; // deleted externally; the refreshed sidebar reflects it
+        }
+        if (
+          filePathRef.current === open &&
+          saveTimer.current === undefined &&
+          content !== fileContentRef.current
+        ) {
+          setFileContent(content);
+          fileContentRef.current = content;
+          setSaveState("saved");
+        }
+      })();
+    }
+  }
+
   useEffect(() => {
     const stopDragging = () => setDragging(false);
     window.addEventListener("pointerup", stopDragging);
     window.addEventListener("pointercancel", stopDragging);
+    const unlistenFs = onFsChanged(onExternalChanges);
     void (async () => {
       const last = await invoke<string | null>("get_last_root");
       if (last && !rootRef.current) void selectRoot(last);
@@ -570,6 +614,7 @@ function App() {
     return () => {
       window.removeEventListener("pointerup", stopDragging);
       window.removeEventListener("pointercancel", stopDragging);
+      unlistenFs();
       clearTimeout(saveTimer.current);
       clearInterval(pingTimer.current);
     };

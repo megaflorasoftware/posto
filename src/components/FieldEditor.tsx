@@ -160,6 +160,11 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
           <Select
             size="xs"
             clearable={!field.required}
+            searchable
+            // Large option sets (e.g. icon-name enums) would render thousands
+            // of dropdown items; cap what's shown and let search narrow it.
+            limit={50}
+            nothingFoundMessage="No matches"
             data={selectValues(field)}
             value={asString(value) || null}
             onChange={(raw) => editText(raw ?? "")}

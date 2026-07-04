@@ -40,6 +40,19 @@ function validateScalar(field: Field, value: unknown, key: string, errors: Error
     }
   }
   const options = field.options ?? {};
+  // A select's value must be one of its options (zod enums enforce this at
+  // build time; the dropdown only constrains *new* input, not existing data).
+  if (field.type === "select" && Array.isArray(options.values)) {
+    const allowed = options.values.map((v) =>
+      v && typeof v === "object"
+        ? String((v as Record<string, unknown>).value ?? (v as Record<string, unknown>).name ?? "")
+        : String(v),
+    );
+    if (!allowed.includes(String(value))) {
+      errors.set(key, `${fieldLabel(field)} must be one of the allowed options`);
+      return;
+    }
+  }
   if (typeof value === "string") {
     const minlength = options.minlength;
     const maxlength = options.maxlength;

@@ -1,4 +1,5 @@
 import { convertFileSrc, invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open as tauriOpen } from "@tauri-apps/plugin-dialog";
 import { openPath as tauriOpenPath } from "@tauri-apps/plugin-opener";
 
@@ -341,6 +342,8 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     }
     case "revert_file":
       return null;
+    case "watch_root":
+      return null;
     case "needs_install":
       return false;
     case "install_dependencies":
@@ -408,3 +411,16 @@ export function assetUrl(absolutePath: string): string | null {
 export const openPath: (absolutePath: string) => Promise<void> = inTauri
   ? tauriOpenPath
   : async () => {};
+
+/**
+ * Subscribes to the backend's debounced `fs-changed` events (absolute paths
+ * touched outside or inside the app). Returns an unsubscribe function; no-op
+ * outside Tauri, where there is no real filesystem to watch.
+ */
+export function onFsChanged(handler: (paths: string[]) => void): () => void {
+  if (!inTauri) return () => {};
+  const unlisten = listen<string[]>("fs-changed", (event) => handler(event.payload));
+  return () => {
+    void unlisten.then((fn) => fn());
+  };
+}
