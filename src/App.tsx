@@ -13,7 +13,19 @@ import {
 import { ChevronDown, Plus, Undo2, X } from "lucide-react";
 import { invoke, openDirectory } from "./ipc";
 import type { ChangedFile, FileEntry, FileGroup } from "./ipc";
-import { EMPTY_CONFIG, matchEntry, parsePagesConfig, type PagesConfig } from "./pagescms/config";
+import {
+  EMPTY_CONFIG,
+  matchEntry,
+  parsePagesConfig,
+  type Field,
+  type PagesConfig,
+} from "./pagescms/config";
+import {
+  buildAstroConfig,
+  parseCollectionSchema,
+  parseLoaderConfig,
+  type LoaderInfo,
+} from "./astro/collections";
 import { parseFile } from "./pagescms/frontmatter";
 import { FormEditor } from "./components/FormEditor";
 import { NewFileModal } from "./components/NewFileModal";
@@ -202,6 +214,9 @@ function App() {
   const [fileContent, setFileContent] = useState("");
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error" | "invalid">("saved");
   const [pagesConfig, setPagesConfig] = useState<PagesConfig | null>(null);
+  // Fallback schemas derived from Astro content collections; `.pages.yml`
+  // entries take precedence when both describe a folder.
+  const [astroConfig, setAstroConfig] = useState<PagesConfig | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
   // Editor tab choice sticks for the session; Fields is the default when available.
   const [editorTab, setEditorTab] = useState<"fields" | "body" | "raw">("fields");
@@ -297,6 +312,9 @@ function App() {
       // Editing the schema itself must re-parse it, or forms keep the old one.
       const dir = rootRef.current;
       if (dir && path === dir + "/.pages.yml") void loadPagesConfig(dir);
+      if (dir && (path === dir + "/src/content.config.ts" || path === dir + "/src/content/config.ts")) {
+        void loadAstroConfig(dir);
+      }
     } catch {
       setSaveState("error");
     }
@@ -459,6 +477,44 @@ function App() {
     }
   }
 
+  // Astro projects generate a JSON Schema per content collection under
+  // `.astro/collections/` (kept fresh by the dev server posto runs). Those
+  // become fallback form schemas for folders `.pages.yml` doesn't cover.
+  async function loadAstroConfig(dir: string) {
+    setAstroConfig(null);
+    let listed: { name: string; path: string }[];
+    try {
+      listed = await invoke<{ name: string; path: string }[]>("list_dir_files", {
+        dir: dir + "/.astro/collections",
+        extensions: ["json"],
+      });
+    } catch {
+      return; // not an Astro project, or `astro sync` hasn't run yet
+    }
+    const collections: { name: string; fields: Field[] }[] = [];
+    for (const file of listed) {
+      if (!file.name.endsWith(".schema.json")) continue;
+      const name = file.name.slice(0, -".schema.json".length);
+      try {
+        const fields = parseCollectionSchema(name, await invoke<string>("read_text_file", { path: file.path }));
+        if (fields && fields.length > 0) collections.push({ name, fields });
+      } catch {
+        // One unreadable schema shouldn't take down the rest.
+      }
+    }
+    if (collections.length === 0) return;
+    let loaders = new Map<string, LoaderInfo>();
+    for (const configPath of ["/src/content.config.ts", "/src/content/config.ts"]) {
+      try {
+        loaders = parseLoaderConfig(await invoke<string>("read_text_file", { path: dir + configPath }));
+        break;
+      } catch {
+        // Missing config file — the src/content/<name> convention applies.
+      }
+    }
+    setAstroConfig(buildAstroConfig(collections, loaders));
+  }
+
   async function refreshGroups(dir: string) {
     try {
       const listed = await invoke<FileGroup[]>("list_files", { root: dir });
@@ -479,6 +535,7 @@ function App() {
     setPublishState(null);
     setPreviewRoute("/");
     void loadPagesConfig(dir);
+    void loadAstroConfig(dir);
     await refreshGroups(dir);
     void startServer(dir);
     void invoke("set_last_root", { root: dir });
@@ -490,12 +547,7 @@ function App() {
     if (dir) await refreshGroups(dir);
     // A new markdown file with a schema should land on its form, not on
     // whichever tab was last active (an empty file's Body/Raw view is blank).
-    if (
-      /\.(md|mdx)$/i.test(path) &&
-      dir &&
-      pagesConfig &&
-      matchEntry(pagesConfig, dir, path) !== null
-    ) {
+    if (/\.(md|mdx)$/i.test(path) && dir && config && matchEntry(config, dir, path) !== null) {
       setEditorTab("fields");
     }
     void openFile(path);
@@ -635,11 +687,26 @@ function App() {
   const rootName = root?.split("/").filter(Boolean).pop() ?? "";
   const fileName = filePath?.split("/").pop() ?? "";
 
-  // Content entry (from .pages.yml) describing the open file's fields, if any.
+  // Effective schema config: `.pages.yml` entries first (higher resolution —
+  // labels, media, widget types), Astro collection schemas after them as a
+  // fallback. matchEntry's first-match-wins ordering makes the precedence.
+  const config = useMemo<PagesConfig | null>(() => {
+    if (!pagesConfig && !astroConfig) return null;
+    return {
+      media: pagesConfig?.media.length ? pagesConfig.media : (astroConfig?.media ?? []),
+      content: [...(pagesConfig?.content ?? []), ...(astroConfig?.content ?? [])],
+    };
+  }, [pagesConfig, astroConfig]);
+
+  // Content entry describing the open file's fields, if any.
   const entry = useMemo(() => {
-    if (!root || !filePath || !pagesConfig) return null;
-    return matchEntry(pagesConfig, root, filePath);
-  }, [root, filePath, pagesConfig]);
+    if (!root || !filePath || !config) return null;
+    return matchEntry(config, root, filePath);
+  }, [root, filePath, config]);
+
+  // Which source the matched entry came from, for the header badge.
+  const entrySource =
+    entry === null ? null : astroConfig?.content.includes(entry) ? "astro" : "pages";
 
   // Markdown files always get a Form tab: schema-driven when a content entry
   // matches, otherwise with fields inferred from the frontmatter's shape.
@@ -722,7 +789,7 @@ function App() {
           <NewFileModal
             root={root}
             group={newFileGroup}
-            config={pagesConfig ?? EMPTY_CONFIG}
+            config={config ?? EMPTY_CONFIG}
             onClose={() => setNewFileGroup(null)}
             onCreated={(path) => void onFileCreated(path)}
           />
@@ -786,6 +853,21 @@ function App() {
                   <>
                     <div className="pane-header">
                       <span className="pane-title">{fileName}</span>
+                      {entry && (
+                        <Badge
+                          size="sm"
+                          variant="light"
+                          color={entrySource === "astro" ? "grape" : "blue"}
+                          title={
+                            entrySource === "astro"
+                              ? "Schema from Astro content collections"
+                              : "Schema from .pages.yml"
+                          }
+                        >
+                          {entrySource === "astro" ? "Astro" : ".pages.yml"} ·{" "}
+                          {entry.label ?? entry.name}
+                        </Badge>
+                      )}
                       <span
                         className={`save-state${
                           saveState === "error" || saveState === "invalid" ? " error" : ""
@@ -802,7 +884,9 @@ function App() {
                     </div>
                     {configError && (
                       <Alert color="yellow" className="config-error">
-                        Form editing disabled: .pages.yml is invalid — {configError}
+                        {astroConfig
+                          ? `.pages.yml is invalid (falling back to Astro collection schemas) — ${configError}`
+                          : `Form editing disabled: .pages.yml is invalid — ${configError}`}
                       </Alert>
                     )}
                     {!showForm ? (
@@ -829,7 +913,7 @@ function App() {
                             view={editorTab}
                             content={fileContent}
                             entry={entry}
-                            config={pagesConfig ?? EMPTY_CONFIG}
+                            config={config ?? EMPTY_CONFIG}
                             root={root}
                             groups={groups}
                             onChange={onFormEdit}

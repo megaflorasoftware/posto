@@ -78,6 +78,82 @@ const mockFiles: Record<string, string> = {
     "    filename: '{primary}.astro'",
     "",
   ].join("\n"),
+  // Astro content-collection fixtures: `posts` has no `.pages.yml` entry, so
+  // its form schema comes from the generated JSON Schema (fallback path).
+  "/mock/site/src/content.config.ts": [
+    'import { defineCollection, z } from "astro:content";',
+    'import { glob } from "astro/loaders";',
+    "",
+    "const posts = defineCollection({",
+    '  loader: glob({ pattern: "**/*.md", base: "./posts" }),',
+    "  schema: z.object({}),",
+    "});",
+    "",
+    "export const collections = { posts };",
+    "",
+  ].join("\n"),
+  "/mock/site/.astro/collections/posts.schema.json": JSON.stringify({
+    $ref: "#/definitions/posts",
+    definitions: {
+      posts: {
+        type: "object",
+        properties: {
+          title: { type: "string", minLength: 3 },
+          published: { type: "boolean", default: false },
+          count: { type: "number", minimum: 0, maximum: 10 },
+          tags: { type: "array", items: { type: "string" }, minItems: 1 },
+          status: { type: "string", enum: ["draft", "review", "published"] },
+          pubDate: {
+            anyOf: [
+              { type: "string", format: "date-time" },
+              { type: "string", format: "date" },
+              { type: "integer", format: "unix-time" },
+            ],
+          },
+          author: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              email: { type: "string", format: "email" },
+            },
+            required: ["name"],
+            additionalProperties: false,
+          },
+          links: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: { label: { type: "string" }, url: { type: "string" } },
+              required: ["label", "url"],
+              additionalProperties: false,
+            },
+          },
+          relatedAuthor: {
+            anyOf: [
+              { type: "string" },
+              {
+                type: "object",
+                properties: { id: { type: "string" }, collection: { type: "string" } },
+                required: ["id", "collection"],
+                additionalProperties: false,
+              },
+              {
+                type: "object",
+                properties: { slug: { type: "string" }, collection: { type: "string" } },
+                required: ["slug", "collection"],
+                additionalProperties: false,
+              },
+            ],
+          },
+          misc: {},
+          $schema: { type: "string" },
+        },
+        required: ["title", "tags", "author"],
+        additionalProperties: false,
+      },
+    },
+    $schema: "http://json-schema.org/draft-07/schema#",
+  }),
   "/mock/site/src/layouts/BaseLayout.astro": "<html><slot /></html>",
   "/mock/site/src/layouts/PostLayout.astro": "<article><slot /></article>",
   "/mock/site/src/layouts/notes.txt": "not a layout",
