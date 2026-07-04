@@ -127,22 +127,30 @@ export function BodyEditor(props: {
   }, [importsKey, props.path]);
 
   // Inserts the picked component at the cursor and, when it isn't imported
-  // yet, adds the import at the top of the document.
+  // yet, adds the import at the top of the document. A cursor inside written
+  // text gets an inline component; an empty paragraph (or block position)
+  // gets a block one, so the paragraph is never split by the insert.
   function insertComponent(file: FileEntry) {
     if (!editor) return;
     const name = componentNameFromFile(file.name);
     const alreadyImported = extractImports(editor.getMarkdown()).some((statement) =>
       importInfo(statement).names.includes(name),
     );
+    const { $from } = editor.state.selection;
+    const inline = $from.parent.isTextblock && $from.parent.content.size > 0;
     // Component first, import second: inserting content leaves it selected,
     // so the reverse order would make the second insert replace the first.
     const chain = editor
       .chain()
       .focus()
-      .insertContent({
-        type: "mdxComponent",
-        attrs: { name, props: [], propsSource: "", children: null, raw: null },
-      });
+      .insertContent(
+        inline
+          ? { type: "mdxRawInline", attrs: { source: `<${name} />` } }
+          : {
+              type: "mdxComponent",
+              attrs: { name, props: [], propsSource: "", children: null, raw: null },
+            },
+      );
     if (!alreadyImported) {
       const spec = relativeImportPath(props.path, file.path);
       chain.insertContentAt(

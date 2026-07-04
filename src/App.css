@@ -297,7 +297,17 @@ body,
   margin: 0.75rem 0;
 }
 
-.mdx-component-card {
+.mdx-component-chip {
+  cursor: pointer;
+  color: inherit;
+  font-size: 0.8rem;
+}
+
+.mdx-component-chip:hover {
+  border-color: var(--mantine-color-default-color);
+}
+
+.mdx-component-body {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -309,7 +319,7 @@ body,
   font-weight: 600;
 }
 
-.mdx-component-card .field-label {
+.mdx-component-dropdown .field-label {
   font-size: var(--mantine-font-size-xs);
   font-weight: 500;
 }
@@ -352,6 +362,18 @@ body,
   border: 1px dashed var(--mantine-color-default-border);
   border-radius: 4px;
   color: var(--mantine-color-dimmed);
+}
+
+.mdx-raw-inline .mdx-component-chip {
+  padding: 0.05rem 0.5rem;
+  font-size: 0.75rem;
+  vertical-align: text-bottom;
+}
+
+.mdx-component-dropdown {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .form-field {

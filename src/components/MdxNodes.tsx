@@ -1,10 +1,10 @@
-import { createContext, useContext } from "react";
+import { createContext, useContext, useState, type ReactElement } from "react";
 import { Extension, Node, type MarkdownToken } from "@tiptap/core";
 import { Plugin } from "@tiptap/pm/state";
 import type { Node as PmNode } from "@tiptap/pm/model";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
-import { Card, Textarea, TextInput } from "@mantine/core";
-import { SquareArrowDownRight } from "lucide-react";
+import { Popover, Textarea, TextInput } from "@mantine/core";
+import { Component as ComponentIcon, SquareArrowDownRight } from "lucide-react";
 
 import {
   type AstroPropDef,
@@ -85,11 +85,24 @@ function schemaKind(type: string): MdxProp["kind"] {
   return type.replace(/\s/g, "") === "string" ? "string" : "expression";
 }
 
-function ComponentCardView(props: NodeViewProps) {
+/**
+ * Prop and children fields for a component, shared between the block card
+ * and the inline popover. `parsedProps` is null when the tag's props source
+ * couldn't be parsed into a form; the raw source is shown instead.
+ */
+function ComponentFields(fieldProps: {
+  name: string;
+  parsedProps: MdxProp[] | null;
+  propsSource: string;
+  childrenSource: string | null;
+  /** Block children keep wrapping newlines; inline children stay one line. */
+  multilineChildren: boolean;
+  onProps: (next: MdxProp[]) => void;
+  onChildren: (next: string | null) => void;
+}) {
   const schemas = useContext(MdxSchemaContext);
-  const name = String(props.node.attrs.name ?? "");
-  const existing = (props.node.attrs.props ?? []) as MdxProp[];
-  const children = props.node.attrs.children as string | null;
+  const { name, parsedProps, childrenSource, multilineChildren } = fieldProps;
+  const existing = parsedProps ?? [];
   const schema = schemas[name] ?? [];
 
   // Existing props in source order, then schema-declared props not yet set.
@@ -103,10 +116,10 @@ function ComponentCardView(props: NodeViewProps) {
     }
   }
 
-  function editProp(name: string, value: string) {
-    const next = existing.some((p) => p.name === name)
+  function editProp(propName: string, value: string) {
+    const next = existing.some((p) => p.name === propName)
       ? existing.map((p) =>
-          p.name === name
+          p.name === propName
             ? {
                 ...p,
                 value,
@@ -118,63 +131,118 @@ function ComponentCardView(props: NodeViewProps) {
         )
       : [
           ...existing,
-          { name, value, kind: rows.find((r) => r.prop.name === name)?.prop.kind ?? "string" },
+          {
+            name: propName,
+            value,
+            kind: rows.find((r) => r.prop.name === propName)?.prop.kind ?? "string",
+          },
         ];
-    props.updateAttributes({ props: next, raw: null });
+    fieldProps.onProps(next as MdxProp[]);
   }
 
-  // The stored children keep their original wrapping newlines; the textarea
-  // shows the trimmed body and edits are re-wrapped on save.
-  const childrenText = (children ?? "").replace(/^\r?\n/, "").replace(/\r?\n[ \t]*$/, "");
+  // Block children keep their original wrapping newlines; the textarea shows
+  // the trimmed body and edits are re-wrapped on save.
+  const childrenText = multilineChildren
+    ? (childrenSource ?? "").replace(/^\r?\n/, "").replace(/\r?\n[ \t]*$/, "")
+    : (childrenSource ?? "");
 
   function editChildren(text: string) {
-    props.updateAttributes({ children: text === "" ? null : `\n${text}\n`, raw: null });
+    if (text === "") return fieldProps.onChildren(null);
+    fieldProps.onChildren(multilineChildren ? `\n${text}\n` : text);
   }
 
   return (
+    <div className="mdx-component-body">
+      {parsedProps === null ? (
+        <div className="mdx-component-unparsed">
+          <code>{fieldProps.propsSource.trim()}</code>
+        </div>
+      ) : (
+        rows.map(({ prop, def }) =>
+          prop.kind === "spread" ? (
+            <TextInput
+              key={`spread-${prop.value}`}
+              size="xs"
+              label="(spread)"
+              value={`{${prop.value}}`}
+              disabled
+            />
+          ) : (
+            <TextInput
+              key={prop.name}
+              size="xs"
+              label={prop.name}
+              placeholder={def?.type}
+              leftSection={
+                prop.kind === "string" ? undefined : <span className="mdx-expr-hint">{"{}"}</span>
+              }
+              value={prop.value === "true" && prop.kind === "boolean" ? "true" : prop.value}
+              onChange={(e) => editProp(prop.name, e.currentTarget.value)}
+            />
+          ),
+        )
+      )}
+      <div className="field-label">Children</div>
+      <Textarea
+        size="xs"
+        autosize
+        minRows={multilineChildren ? 2 : 1}
+        maxRows={12}
+        classNames={{ input: "mdx-children-input" }}
+        value={childrenText}
+        onChange={(e) => editChildren(e.currentTarget.value)}
+      />
+    </div>
+  );
+}
+
+/** A clickable chip that opens the component's edit form in a popover. */
+function ComponentPopover(
+  popoverProps: {
+    target: (toggle: () => void) => ReactElement;
+  } & Parameters<typeof ComponentFields>[0],
+) {
+  const [opened, setOpened] = useState(false);
+  const { target, ...fields } = popoverProps;
+  return (
+    <Popover
+      opened={opened}
+      onChange={setOpened}
+      position="bottom-start"
+      shadow="md"
+      width={320}
+      trapFocus
+      withinPortal
+    >
+      <Popover.Target>{target(() => setOpened((o) => !o))}</Popover.Target>
+      <Popover.Dropdown className="mdx-component-dropdown">
+        <div className="mdx-component-name">{fields.name}</div>
+        <ComponentFields {...fields} />
+      </Popover.Dropdown>
+    </Popover>
+  );
+}
+
+function ComponentChipView(props: NodeViewProps) {
+  const name = String(props.node.attrs.name ?? "");
+
+  return (
     <NodeViewWrapper className="mdx-component">
-      <Card withBorder padding="sm" radius="md" className="mdx-component-card">
-        <div className="mdx-component-name">{name}</div>
-        {props.node.attrs.props === null ? (
-          <div className="mdx-component-unparsed">
-            <code>{String(props.node.attrs.propsSource ?? "").trim()}</code>
-          </div>
-        ) : (
-          rows.map(({ prop, def }) =>
-            prop.kind === "spread" ? (
-              <TextInput
-                key={`spread-${prop.value}`}
-                size="xs"
-                label="(spread)"
-                value={`{${prop.value}}`}
-                disabled
-              />
-            ) : (
-              <TextInput
-                key={prop.name}
-                size="xs"
-                label={prop.name}
-                placeholder={def?.type}
-                leftSection={
-                  prop.kind === "string" ? undefined : <span className="mdx-expr-hint">{"{}"}</span>
-                }
-                value={prop.value === "true" && prop.kind === "boolean" ? "true" : prop.value}
-                onChange={(e) => editProp(prop.name, e.currentTarget.value)}
-              />
-            ),
-          )
+      <ComponentPopover
+        target={(toggle) => (
+          <button type="button" className="mdx-pill mdx-component-chip" onClick={toggle}>
+            <ComponentIcon size={14} />
+            <span>{name}</span>
+          </button>
         )}
-        <div className="field-label">Children</div>
-        <Textarea
-          size="xs"
-          autosize
-          minRows={2}
-          maxRows={12}
-          classNames={{ input: "mdx-children-input" }}
-          value={childrenText}
-          onChange={(e) => editChildren(e.currentTarget.value)}
-        />
-      </Card>
+        name={name}
+        parsedProps={props.node.attrs.props as MdxProp[] | null}
+        propsSource={String(props.node.attrs.propsSource ?? "")}
+        childrenSource={props.node.attrs.children as string | null}
+        multilineChildren
+        onProps={(next) => props.updateAttributes({ props: next, raw: null })}
+        onChildren={(next) => props.updateAttributes({ children: next, raw: null })}
+      />
     </NodeViewWrapper>
   );
 }
@@ -201,7 +269,7 @@ export const MdxComponent = Node.create({
     return ["div", { "data-mdx-component": node.attrs.name }];
   },
   addNodeView() {
-    return ReactNodeViewRenderer(ComponentCardView);
+    return ReactNodeViewRenderer(ComponentChipView);
   },
   markdownTokenizer: {
     name: "mdxComponent",
@@ -308,9 +376,53 @@ export const MdxRawBlock = Node.create({
 });
 
 function RawInlineView(props: NodeViewProps) {
+  const source = String(props.node.attrs.source ?? "");
+  const block = scanJsxBlock(source);
+
+  if (!block) {
+    return (
+      <NodeViewWrapper as="span" className="mdx-raw-inline">
+        <code>{source}</code>
+      </NodeViewWrapper>
+    );
+  }
+
+  const parsed = parseProps(block.propsSource);
+
+  function write(nextProps: MdxProp[] | null, nextChildren: string | null) {
+    const b = block!;
+    const next =
+      nextProps === null
+        ? // Unparseable props: reassemble around the original tag source.
+          nextChildren === null
+          ? `<${b.name}${b.propsSource}/>`
+          : `<${b.name}${b.propsSource}>${nextChildren}</${b.name}>`
+        : serializeJsx(b.name, nextProps, nextChildren);
+    props.updateAttributes({ source: next });
+  }
+
   return (
     <NodeViewWrapper as="span" className="mdx-raw-inline">
-      <code>{String(props.node.attrs.source ?? "")}</code>
+      <ComponentPopover
+        target={(toggle) => (
+          <button
+            type="button"
+            className="mdx-pill mdx-component-chip"
+            title={source}
+            onClick={toggle}
+          >
+            <ComponentIcon size={14} />
+            <span>{block.name}</span>
+          </button>
+        )}
+        name={block.name}
+        parsedProps={parsed}
+        propsSource={block.propsSource}
+        childrenSource={block.children}
+        multilineChildren={false}
+        onProps={(next) => write(next, block.children)}
+        onChildren={(next) => write(parsed, next)}
+      />
     </NodeViewWrapper>
   );
 }
