@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ActionIcon, Button, NumberInput, Select, Switch, Textarea, TextInput } from "@mantine/core";
 import { Check, GripVertical, Image, Pencil, X } from "lucide-react";
 import {
@@ -19,11 +19,11 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 import type { Field, PagesConfig } from "../pagescms/config";
-import { mediaInputPath, resolveMedia } from "../pagescms/config";
+import { collectionExtension, mediaInputPath, resolveMedia } from "../pagescms/config";
 import type { ValuePath } from "../pagescms/frontmatter";
 import type { Errors } from "../pagescms/validate";
-import type { FileGroup } from "../ipc";
-import { assetUrl } from "../ipc";
+import type { FileEntry, FileGroup } from "../ipc";
+import { assetUrl, invoke } from "../ipc";
 import { ImagePicker } from "./ImagePicker";
 
 export interface FieldContext {
@@ -482,22 +482,84 @@ function referenceLabel(ctx: FieldContext, value: string): string {
   return value;
 }
 
+/**
+ * Expands a Pages CMS reference `value`/`label` template for one file:
+ * `{name}` (filename with extension), `{path}` (repo-root-relative),
+ * `{filename}` (name without extension), `{extension}`, and `{primary}`
+ * (frontmatter title when known, else the bare filename). Unknown tokens
+ * expand to "" like Pages CMS.
+ */
+function referenceTemplate(template: string, root: string, file: FileEntry): string {
+  const dot = file.name.lastIndexOf(".");
+  const bare = dot > 0 ? file.name.slice(0, dot) : file.name;
+  const data: Record<string, string> = {
+    name: file.name,
+    path: file.path.slice(root.length + 1),
+    filename: bare,
+    extension: dot > 0 ? file.name.slice(dot + 1) : "",
+    primary: file.title ?? bare,
+  };
+  return template.replace(/\{([^}]+)\}/g, (_, token: string) => data[token] ?? "");
+}
+
 function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
   const collection = props.ctx.config.content.find(
     (entry) => entry.type === "collection" && entry.name === props.field.options?.collection,
   );
-  const files = (() => {
-    if (!collection) return [];
-    const dir = props.ctx.root + "/" + collection.path;
-    return props.ctx.groups
-      .filter((group) => group.path === dir || group.path.startsWith(dir + "/"))
-      .flatMap((group) => group.files)
-      .map((file) => ({
-        // Pages CMS stores the repo-root-relative path by default.
-        value: file.path.slice(props.ctx.root.length + 1),
-        label: file.title ?? file.name,
-      }));
-  })();
+  // Options come from listing the collection's folder directly — the sidebar
+  // groups only hold markdown/text files, but references can target any file
+  // type (layouts, components, data files, …). The extension implied by the
+  // collection's `filename`/`extension` settings filters the list; without
+  // one, every file in the folder is offered.
+  const dir = collection ? props.ctx.root + "/" + collection.path : null;
+  const extension = collection ? collectionExtension(collection) : null;
+  const [listed, setListed] = useState<FileEntry[]>([]);
+  useEffect(() => {
+    if (!dir) return;
+    let cancelled = false;
+    invoke<FileEntry[]>("list_dir_files", { dir, extensions: extension ? [extension] : [] })
+      .then((files) => {
+        if (!cancelled) setListed(files);
+      })
+      .catch(() => {
+        if (!cancelled) setListed([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dir, extension]);
+
+  // list_dir_files carries no frontmatter titles; recover them from the
+  // sidebar groups so markdown options keep their human labels.
+  const titles = new Map<string, string>();
+  for (const group of props.ctx.groups) {
+    for (const file of group.files) {
+      if (file.title) titles.set(file.path, file.title);
+    }
+  }
+
+  const valueTemplate =
+    typeof props.field.options?.value === "string" ? props.field.options.value : null;
+  const labelTemplate =
+    typeof props.field.options?.label === "string" ? props.field.options.label : null;
+  const seen = new Set<string>();
+  const files = listed
+    .map((file) => ({ ...file, title: file.title ?? titles.get(file.path) ?? null }))
+    .map((file) => ({
+      // Pages CMS stores the repo-root-relative path by default.
+      value: valueTemplate
+        ? referenceTemplate(valueTemplate, props.ctx.root, file)
+        : file.path.slice(props.ctx.root.length + 1),
+      label:
+        (labelTemplate
+          ? referenceTemplate(labelTemplate, props.ctx.root, file)
+          : (file.title ?? file.name)) || file.name,
+    }))
+    .filter((option) => {
+      if (option.value === "" || seen.has(option.value)) return false;
+      seen.add(option.value);
+      return true;
+    });
   const value = asString(props.ctx.value(props.path));
   const missing = value !== "" && !files.some((f) => f.value === value);
 
@@ -505,6 +567,7 @@ function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContex
     <Select
       size="xs"
       clearable={!props.field.required}
+      searchable
       placeholder={collection ? undefined : "Unknown collection"}
       data={missing ? [{ value, label: `${value} (missing)` }, ...files] : files}
       value={value || null}

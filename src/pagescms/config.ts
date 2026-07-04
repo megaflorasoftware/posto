@@ -34,6 +34,8 @@ export interface ContentEntry {
   subfolders?: boolean;
   /** Filename template for new entries (e.g. `{year}-{month}-{day}-{primary}.md`). */
   filename?: string;
+  /** Explicit file extension for the collection's entries (no leading dot). */
+  extension?: string;
   /** Field named by `view.primary`; the entry's display/primary field. */
   viewPrimary?: string;
   fields: Field[];
@@ -190,6 +192,10 @@ function collectEntries(
       path: trimSlashes(entry.path),
       subfolders: entry.subfolders === false ? false : undefined,
       filename: typeof filename === "string" ? filename : undefined,
+      extension:
+        typeof entry.extension === "string"
+          ? entry.extension.replace(/^\./, "").toLowerCase()
+          : undefined,
       viewPrimary: typeof view.primary === "string" ? view.primary : undefined,
       fields,
     });
@@ -267,6 +273,17 @@ export function matchCollectionForDir(
     if (rel.startsWith(entry.path + "/") && entry.subfolders !== false) return entry;
   }
   return null;
+}
+
+/**
+ * File extension the collection's entries use: the explicit `extension`
+ * setting, else the extension of its `filename` template. Null when neither
+ * names one — callers should then accept any extension.
+ */
+export function collectionExtension(entry: ContentEntry): string | null {
+  if (entry.extension) return entry.extension;
+  const match = entry.filename?.match(/\.([a-z0-9]+)$/i);
+  return match ? match[1].toLowerCase() : null;
 }
 
 /**

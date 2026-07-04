@@ -82,7 +82,10 @@ fn collect_groups(root: &Path, dir: &Path, groups: &mut Vec<FileGroup>) {
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with('.') {
+        // The Pages CMS schema at the root is editable content; every other
+        // dotfile stays hidden.
+        let is_schema = dir == root && name == ".pages.yml";
+        if name.starts_with('.') && !is_schema {
             continue;
         }
         if path.is_dir() {
@@ -94,7 +97,7 @@ fn collect_groups(root: &Path, dir: &Path, groups: &mut Vec<FileGroup>) {
                 .extension()
                 .map(|e| e.to_string_lossy().to_lowercase())
                 .unwrap_or_default();
-            if TEXT_EXTENSIONS.contains(&ext.as_str()) {
+            if is_schema || TEXT_EXTENSIONS.contains(&ext.as_str()) {
                 files.push(FileEntry {
                     title: frontmatter_title(&path, &ext),
                     name,
@@ -221,6 +224,11 @@ fn create_text_file(path: String, content: String) -> Result<(), String> {
         })?;
     file.write_all(content.as_bytes())
         .map_err(|e| format!("Failed to create {path}: {e}"))
+}
+
+#[tauri::command]
+fn delete_file(path: String) -> Result<(), String> {
+    std::fs::remove_file(&path).map_err(|e| format!("Failed to delete {path}: {e}"))
 }
 
 struct DevServer {
@@ -839,6 +847,10 @@ mod tests {
         std::fs::create_dir_all(&blogs).unwrap();
         std::fs::write(blogs.join("post.md"), "# hi").unwrap();
         std::fs::write(dir.join("index.md"), "# home").unwrap();
+        // The schema surfaces at the root; dotfiles elsewhere stay hidden.
+        std::fs::write(dir.join(".pages.yml"), "media: images").unwrap();
+        std::fs::write(dir.join(".env"), "SECRET=1").unwrap();
+        std::fs::write(blogs.join(".pages.yml"), "media: images").unwrap();
         let docs = dir.join("docs/guides");
         std::fs::create_dir_all(&docs).unwrap();
         std::fs::write(dir.join("docs/readme.md"), "x").unwrap();
@@ -851,8 +863,10 @@ mod tests {
         groups.sort_by(|a, b| a.label.cmp(&b.label));
         let labels: Vec<&str> = groups.iter().map(|g| g.label.as_str()).collect();
         assert_eq!(labels, vec!["", "docs", "docs/guides", "src/content/blogs"]);
-        assert_eq!(groups[0].files[0].name, "index.md");
-        assert_eq!(groups[3].files[0].name, "post.md");
+        let root_names: Vec<&str> = groups[0].files.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(root_names, vec![".pages.yml", "index.md"]);
+        let blog_names: Vec<&str> = groups[3].files.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(blog_names, vec!["post.md"]);
         assert!(groups[3].path.ends_with("src/content/blogs"));
 
         std::fs::remove_dir_all(&dir).unwrap();
@@ -882,6 +896,7 @@ pub fn run() {
             read_text_file,
             write_text_file,
             create_text_file,
+            delete_file,
             start_dev_server,
             stop_dev_server,
             ping_dev_server,

@@ -10,7 +10,7 @@ import {
   Tabs,
   TextInput,
 } from "@mantine/core";
-import { ChevronDown, Plus, Undo2 } from "lucide-react";
+import { ChevronDown, Plus, Undo2, X } from "lucide-react";
 import { invoke, openDirectory } from "./ipc";
 import type { ChangedFile, FileEntry, FileGroup } from "./ipc";
 import { EMPTY_CONFIG, matchEntry, parsePagesConfig, type PagesConfig } from "./pagescms/config";
@@ -138,22 +138,58 @@ function RevertButton(props: { file: ChangedFile; onRevert: (file: ChangedFile) 
   );
 }
 
+/** Hover-revealed delete control for a sidebar file; confirms before deleting. */
+function DeleteFileButton(props: { file: FileEntry; onDelete: (file: FileEntry) => void }) {
+  const [confirming, setConfirming] = useState(false);
+  if (confirming) {
+    return (
+      <button
+        type="button"
+        className="file-delete-confirm"
+        // The pointer is already over this button (it replaces the ×);
+        // leaving it without clicking cancels.
+        onMouseLeave={() => setConfirming(false)}
+        onClick={() => props.onDelete(props.file)}
+      >
+        Delete?
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="file-delete"
+      title={`Delete ${props.file.name}`}
+      aria-label={`Delete ${props.file.name}`}
+      onClick={() => setConfirming(true)}
+    >
+      <X size={12} />
+    </button>
+  );
+}
+
 function FileList(props: {
   files: FileEntry[];
   activePath: string | null;
   onOpen: (path: string) => void;
+  onDelete: (file: FileEntry) => void;
 }) {
   return (
     <>
       {props.files.map((file) => (
-        <button
+        <div
           key={file.path}
           className={`file-item${props.activePath === file.path ? " active" : ""}`}
-          onClick={() => props.onOpen(file.path)}
-          title={file.name}
         >
-          {file.title ?? file.name}
-        </button>
+          <button
+            className="file-item-name"
+            onClick={() => props.onOpen(file.path)}
+            title={file.name}
+          >
+            {file.title ?? file.name}
+          </button>
+          <DeleteFileButton file={file} onDelete={props.onDelete} />
+        </div>
       ))}
     </>
   );
@@ -256,6 +292,9 @@ function App() {
       setSaveState("saved");
       updateSidebarTitle(path, content);
       setSaveTick((t) => t + 1);
+      // Editing the schema itself must re-parse it, or forms keep the old one.
+      const dir = rootRef.current;
+      if (dir && path === dir + "/.pages.yml") void loadPagesConfig(dir);
     } catch {
       setSaveState("error");
     }
@@ -442,6 +481,16 @@ function App() {
     setNewFileGroup(null);
     const dir = rootRef.current;
     if (dir) await refreshGroups(dir);
+    // A new markdown file with a schema should land on its form, not on
+    // whichever tab was last active (an empty file's Body/Raw view is blank).
+    if (
+      /\.(md|mdx)$/i.test(path) &&
+      dir &&
+      pagesConfig &&
+      matchEntry(pagesConfig, dir, path) !== null
+    ) {
+      setEditorTab("fields");
+    }
     void openFile(path);
   }
 
@@ -482,6 +531,32 @@ function App() {
     } catch (e) {
       setChangesError(String(e));
     }
+  }
+
+  async function deleteFile(file: FileEntry) {
+    const dir = rootRef.current;
+    if (!dir) return;
+    const isOpen = filePathRef.current === file.path;
+    if (isOpen) {
+      // A pending autosave would recreate the file right after the delete.
+      clearTimeout(saveTimer.current);
+      saveTimer.current = undefined;
+    }
+    try {
+      await invoke("delete_file", { path: file.path });
+    } catch (e) {
+      setPublishState(String(e));
+      return;
+    }
+    if (isOpen) {
+      setFilePath(null);
+      filePathRef.current = null;
+      setFileContent("");
+      fileContentRef.current = "";
+      setSaveState("saved");
+    }
+    if (file.path === dir + "/.pages.yml") void loadPagesConfig(dir);
+    void refreshGroups(dir);
   }
 
   async function revertChange(file: ChangedFile) {
@@ -682,6 +757,7 @@ function App() {
                       files={group.files}
                       activePath={filePath}
                       onOpen={(path) => void openFile(path)}
+                      onDelete={(file) => void deleteFile(file)}
                     />
                   </details>
                 ) : (
@@ -690,6 +766,7 @@ function App() {
                     files={group.files}
                     activePath={filePath}
                     onOpen={(path) => void openFile(path)}
+                    onDelete={(file) => void deleteFile(file)}
                   />
                 ),
               )}

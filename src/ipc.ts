@@ -56,8 +56,31 @@ const mockFiles: Record<string, string> = {
     "        fields:",
     "          - { name: src, label: Work, type: reference, options: { collection: blog } }",
     "      - { name: body, label: Body, type: rich-text }",
+    "  - name: pages",
+    "    label: Pages",
+    "    type: collection",
+    "    path: src/pages",
+    "    filename: '{title}.mdx'",
+    "    fields:",
+    "      - name: layout",
+    "        label: Layout",
+    "        type: reference",
+    "        required: true",
+    "        options:",
+    "          collection: layouts",
+    "          value: '../layouts/{name}'",
+    "          label: '{filename}'",
+    "      - { name: title, label: Title, type: string, required: true }",
+    "  - name: layouts",
+    "    label: Layouts",
+    "    type: collection",
+    "    path: src/layouts",
+    "    filename: '{primary}.astro'",
     "",
   ].join("\n"),
+  "/mock/site/src/layouts/BaseLayout.astro": "<html><slot /></html>",
+  "/mock/site/src/layouts/PostLayout.astro": "<article><slot /></article>",
+  "/mock/site/src/layouts/notes.txt": "not a layout",
   "/mock/site/index.md": "# Home\n\nWelcome.\n",
   "/mock/site/posts/first.md":
     "---\ntitle: First post\npublished: true\ncount: 3\ntags:\n  - alpha\n  - beta\nauthor:\n  name: Henry\n  email: h@example.com\nlinks:\n  - label: Home\n    url: /\n  - label: About\n    url: /about\n---\n\nHello world.\n",
@@ -117,6 +140,10 @@ const mockFiles: Record<string, string> = {
   ].join("\n"),
 };
 
+// Files removed via delete_file; list_files' static groups filter these out
+// so deletion is observable in the mock, mirroring the real backend.
+const mockDeleted = new Set<string>();
+
 function mockTitle(path: string): string | null {
   if (!/\.(md|mdx|markdown)$/i.test(path)) return null;
   const content = mockFiles[path];
@@ -141,6 +168,7 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
           label: "",
           path: "/mock/site",
           files: [
+            { name: ".pages.yml", path: "/mock/site/.pages.yml" },
             { name: "index.md", path: "/mock/site/index.md" },
             { name: "notes.txt", path: "/mock/site/notes.txt" },
           ],
@@ -172,18 +200,39 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
             { name: "mdx-demo.mdx", path: "/mock/site/src/blog/mdx-demo.mdx" },
           ],
         },
-      ].map((group) => ({
-        ...group,
-        files: group.files.map((file) => ({ ...file, title: mockTitle(file.path) })),
-      }));
+      ].map((group) => {
+        // Files created through the mock (create_text_file) appear alongside
+        // the static entries, like a real directory re-listing would show.
+        const created = Object.keys(mockFiles)
+          .filter(
+            (path) =>
+              path.startsWith(group.path + "/") &&
+              !path.slice(group.path.length + 1).includes("/") &&
+              /\.(md|mdx|markdown|txt)$/i.test(path) &&
+              !group.files.some((file) => file.path === path),
+          )
+          .map((path) => ({ name: path.split("/").pop() as string, path }));
+        return {
+          ...group,
+          files: [...group.files, ...created]
+            .filter((file) => !mockDeleted.has(file.path))
+            .map((file) => ({ ...file, title: mockTitle(file.path) })),
+        };
+      });
     case "list_dir_files": {
       const dir = args?.dir as string;
-      if (dir.endsWith("/components")) {
-        if (dir !== "/mock/site/src/components") throw new Error(`Not a directory: ${dir}`);
-        return Object.keys(mockFiles)
-          .filter((path) => path.startsWith(dir + "/"))
-          .map((path) => ({ name: path.split("/").pop() as string, path }));
-      }
+      const extensions = (args?.extensions as string[]) ?? [];
+      const matches = Object.keys(mockFiles)
+        .filter((path) => path.startsWith(dir + "/") && !mockDeleted.has(path))
+        .filter(
+          (path) =>
+            extensions.length === 0 || extensions.includes(path.split(".").pop() as string),
+        )
+        .sort()
+        .map((path) => ({ name: path.split("/").pop() as string, path }));
+      if (matches.length > 0) return matches;
+      if (dir.endsWith("/components")) throw new Error(`Not a directory: ${dir}`);
+      // Media dirs have no mock file entries; serve the fixed image fixtures.
       return [
         { name: "photo.jpg", path: `${dir}/photo.jpg` },
         { name: "logo.png", path: `${dir}/nested/logo.png` },
@@ -205,6 +254,13 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       const path = args?.path as string;
       if (path in mockFiles) throw new Error(`File already exists: ${path}`);
       mockFiles[path] = args?.content as string;
+      mockDeleted.delete(path);
+      return null;
+    }
+    case "delete_file": {
+      const path = args?.path as string;
+      delete mockFiles[path];
+      mockDeleted.add(path);
       return null;
     }
     case "revert_file":
