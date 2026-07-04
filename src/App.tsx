@@ -1,10 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Badge, Button, Loader, MantineProvider, Modal, Tabs, TextInput } from "@mantine/core";
+import {
+  ActionIcon,
+  Alert,
+  Badge,
+  Button,
+  Loader,
+  MantineProvider,
+  Modal,
+  Tabs,
+  TextInput,
+} from "@mantine/core";
+import { ChevronDown, Plus, Undo2 } from "lucide-react";
 import { invoke, openDirectory } from "./ipc";
 import type { ChangedFile, FileEntry, FileGroup } from "./ipc";
 import { EMPTY_CONFIG, matchEntry, parsePagesConfig, type PagesConfig } from "./pagescms/config";
 import { parseFile } from "./pagescms/frontmatter";
 import { FormEditor } from "./components/FormEditor";
+import { NewFileModal } from "./components/NewFileModal";
 import { SeoPreview } from "./components/SeoPreview";
 
 import "@mantine/core/styles.css";
@@ -94,6 +106,38 @@ function statusBadge(status: string): { label: string; color: string } {
   }
 }
 
+/** Undo control for one changed file; deleting a new file confirms first. */
+function RevertButton(props: { file: ChangedFile; onRevert: (file: ChangedFile) => void }) {
+  const [confirming, setConfirming] = useState(false);
+  const isNew = props.file.status === "??";
+  if (isNew && confirming) {
+    return (
+      <Button
+        size="compact-xs"
+        color="red"
+        variant="light"
+        onClick={() => props.onRevert(props.file)}
+        onBlur={() => setConfirming(false)}
+      >
+        Delete file?
+      </Button>
+    );
+  }
+  const label = isNew ? "Delete new file" : "Revert changes";
+  return (
+    <ActionIcon
+      size="sm"
+      variant="subtle"
+      color="gray"
+      title={label}
+      aria-label={label}
+      onClick={() => (isNew ? setConfirming(true) : props.onRevert(props.file))}
+    >
+      <Undo2 size={14} />
+    </ActionIcon>
+  );
+}
+
 function FileList(props: {
   files: FileEntry[];
   activePath: string | null;
@@ -132,6 +176,8 @@ function App() {
   const [changes, setChanges] = useState<ChangedFile[] | null>(null);
   const [changesError, setChangesError] = useState<string | null>(null);
   const [commitMessage, setCommitMessage] = useState(DEFAULT_COMMIT_MESSAGE);
+  // Directory the "new file" dialog is creating into, when open.
+  const [newFileGroup, setNewFileGroup] = useState<FileGroup | null>(null);
   // While the split divider is being dragged, the preview iframe must not
   // receive pointer events or it swallows the drag mid-motion.
   const [dragging, setDragging] = useState(false);
@@ -367,6 +413,17 @@ function App() {
     }
   }
 
+  async function refreshGroups(dir: string) {
+    try {
+      const listed = await invoke<FileGroup[]>("list_files", { root: dir });
+      setGroups(listed);
+      groupsRef.current = listed;
+    } catch (e) {
+      setGroups([]);
+      setPublishState(String(e));
+    }
+  }
+
   async function selectRoot(dir: string) {
     flushPendingSave();
     setRoot(dir);
@@ -376,16 +433,16 @@ function App() {
     setPublishState(null);
     setPreviewRoute("/");
     void loadPagesConfig(dir);
-    try {
-      const listed = await invoke<FileGroup[]>("list_files", { root: dir });
-      setGroups(listed);
-      groupsRef.current = listed;
-    } catch (e) {
-      setGroups([]);
-      setPublishState(String(e));
-    }
+    await refreshGroups(dir);
     void startServer(dir);
     void invoke("set_last_root", { root: dir });
+  }
+
+  async function onFileCreated(path: string) {
+    setNewFileGroup(null);
+    const dir = rootRef.current;
+    if (dir) await refreshGroups(dir);
+    void openFile(path);
   }
 
   async function chooseDirectory() {
@@ -424,6 +481,54 @@ function App() {
       setChanges(await invoke<ChangedFile[]>("changed_files", { root: dir }));
     } catch (e) {
       setChangesError(String(e));
+    }
+  }
+
+  async function revertChange(file: ChangedFile) {
+    const dir = rootRef.current;
+    if (!dir) return;
+    // `file.path` is repo-relative; the open file's absolute path ends with it.
+    const open = filePathRef.current;
+    const revertingOpenFile = open !== null && open.endsWith("/" + file.path);
+    if (revertingOpenFile) {
+      // A pending autosave would immediately re-write the reverted content.
+      clearTimeout(saveTimer.current);
+      saveTimer.current = undefined;
+    }
+    try {
+      await invoke("revert_file", { root: dir, path: file.path });
+    } catch (e) {
+      setChangesError(String(e));
+      return;
+    }
+    try {
+      setChanges(await invoke<ChangedFile[]>("changed_files", { root: dir }));
+    } catch (e) {
+      setChangesError(String(e));
+    }
+    void refreshGroups(dir);
+    if (revertingOpenFile && open) {
+      if (file.status === "??") {
+        // The file was deleted; nothing left to show.
+        setFilePath(null);
+        filePathRef.current = null;
+        setFileContent("");
+        fileContentRef.current = "";
+        setSaveState("saved");
+      } else {
+        try {
+          const content = await invoke<string>("read_text_file", { path: open });
+          setFileContent(content);
+          fileContentRef.current = content;
+          setSaveState("saved");
+        } catch {
+          // Deleted-then-reverted edge cases: fall back to no selection.
+          setFilePath(null);
+          filePathRef.current = null;
+          setFileContent("");
+          fileContentRef.current = "";
+        }
+      }
     }
   }
 
@@ -506,6 +611,7 @@ function App() {
                     <span className="publish-path" title={file.path}>
                       {file.path}
                     </span>
+                    <RevertButton file={file} onRevert={(f) => void revertChange(f)} />
                   </div>
                 );
               })}
@@ -531,6 +637,16 @@ function App() {
           </Button>
         </Modal>
 
+        {root && newFileGroup && (
+          <NewFileModal
+            root={root}
+            group={newFileGroup}
+            config={pagesConfig ?? EMPTY_CONFIG}
+            onClose={() => setNewFileGroup(null)}
+            onCreated={(path) => void onFileCreated(path)}
+          />
+        )}
+
         {!root ? (
           <div className="empty-state">
             <p>Select the folder that holds your site to get started.</p>
@@ -542,7 +658,26 @@ function App() {
               {groups.map((group) =>
                 group.label ? (
                   <details key={group.path} open>
-                    <summary>{group.label}</summary>
+                    <summary>
+                      <span className="group-label" title={group.label}>
+                        {group.label}
+                      </span>
+                      <button
+                        type="button"
+                        className="group-action"
+                        title="New file"
+                        aria-label={`New file in ${group.label}`}
+                        onClick={(e) => {
+                          // A click inside <summary> would also toggle the group.
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setNewFileGroup(group);
+                        }}
+                      >
+                        <Plus size={14} />
+                      </button>
+                      <ChevronDown size={14} className="group-chevron" />
+                    </summary>
                     <FileList
                       files={group.files}
                       activePath={filePath}

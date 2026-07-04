@@ -58,7 +58,12 @@ body,
   margin-top: 0.5rem;
 }
 
+/* Heading rows lay out as `label … [+] [chevron]`; the native disclosure
+   marker is hidden in favor of the right-aligned chevron. */
 .sidebar summary {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
   padding: 0.25rem 0.25rem;
   font-weight: 600;
   font-size: 0.8rem;
@@ -66,6 +71,49 @@ body,
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
+  list-style: none;
+}
+
+.sidebar summary::-webkit-details-marker {
+  display: none;
+}
+
+.group-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--mantine-color-dimmed);
+  cursor: pointer;
+}
+
+.group-action:hover {
+  background: var(--mantine-color-default-hover);
+  color: inherit;
+}
+
+.group-chevron {
+  flex-shrink: 0;
+  color: var(--mantine-color-dimmed);
+  transition: transform 120ms ease;
+}
+
+.sidebar details:not([open]) .group-chevron {
+  transform: rotate(-90deg);
 }
 
 .file-item {
@@ -263,6 +311,12 @@ body,
   max-width: 100%;
 }
 
+/* Breathing room before headings — but not for a heading that starts the
+   document. */
+.body-rich-content .tiptap :is(h1, h2, h3, h4):not(:first-child) {
+  margin-top: 1.25em;
+}
+
 /* --- MDX constructs inside the rich body editor. --- */
 
 /* Inline-flex so consecutive import chips flow onto one wrapped row instead
@@ -294,7 +348,7 @@ body,
 }
 
 .mdx-component {
-  margin: 0.75rem 0;
+  margin: 1.5rem 0;
 }
 
 .mdx-component-chip {
@@ -341,7 +395,7 @@ body,
 }
 
 .mdx-raw-block {
-  margin: 0.75rem 0;
+  margin: 1.5rem 0;
 }
 
 .mdx-raw-block pre {
@@ -812,6 +866,8 @@ body,
 }
 
 .publish-path {
+  flex: 1;
+  min-width: 0;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 0.8rem;
   overflow: hidden;

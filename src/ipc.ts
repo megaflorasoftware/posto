@@ -63,7 +63,7 @@ const mockFiles: Record<string, string> = {
     "---\ntitle: First post\npublished: true\ncount: 3\ntags:\n  - alpha\n  - beta\nauthor:\n  name: Henry\n  email: h@example.com\nlinks:\n  - label: Home\n    url: /\n  - label: About\n    url: /about\n---\n\nHello world.\n",
   "/mock/site/notes.txt": "Some notes.\n",
   "/mock/site/src/blog/with-slug.mdx":
-    "---\ntitle: X\nslug: custom-slug\nrelated: src/blog/no-slug.mdx\nsee_also:\n  - src/blog/no-slug.mdx\nworks:\n  - src: src/blog/no-slug.mdx\n  - src: src/blog/with-slug.mdx\nimages:\n  - src: /public/images/photo.jpg\n    alt: A photo\n  - src: /public/images/nested/logo.png\n    alt: The logo\n---\n\nBody.\n",
+    "---\ntitle: X\nslug: custom-slug\nrelated: src/blog/no-slug.mdx\nsee_also:\n  - src/blog/no-slug.mdx\nworks:\n  - src: src/blog/no-slug.mdx\n  - src: src/blog/with-slug.mdx\nimages:\n  - src: /images/photo.jpg\n    alt: A photo\n  - src: /images/nested/logo.png\n    alt: The logo\n---\n\nBody.\n",
   "/mock/site/src/blog/no-slug.mdx": "---\ntitle: Y\n---\n\nBody.\n",
   "/mock/site/src/blog/mdx-demo.mdx": [
     "---",
@@ -200,6 +200,14 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     }
     case "write_text_file":
       mockFiles[args?.path as string] = args?.content as string;
+      return null;
+    case "create_text_file": {
+      const path = args?.path as string;
+      if (path in mockFiles) throw new Error(`File already exists: ${path}`);
+      mockFiles[path] = args?.content as string;
+      return null;
+    }
+    case "revert_file":
       return null;
     case "needs_install":
       return false;

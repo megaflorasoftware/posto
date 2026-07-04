@@ -203,6 +203,26 @@ fn write_text_file(path: String, content: String) -> Result<(), String> {
     })
 }
 
+/// Creates a new file, failing if one already exists at `path` — the "new
+/// file" flow must never silently overwrite existing content.
+#[tauri::command]
+fn create_text_file(path: String, content: String) -> Result<(), String> {
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::AlreadyExists {
+                format!("File already exists: {path}")
+            } else {
+                format!("Failed to create {path}: {e}")
+            }
+        })?;
+    file.write_all(content.as_bytes())
+        .map_err(|e| format!("Failed to create {path}: {e}"))
+}
+
 struct DevServer {
     child: Child,
     port: u16,
@@ -692,6 +712,26 @@ fn changed_files(root: String) -> Result<Vec<ChangedFile>, String> {
         .collect())
 }
 
+/// Reverts one changed file to its committed state. `path` is repo-relative
+/// (as reported by `changed_files`). Untracked files have no committed state,
+/// so revert means deleting them.
+#[tauri::command]
+fn revert_file(root: String, path: String) -> Result<(), String> {
+    // `git status --porcelain` paths are relative to the repository root,
+    // which is not necessarily the chosen directory.
+    let toplevel = run_git(&root, &["rev-parse", "--show-toplevel"])?;
+    let toplevel = toplevel.trim();
+    let status = run_git(toplevel, &["status", "--porcelain", "--", &path])?;
+    if status.starts_with("??") {
+        let absolute = Path::new(toplevel).join(&path);
+        std::fs::remove_file(&absolute)
+            .map_err(|e| format!("Failed to delete {}: {e}", absolute.display()))
+    } else {
+        // Restores both index and working tree from HEAD.
+        run_git(toplevel, &["checkout", "HEAD", "--", &path]).map(|_| ())
+    }
+}
+
 #[tauri::command]
 async fn publish(root: String, message: Option<String>) -> Result<String, String> {
     run_git(&root, &["add", "-A"])?;
@@ -841,6 +881,7 @@ pub fn run() {
             list_dir_files,
             read_text_file,
             write_text_file,
+            create_text_file,
             start_dev_server,
             stop_dev_server,
             ping_dev_server,
@@ -851,6 +892,7 @@ pub fn run() {
             get_last_root,
             set_last_root,
             changed_files,
+            revert_file,
             publish
         ])
         .build(tauri::generate_context!())

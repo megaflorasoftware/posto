@@ -50,9 +50,11 @@ export function BodyEditor(props: {
   // The display resolver is read through a ref so the Image extension (created
   // once) always sees the current root/media.
   const resolveSrc = (src: string): string => {
-    if (!props.media || !src.startsWith("/")) return src;
-    const absolute = mediaInputPath(props.root, props.media, src);
-    return (absolute && assetUrl(absolute)) || src;
+    if (!src.startsWith("/")) return src;
+    const absolute = props.media ? mediaInputPath(props.root, props.media, src) : null;
+    // Site-root paths outside the media source usually live in the site's
+    // `public` folder, which is served from `/` — try there before giving up.
+    return (absolute && assetUrl(absolute)) || assetUrl(props.root + "/public" + src) || src;
   };
   const resolveRef = useRef(resolveSrc);
   resolveRef.current = resolveSrc;

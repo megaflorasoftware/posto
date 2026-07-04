@@ -31,7 +31,8 @@ export function serializeFile(parsed: ParsedFile): string {
     (typeof (parsed.doc.contents as { items?: unknown[] }).items !== "undefined" &&
       (parsed.doc.contents as { items: unknown[] }).items.length === 0);
   if (!parsed.hadFrontmatter && empty) return parsed.body;
-  const yamlText = empty ? "" : parsed.doc.toString();
+  // lineWidth: 0 disables wrapping so long scalar values stay on one line.
+  const yamlText = empty ? "" : parsed.doc.toString({ lineWidth: 0 });
   return `---\n${yamlText}---\n${parsed.body}`;
 }
 

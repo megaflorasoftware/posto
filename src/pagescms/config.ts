@@ -32,6 +32,10 @@ export interface ContentEntry {
   type: "collection" | "file";
   path: string;
   subfolders?: boolean;
+  /** Filename template for new entries (e.g. `{year}-{month}-{day}-{primary}.md`). */
+  filename?: string;
+  /** Field named by `view.primary`; the entry's display/primary field. */
+  viewPrimary?: string;
   fields: Field[];
 }
 
@@ -58,10 +62,21 @@ function trimSlashes(path: string): string {
   return path.replace(/^\/+|\/+$/g, "");
 }
 
+/**
+ * Default output path for a media input dir when the config doesn't set one.
+ * A site's `public` folder is served from the site root, so a leading
+ * `public` segment must not appear in stored content paths
+ * (`public/images` → `/images`, `public` → `/`).
+ */
+function defaultOutput(input: string): string {
+  const served = input === "public" ? "" : input.replace(/^public\//, "");
+  return "/" + served;
+}
+
 function normalizeMedia(media: unknown): MediaEntry[] {
   if (typeof media === "string") {
     const input = trimSlashes(media);
-    return [{ name: "default", input, output: "/" + input }];
+    return [{ name: "default", input, output: defaultOutput(input) }];
   }
   if (Array.isArray(media)) {
     return media
@@ -71,7 +86,8 @@ function normalizeMedia(media: unknown): MediaEntry[] {
         name: typeof m.name === "string" ? m.name : `media-${i}`,
         label: typeof m.label === "string" ? m.label : undefined,
         input: trimSlashes(m.input as string),
-        output: typeof m.output === "string" ? m.output : "/" + trimSlashes(m.input as string),
+        output:
+          typeof m.output === "string" ? m.output : defaultOutput(trimSlashes(m.input as string)),
       }));
   }
   if (media && typeof media === "object") {
@@ -81,7 +97,7 @@ function normalizeMedia(media: unknown): MediaEntry[] {
         {
           name: "default",
           input: trimSlashes(m.input),
-          output: typeof m.output === "string" ? m.output : "/" + trimSlashes(m.input),
+          output: typeof m.output === "string" ? m.output : defaultOutput(trimSlashes(m.input)),
         },
       ];
     }
@@ -160,12 +176,21 @@ function collectEntries(
           .filter((f): f is Record<string, unknown> => !!f && typeof f === "object")
           .map((f) => resolveField(f, components, new Set()))
       : [];
+    const view = entry.view && typeof entry.view === "object" ? (entry.view as Record<string, unknown>) : {};
+    const filename =
+      typeof entry.filename === "string"
+        ? entry.filename
+        : entry.filename && typeof entry.filename === "object"
+          ? (entry.filename as { template?: unknown }).template
+          : undefined;
     out.push({
       name: String(entry.name ?? ""),
       label: typeof entry.label === "string" ? entry.label : undefined,
       type: entry.type,
       path: trimSlashes(entry.path),
       subfolders: entry.subfolders === false ? false : undefined,
+      filename: typeof filename === "string" ? filename : undefined,
+      viewPrimary: typeof view.primary === "string" ? view.primary : undefined,
       fields,
     });
   }
@@ -221,6 +246,88 @@ export function matchEntry(
 }
 
 export const EMPTY_CONFIG: PagesConfig = { media: [], content: [] };
+
+/**
+ * Collection entry whose folder contains `dirPath` (an absolute directory),
+ * honoring `subfolders: false`. Used by "new file" to pick the schema for a
+ * sidebar directory. Unlike {@link matchEntry}, entries without frontmatter
+ * fields still match — the filename pattern is useful regardless.
+ */
+export function matchCollectionForDir(
+  config: PagesConfig,
+  root: string,
+  dirPath: string,
+): ContentEntry | null {
+  const prefix = root.endsWith("/") ? root : root + "/";
+  const rel = dirPath === root ? "" : dirPath.startsWith(prefix) ? dirPath.slice(prefix.length) : null;
+  if (rel === null) return null;
+  for (const entry of config.content) {
+    if (entry.type !== "collection") continue;
+    if (rel === entry.path) return entry;
+    if (rel.startsWith(entry.path + "/") && entry.subfolders !== false) return entry;
+  }
+  return null;
+}
+
+/**
+ * The field new-entry filenames derive from, per Pages CMS: `view.primary`,
+ * else a field named `title`, else the first non-object field.
+ */
+export function primaryField(entry: ContentEntry): Field | null {
+  if (entry.viewPrimary) {
+    const named = entry.fields.find((f) => f.name === entry.viewPrimary);
+    if (named) return named;
+  }
+  return (
+    entry.fields.find((f) => f.name === "title") ??
+    entry.fields.find((f) => f.type !== "object") ??
+    null
+  );
+}
+
+/** Pages CMS slugification: lowercase, non-alphanumerics collapsed to `-`. */
+export function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/** Default filename pattern for collections without a `filename` setting. */
+export const DEFAULT_FILENAME_PATTERN = "{year}-{month}-{day}-{primary}.md";
+
+/**
+ * Expands a Pages CMS filename pattern: `{year}`/`{month}`/`{day}`/`{hour}`/
+ * `{minute}`/`{second}` from the current time, `{primary}` (and its `{slug}`
+ * alias) from the entry's primary field, and `{fields.x}` or `{x}` from
+ * `values` — all field values slugified.
+ */
+export function generateFilename(
+  pattern: string,
+  entry: ContentEntry,
+  values: Record<string, unknown>,
+): string {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const dates: Record<string, string> = {
+    year: String(now.getFullYear()),
+    month: pad(now.getMonth() + 1),
+    day: pad(now.getDate()),
+    hour: pad(now.getHours()),
+    minute: pad(now.getMinutes()),
+    second: pad(now.getSeconds()),
+  };
+  const primary = primaryField(entry)?.name;
+  return pattern
+    .replace(/\{(year|month|day|hour|minute|second)\}/g, (_, token: string) => dates[token])
+    .replace(/\{(?:primary|slug)\}/g, primary ? `{fields.${primary}}` : "untitled")
+    .replace(/\{(?:fields\.)?([^}]+)\}/g, (_, name: string) => {
+      const value = values[name];
+      return value === undefined || value === null ? "" : slugify(String(value));
+    });
+}
 
 function inferField(name: string, value: unknown): Field {
   if (Array.isArray(value)) {
