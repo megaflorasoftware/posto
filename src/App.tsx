@@ -219,6 +219,9 @@ function App() {
   const [dragging, setDragging] = useState(false);
   const [split, setSplit] = useState(33);
   const [previewRoute, setPreviewRoute] = useState("/");
+  // The route the dev server actually served last (from get_last_route), as
+  // opposed to previewRoute, which is a forward guess from the open file.
+  const [servedRoute, setServedRoute] = useState<string | null>(null);
   // Bumped after each successful save so the SEO preview refetches the page.
   const [saveTick, setSaveTick] = useState(0);
 
@@ -239,7 +242,6 @@ function App() {
 
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const pingTimer = useRef<ReturnType<typeof setInterval>>(undefined);
-  const routeTimer = useRef<ReturnType<typeof setInterval>>(undefined);
   const previewFrame = useRef<HTMLIFrameElement | null>(null);
   const lastNavigatedRoute = useRef<string | undefined>(undefined);
   const lastServedRoute = useRef<string | null>(null);
@@ -370,13 +372,18 @@ function App() {
     return null;
   }
 
-  function watchPreviewRoute() {
-    clearInterval(routeTimer.current);
+  // Reverse-route polling lives in an effect (not an imperative helper) so
+  // each dev-server start gets a fresh interval running current code, cleaned
+  // up automatically when the server changes or the app unmounts.
+  useEffect(() => {
+    if (server.state !== "running") return;
     lastServedRoute.current = null;
-    routeTimer.current = setInterval(async () => {
+    setServedRoute(null);
+    const timer = setInterval(async () => {
       const route = await invoke<string | null>("get_last_route");
       if (route === lastServedRoute.current) return;
       lastServedRoute.current = route;
+      if (route) setServedRoute(route);
       if (!route || route === previewRouteRef.current) return;
       // The user navigated inside the preview: sync route state without
       // re-navigating the iframe, and select the matching file.
@@ -385,7 +392,9 @@ function App() {
       const file = fileForRoute(route);
       if (file) void openFile(file, false);
     }, 700);
-  }
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [server]);
 
   function watchServer(port: number) {
     clearInterval(pingTimer.current);
@@ -398,7 +407,6 @@ function App() {
           // Fresh server → fresh iframe; make the effect issue the initial load.
           lastNavigatedRoute.current = undefined;
           setServer({ state: "running", port });
-          watchPreviewRoute();
         } else if (Date.now() - startedAt > PING_TIMEOUT_MS) {
           clearInterval(pingTimer.current);
           setServer({ state: "error", message: "Dev server did not start within 60 seconds." });
@@ -412,7 +420,6 @@ function App() {
 
   async function startServer(dir: string) {
     clearInterval(pingTimer.current);
-    clearInterval(routeTimer.current);
     try {
       if (await invoke<boolean>("needs_install", { root: dir })) {
         setServer({ state: "installing" });
@@ -512,7 +519,6 @@ function App() {
       window.removeEventListener("pointercancel", stopDragging);
       clearTimeout(saveTimer.current);
       clearInterval(pingTimer.current);
-      clearInterval(routeTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -846,7 +852,7 @@ function App() {
 
               <div className="pane preview-pane">
                 <div className="pane-header">
-                  <span className="pane-title">{previewRoute}</span>
+                  <span className="pane-title">{servedRoute ?? previewRoute}</span>
                   <Button
                     size="xs"
                     variant="default"

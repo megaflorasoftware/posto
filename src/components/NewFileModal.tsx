@@ -9,6 +9,7 @@ import {
   generateFilename,
   matchCollectionForDir,
   primaryField,
+  slugify,
   type PagesConfig,
 } from "../pagescms/config";
 
@@ -54,6 +55,17 @@ export function NewFileModal(props: {
       if (field.default !== undefined) values[field.name] = field.default;
     }
     if (primary && primaryValue.trim() !== "") values[primary.name] = primaryValue.trim();
+    // A `slug` field starts out as the slugified primary value — the same slug
+    // the filename pattern derives — so the entry's slug survives creation.
+    const slugField = entry.fields.find((f) => f.name === "slug");
+    if (
+      slugField &&
+      values[slugField.name] === undefined &&
+      primary &&
+      primaryValue.trim() !== ""
+    ) {
+      values[slugField.name] = slugify(primaryValue);
+    }
     if (Object.keys(values).length === 0) return "";
     return `---\n${new Document(values).toString({ lineWidth: 0 })}---\n`;
   }
