@@ -10,7 +10,7 @@ import {
   Tabs,
   TextInput,
 } from "@mantine/core";
-import { ChevronDown, Plus, Undo2, X } from "lucide-react";
+import { Check, ChevronDown, Plus, Undo2, X } from "lucide-react";
 import { invoke, onFsChanged, openDirectory } from "./ipc";
 import type { ChangedFile, FileEntry, FileGroup } from "./ipc";
 import {
@@ -37,10 +37,29 @@ import "@mantine/tiptap/styles.css";
 import "@mantine/spotlight/styles.css";
 import "./App.css";
 
+type SetupStepId = "git" | "node" | "pm" | "deps" | "server";
+
+type SetupStep = {
+  id: SetupStepId;
+  label: string;
+  status: "pending" | "active" | "done" | "error";
+  detail?: string;
+};
+
+/** Result of the backend's `check_environment` command. */
+type EnvCheck = {
+  git_version: string | null;
+  node_version: string | null;
+  package_manager: string;
+  package_manager_version: string | null;
+  needs_node_modules: boolean;
+};
+
 type ServerStatus =
   | { state: "idle" }
-  | { state: "installing" }
-  | { state: "starting" }
+  // Environment checks/installs running (or awaiting the Install click)
+  // before the dev server is up; `steps` drives the numbered checklist.
+  | { state: "setup"; steps: SetupStep[]; awaitingInstall: boolean }
   | { state: "running"; port: number }
   | { state: "error"; message: string };
 
@@ -454,32 +473,125 @@ function App() {
           setServer({ state: "running", port });
         } else if (Date.now() - startedAt > PING_TIMEOUT_MS) {
           clearInterval(pingTimer.current);
-          setServer({ state: "error", message: "Dev server did not start within 60 seconds." });
+          updateStep("server", {
+            status: "error",
+            detail: "Dev server did not start within 60 seconds.",
+          });
         }
       } catch (e) {
         clearInterval(pingTimer.current);
-        setServer({ state: "error", message: String(e) });
+        updateStep("server", { status: "error", detail: String(e) });
       }
     }, PING_INTERVAL_MS);
   }
 
+  function updateStep(id: SetupStepId, patch: Partial<SetupStep>) {
+    setServer((s) =>
+      s.state === "setup"
+        ? { ...s, steps: s.steps.map((st) => (st.id === id ? { ...st, ...patch } : st)) }
+        : s,
+    );
+  }
+
   async function startServer(dir: string) {
     clearInterval(pingTimer.current);
+    setServer({
+      state: "setup",
+      steps: [
+        { id: "git", label: "Git", status: "active", detail: "Checking…" },
+        { id: "node", label: "Node.js", status: "active", detail: "Checking…" },
+        { id: "pm", label: "Package manager", status: "active", detail: "Checking…" },
+        { id: "deps", label: "Project dependencies", status: "pending" },
+        { id: "server", label: "Dev server", status: "pending" },
+      ],
+      awaitingInstall: false,
+    });
+    let env: EnvCheck;
     try {
-      if (await invoke<boolean>("needs_install", { root: dir })) {
-        setServer({ state: "installing" });
-        await invoke("install_dependencies", { root: dir });
+      env = await invoke<EnvCheck>("check_environment", { root: dir });
+    } catch (e) {
+      setServer({ state: "error", message: String(e) });
+      return;
+    }
+    const gitOk = env.git_version !== null;
+    const nodeOk = env.node_version !== null;
+    const pmOk = env.package_manager_version !== null;
+    const depsOk = !env.needs_node_modules;
+    const steps: SetupStep[] = [
+      {
+        id: "git",
+        label: "Git",
+        status: gitOk ? "done" : "pending",
+        detail: gitOk ? env.git_version! : "Not found — will be installed",
+      },
+      {
+        id: "node",
+        label: "Node.js",
+        status: nodeOk ? "done" : "pending",
+        detail: nodeOk ? env.node_version! : "Not found — will be installed",
+      },
+      {
+        id: "pm",
+        label: `Package manager (${env.package_manager})`,
+        status: pmOk ? "done" : "pending",
+        detail: pmOk ? env.package_manager_version! : "Not found — will be installed",
+      },
+      {
+        id: "deps",
+        label: "Project dependencies",
+        status: depsOk ? "done" : "pending",
+        detail: depsOk ? undefined : "Will be installed",
+      },
+      { id: "server", label: "Dev server", status: "pending" },
+    ];
+    // Anything that would install waits for one explicit Install click;
+    // when everything is already in place, go straight to the server.
+    const needsInstall = !gitOk || !nodeOk || !pmOk || !depsOk;
+    setServer({ state: "setup", steps, awaitingInstall: needsInstall });
+    if (!needsInstall) void runSetup(dir, steps);
+  }
+
+  /** Runs the pending steps in order, then starts the dev server. */
+  async function runSetup(dir: string, steps: SetupStep[]) {
+    setServer({ state: "setup", steps, awaitingInstall: false });
+    const pending = new Set(steps.filter((s) => s.status === "pending").map((s) => s.id));
+    let current: SetupStepId = "git";
+    try {
+      if (pending.has("git")) {
+        // On macOS this opens Apple's Command Line Tools dialog; the backend
+        // waits for the user to finish it.
+        updateStep("git", { status: "active", detail: "Installing… follow any system prompt" });
+        const version = await invoke<string>("install_git");
+        updateStep("git", { status: "done", detail: version });
       }
-      setServer({ state: "starting" });
+      if (pending.has("node")) {
+        current = "node";
+        updateStep("node", { status: "active", detail: "Installing…" });
+        const version = await invoke<string>("install_node");
+        updateStep("node", { status: "done", detail: version });
+      }
+      if (pending.has("pm")) {
+        current = "pm";
+        updateStep("pm", { status: "active", detail: "Installing…" });
+        const version = await invoke<string>("install_package_manager", { root: dir });
+        updateStep("pm", { status: "done", detail: version });
+      }
+      if (pending.has("deps")) {
+        current = "deps";
+        updateStep("deps", { status: "active", detail: "Installing…" });
+        await invoke("install_dependencies", { root: dir });
+        updateStep("deps", { status: "done", detail: undefined });
+      }
+      current = "server";
+      updateStep("server", { status: "active", detail: "Starting…" });
       const port = await invoke<number>("start_dev_server", { root: dir });
       watchServer(port);
     } catch (e) {
-      setServer({ state: "error", message: String(e) });
+      updateStep(current, { status: "error", detail: String(e) });
     }
   }
 
   async function restartServer(dir: string) {
-    setServer({ state: "starting" });
     try {
       await invoke("stop_dev_server");
     } catch {
@@ -908,6 +1020,7 @@ function App() {
             root={root}
             group={newFileGroup}
             config={config ?? EMPTY_CONFIG}
+            astroContent={astroConfig?.content ?? []}
             onClose={() => setNewFileGroup(null)}
             onCreated={(path) => void onFileCreated(path)}
           />
@@ -1057,7 +1170,7 @@ function App() {
                   <Button
                     size="xs"
                     variant="default"
-                    disabled={server.state === "installing" || server.state === "starting"}
+                    disabled={server.state === "setup"}
                     onClick={() => void restartServer(root)}
                   >
                     Restart Preview
@@ -1069,14 +1182,41 @@ function App() {
                     <Tabs.Tab value="seo">Search/Socials</Tabs.Tab>
                   </Tabs.List>
                   <Tabs.Panel value="site">
-                    {(server.state === "starting" || server.state === "installing") && (
+                    {server.state === "setup" && (
                       <div className="pane-placeholder">
-                        <Loader size="sm" />
-                        <span>
-                          {server.state === "installing"
-                            ? "Installing dependencies…"
-                            : "Starting dev server…"}
-                        </span>
+                        <ol className="setup-steps">
+                          {server.steps.map((step) => (
+                            <li key={step.id} className={`setup-step setup-step-${step.status}`}>
+                              <span className="setup-step-icon">
+                                {step.status === "active" ? (
+                                  <Loader size={14} />
+                                ) : step.status === "done" ? (
+                                  <Check size={15} />
+                                ) : step.status === "error" ? (
+                                  <X size={15} />
+                                ) : null}
+                              </span>
+                              <span className="setup-step-label">{step.label}</span>
+                              {step.detail && (
+                                <span className="setup-step-detail">{step.detail}</span>
+                              )}
+                            </li>
+                          ))}
+                        </ol>
+                        {server.awaitingInstall && (
+                          <Button size="xs" onClick={() => void runSetup(root, server.steps)}>
+                            Install
+                          </Button>
+                        )}
+                        {server.steps.some((s) => s.status === "error") && (
+                          <Button
+                            size="xs"
+                            variant="default"
+                            onClick={() => void startServer(root)}
+                          >
+                            Retry
+                          </Button>
+                        )}
                       </div>
                     )}
                     {server.state === "error" && (

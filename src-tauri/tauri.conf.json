@@ -13,8 +13,10 @@
     "windows": [
       {
         "title": "Posto",
-        "width": 1280,
-        "height": 800
+        "width": 2400,
+        "height": 1350,
+        "maxWidth": 2400,
+        "maxHeight": 1350
       }
     ],
     "security": {

@@ -5,11 +5,13 @@ import { Document } from "yaml";
 import { invoke } from "../ipc";
 import type { FileGroup } from "../ipc";
 import {
+  collectionExtension,
   DEFAULT_FILENAME_PATTERN,
   generateFilename,
   matchCollectionForDir,
   primaryField,
   slugify,
+  type ContentEntry,
   type PagesConfig,
 } from "../pagescms/config";
 
@@ -24,6 +26,8 @@ export function NewFileModal(props: {
   root: string;
   group: FileGroup;
   config: PagesConfig;
+  /** Entries sourced from Astro collection schemas (a subset of `config.content`). */
+  astroContent: ContentEntry[];
   onClose: () => void;
   onCreated: (path: string) => void;
 }) {
@@ -37,7 +41,15 @@ export function NewFileModal(props: {
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
-  const pattern = entry?.filename ?? DEFAULT_FILENAME_PATTERN;
+  // Astro collections have no date-prefix convention — their entries are just
+  // slug-named — so the Pages CMS date default only applies to `.pages.yml`
+  // collections without an explicit `filename`.
+  const astroEntry = entry !== null && props.astroContent.includes(entry);
+  const pattern =
+    entry?.filename ??
+    (astroEntry && entry
+      ? `{primary}.${collectionExtension(entry) ?? "md"}`
+      : DEFAULT_FILENAME_PATTERN);
   const generated =
     entry && primary ? generateFilename(pattern, entry, { [primary.name]: primaryValue }) : "";
   const effectiveFilename = (filenameTouched || !entry ? filename : generated).trim();

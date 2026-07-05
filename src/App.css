@@ -961,6 +961,67 @@ body,
   font-size: 0.85rem;
 }
 
+.setup-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: setup-step;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  text-align: left;
+}
+
+.setup-step {
+  counter-increment: setup-step;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 26rem;
+}
+
+.setup-step::before {
+  content: counter(setup-step) ".";
+  width: 1.1em;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.setup-step-icon {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.setup-step-label {
+  color: var(--mantine-color-text);
+  white-space: nowrap;
+}
+
+.setup-step-pending .setup-step-label {
+  color: var(--mantine-color-dimmed);
+}
+
+.setup-step-done .setup-step-icon {
+  color: var(--mantine-color-green-7);
+}
+
+.setup-step-error .setup-step-icon {
+  color: var(--mantine-color-red-7);
+}
+
+.setup-step-error .setup-step-detail {
+  color: var(--mantine-color-red-7);
+}
+
+.setup-step-detail {
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
 .preview {
   flex: 1;
   width: 100%;
