@@ -67,6 +67,7 @@ type ServerStatus =
 const DEFAULT_COMMIT_MESSAGE = "Site updates";
 
 const AUTOSAVE_DELAY_MS = 800;
+const FETCH_INTERVAL_MS = 30_000;
 const PING_INTERVAL_MS = 500;
 const PING_TIMEOUT_MS = 60_000;
 
@@ -253,6 +254,11 @@ function App() {
   const [server, setServer] = useState<ServerStatus>({ state: "idle" });
   const [publishState, setPublishState] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
+  // Whether the upstream branch has commits we don't (kept fresh by the
+  // 30-second fetch poll); the header offers "Fetch Changes" instead of
+  // Publish while true.
+  const [behindUpstream, setBehindUpstream] = useState(false);
+  const [pulling, setPulling] = useState(false);
   // null while the modal is loading the change list.
   const [changes, setChanges] = useState<ChangedFile[] | null>(null);
   const [changesError, setChangesError] = useState<string | null>(null);
@@ -759,6 +765,61 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Poll the remote so the header can offer "Fetch Changes" soon after
+  // someone publishes elsewhere. Errors (no remote/upstream, offline) just
+  // mean there is nothing to fetch.
+  useEffect(() => {
+    if (!root) return;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const behind = await invoke<boolean>("fetch_upstream", { root });
+        if (!cancelled) setBehindUpstream(behind);
+      } catch {
+        if (!cancelled) setBehindUpstream(false);
+      }
+    };
+    void check();
+    const timer = setInterval(() => void check(), FETCH_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [root]);
+
+  async function fetchChanges() {
+    const dir = rootRef.current;
+    if (!dir) return;
+    // Local edits must be on disk so the pull can stash-carry them.
+    flushPendingSave();
+    setPulling(true);
+    setPublishState("Fetching changes…");
+    try {
+      setPublishState(await invoke<string>("pull_upstream", { root: dir }));
+      setBehindUpstream(false);
+    } catch (e) {
+      setPublishState(`Fetch failed: ${e}`);
+    } finally {
+      setPulling(false);
+    }
+    // The fs watcher also reacts to git's writes, but refresh explicitly so
+    // the sidebar and open file update even when watching hiccups.
+    void refreshGroups(dir);
+    const open = filePathRef.current;
+    if (open && saveTimer.current === undefined) {
+      try {
+        const content = await invoke<string>("read_text_file", { path: open });
+        if (filePathRef.current === open && content !== fileContentRef.current) {
+          setFileContent(content);
+          fileContentRef.current = content;
+          setSaveState("saved");
+        }
+      } catch {
+        // Pulled changes deleted the open file; the sidebar refresh shows it.
+      }
+    }
+  }
+
   async function openPublishModal() {
     const dir = rootRef.current;
     if (!dir) return;
@@ -902,6 +963,9 @@ function App() {
     if (!root || !config) return groups;
     return groups
       .map((group, original) => {
+        if (group.kind === "styles") {
+          return { group, tier: 3, collectionLabel: "", exact: false, original };
+        }
         const collection = group.label ? matchCollectionForDir(config, root, group.path) : null;
         const exact = collection !== null && group.path === root + "/" + collection.path;
         return {
@@ -959,9 +1023,15 @@ function App() {
             {root ? rootName : "Choose directory"}
           </Button>
           <span className="navbar-status">{publishState}</span>
-          <Button size="xs" disabled={!root} onClick={() => void openPublishModal()}>
-            Publish…
-          </Button>
+          {behindUpstream ? (
+            <Button size="xs" color="teal" loading={pulling} onClick={() => void fetchChanges()}>
+              Fetch Changes
+            </Button>
+          ) : (
+            <Button size="xs" disabled={!root} onClick={() => void openPublishModal()}>
+              Publish…
+            </Button>
+          )}
         </header>
 
         <Modal
@@ -1036,25 +1106,29 @@ function App() {
             <aside className="sidebar">
               {displayGroups.map((group) =>
                 group.label ? (
-                  <details key={group.path} open>
+                  // The synthetic Styles group shares its path with the root
+                  // group, so the key needs the kind to stay unique.
+                  <details key={`${group.kind ?? ""}:${group.path}`} open>
                     <summary>
                       <span className="group-label" title={group.label}>
                         {group.label}
                       </span>
-                      <button
-                        type="button"
-                        className="group-action"
-                        title="New file"
-                        aria-label={`New file in ${group.label}`}
-                        onClick={(e) => {
-                          // A click inside <summary> would also toggle the group.
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setNewFileGroup(group);
-                        }}
-                      >
-                        <Plus size={14} />
-                      </button>
+                      {group.kind !== "styles" && (
+                        <button
+                          type="button"
+                          className="group-action"
+                          title="New file"
+                          aria-label={`New file in ${group.label}`}
+                          onClick={(e) => {
+                            // A click inside <summary> would also toggle the group.
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setNewFileGroup(group);
+                          }}
+                        >
+                          <Plus size={14} />
+                        </button>
+                      )}
                       <ChevronDown size={14} className="group-chevron" />
                     </summary>
                     <FileList

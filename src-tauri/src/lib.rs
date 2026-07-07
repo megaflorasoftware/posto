@@ -70,6 +70,9 @@ fn frontmatter_title(path: &Path, ext: &str) -> Option<String> {
 struct FileGroup {
     label: String,
     path: String,
+    /// Marks synthetic groups the frontend treats specially ("styles" for the
+    /// tree-wide CSS section); None for plain directory groups.
+    kind: Option<&'static str>,
     files: Vec<FileEntry>,
 }
 
@@ -116,6 +119,7 @@ fn collect_groups(root: &Path, dir: &Path, groups: &mut Vec<FileGroup>) {
                 .to_string_lossy()
                 .to_string(),
             path: dir.to_string_lossy().to_string(),
+            kind: None,
             files,
         });
     }
@@ -134,6 +138,19 @@ fn list_files(root: String) -> Result<Vec<FileGroup>, String> {
     collect_groups(path, path, &mut groups);
     // Root files first, then directories alphabetically by their path label.
     groups.sort_by(|a, b| a.label.cmp(&b.label));
+    // All stylesheets in the tree form one flat "Styles" section, appended
+    // last so it lands at the bottom of the sidebar.
+    let mut styles = Vec::new();
+    collect_dir_files(path, &["css".to_string()], &mut styles);
+    if !styles.is_empty() {
+        styles.sort_by_key(|f| f.name.to_lowercase());
+        groups.push(FileGroup {
+            label: "Styles".to_string(),
+            path: root.clone(),
+            kind: Some("styles"),
+            files: styles,
+        });
+    }
     Ok(groups)
 }
 
@@ -1254,6 +1271,57 @@ fn revert_file(root: String, path: String) -> Result<(), String> {
     }
 }
 
+/// Fetches the remote and reports whether the upstream branch has commits the
+/// local branch lacks. Errors out when there is no remote/upstream — callers
+/// treat that as "nothing to fetch".
+#[tauri::command]
+async fn fetch_upstream(root: String) -> Result<bool, String> {
+    run_git(&root, &["fetch", "--quiet"])?;
+    let behind = run_git(&root, &["rev-list", "--count", "HEAD..@{u}"])?;
+    Ok(behind.trim().parse::<u64>().unwrap_or(0) > 0)
+}
+
+/// Merges the already-fetched upstream branch into the working tree. The
+/// server always wins: committed conflicts resolve with `-X theirs`, and when
+/// a merge is blocked by uncommitted local edits those are stashed around the
+/// merge — reapplied afterwards, except where they collide with what the
+/// server changed (the merged version is kept there).
+#[tauri::command]
+async fn pull_upstream(root: String) -> Result<String, String> {
+    run_git(&root, &["fetch", "--quiet"])?;
+    let merge = || run_git(&root, &["merge", "--no-edit", "-X", "theirs", "@{u}"]);
+    if merge().is_ok() {
+        return Ok("Updated from server.".to_string());
+    }
+    let _ = run_git(&root, &["merge", "--abort"]);
+    let dirty = !run_git(&root, &["status", "--porcelain"])?.trim().is_empty();
+    if !dirty {
+        // A clean tree that still can't merge is a real failure (unrelated
+        // histories, diverged in a way -X theirs can't settle, …).
+        return merge().map(|_| "Updated from server.".to_string());
+    }
+    run_git(
+        &root,
+        &["stash", "push", "--include-untracked", "-m", "posto-fetch"],
+    )?;
+    if let Err(e) = merge() {
+        let _ = run_git(&root, &["merge", "--abort"]);
+        let _ = run_git(&root, &["stash", "pop"]);
+        return Err(e);
+    }
+    if run_git(&root, &["stash", "pop"]).is_err() {
+        // Local edits conflict with what the server changed: keep the merged
+        // (server) version of each conflicted file, then drop the stash.
+        let conflicted = run_git(&root, &["diff", "--name-only", "--diff-filter=U"])?;
+        for file in conflicted.lines().map(str::trim).filter(|l| !l.is_empty()) {
+            let _ = run_git(&root, &["checkout", "--ours", "--", file]);
+        }
+        let _ = run_git(&root, &["reset", "-q"]);
+        let _ = run_git(&root, &["stash", "drop"]);
+    }
+    Ok("Updated from server.".to_string())
+}
+
 #[tauri::command]
 async fn publish(root: String, message: Option<String>) -> Result<String, String> {
     run_git(&root, &["add", "-A"])?;
@@ -1468,6 +1536,8 @@ pub fn run() {
             set_last_root,
             changed_files,
             revert_file,
+            fetch_upstream,
+            pull_upstream,
             publish,
             watch_root
         ])

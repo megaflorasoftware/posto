@@ -15,6 +15,8 @@ export interface FileEntry {
 export interface FileGroup {
   label: string;
   path: string;
+  /** Synthetic-group marker ("styles" for the tree-wide CSS section). */
+  kind?: string | null;
   files: FileEntry[];
 }
 
@@ -162,6 +164,8 @@ const mockFiles: Record<string, string> = {
   "/mock/site/posts/first.md":
     "---\ntitle: First post\npublished: true\ncount: 3\ntags:\n  - alpha\n  - beta\nauthor:\n  name: Henry\n  email: h@example.com\nlinks:\n  - label: Home\n    url: /\n  - label: About\n    url: /about\n---\n\nHello world.\n",
   "/mock/site/notes.txt": "Some notes.\n",
+  "/mock/site/src/styles/global.css": "body {\n  margin: 0;\n}\n",
+  "/mock/site/public/theme.css": ":root {\n  --accent: rebeccapurple;\n}\n",
   "/mock/site/src/blog/with-slug.mdx":
     "---\ntitle: X\nslug: custom-slug\nrelated: src/blog/no-slug.mdx\nsee_also:\n  - src/blog/no-slug.mdx\nworks:\n  - src: src/blog/no-slug.mdx\n  - src: src/blog/with-slug.mdx\nimages:\n  - src: /images/photo.jpg\n    alt: A photo\n  - src: /images/nested/logo.png\n    alt: The logo\n---\n\nBody.\n",
   "/mock/site/src/blog/no-slug.mdx": "---\ntitle: Y\n---\n\nBody.\n",
@@ -239,8 +243,8 @@ function mockTitle(path: string): string | null {
 
 async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
   switch (cmd) {
-    case "list_files":
-      return [
+    case "list_files": {
+      const groups: FileGroup[] = [
         {
           label: "",
           path: "/mock/site",
@@ -296,6 +300,15 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
             .map((file) => ({ ...file, title: mockTitle(file.path) })),
         };
       });
+      const styles = Object.keys(mockFiles)
+        .filter((path) => path.endsWith(".css") && !mockDeleted.has(path))
+        .sort()
+        .map((path) => ({ name: path.split("/").pop() as string, path }));
+      if (styles.length > 0) {
+        groups.push({ label: "Styles", path: "/mock/site", kind: "styles", files: styles });
+      }
+      return groups;
+    }
     case "list_dir_files": {
       const dir = args?.dir as string;
       const extensions = (args?.extensions as string[]) ?? [];
@@ -342,6 +355,11 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     }
     case "revert_file":
       return null;
+    case "fetch_upstream":
+      return (window as { __mockBehindUpstream?: boolean }).__mockBehindUpstream ?? false;
+    case "pull_upstream":
+      (window as { __mockBehindUpstream?: boolean }).__mockBehindUpstream = false;
+      return "Updated from server.";
     case "watch_root":
       return null;
     case "needs_install":

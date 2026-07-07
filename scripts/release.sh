@@ -43,6 +43,17 @@ cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 >/dev/nul
 git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
 git commit -m "release v$VERSION"
 git tag "v$VERSION"
-git push origin HEAD "v$VERSION"
+
+echo "Pushing branch and tag..."
+# without a TTY, ssh can't show an auth prompt and git push hangs forever;
+# BatchMode makes it fail immediately instead
+if [[ ! -t 0 ]]; then
+  export GIT_SSH_COMMAND="ssh -o BatchMode=yes"
+fi
+if ! git push origin HEAD "v$VERSION"; then
+  echo "error: push failed. The commit and tag exist locally; from a terminal run:" >&2
+  echo "  git push origin HEAD v$VERSION" >&2
+  exit 1
+fi
 
 echo "Pushed v$VERSION — release workflow is running: https://github.com/$(git remote get-url origin | sed -E 's#(git@github.com:|https://github.com/)##; s/\.git$//')/actions"
