@@ -418,9 +418,19 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       return (window as { __mockLastRoute?: string }).__mockLastRoute ?? null;
     case "get_last_root":
       return localStorage.getItem("posto-last-root");
-    case "set_last_root":
-      localStorage.setItem("posto-last-root", args?.root as string);
+    case "get_recent_roots": {
+      const raw = localStorage.getItem("posto-recent-roots");
+      return raw ? (JSON.parse(raw) as string[]) : [];
+    }
+    case "set_last_root": {
+      const root = args?.root as string;
+      localStorage.setItem("posto-last-root", root);
+      const raw = localStorage.getItem("posto-recent-roots");
+      const recents = raw ? (JSON.parse(raw) as string[]) : [];
+      const next = [root, ...recents.filter((r) => r !== root)].slice(0, 10);
+      localStorage.setItem("posto-recent-roots", JSON.stringify(next));
       return null;
+    }
     default:
       throw new Error(`Unknown command: ${cmd}`);
   }

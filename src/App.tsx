@@ -6,6 +6,7 @@ import {
   Button,
   Loader,
   MantineProvider,
+  Menu,
   Modal,
   Tabs,
   TextInput,
@@ -240,6 +241,8 @@ function FileList(props: {
 
 function App() {
   const [root, setRoot] = useState<string | null>(null);
+  // Recently-opened site roots, newest first (backend caps at 10).
+  const [recentRoots, setRecentRoots] = useState<string[]>([]);
   const [groups, setGroups] = useState<FileGroup[]>([]);
   const [filePath, setFilePath] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState("");
@@ -683,8 +686,16 @@ function App() {
     void loadAstroConfig(dir);
     await refreshGroups(dir);
     void startServer(dir);
-    void invoke("set_last_root", { root: dir });
+    void invoke("set_last_root", { root: dir }).then(() => refreshRecentRoots());
     void invoke("watch_root", { root: dir });
+  }
+
+  async function refreshRecentRoots() {
+    try {
+      setRecentRoots(await invoke<string[]>("get_recent_roots"));
+    } catch {
+      setRecentRoots([]);
+    }
   }
 
   async function onFileCreated(path: string) {
@@ -751,6 +762,7 @@ function App() {
     window.addEventListener("pointerup", stopDragging);
     window.addEventListener("pointercancel", stopDragging);
     const unlistenFs = onFsChanged(onExternalChanges);
+    void refreshRecentRoots();
     void (async () => {
       const last = await invoke<string | null>("get_last_root");
       if (last && !rootRef.current) void selectRoot(last);
@@ -930,6 +942,9 @@ function App() {
   }
 
   const rootName = root?.split("/").filter(Boolean).pop() ?? "";
+  // Dropdown entries for the header's recent-sites menu; the open site would
+  // be a no-op, so it's left out.
+  const recentOptions = recentRoots.filter((dir) => dir !== root).slice(0, 10);
   const fileName = filePath?.split("/").pop() ?? "";
 
   // Effective schema config: `.pages.yml` entries first (higher resolution —
@@ -1019,9 +1034,32 @@ function App() {
     <MantineProvider defaultColorScheme="auto">
       <div className="app">
         <header className="navbar">
-          <Button size="xs" variant="default" onClick={() => void chooseDirectory()}>
-            {root ? rootName : "Choose directory"}
-          </Button>
+          <Button.Group>
+            <Button size="xs" variant="default" onClick={() => void chooseDirectory()}>
+              {root ? rootName : "Choose directory"}
+            </Button>
+            <Menu position="bottom-start" width={220}>
+              <Menu.Target>
+                <Button
+                  size="xs"
+                  variant="default"
+                  px={6}
+                  aria-label="Recent sites"
+                  disabled={recentOptions.length === 0}
+                >
+                  <ChevronDown size={14} />
+                </Button>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Label>Recent sites</Menu.Label>
+                {recentOptions.map((dir) => (
+                  <Menu.Item key={dir} title={dir} onClick={() => void selectRoot(dir)}>
+                    {dir.split("/").filter(Boolean).pop()}
+                  </Menu.Item>
+                ))}
+              </Menu.Dropdown>
+            </Menu>
+          </Button.Group>
           <span className="navbar-status">{publishState}</span>
           {behindUpstream ? (
             <Button size="xs" color="teal" loading={pulling} onClick={() => void fetchChanges()}>
