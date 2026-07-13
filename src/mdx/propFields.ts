@@ -1,5 +1,5 @@
 import type { Field } from "../pagescms/config";
-import type { AstroPropDef, MdxProp } from "./mdx";
+import { type AstroPropDef, type MdxProp, parseTypeMembers } from "./mdx";
 
 // Bridges Astro `Props` declarations and MDX prop attributes to the Pages CMS
 // field model, so component cards render the same controls as the frontmatter
@@ -62,6 +62,19 @@ function typeField(name: string, type: string): Field | null {
   if (single === "string") return { name, type: "string" };
   if (single === "number") return { name, type: "number" };
   if (single === "boolean") return { name, type: "boolean" };
+  if (single.startsWith("{") && single.endsWith("}")) {
+    const children: Field[] = [];
+    for (const member of parseTypeMembers(single.slice(1, -1))) {
+      const child = typeField(member.name, member.type);
+      // Any unmappable member sends the whole prop to raw expression editing;
+      // a partial form would drop the members it can't render.
+      if (!child) return null;
+      if (!member.optional) child.required = true;
+      children.push(child);
+    }
+    if (children.length === 0) return null;
+    return { name, type: "object", fields: children };
+  }
   let item: string | null = null;
   if (single.endsWith("[]")) item = single.slice(0, -2).trim();
   else {
@@ -87,28 +100,125 @@ export function astroPropField(def: AstroPropDef): Field | null {
 }
 
 /**
+ * Parses a JS literal expression — JSON plus what authored MDX actually
+ * contains: single-quoted strings, bare object keys, trailing commas,
+ * `undefined`. Throws on anything dynamic (identifiers, calls, templates).
+ */
+function parseLiteral(src: string): unknown {
+  let i = 0;
+  const fail = () => new Error("not a literal");
+  const ws = () => {
+    while (i < src.length && /\s/.test(src[i])) i++;
+  };
+  const str = (): string => {
+    const quote = src[i++];
+    let out = "";
+    while (i < src.length) {
+      const ch = src[i++];
+      if (ch === quote) return out;
+      if (ch === "\\") {
+        const esc = src[i++];
+        out += esc === "n" ? "\n" : esc === "t" ? "\t" : esc;
+      } else {
+        out += ch;
+      }
+    }
+    throw fail();
+  };
+  const value = (): unknown => {
+    ws();
+    const ch = src[i];
+    if (ch === "{") {
+      i++;
+      const out: Record<string, unknown> = {};
+      ws();
+      if (src[i] === "}") {
+        i++;
+        return out;
+      }
+      for (;;) {
+        ws();
+        let key: string;
+        if (src[i] === '"' || src[i] === "'") {
+          key = str();
+        } else {
+          const ident = /^[A-Za-z_$][\w$]*/.exec(src.slice(i));
+          if (!ident) throw fail();
+          key = ident[0];
+          i += ident[0].length;
+        }
+        ws();
+        if (src[i] !== ":") throw fail();
+        i++;
+        out[key] = value();
+        ws();
+        if (src[i] === ",") {
+          i++;
+          ws();
+          if (src[i] !== "}") continue;
+        }
+        if (src[i] !== "}") throw fail();
+        i++;
+        return out;
+      }
+    }
+    if (ch === "[") {
+      i++;
+      const out: unknown[] = [];
+      ws();
+      if (src[i] === "]") {
+        i++;
+        return out;
+      }
+      for (;;) {
+        out.push(value());
+        ws();
+        if (src[i] === ",") {
+          i++;
+          ws();
+          if (src[i] !== "]") continue;
+        }
+        if (src[i] !== "]") throw fail();
+        i++;
+        return out;
+      }
+    }
+    if (ch === '"' || ch === "'") return str();
+    const num = /^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/.exec(src.slice(i));
+    if (num) {
+      i += num[0].length;
+      return Number(num[0]);
+    }
+    const word = /^[a-z]+/.exec(src.slice(i));
+    if (word) {
+      i += word[0].length;
+      if (word[0] === "true") return true;
+      if (word[0] === "false") return false;
+      if (word[0] === "null") return null;
+      if (word[0] === "undefined") return undefined;
+    }
+    throw fail();
+  };
+  const result = value();
+  ws();
+  if (i !== src.length) throw fail();
+  return result;
+}
+
+/**
  * JS value carried by a prop: strings verbatim, shorthand booleans as true,
- * expressions through a tolerant JSON parse (single-quoted arrays are common
- * in authored MDX). Anything dynamic comes back as UNPARSED.
+ * literal expressions parsed into plain data. Anything dynamic comes back as
+ * UNPARSED.
  */
 export function propJsValue(prop: MdxProp): unknown {
   if (prop.kind === "string") return prop.value;
   if (prop.kind === "boolean") return true;
   if (prop.kind === "spread") return UNPARSED;
-  const text = prop.value.trim();
   try {
-    return JSON.parse(text);
+    return parseLiteral(prop.value.trim());
   } catch {
-    // not strict JSON
+    return UNPARSED;
   }
-  if (!text.includes('"')) {
-    try {
-      return JSON.parse(text.replace(/'/g, '"'));
-    } catch {
-      // not JSON with normalized quotes either
-    }
-  }
-  return UNPARSED;
 }
 
 /**
@@ -127,6 +237,9 @@ export function jsValueProp(name: string, value: unknown, required: boolean): Md
 }
 
 function scalarFits(field: Field, value: unknown): boolean {
+  // Empty slots fit anything: absent members, and the "" placeholders the
+  // form's add-item flow writes for every new list entry.
+  if (value === undefined || value === null || value === "") return true;
   switch (field.type) {
     case "string":
     case "select":
@@ -135,6 +248,11 @@ function scalarFits(field: Field, value: unknown): boolean {
       return typeof value === "number";
     case "boolean":
       return typeof value === "boolean";
+    case "object":
+      if (typeof value !== "object" || Array.isArray(value)) return false;
+      return (field.fields ?? []).every((child) =>
+        valueFits(child, (value as Record<string, unknown>)[child.name]),
+      );
     default:
       return true;
   }

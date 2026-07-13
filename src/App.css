@@ -452,7 +452,8 @@ body,
   align-items: start;
 }
 
-.mdx-card-props .form-field:has(.list-field) {
+.mdx-card-props .form-field:has(.list-field),
+.mdx-card-props .form-field:has(.object-fields) {
   grid-column: 1 / -1;
 }
 

@@ -210,42 +210,75 @@ function PropsForm(formProps: {
     setProp(propName, jsValueProp(propName, value, def ? !def.optional : false));
   }
 
-  const listOf = (propName: string): unknown[] => {
-    const value = values[propName];
-    return Array.isArray(value) ? [...value] : [];
-  };
+  /** Copy-on-write set along a path inside a prop's parsed value; numeric
+   * keys are list indices, string keys object members. Missing containers
+   * materialize on the way down. */
+  function setIn(
+    container: unknown,
+    path: (string | number)[],
+    update: (current: unknown) => unknown,
+  ): unknown {
+    if (path.length === 0) return update(container);
+    const [key, ...rest] = path;
+    if (typeof key === "number") {
+      const items = Array.isArray(container) ? [...container] : [];
+      items[key] = setIn(items[key], rest, update);
+      return items;
+    }
+    const record =
+      container && typeof container === "object" && !Array.isArray(container)
+        ? { ...(container as Record<string, unknown>) }
+        : {};
+    record[key] = setIn(record[key], rest, update);
+    return record;
+  }
+
+  function updateProp(path: (string | number)[], update: (current: unknown) => unknown) {
+    const propName = String(path[0]);
+    const root = values[propName] === UNPARSED ? undefined : values[propName];
+    editJs(propName, setIn(root, path.slice(1), update));
+  }
 
   // FieldEditor's context, backed by the prop list instead of a YAML doc.
-  // Paths are at most [prop] or [prop, index] — the mapped fields only nest
-  // through scalar lists.
+  // Paths descend from the prop name through list indices and object members
+  // to any depth (arrays of objects render the full nested form).
   const ctx: FieldContext = {
     config: env.config,
     root: env.root,
     groups: env.groups,
     errors: () => errors,
-    value: (path) =>
-      path.length === 1 ? values[String(path[0])] : listOf(String(path[0]))[Number(path[1])],
+    value: (path) => {
+      let value: unknown = values[String(path[0])];
+      if (value === UNPARSED) return undefined;
+      for (const key of path.slice(1)) {
+        if (value === null || typeof value !== "object") return undefined;
+        value = (value as Record<string | number, unknown>)[key];
+      }
+      return value;
+    },
     edit: (path, value) => {
       if (path.length === 1) {
         editJs(String(path[0]), value);
         return;
       }
-      const items = listOf(String(path[0]));
-      items[Number(path[1])] = value ?? "";
-      editJs(String(path[0]), items);
+      // Cleared scalar list items keep an "" placeholder (their row must
+      // survive); cleared object members drop out of the serialized JSON.
+      const leaf = typeof path[path.length - 1] === "number" ? (value ?? "") : value;
+      updateProp(path, () => leaf);
     },
-    listAppend: (path, value) => editJs(String(path[0]), [...listOf(String(path[0])), value]),
-    listRemove: (path, index) => {
-      const items = listOf(String(path[0]));
-      items.splice(index, 1);
-      editJs(String(path[0]), items);
-    },
-    listMove: (path, from, to) => {
-      const items = listOf(String(path[0]));
-      const [moved] = items.splice(from, 1);
-      items.splice(to, 0, moved);
-      editJs(String(path[0]), items);
-    },
+    listAppend: (path, value) =>
+      updateProp(path, (current) => [...(Array.isArray(current) ? current : []), value]),
+    listRemove: (path, index) =>
+      updateProp(path, (current) =>
+        Array.isArray(current) ? current.filter((_, i) => i !== index) : [],
+      ),
+    listMove: (path, from, to) =>
+      updateProp(path, (current) => {
+        const items = Array.isArray(current) ? [...current] : [];
+        const [moved] = items.splice(from, 1);
+        items.splice(to, 0, moved);
+        return items;
+      }),
   };
 
   // Raw rows keep the old text-input semantics: value text edited verbatim,

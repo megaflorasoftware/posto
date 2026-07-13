@@ -432,9 +432,43 @@ export function parseAstroSlots(source: string): { named: string[]; hasDefault: 
 }
 
 /**
+ * Parses the members of a TypeScript object-type body (the text between the
+ * braces) into prop definitions. Members split on top-level `;`, `,`, or
+ * newline; methods are skipped. Used for the `Props` interface and,
+ * recursively, for inline object types inside prop declarations.
+ */
+export function parseTypeMembers(body: string): AstroPropDef[] {
+  const defs: AstroPropDef[] = [];
+  let depth = 0;
+  let quote: string | null = null;
+  let member = "";
+  const flush = () => {
+    const m = /^\s*(?:readonly\s+)?([A-Za-z_]\w*)(\?)?\s*:\s*([\s\S]+?)[;,]?\s*$/.exec(member);
+    if (m && !m[3].includes("(")) {
+      defs.push({ name: m[1], optional: m[2] === "?", type: m[3].trim() });
+    }
+    member = "";
+  };
+  for (const ch of body) {
+    if (quote) {
+      member += ch;
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") quote = ch;
+    else if (ch === "{" || ch === "(" || ch === "<") depth++;
+    else if (ch === "}" || ch === ")" || ch === ">") depth--;
+    if (depth === 0 && (ch === ";" || ch === "\n" || ch === ",")) flush();
+    else member += ch;
+  }
+  flush();
+  return defs;
+}
+
+/**
  * Extracts the `Props` interface (or `type Props = {…}`) from an Astro
- * component's frontmatter script. Only top-level members are read; nested
- * object types and methods are skipped.
+ * component's frontmatter script. Only top-level members are read as
+ * definitions; inline object types stay in the member's type text.
  */
 export function parseAstroProps(source: string): AstroPropDef[] {
   const fence = source.match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -446,24 +480,5 @@ export function parseAstroProps(source: string): AstroPropDef[] {
   const bodyStart = head.index + head[0].length;
   const end = scanBraces(script, head.index + head[0].length - 1);
   if (end === -1) return [];
-  const body = script.slice(bodyStart, end - 1);
-
-  const defs: AstroPropDef[] = [];
-  let depth = 0;
-  let member = "";
-  const flush = () => {
-    const m = /^\s*(?:readonly\s+)?([A-Za-z_]\w*)(\?)?\s*:\s*([\s\S]+?)[;,]?\s*$/.exec(member);
-    if (m && !m[3].includes("(")) {
-      defs.push({ name: m[1], optional: m[2] === "?", type: m[3].trim() });
-    }
-    member = "";
-  };
-  for (const ch of body) {
-    if (ch === "{" || ch === "(" || ch === "<") depth++;
-    else if (ch === "}" || ch === ")" || ch === ">") depth--;
-    if (depth === 0 && (ch === ";" || ch === "\n")) flush();
-    else member += ch;
-  }
-  flush();
-  return defs;
+  return parseTypeMembers(script.slice(bodyStart, end - 1));
 }
