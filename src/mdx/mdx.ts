@@ -408,22 +408,27 @@ export interface AstroComponentSchema {
   props: AstroPropDef[];
   /** Named slots (`<slot name="…">`) declared in the template, in order. */
   slots: string[];
+  /** Whether the template declares a default (unnamed) `<slot>`. */
+  hasDefaultSlot: boolean;
 }
 
 /**
- * Named slots declared in an Astro component's template, in source order.
- * The default (unnamed) slot is not listed — every component card shows it.
+ * Slots declared in an Astro component's template: named slots in source
+ * order, plus whether an unnamed (default) slot exists. Components without
+ * any `<slot>` take no children, so their cards render no slot sections.
  */
-export function parseAstroSlots(source: string): string[] {
+export function parseAstroSlots(source: string): { named: string[]; hasDefault: boolean } {
   const fence = source.match(/^---\r?\n[\s\S]*?\r?\n---/);
   const template = fence ? source.slice(fence[0].length) : source;
-  const names: string[] = [];
+  const named: string[] = [];
+  let hasDefault = false;
   for (const tag of template.matchAll(/<slot\b([^>]*)>/g)) {
     const name = /\bname\s*=\s*(?:"([^"]*)"|'([^']*)')/.exec(tag[1]);
     const value = name?.[1] ?? name?.[2];
-    if (value && !names.includes(value)) names.push(value);
+    if (value === undefined) hasDefault = true;
+    else if (!named.includes(value)) named.push(value);
   }
-  return names;
+  return { named, hasDefault };
 }
 
 /**

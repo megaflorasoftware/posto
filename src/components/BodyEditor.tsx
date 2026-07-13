@@ -118,8 +118,10 @@ export function BodyEditor(props: {
           const source = await invoke<string>("read_text_file", { path: file });
           const defs = parseAstroProps(source);
           const slots = parseAstroSlots(source);
-          if (defs.length > 0 || slots.length > 0) {
-            for (const name of names) loaded[name] = { props: defs, slots };
+          // Register even prop-less, slot-less components: a loaded schema
+          // with no slots is what tells the card to render no sections.
+          for (const name of names) {
+            loaded[name] = { props: defs, slots: slots.named, hasDefaultSlot: slots.hasDefault };
           }
         } catch {
           // Unresolvable import — the card just shows the props already set.
@@ -152,14 +154,18 @@ export function BodyEditor(props: {
     const inline = $from.parent.isTextblock && $from.parent.content.size > 0;
     // Component first, import second: inserting content leaves it selected,
     // so the reverse order would make the second insert replace the first.
-    // Block cards carry one section per slot: the default slot plus any
-    // named slots the component's source declares (when already loaded —
-    // otherwise the slot-sync plugin adds them once the schema arrives).
+    // Block cards carry one section per declared slot. With no loaded schema
+    // yet, start with a default section; the slot-sync plugin reconciles
+    // sections once the component's schema arrives.
     const emptySlot = (slot: string | null) => ({
       type: "mdxSlot",
       attrs: { slot },
       content: [{ type: "paragraph" }],
     });
+    const schema = schemas[name];
+    const slotContent = schema
+      ? [...(schema.hasDefaultSlot ? [emptySlot(null)] : []), ...schema.slots.map(emptySlot)]
+      : [emptySlot(null)];
     const chain = editor
       .chain()
       .focus()
@@ -169,10 +175,7 @@ export function BodyEditor(props: {
           : {
               type: "mdxComponent",
               attrs: { name, props: [], propsSource: "", raw: null },
-              content: [
-                emptySlot(null),
-                ...(schemas[name]?.slots ?? []).map((slot) => emptySlot(slot)),
-              ],
+              content: slotContent,
             },
       );
     if (!alreadyImported) {

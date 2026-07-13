@@ -433,7 +433,14 @@ body,
   background: none;
 }
 
+/* Slot-less components are just their header: the sections container only
+   takes up space when it holds sections (`:empty` misses ProseMirror's
+   internal placeholder children, so match on real sections instead). */
 .mdx-card-slots {
+  display: none;
+}
+
+.mdx-card-slots:has(.mdx-slot) {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
@@ -441,7 +448,8 @@ body,
 }
 
 .mdx-slot {
-  border: 1px solid var(--mantine-color-default-border);
+  /* Dashed to differentiate slot sections from solid component borders. */
+  border: 1px dashed var(--mantine-color-default-border);
   border-radius: 6px;
   background: var(--mantine-color-body);
 }

@@ -6,8 +6,9 @@ import {
   type MarkdownLexerConfiguration,
   type MarkdownToken,
 } from "@tiptap/core";
-import { Plugin } from "@tiptap/pm/state";
-import type { Node as PmNode } from "@tiptap/pm/model";
+import { Plugin, Selection, TextSelection } from "@tiptap/pm/state";
+import { GapCursor } from "@tiptap/pm/gapcursor";
+import type { Node as PmNode, ResolvedPos } from "@tiptap/pm/model";
 import {
   NodeViewContent,
   NodeViewWrapper,
@@ -213,11 +214,16 @@ function SlotChildrenFields(fieldProps: {
   onChildren: (next: string | null) => void;
 }) {
   const schemas = useContext(MdxSchemaContext);
+  const schema = schemas[fieldProps.name];
   const buckets = splitSlots(fieldProps.childrenSource);
   const names = buckets.named.map((b) => b.name);
-  for (const declared of schemas[fieldProps.name]?.slots ?? []) {
+  for (const declared of schema?.slots ?? []) {
     if (!names.includes(declared)) names.push(declared);
   }
+  // Hide the default-children field for components whose source declares no
+  // unnamed <slot> (unless content is already there); unknown schemas keep it.
+  const showDefault =
+    buckets.defaultContent.trim() !== "" || schema === undefined || schema.hasDefaultSlot;
   const textOf = (slot: string) =>
     buckets.named
       .find((b) => b.name === slot)
@@ -234,16 +240,20 @@ function SlotChildrenFields(fieldProps: {
 
   return (
     <>
-      <div className="field-label">Children</div>
-      <Textarea
-        size="xs"
-        autosize
-        minRows={1}
-        maxRows={12}
-        classNames={{ input: "mdx-children-input" }}
-        value={buckets.defaultContent}
-        onChange={(e) => update(e.currentTarget.value)}
-      />
+      {showDefault && (
+        <>
+          <div className="field-label">Children</div>
+          <Textarea
+            size="xs"
+            autosize
+            minRows={1}
+            maxRows={12}
+            classNames={{ input: "mdx-children-input" }}
+            value={buckets.defaultContent}
+            onChange={(e) => update(e.currentTarget.value)}
+          />
+        </>
+      )}
       {names.map((slot) => (
         <div key={slot}>
           <div className="field-label">{`Slot: ${slot}`}</div>
@@ -328,6 +338,58 @@ export const MdxSlot = Node.create({
   addNodeView() {
     return ReactNodeViewRenderer(SlotView);
   },
+  addKeyboardShortcuts() {
+    return {
+      // The gap-cursor plugin's own ArrowDown handler relies on WebKit's
+      // visual line probe (`view.endOfTextblock("down")`), which misreports
+      // inside nested card layouts — the browser then moves the caret
+      // natively and skips the gap positions ArrowUp stops at. When the
+      // caret is at the literal end of a slot's last textblock, walk the
+      // document structure instead: prefer the next gap cursor position,
+      // fall back to the next selectable text position.
+      ArrowDown: () => {
+        const { state, view } = this.editor;
+        const { selection } = state;
+        if (!(selection instanceof TextSelection) || !selection.empty) return false;
+        const $head = selection.$head;
+        if (!$head.parent.isTextblock) return false;
+        if ($head.parentOffset < $head.parent.content.size) return false;
+
+        let slotDepth = -1;
+        for (let d = $head.depth; d > 0; d--) {
+          if ($head.node(d).type.name === "mdxSlot") {
+            slotDepth = d;
+            break;
+          }
+        }
+        if (slotDepth === -1) return false;
+        // Only at the very end of the slot: every level between the slot and
+        // the caret's textblock must be a last child.
+        for (let d = slotDepth; d < $head.depth; d++) {
+          if ($head.index(d) !== $head.node(d).childCount - 1) return false;
+        }
+
+        const findGap = (
+          GapCursor as unknown as {
+            findGapCursorFrom: (
+              $pos: ResolvedPos,
+              dir: number,
+              mustMove?: boolean,
+            ) => ResolvedPos | null;
+          }
+        ).findGapCursorFrom;
+        const $gap = findGap(state.doc.resolve($head.after()), 1, false);
+        if ($gap) {
+          view.dispatch(state.tr.setSelection(new GapCursor($gap)).scrollIntoView());
+          return true;
+        }
+        const next = Selection.findFrom(state.doc.resolve($head.after(slotDepth)), 1, true);
+        if (!next) return false;
+        view.dispatch(state.tr.setSelection(next).scrollIntoView());
+        return true;
+      },
+    };
+  },
   // Serialization is handled by the parent mdxComponent, which decides how
   // each slot wraps; this keeps renderChildren-based fallbacks sane.
   renderMarkdown: (node, helpers) => helpers.renderChildren(node.content ?? [], "\n\n"),
@@ -376,7 +438,9 @@ function isBlankRendered(rendered: string): boolean {
 export const MdxComponent = Node.create({
   name: "mdxComponent",
   group: "block",
-  content: "mdxSlot+",
+  // Zero sections is valid: components whose .astro source declares no
+  // <slot> render as a bare header card.
+  content: "mdxSlot*",
   isolating: true,
   defining: true,
   addAttributes() {
@@ -410,14 +474,12 @@ export const MdxComponent = Node.create({
       if (!block) return undefined;
       const buckets = splitSlots(block.children);
       const markdownTokens = (text: string) => lexer.blockTokens(dedent(text).trim());
+      // Only slots with content parse into sections; declared-but-empty
+      // slots are added later by the slot-sync plugin once schemas load.
       const slots: SlotTokenData[] = [
-        {
-          name: null,
-          parts:
-            buckets.defaultContent.trim() === ""
-              ? []
-              : [{ tokens: markdownTokens(buckets.defaultContent) }],
-        },
+        ...(buckets.defaultContent.trim() === ""
+          ? []
+          : [{ name: null, parts: [{ tokens: markdownTokens(buckets.defaultContent) }] }]),
         ...buckets.named.map((named) => ({
           name: named.name,
           parts: named.pieces.map((piece: SlotPiece) =>
@@ -723,22 +785,22 @@ export const MdxRawInvalidate = Extension.create({
 
 /* --- Slot sync: cards grow sections for slots their component declares. --- */
 
-/** Named slots already present as sections of a component card. */
-function presentSlotNames(component: PmNode): Set<string> {
-  const names = new Set<string>();
-  component.forEach((child) => {
-    if (child.type.name === "mdxSlot" && child.attrs.slot !== null) {
-      names.add(String(child.attrs.slot));
-    }
+/** True when a slot section holds nothing but empty paragraphs. */
+function slotIsEmpty(slot: PmNode): boolean {
+  let empty = true;
+  slot.forEach((child) => {
+    if (child.type.name !== "paragraph" || child.content.size > 0) empty = false;
   });
-  return names;
+  return empty;
 }
 
 /**
- * Inserts empty sections for declared-but-absent named slots into every
- * component card, so all of a component's slots are visible and editable.
- * Runs on document changes and on the `mdxSchemas` poke BodyEditor dispatches
- * when component schemas finish loading.
+ * Keeps each component card's sections in step with the slots its .astro
+ * source declares: inserts empty sections for declared-but-absent slots
+ * (default and named) and removes empty sections the schema doesn't declare.
+ * Sections with content always stay, and components without a loaded schema
+ * are left alone. Runs on document changes and on the `mdxSchemas` poke
+ * BodyEditor dispatches when component schemas finish loading.
  */
 export const MdxSlotSync = Extension.create({
   name: "mdxSlotSync",
@@ -751,26 +813,63 @@ export const MdxSlotSync = Extension.create({
           );
           if (!relevant) return null;
 
-          const inserts: { pos: number; names: string[] }[] = [];
+          // Positions collected ascending, applied descending so earlier
+          // operations don't shift later ones.
+          const ops: (
+            | { kind: "insert"; pos: number; slot: string | null }
+            | { kind: "delete"; from: number; to: number }
+          )[] = [];
           newState.doc.descendants((node, pos) => {
             if (node.type.name !== "mdxComponent") return true;
-            const declared = componentSchemas.current[String(node.attrs.name)]?.slots ?? [];
-            if (declared.length === 0) return true;
-            const present = presentSlotNames(node);
-            const missing = declared.filter((name) => !present.has(name));
-            // Insert just before the card's closing boundary.
-            if (missing.length > 0) inserts.push({ pos: pos + node.nodeSize - 1, names: missing });
+            const schema = componentSchemas.current[String(node.attrs.name)];
+            if (!schema) return true;
+
+            let hasDefault = false;
+            const presentNamed = new Set<string>();
+            let childPos = pos + 1;
+            node.forEach((child) => {
+              const slot = child.attrs.slot as string | null;
+              if (slot === null) hasDefault = true;
+              else presentNamed.add(slot);
+              const declared =
+                slot === null ? schema.hasDefaultSlot : schema.slots.includes(slot);
+              if (!declared && slotIsEmpty(child)) {
+                ops.push({ kind: "delete", from: childPos, to: childPos + child.nodeSize });
+              }
+              childPos += child.nodeSize;
+            });
+            // The default section leads; named sections append at the end.
+            if (schema.hasDefaultSlot && !hasDefault) {
+              ops.push({ kind: "insert", pos: pos + 1, slot: null });
+            }
+            for (const name of schema.slots) {
+              if (!presentNamed.has(name)) {
+                ops.push({ kind: "insert", pos: pos + node.nodeSize - 1, slot: name });
+              }
+            }
             return true;
           });
-          if (inserts.length === 0) return null;
+          if (ops.length === 0) return null;
 
           const tr = newState.tr;
           const slotType = newState.schema.nodes.mdxSlot;
           const paragraph = newState.schema.nodes.paragraph;
-          for (const insert of inserts.reverse()) {
-            for (const name of insert.names.reverse()) {
-              tr.insert(insert.pos, slotType.create({ slot: name }, paragraph.create()));
-            }
+          // Apply descending so earlier positions stay valid; on ties, delete
+          // before inserting, and undo the push order of same-position inserts
+          // so multiple named sections land in declared order.
+          const keyed = ops.map((op, order) => ({
+            op,
+            order,
+            pos: op.kind === "delete" ? op.from : op.pos,
+          }));
+          keyed.sort(
+            (a, b) =>
+              b.pos - a.pos ||
+              (a.op.kind !== b.op.kind ? (a.op.kind === "delete" ? -1 : 1) : b.order - a.order),
+          );
+          for (const { op } of keyed) {
+            if (op.kind === "delete") tr.delete(op.from, op.to);
+            else tr.insert(op.pos, slotType.create({ slot: op.slot }, paragraph.create()));
           }
           // Empty sections don't change the serialized markdown, so they are
           // neither undoable steps nor a reason to drop a card's raw source.
