@@ -13,6 +13,7 @@ import {
 } from "@mantine/core";
 import { Check, ChevronDown, Plus, Undo2, X } from "lucide-react";
 import { invoke, onFsChanged, openDirectory } from "./ipc";
+import { checkForAppUpdate } from "./updater";
 import type { ChangedFile, FileEntry, FileGroup } from "./ipc";
 import {
   EMPTY_CONFIG,
@@ -300,6 +301,11 @@ function App() {
   const lastNavigatedRoute = useRef<string | undefined>(undefined);
   const lastServedRoute = useRef<string | null>(null);
   const panesEl = useRef<HTMLDivElement | null>(null);
+
+  // One update check per app launch, once the UI is up.
+  useEffect(() => {
+    void checkForAppUpdate();
+  }, []);
 
   // Navigate the preview imperatively, and only when the target route truly
   // changes. Saves and unrelated re-renders never touch the iframe — content
