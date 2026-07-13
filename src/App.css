@@ -414,6 +414,63 @@ body,
   margin: 1.5rem 0;
 }
 
+/* Block components render as a card: a minimal header (click to edit props)
+   with slightly inset, editable sections underneath — one per slot. */
+.mdx-component-card {
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 8px;
+  background: var(--mantine-color-default);
+}
+
+.mdx-card-header {
+  display: flex;
+  align-items: center;
+  padding: 0.35rem 0.5rem;
+}
+
+.mdx-card-header .mdx-component-chip {
+  border: none;
+  background: none;
+}
+
+.mdx-card-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0 0.5rem 0.5rem 0.75rem;
+}
+
+.mdx-slot {
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 6px;
+  background: var(--mantine-color-body);
+}
+
+.mdx-slot-label {
+  padding: 0.25rem 0.6rem 0;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.7rem;
+  color: var(--mantine-color-dimmed);
+  user-select: none;
+}
+
+.mdx-slot-content {
+  padding: 0.35rem 0.6rem;
+}
+
+.mdx-slot-content > :first-child {
+  margin-top: 0;
+}
+
+.mdx-slot-content > :last-child {
+  margin-bottom: 0;
+}
+
+/* Nested cards inside a slot stay compact. */
+.mdx-slot .mdx-component {
+  margin: 0.75rem 0;
+}
+
 .mdx-component-chip {
   cursor: pointer;
   color: inherit;

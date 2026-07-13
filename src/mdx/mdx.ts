@@ -44,13 +44,16 @@ function scanBraces(src: string, i: number): number {
 }
 
 /** Scans an opening tag from `<Name`; returns null if it never closes. */
-function scanOpenTag(src: string): {
+function scanOpenTagWith(
+  src: string,
+  namePattern: RegExp,
+): {
   end: number;
   selfClosing: boolean;
   name: string;
   propsSource: string;
 } | null {
-  const nameMatch = /^<([A-Z][\w.]*)/.exec(src);
+  const nameMatch = namePattern.exec(src);
   if (!nameMatch) return null;
   let quote: string | null = null;
   for (let i = nameMatch[0].length; i < src.length; i++) {
@@ -76,12 +79,17 @@ function scanOpenTag(src: string): {
   return null;
 }
 
+/** Component tags start with a capital; any-element scanning also takes
+ * lowercase HTML tags (used when splitting children into slots). */
+const COMPONENT_NAME = /^<([A-Z][\w.]*)/;
+const ANY_TAG_NAME = /^<([A-Za-z][\w.-]*)/;
+
 /**
  * Scans a full JSX element (`<Name …/>` or `<Name …>…</Name>`) at the start
  * of `src`, tracking nesting of same-named tags inside the children.
  */
-export function scanJsxBlock(src: string): JsxBlock | null {
-  const open = scanOpenTag(src);
+function scanElementWith(src: string, namePattern: RegExp): JsxBlock | null {
+  const open = scanOpenTagWith(src, namePattern);
   if (!open) return null;
   if (open.selfClosing) {
     return {
@@ -108,7 +116,7 @@ export function scanJsxBlock(src: string): JsxBlock | null {
         };
       }
     } else {
-      const inner = scanOpenTag(src.slice(match.index));
+      const inner = scanOpenTagWith(src.slice(match.index), namePattern);
       if (inner) {
         if (!inner.selfClosing) depth++;
         tagRe.lastIndex = match.index + inner.end;
@@ -116,6 +124,130 @@ export function scanJsxBlock(src: string): JsxBlock | null {
     }
   }
   return null;
+}
+
+export function scanJsxBlock(src: string): JsxBlock | null {
+  return scanElementWith(src, COMPONENT_NAME);
+}
+
+/** Like `scanJsxBlock`, but also matches lowercase HTML elements. */
+export function scanAnyElement(src: string): JsxBlock | null {
+  return scanElementWith(src, ANY_TAG_NAME);
+}
+
+/** Value of a tag's `slot="…"` attribute, or null when absent/dynamic. */
+export function slotAttr(propsSource: string): string | null {
+  const match = /(?:^|\s)slot\s*=\s*(?:"([^"]*)"|'([^']*)')/.exec(propsSource);
+  return match ? (match[1] ?? match[2] ?? null) : null;
+}
+
+/**
+ * One extractable chunk of a named slot's content. `markdown` pieces are
+ * editable rich content (Fragment innards, or a component element that
+ * carries the slot attribute itself); `raw` pieces are HTML elements with a
+ * slot attribute, preserved verbatim.
+ */
+export interface SlotPiece {
+  kind: "markdown" | "raw";
+  text: string;
+}
+
+export interface SlotBuckets {
+  /** Default-slot markdown source (everything not routed to a named slot). */
+  defaultContent: string;
+  named: { name: string; pieces: SlotPiece[] }[];
+}
+
+/**
+ * Splits a component's children source into the default slot and named-slot
+ * buckets. Top-level elements with a literal `slot="…"` attribute feed the
+ * named buckets: `<Fragment slot="x">` contributes its children as markdown,
+ * a capitalized component contributes its whole tag as markdown (it keeps its
+ * slot prop), and a lowercase HTML element is preserved verbatim. Everything
+ * else stays in the default flow.
+ */
+export function splitSlots(children: string | null): SlotBuckets {
+  const buckets: SlotBuckets = { defaultContent: "", named: [] };
+  if (children === null) return buckets;
+  const bucket = (name: string) => {
+    let entry = buckets.named.find((n) => n.name === name);
+    if (!entry) {
+      entry = { name, pieces: [] };
+      buckets.named.push(entry);
+    }
+    return entry;
+  };
+  let i = 0;
+  while (i < children.length) {
+    const offset = children.slice(i).search(/<[A-Za-z]/);
+    if (offset === -1) {
+      buckets.defaultContent += children.slice(i);
+      break;
+    }
+    buckets.defaultContent += children.slice(i, i + offset);
+    i += offset;
+    const el = scanAnyElement(children.slice(i));
+    const name = el ? slotAttr(el.propsSource) : null;
+    if (!el || name === null) {
+      // No slot attribute (or not a well-formed element): default flow.
+      const len = el ? el.raw.length : 1;
+      buckets.defaultContent += children.slice(i, i + len);
+      i += len;
+      continue;
+    }
+    if (el.name === "Fragment") {
+      bucket(name).pieces.push({ kind: "markdown", text: el.children ?? "" });
+    } else if (/^[A-Z]/.test(el.name)) {
+      bucket(name).pieces.push({ kind: "markdown", text: el.raw });
+    } else {
+      bucket(name).pieces.push({ kind: "raw", text: el.raw });
+    }
+    i += el.raw.length;
+  }
+  return buckets;
+}
+
+/**
+ * Removes the common leading indentation from every non-empty line. Slot
+ * children are usually written indented inside their component tag; markdown
+ * would read 4+ spaces as a code block and keep `  <Tag>` lines out of block
+ * tokenizers (which only match at line starts), so slot content is dedented
+ * before tokenizing. Nested components dedent their own children in turn.
+ */
+export function dedent(text: string): string {
+  const lines = text.split("\n");
+  let indent: number | null = null;
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    const width = /^[ \t]*/.exec(line)![0].length;
+    indent = indent === null ? width : Math.min(indent, width);
+  }
+  if (indent === null || indent === 0) return text;
+  return lines.map((line) => (line.trim() === "" ? line : line.slice(indent!))).join("\n");
+}
+
+/**
+ * Rebuilds a children string from per-slot sources (inline-chip editing).
+ * Named content already shaped as a single element carrying its own
+ * `slot="…"` attribute is kept as-is; anything else wraps in
+ * `<Fragment slot="…">`. Returns null when every slot is empty.
+ */
+export function assembleSlotChildren(
+  defaultContent: string,
+  named: { name: string; text: string }[],
+): string | null {
+  const parts: string[] = [];
+  if (defaultContent.trim() !== "") parts.push(defaultContent);
+  for (const { name, text } of named) {
+    if (text.trim() === "") continue;
+    const el = scanAnyElement(text.trim());
+    if (el && el.raw === text.trim() && slotAttr(el.propsSource) === name) {
+      parts.push(text.trim());
+    } else {
+      parts.push(`<Fragment slot="${name}">${text}</Fragment>`);
+    }
+  }
+  return parts.length === 0 ? null : parts.join("");
 }
 
 /** Parses a tag's props source into fields; null when it isn't form-safe. */
@@ -269,6 +401,29 @@ export interface AstroPropDef {
   name: string;
   type: string;
   optional: boolean;
+}
+
+/** Prop and slot declarations read from an Astro component's source. */
+export interface AstroComponentSchema {
+  props: AstroPropDef[];
+  /** Named slots (`<slot name="…">`) declared in the template, in order. */
+  slots: string[];
+}
+
+/**
+ * Named slots declared in an Astro component's template, in source order.
+ * The default (unnamed) slot is not listed — every component card shows it.
+ */
+export function parseAstroSlots(source: string): string[] {
+  const fence = source.match(/^---\r?\n[\s\S]*?\r?\n---/);
+  const template = fence ? source.slice(fence[0].length) : source;
+  const names: string[] = [];
+  for (const tag of template.matchAll(/<slot\b([^>]*)>/g)) {
+    const name = /\bname\s*=\s*(?:"([^"]*)"|'([^']*)')/.exec(tag[1]);
+    const value = name?.[1] ?? name?.[2];
+    if (value && !names.includes(value)) names.push(value);
+  }
+  return names;
 }
 
 /**

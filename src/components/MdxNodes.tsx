@@ -1,22 +1,49 @@
-import { createContext, useContext, useState, type ReactElement } from "react";
-import { Extension, Node, type MarkdownToken } from "@tiptap/core";
+import { createContext, useContext, useState, type ReactElement, type ReactNode } from "react";
+import {
+  Extension,
+  Node,
+  type JSONContent,
+  type MarkdownLexerConfiguration,
+  type MarkdownToken,
+} from "@tiptap/core";
 import { Plugin } from "@tiptap/pm/state";
 import type { Node as PmNode } from "@tiptap/pm/model";
-import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
+import {
+  NodeViewContent,
+  NodeViewWrapper,
+  ReactNodeViewRenderer,
+  type NodeViewProps,
+} from "@tiptap/react";
 import { Popover, Textarea, TextInput } from "@mantine/core";
 import { Component as ComponentIcon, SquareArrowDownRight } from "lucide-react";
 
 import {
+  type AstroComponentSchema,
   type AstroPropDef,
   type MdxProp,
+  type SlotPiece,
+  assembleSlotChildren,
+  dedent,
   importInfo,
   parseProps,
+  scanAnyElement,
   scanJsxBlock,
   serializeJsx,
+  slotAttr,
+  splitSlots,
 } from "../mdx/mdx";
 
-/** Props interfaces of imported Astro components, keyed by local name. */
-export const MdxSchemaContext = createContext<Record<string, AstroPropDef[]>>({});
+/** Prop/slot schemas of imported Astro components, keyed by local name. */
+export const MdxSchemaContext = createContext<Record<string, AstroComponentSchema>>({});
+
+/**
+ * The same schemas, readable outside React: the markdown pipeline and the
+ * slot-sync plugin run without access to context. BodyEditor keeps both in
+ * step when schemas load.
+ */
+export const componentSchemas: { current: Record<string, AstroComponentSchema> } = {
+  current: {},
+};
 
 /* --- Imports: `import X from '…'` rendered as a pill. --------------------- */
 
@@ -79,31 +106,29 @@ export const MdxImport = Node.create({
   renderMarkdown: (node) => String(node.attrs?.statement ?? ""),
 });
 
-/* --- Components: `<Widget prop="x">…</Widget>` rendered as a card. -------- */
+/* --- Components: `<Widget prop="x">…</Widget>` rendered as a card whose
+       slot content is real editable document content. -------------------- */
 
 function schemaKind(type: string): MdxProp["kind"] {
   return type.replace(/\s/g, "") === "string" ? "string" : "expression";
 }
 
 /**
- * Prop and children fields for a component, shared between the block card
- * and the inline popover. `parsedProps` is null when the tag's props source
- * couldn't be parsed into a form; the raw source is shown instead.
+ * Prop fields for a component, shared between the block card's header
+ * popover and the inline chip popover. `parsedProps` is null when the tag's
+ * props source couldn't be parsed into a form; the raw source is shown
+ * instead.
  */
-function ComponentFields(fieldProps: {
+function PropsFields(fieldProps: {
   name: string;
   parsedProps: MdxProp[] | null;
   propsSource: string;
-  childrenSource: string | null;
-  /** Block children keep wrapping newlines; inline children stay one line. */
-  multilineChildren: boolean;
   onProps: (next: MdxProp[]) => void;
-  onChildren: (next: string | null) => void;
 }) {
   const schemas = useContext(MdxSchemaContext);
-  const { name, parsedProps, childrenSource, multilineChildren } = fieldProps;
+  const { name, parsedProps } = fieldProps;
   const existing = parsedProps ?? [];
-  const schema = schemas[name] ?? [];
+  const schema: AstroPropDef[] = schemas[name]?.props ?? [];
 
   // Existing props in source order, then schema-declared props not yet set.
   const rows: { prop: MdxProp; def: AstroPropDef | null }[] = existing.map((prop) => ({
@@ -140,70 +165,110 @@ function ComponentFields(fieldProps: {
     fieldProps.onProps(next as MdxProp[]);
   }
 
-  // Block children keep their original wrapping newlines; the textarea shows
-  // the trimmed body and edits are re-wrapped on save.
-  const childrenText = multilineChildren
-    ? (childrenSource ?? "").replace(/^\r?\n/, "").replace(/\r?\n[ \t]*$/, "")
-    : (childrenSource ?? "");
-
-  function editChildren(text: string) {
-    if (text === "") return fieldProps.onChildren(null);
-    fieldProps.onChildren(multilineChildren ? `\n${text}\n` : text);
+  if (parsedProps === null) {
+    return (
+      <div className="mdx-component-unparsed">
+        <code>{fieldProps.propsSource.trim()}</code>
+      </div>
+    );
   }
 
   return (
     <div className="mdx-component-body">
-      {parsedProps === null ? (
-        <div className="mdx-component-unparsed">
-          <code>{fieldProps.propsSource.trim()}</code>
-        </div>
-      ) : (
-        rows.map(({ prop, def }) =>
-          prop.kind === "spread" ? (
-            <TextInput
-              key={`spread-${prop.value}`}
-              size="xs"
-              label="(spread)"
-              value={`{${prop.value}}`}
-              disabled
-            />
-          ) : (
-            <TextInput
-              key={prop.name}
-              size="xs"
-              label={prop.name}
-              placeholder={def?.type}
-              leftSection={
-                prop.kind === "string" ? undefined : <span className="mdx-expr-hint">{"{}"}</span>
-              }
-              value={prop.value === "true" && prop.kind === "boolean" ? "true" : prop.value}
-              onChange={(e) => editProp(prop.name, e.currentTarget.value)}
-            />
-          ),
-        )
+      {rows.map(({ prop, def }) =>
+        prop.kind === "spread" ? (
+          <TextInput
+            key={`spread-${prop.value}`}
+            size="xs"
+            label="(spread)"
+            value={`{${prop.value}}`}
+            disabled
+          />
+        ) : (
+          <TextInput
+            key={prop.name}
+            size="xs"
+            label={prop.name}
+            placeholder={def?.type}
+            leftSection={
+              prop.kind === "string" ? undefined : <span className="mdx-expr-hint">{"{}"}</span>
+            }
+            value={prop.value === "true" && prop.kind === "boolean" ? "true" : prop.value}
+            onChange={(e) => editProp(prop.name, e.currentTarget.value)}
+          />
+        ),
       )}
-      <div className="field-label">Children</div>
-      <Textarea
-        size="xs"
-        autosize
-        minRows={multilineChildren ? 2 : 1}
-        maxRows={12}
-        classNames={{ input: "mdx-children-input" }}
-        value={childrenText}
-        onChange={(e) => editChildren(e.currentTarget.value)}
-      />
     </div>
   );
 }
 
-/** A clickable chip that opens the component's edit form in a popover. */
-function ComponentPopover(
-  popoverProps: {
-    target: (toggle: () => void) => ReactElement;
-  } & Parameters<typeof ComponentFields>[0],
-) {
+/**
+ * Per-slot children fields for inline chips, whose children stay a source
+ * string. One textarea per slot: the default slot plus every named slot
+ * found in the content or declared by the component's `<slot name>` tags.
+ */
+function SlotChildrenFields(fieldProps: {
+  name: string;
+  childrenSource: string | null;
+  onChildren: (next: string | null) => void;
+}) {
+  const schemas = useContext(MdxSchemaContext);
+  const buckets = splitSlots(fieldProps.childrenSource);
+  const names = buckets.named.map((b) => b.name);
+  for (const declared of schemas[fieldProps.name]?.slots ?? []) {
+    if (!names.includes(declared)) names.push(declared);
+  }
+  const textOf = (slot: string) =>
+    buckets.named
+      .find((b) => b.name === slot)
+      ?.pieces.map((p: SlotPiece) => p.text)
+      .join("") ?? "";
+
+  function update(defaultText: string, edited?: { name: string; text: string }) {
+    const named = names.map((n) => ({
+      name: n,
+      text: edited?.name === n ? edited.text : textOf(n),
+    }));
+    fieldProps.onChildren(assembleSlotChildren(defaultText, named));
+  }
+
+  return (
+    <>
+      <div className="field-label">Children</div>
+      <Textarea
+        size="xs"
+        autosize
+        minRows={1}
+        maxRows={12}
+        classNames={{ input: "mdx-children-input" }}
+        value={buckets.defaultContent}
+        onChange={(e) => update(e.currentTarget.value)}
+      />
+      {names.map((slot) => (
+        <div key={slot}>
+          <div className="field-label">{`Slot: ${slot}`}</div>
+          <Textarea
+            size="xs"
+            autosize
+            minRows={1}
+            maxRows={12}
+            classNames={{ input: "mdx-children-input" }}
+            value={textOf(slot)}
+            onChange={(e) => update(buckets.defaultContent, { name: slot, text: e.currentTarget.value })}
+          />
+        </div>
+      ))}
+    </>
+  );
+}
+
+/** A clickable target that opens a component's edit form in a popover. */
+function ComponentPopover(popoverProps: {
+  name: string;
+  target: (toggle: () => void) => ReactElement;
+  children: ReactNode;
+}) {
   const [opened, setOpened] = useState(false);
-  const { target, ...fields } = popoverProps;
   return (
     <Popover
       opened={opened}
@@ -214,50 +279,112 @@ function ComponentPopover(
       trapFocus
       withinPortal
     >
-      <Popover.Target>{target(() => setOpened((o) => !o))}</Popover.Target>
+      <Popover.Target>{popoverProps.target(() => setOpened((o) => !o))}</Popover.Target>
       <Popover.Dropdown className="mdx-component-dropdown">
-        <div className="mdx-component-name">{fields.name}</div>
-        <ComponentFields {...fields} />
+        <div className="mdx-component-name">{popoverProps.name}</div>
+        {popoverProps.children}
       </Popover.Dropdown>
     </Popover>
   );
 }
 
-function ComponentChipView(props: NodeViewProps) {
-  const name = String(props.node.attrs.name ?? "");
+/* --- Slot sections: editable child content of a component card. ----------- */
 
+function SlotView(props: NodeViewProps) {
+  const name = props.node.attrs.slot as string | null;
   return (
-    <NodeViewWrapper className="mdx-component">
-      <ComponentPopover
-        target={(toggle) => (
-          <button type="button" className="mdx-pill mdx-component-chip" onClick={toggle}>
-            <ComponentIcon size={14} />
-            <span>{name}</span>
-          </button>
-        )}
-        name={name}
-        parsedProps={props.node.attrs.props as MdxProp[] | null}
-        propsSource={String(props.node.attrs.propsSource ?? "")}
-        childrenSource={props.node.attrs.children as string | null}
-        multilineChildren
-        onProps={(next) => props.updateAttributes({ props: next, raw: null })}
-        onChildren={(next) => props.updateAttributes({ children: next, raw: null })}
-      />
+    <NodeViewWrapper className="mdx-slot">
+      {name !== null && (
+        <div className="mdx-slot-label" contentEditable={false}>
+          {name}
+        </div>
+      )}
+      <NodeViewContent className="mdx-slot-content" />
     </NodeViewWrapper>
   );
+}
+
+export const MdxSlot = Node.create({
+  name: "mdxSlot",
+  content: "block+",
+  isolating: true,
+  defining: true,
+  selectable: false,
+  addAttributes() {
+    /** Slot name; null is the default slot. */
+    return { slot: { default: null } };
+  },
+  parseHTML() {
+    return [
+      {
+        tag: "div[data-mdx-slot]",
+        getAttrs: (el) => ({ slot: (el as HTMLElement).getAttribute("data-mdx-slot") || null }),
+      },
+    ];
+  },
+  renderHTML({ node }) {
+    return ["div", { "data-mdx-slot": node.attrs.slot ?? "" }, 0];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(SlotView);
+  },
+  // Serialization is handled by the parent mdxComponent, which decides how
+  // each slot wraps; this keeps renderChildren-based fallbacks sane.
+  renderMarkdown: (node, helpers) => helpers.renderChildren(node.content ?? [], "\n\n"),
+});
+
+/** Slot content shipped on the component token: lexed markdown per piece,
+ * or a verbatim source string for elements preserved as raw blocks. */
+interface SlotTokenData {
+  name: string | null;
+  parts: ({ tokens: MarkdownToken[] } | { source: string })[];
+}
+
+function ComponentCardView(props: NodeViewProps) {
+  const name = String(props.node.attrs.name ?? "");
+  return (
+    <NodeViewWrapper className="mdx-component mdx-component-card">
+      <div className="mdx-card-header" contentEditable={false}>
+        <ComponentPopover
+          name={name}
+          target={(toggle) => (
+            <button type="button" className="mdx-pill mdx-component-chip" onClick={toggle}>
+              <ComponentIcon size={14} />
+              <span>{name}</span>
+            </button>
+          )}
+        >
+          <PropsFields
+            name={name}
+            parsedProps={props.node.attrs.props as MdxProp[] | null}
+            propsSource={String(props.node.attrs.propsSource ?? "")}
+            onProps={(next) => props.updateAttributes({ props: next, raw: null })}
+          />
+        </ComponentPopover>
+      </div>
+      <NodeViewContent className="mdx-card-slots" />
+    </NodeViewWrapper>
+  );
+}
+
+/** True when the rendered slot output has no visible content (the paragraph
+ * extension pads blank lines with non-breaking spaces). */
+function isBlankRendered(rendered: string): boolean {
+  return rendered.replace(/&nbsp;|\u00a0/g, "").trim() === "";
 }
 
 export const MdxComponent = Node.create({
   name: "mdxComponent",
   group: "block",
-  atom: true,
+  content: "mdxSlot+",
+  isolating: true,
+  defining: true,
   addAttributes() {
     return {
       name: { default: "" },
       /** Parsed props, or null when the tag couldn't be parsed into a form. */
       props: { default: [] },
       propsSource: { default: "" },
-      children: { default: null },
       /** Original source, emitted verbatim until the first edit. */
       raw: { default: null },
     };
@@ -266,10 +393,10 @@ export const MdxComponent = Node.create({
     return [{ tag: "div[data-mdx-component]" }];
   },
   renderHTML({ node }) {
-    return ["div", { "data-mdx-component": node.attrs.name }];
+    return ["div", { "data-mdx-component": node.attrs.name }, 0];
   },
   addNodeView() {
-    return ReactNodeViewRenderer(ComponentChipView);
+    return ReactNodeViewRenderer(ComponentCardView);
   },
   markdownTokenizer: {
     name: "mdxComponent",
@@ -278,33 +405,90 @@ export const MdxComponent = Node.create({
       const match = /(^|\n)<[A-Z]/.exec(src);
       return match ? match.index + match[1].length : -1;
     },
-    tokenize: (src: string) => {
+    tokenize: (src: string, _tokens: MarkdownToken[], lexer: MarkdownLexerConfiguration) => {
       const block = scanJsxBlock(src);
       if (!block) return undefined;
-      return { type: "mdxComponent", raw: block.raw, block } as MarkdownToken;
+      const buckets = splitSlots(block.children);
+      const markdownTokens = (text: string) => lexer.blockTokens(dedent(text).trim());
+      const slots: SlotTokenData[] = [
+        {
+          name: null,
+          parts:
+            buckets.defaultContent.trim() === ""
+              ? []
+              : [{ tokens: markdownTokens(buckets.defaultContent) }],
+        },
+        ...buckets.named.map((named) => ({
+          name: named.name,
+          parts: named.pieces.map((piece: SlotPiece) =>
+            piece.kind === "markdown"
+              ? { tokens: markdownTokens(piece.text) }
+              : { source: piece.text },
+          ),
+        })),
+      ];
+      return { type: "mdxComponent", raw: block.raw, block, slots } as MarkdownToken;
     },
   },
   parseMarkdown: (token, helpers) => {
-    const block = (token as MarkdownToken & { block: ReturnType<typeof scanJsxBlock> }).block!;
-    return helpers.createNode("mdxComponent", {
-      name: block.name,
-      props: parseProps(block.propsSource),
-      propsSource: block.propsSource,
-      children: block.children,
-      raw: block.raw,
+    const data = token as MarkdownToken & {
+      block: ReturnType<typeof scanJsxBlock>;
+      slots: SlotTokenData[];
+    };
+    const block = data.block!;
+    const content = data.slots.map((slot) => {
+      const children: JSONContent[] = [];
+      for (const part of slot.parts) {
+        if ("source" in part) {
+          children.push(helpers.createNode("mdxRawBlock", { source: part.source }));
+        } else {
+          children.push(...helpers.parseChildren(part.tokens));
+        }
+      }
+      if (children.length === 0) children.push(helpers.createNode("paragraph"));
+      return helpers.createNode("mdxSlot", { slot: slot.name }, children);
     });
+    return helpers.createNode(
+      "mdxComponent",
+      {
+        name: block.name,
+        props: parseProps(block.propsSource),
+        propsSource: block.propsSource,
+        raw: block.raw,
+      },
+      content,
+    );
   },
-  renderMarkdown: (node) => {
+  renderMarkdown: (node, helpers) => {
     const attrs = node.attrs ?? {};
     if (typeof attrs.raw === "string") return attrs.raw;
+    const parts: string[] = [];
+    for (const slot of (node.content ?? []) as JSONContent[]) {
+      if (slot.type !== "mdxSlot") continue;
+      const rendered = helpers.renderChildren(slot.content ?? [], "\n\n").trim();
+      if (isBlankRendered(rendered)) continue;
+      const slotName = (slot.attrs?.slot ?? null) as string | null;
+      if (slotName === null) {
+        parts.push(rendered);
+        continue;
+      }
+      // Content that is already a single element carrying its own slot
+      // attribute (a preserved raw block, or a component with a slot prop)
+      // serializes as-is; anything else wraps in an Astro Fragment.
+      const el = scanAnyElement(rendered);
+      if (el && el.raw === rendered && slotAttr(el.propsSource) === slotName) {
+        parts.push(rendered);
+      } else {
+        parts.push(`<Fragment slot="${slotName}">\n${rendered}\n</Fragment>`);
+      }
+    }
+    const children = parts.length === 0 ? null : `\n${parts.join("\n\n")}\n`;
     if (attrs.props === null) {
       // Unparseable props: reassemble around the original tag source.
       const open = `<${attrs.name}${attrs.propsSource}`;
-      return attrs.children === null
-        ? `${open}/>`
-        : `${open}>${attrs.children}</${attrs.name}>`;
+      return children === null ? `${open}/>` : `${open}>${children}</${attrs.name}>`;
     }
-    return serializeJsx(attrs.name, attrs.props as MdxProp[], attrs.children);
+    return serializeJsx(attrs.name, attrs.props as MdxProp[], children);
   },
 });
 
@@ -404,6 +588,7 @@ function RawInlineView(props: NodeViewProps) {
   return (
     <NodeViewWrapper as="span" className="mdx-raw-inline">
       <ComponentPopover
+        name={block.name}
         target={(toggle) => (
           <button
             type="button"
@@ -415,14 +600,19 @@ function RawInlineView(props: NodeViewProps) {
             <span>{block.name}</span>
           </button>
         )}
-        name={block.name}
-        parsedProps={parsed}
-        propsSource={block.propsSource}
-        childrenSource={block.children}
-        multilineChildren={false}
-        onProps={(next) => write(next, block.children)}
-        onChildren={(next) => write(parsed, next)}
-      />
+      >
+        <PropsFields
+          name={block.name}
+          parsedProps={parsed}
+          propsSource={block.propsSource}
+          onProps={(next) => write(next, block.children)}
+        />
+        <SlotChildrenFields
+          name={block.name}
+          childrenSource={block.children}
+          onChildren={(next) => write(parsed, next)}
+        />
+      </ComponentPopover>
     </NodeViewWrapper>
   );
 }
@@ -458,11 +648,147 @@ export const MdxRawInline = Node.create({
   renderMarkdown: (node) => String(node.attrs?.source ?? ""),
 });
 
+/* --- Raw invalidation: editing a card's content drops its verbatim raw. ---- */
+
+/**
+ * Component cards keep their original source in `raw` and emit it verbatim
+ * until edited. Prop edits clear it explicitly; this plugin clears it (on the
+ * component and every component ancestor) when slot content changes.
+ */
+export const MdxRawInvalidate = Extension.create({
+  name: "mdxRawInvalidate",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        appendTransaction: (transactions, _oldState, newState) => {
+          const positions: number[] = [];
+          transactions.forEach((transaction, tIndex) => {
+            if (
+              !transaction.docChanged ||
+              transaction.getMeta("mdxSlotSync") ||
+              transaction.getMeta("mdxRawInvalidate")
+            ) {
+              return;
+            }
+            transaction.steps.forEach((step, sIndex) => {
+              const stepPositions: number[] = [];
+              step.getMap().forEach((_f, _t, newFrom, newTo) => {
+                stepPositions.push(newFrom, newTo);
+              });
+              // Attribute-only steps have no map ranges; fall back to the
+              // node position they carry so ancestor cards still refresh.
+              const attrPos = (step as unknown as { pos?: number }).pos;
+              if (stepPositions.length === 0 && typeof attrPos === "number") {
+                stepPositions.push(attrPos + 1);
+              }
+              // Map through the rest of this transaction, then later ones.
+              for (const pos of stepPositions) {
+                let mapped = pos;
+                for (let i = sIndex + 1; i < transaction.steps.length; i++) {
+                  mapped = transaction.steps[i].getMap().map(mapped);
+                }
+                for (let i = tIndex + 1; i < transactions.length; i++) {
+                  mapped = transactions[i].mapping.map(mapped);
+                }
+                positions.push(mapped);
+              }
+            });
+          });
+          if (positions.length === 0) return null;
+
+          const tr = newState.tr;
+          const cleared = new Set<number>();
+          for (const pos of positions) {
+            const $pos = newState.doc.resolve(
+              Math.max(0, Math.min(pos, newState.doc.content.size)),
+            );
+            for (let depth = $pos.depth; depth > 0; depth--) {
+              const node = $pos.node(depth);
+              if (node.type.name !== "mdxComponent") continue;
+              const nodePos = $pos.before(depth);
+              if (typeof node.attrs.raw === "string" && !cleared.has(nodePos)) {
+                cleared.add(nodePos);
+                tr.setNodeAttribute(nodePos, "raw", null);
+              }
+            }
+          }
+          if (cleared.size === 0) return null;
+          tr.setMeta("mdxRawInvalidate", true);
+          return tr;
+        },
+      }),
+    ];
+  },
+});
+
+/* --- Slot sync: cards grow sections for slots their component declares. --- */
+
+/** Named slots already present as sections of a component card. */
+function presentSlotNames(component: PmNode): Set<string> {
+  const names = new Set<string>();
+  component.forEach((child) => {
+    if (child.type.name === "mdxSlot" && child.attrs.slot !== null) {
+      names.add(String(child.attrs.slot));
+    }
+  });
+  return names;
+}
+
+/**
+ * Inserts empty sections for declared-but-absent named slots into every
+ * component card, so all of a component's slots are visible and editable.
+ * Runs on document changes and on the `mdxSchemas` poke BodyEditor dispatches
+ * when component schemas finish loading.
+ */
+export const MdxSlotSync = Extension.create({
+  name: "mdxSlotSync",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        appendTransaction: (transactions, _oldState, newState) => {
+          const relevant = transactions.some(
+            (tr) => (tr.docChanged && !tr.getMeta("mdxSlotSync")) || tr.getMeta("mdxSchemas"),
+          );
+          if (!relevant) return null;
+
+          const inserts: { pos: number; names: string[] }[] = [];
+          newState.doc.descendants((node, pos) => {
+            if (node.type.name !== "mdxComponent") return true;
+            const declared = componentSchemas.current[String(node.attrs.name)]?.slots ?? [];
+            if (declared.length === 0) return true;
+            const present = presentSlotNames(node);
+            const missing = declared.filter((name) => !present.has(name));
+            // Insert just before the card's closing boundary.
+            if (missing.length > 0) inserts.push({ pos: pos + node.nodeSize - 1, names: missing });
+            return true;
+          });
+          if (inserts.length === 0) return null;
+
+          const tr = newState.tr;
+          const slotType = newState.schema.nodes.mdxSlot;
+          const paragraph = newState.schema.nodes.paragraph;
+          for (const insert of inserts.reverse()) {
+            for (const name of insert.names.reverse()) {
+              tr.insert(insert.pos, slotType.create({ slot: name }, paragraph.create()));
+            }
+          }
+          // Empty sections don't change the serialized markdown, so they are
+          // neither undoable steps nor a reason to drop a card's raw source.
+          tr.setMeta("mdxSlotSync", true);
+          tr.setMeta("addToHistory", false);
+          return tr;
+        },
+      }),
+    ];
+  },
+});
+
 /* --- Import cleanup: deleting a component's last use drops its import. ---- */
 
 /**
  * Component names referenced anywhere in the document: component cards (their
- * props and children can hold nested JSX too) and preserved raw JSX.
+ * props can hold nested JSX too; slot content is real nodes, visited by this
+ * walk) and preserved raw JSX.
  */
 function usedComponentNames(doc: PmNode): Set<string> {
   const names = new Set<string>();
@@ -472,7 +798,7 @@ function usedComponentNames(doc: PmNode): Set<string> {
   doc.descendants((node) => {
     if (node.type.name === "mdxComponent") {
       names.add(String(node.attrs.name));
-      scanJsx(String(node.attrs.propsSource ?? "") + " " + String(node.attrs.children ?? ""));
+      scanJsx(String(node.attrs.propsSource ?? ""));
     } else if (node.type.name === "mdxRawBlock" || node.type.name === "mdxRawInline") {
       scanJsx(String(node.attrs.source));
     }
@@ -518,4 +844,13 @@ export const MdxImportCleanup = Extension.create({
   },
 });
 
-export const mdxNodes = [MdxImport, MdxComponent, MdxRawBlock, MdxRawInline, MdxImportCleanup];
+export const mdxNodes = [
+  MdxImport,
+  MdxComponent,
+  MdxSlot,
+  MdxRawBlock,
+  MdxRawInline,
+  MdxRawInvalidate,
+  MdxSlotSync,
+  MdxImportCleanup,
+];

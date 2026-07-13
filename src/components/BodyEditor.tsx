@@ -10,17 +10,18 @@ import { assetUrl, invoke } from "../ipc";
 import type { FileEntry } from "../ipc";
 import { mediaInputPath, type MediaEntry } from "../pagescms/config";
 import {
-  type AstroPropDef,
+  type AstroComponentSchema,
   componentNameFromFile,
   extractImports,
   importInfo,
   parseAstroProps,
+  parseAstroSlots,
   relativeImportPath,
   resolveImportPath,
 } from "../mdx/mdx";
 import { ComponentPicker } from "./ComponentPicker";
 import { ImagePicker } from "./ImagePicker";
-import { MdxSchemaContext, mdxNodes } from "./MdxNodes";
+import { MdxSchemaContext, componentSchemas, mdxNodes } from "./MdxNodes";
 
 /**
  * Rich-text editor for the markdown body. Tiptap owns the document; markdown
@@ -42,7 +43,7 @@ export function BodyEditor(props: {
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [componentPickerOpen, setComponentPickerOpen] = useState(false);
-  const [schemas, setSchemas] = useState<Record<string, AstroPropDef[]>>({});
+  const [schemas, setSchemas] = useState<Record<string, AstroComponentSchema>>({});
   // Markdown emitted by this editor; used to ignore the echo when it comes
   // back through props so only genuinely external changes reset the document.
   const lastEmitted = useRef<string | null>(null);
@@ -98,17 +99,17 @@ export function BodyEditor(props: {
     editor.commands.setContent(props.value, { contentType: "markdown", emitUpdate: false });
   }, [editor, props.value]);
 
-  // Astro components declare their props in a `Props` interface — load it for
-  // each relatively-imported .astro component so its card can offer all keys.
-  // Keyed on the import statements themselves, not the whole body, so typing
-  // in text doesn't refetch.
+  // Astro components declare their props in a `Props` interface and their
+  // slots as `<slot>` tags — load both for each relatively-imported .astro
+  // component so its card can offer all prop keys and slot sections. Keyed on
+  // the import statements themselves, not the whole body, so typing in text
+  // doesn't refetch.
   const importsKey = props.mdx ? extractImports(props.value).join("\u0000") : "";
   useEffect(() => {
-    if (importsKey === "") return;
     let cancelled = false;
     void (async () => {
-      const loaded: Record<string, AstroPropDef[]> = {};
-      for (const statement of importsKey.split("\u0000")) {
+      const loaded: Record<string, AstroComponentSchema> = {};
+      for (const statement of importsKey === "" ? [] : importsKey.split("\u0000")) {
         const { names, spec } = importInfo(statement);
         if (!spec || !spec.endsWith(".astro") || names.length === 0) continue;
         const file = resolveImportPath(props.path, spec);
@@ -116,16 +117,25 @@ export function BodyEditor(props: {
         try {
           const source = await invoke<string>("read_text_file", { path: file });
           const defs = parseAstroProps(source);
-          if (defs.length > 0) for (const name of names) loaded[name] = defs;
+          const slots = parseAstroSlots(source);
+          if (defs.length > 0 || slots.length > 0) {
+            for (const name of names) loaded[name] = { props: defs, slots };
+          }
         } catch {
           // Unresolvable import — the card just shows the props already set.
         }
       }
-      if (!cancelled) setSchemas(loaded);
+      if (cancelled) return;
+      setSchemas(loaded);
+      // The markdown pipeline and the slot-sync plugin read schemas outside
+      // React; the poke transaction makes slot sync run with the new data.
+      componentSchemas.current = loaded;
+      editor?.view.dispatch(editor.state.tr.setMeta("mdxSchemas", true));
     })();
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [importsKey, props.path]);
 
   // Inserts the picked component at the cursor and, when it isn't imported
@@ -142,6 +152,14 @@ export function BodyEditor(props: {
     const inline = $from.parent.isTextblock && $from.parent.content.size > 0;
     // Component first, import second: inserting content leaves it selected,
     // so the reverse order would make the second insert replace the first.
+    // Block cards carry one section per slot: the default slot plus any
+    // named slots the component's source declares (when already loaded —
+    // otherwise the slot-sync plugin adds them once the schema arrives).
+    const emptySlot = (slot: string | null) => ({
+      type: "mdxSlot",
+      attrs: { slot },
+      content: [{ type: "paragraph" }],
+    });
     const chain = editor
       .chain()
       .focus()
@@ -150,7 +168,11 @@ export function BodyEditor(props: {
           ? { type: "mdxRawInline", attrs: { source: `<${name} />` } }
           : {
               type: "mdxComponent",
-              attrs: { name, props: [], propsSource: "", children: null, raw: null },
+              attrs: { name, props: [], propsSource: "", raw: null },
+              content: [
+                emptySlot(null),
+                ...(schemas[name]?.slots ?? []).map((slot) => emptySlot(slot)),
+              ],
             },
       );
     if (!alreadyImported) {
