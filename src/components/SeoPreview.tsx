@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Alert, Button } from "@mantine/core";
 
-import { invoke } from "../ipc";
+import { assetUrl, invoke } from "../ipc";
+import { mediaInputPath, type MediaEntry } from "../pagescms/config";
 
 // Search/social previews built from the *rendered* page's <head> — fetched
 // from the dev server and parsed here, so whatever the layout injects is what
@@ -52,15 +53,33 @@ function truncate(text: string, max: number): string {
   return text.length > max ? text.slice(0, max - 1).trimEnd() + "…" : text;
 }
 
-/** Loads a page-relative or absolute asset URL through the local dev server. */
-function localAsset(src: string | null, port: number): string | null {
+/**
+ * Resolves a page-relative or absolute asset URL to something the webview can
+ * load. Meta tags usually carry production URLs, so only the path matters.
+ * Files are loaded from disk the same way body/field image previews do —
+ * media source first, then the site's `public` folder — because the webview
+ * refuses http://localhost subresources. The dev-server URL remains as the
+ * non-Tauri (mock) fallback.
+ */
+function localAsset(
+  src: string | null,
+  root: string,
+  media: MediaEntry | null,
+  port: number,
+): string | null {
   if (!src) return null;
+  let pathname: string;
   try {
-    const url = new URL(src, `http://localhost:${port}`);
-    return `http://localhost:${port}${url.pathname}${url.search}`;
+    pathname = new URL(src, `http://localhost:${port}`).pathname;
   } catch {
     return null;
   }
+  const absolute = media ? mediaInputPath(root, media, pathname) : null;
+  return (
+    (absolute && assetUrl(absolute)) ||
+    assetUrl(root + "/public" + pathname) ||
+    `http://localhost:${port}${pathname}`
+  );
 }
 
 function CardImage(props: { src: string | null; modifier: string }) {
@@ -85,7 +104,14 @@ function CardImage(props: { src: string | null; modifier: string }) {
   );
 }
 
-export function SeoPreview(props: { route: string; port: number; refreshKey: number }) {
+export function SeoPreview(props: {
+  route: string;
+  root: string;
+  /** First media source, if any — resolves image paths stored in content. */
+  media: MediaEntry | null;
+  port: number;
+  refreshKey: number;
+}) {
   const [seo, setSeo] = useState<SeoData | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [refetchTick, setRefetchTick] = useState(0);
@@ -134,8 +160,13 @@ export function SeoPreview(props: { route: string; port: number; refreshKey: num
   const googleDescription = seo?.description ?? seo?.ogDescription;
   const cardTitle = seo?.twitterTitle ?? seo?.ogTitle ?? seo?.title;
   const cardDescription = seo?.twitterDescription ?? seo?.ogDescription ?? seo?.description;
-  const cardImage = localAsset(seo?.twitterImage ?? seo?.ogImage ?? null, props.port);
-  const favicon = localAsset(seo?.favicon ?? "/favicon.ico", props.port);
+  const cardImage = localAsset(
+    seo?.twitterImage ?? seo?.ogImage ?? null,
+    props.root,
+    props.media,
+    props.port,
+  );
+  const favicon = localAsset(seo?.favicon ?? "/favicon.ico", props.root, props.media, props.port);
   const fbTitle = seo?.ogTitle ?? seo?.title;
   const fbDescription = seo?.ogDescription ?? seo?.description;
 

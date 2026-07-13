@@ -1379,7 +1379,13 @@ function App() {
                   </Tabs.Panel>
                   <Tabs.Panel value="seo">
                     {server.state === "running" ? (
-                      <SeoPreview route={previewRoute} port={server.port} refreshKey={saveTick} />
+                      <SeoPreview
+                        route={previewRoute}
+                        root={root}
+                        media={config?.media[0] ?? null}
+                        port={server.port}
+                        refreshKey={saveTick}
+                      />
                     ) : (
                       <div className="pane-placeholder">
                         Search/social previews need the dev server running.
