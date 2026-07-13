@@ -204,6 +204,8 @@ export function FormEditor(props: {
         mdx={/\.mdx$/i.test(props.path)}
         root={props.root}
         media={props.config.media[0] ?? null}
+        config={props.config}
+        groups={props.groups}
         onChange={onBodyEdit}
       />
     ) : (

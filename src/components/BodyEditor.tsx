@@ -7,8 +7,8 @@ import { Markdown } from "@tiptap/markdown";
 import { Blocks, Image as ImageIcon } from "lucide-react";
 
 import { assetUrl, invoke } from "../ipc";
-import type { FileEntry } from "../ipc";
-import { mediaInputPath, type MediaEntry } from "../pagescms/config";
+import type { FileEntry, FileGroup } from "../ipc";
+import { mediaInputPath, type MediaEntry, type PagesConfig } from "../pagescms/config";
 import {
   type AstroComponentSchema,
   componentNameFromFile,
@@ -21,7 +21,7 @@ import {
 } from "../mdx/mdx";
 import { ComponentPicker } from "./ComponentPicker";
 import { ImagePicker } from "./ImagePicker";
-import { MdxSchemaContext, componentSchemas, mdxNodes } from "./MdxNodes";
+import { MdxFieldEnvContext, MdxSchemaContext, componentSchemas, mdxNodes } from "./MdxNodes";
 
 /**
  * Rich-text editor for the markdown body. Tiptap owns the document; markdown
@@ -39,6 +39,9 @@ export function BodyEditor(props: {
   root: string;
   /** First media source from .pages.yml, if any — enables image insertion. */
   media: MediaEntry | null;
+  /** Full config + sidebar groups, for field controls inside component cards. */
+  config: PagesConfig;
+  groups: FileGroup[];
   onChange: (markdown: string) => void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -196,8 +199,11 @@ export function BodyEditor(props: {
 
   return (
     // Component-card node views render through portals inside the content
-    // element, so this provider reaches them.
+    // element, so these providers reach them.
     <MdxSchemaContext.Provider value={schemas}>
+    <MdxFieldEnvContext.Provider
+      value={{ config: props.config, root: props.root, groups: props.groups }}
+    >
     <RichTextEditor
       editor={editor}
       className="body-rich-editor"
@@ -274,6 +280,7 @@ export function BodyEditor(props: {
         />
       )}
     </RichTextEditor>
+    </MdxFieldEnvContext.Provider>
     </MdxSchemaContext.Provider>
   );
 }

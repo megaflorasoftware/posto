@@ -439,6 +439,33 @@ body,
   background: none;
 }
 
+/* Prop fields inline on the card, above the slot sections. A dense grid
+   keeps the form compact; multi-row controls (lists) span the full width. */
+.mdx-card-props {
+  padding: 0 0.75rem 0.6rem;
+}
+
+.mdx-card-props .mdx-component-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.4rem 0.75rem;
+  align-items: start;
+}
+
+.mdx-card-props .form-field:has(.list-field) {
+  grid-column: 1 / -1;
+}
+
+.mdx-card-props .form-field {
+  gap: 0.15rem;
+}
+
+.mdx-card-props .field-label,
+.mdx-component-dropdown .form-field .field-label {
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 500;
+}
+
 /* Slot-less components are just their header: the sections container only
    takes up space when it holds sections (`:empty` misses ProseMirror's
    internal placeholder children, so match on real sections instead). */
@@ -570,10 +597,30 @@ body,
   gap: 0.25rem;
 }
 
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
 .field-label {
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--mantine-color-dimmed);
+}
+
+.pick-image-cta {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 0.7rem;
+  color: var(--mantine-color-anchor);
+}
+
+.pick-image-cta:hover {
+  text-decoration: underline;
 }
 
 .field-required {

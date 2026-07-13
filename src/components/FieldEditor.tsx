@@ -83,6 +83,45 @@ export function FieldEditor(props: { field: Field; path: ValuePath; ctx: FieldCo
   );
 }
 
+/** Text-like fields with an image-ish name get a "Choose image" CTA even
+ * though their type isn't `image` (Astro props and inferred frontmatter
+ * declare image paths as plain strings). */
+const IMAGE_NAME = /^(src|image|img|imgsrc)$/i;
+
+function imagePickable(field: Field): boolean {
+  return (
+    !field.list &&
+    (field.type === "string" || field.type === "text") &&
+    IMAGE_NAME.test(field.name)
+  );
+}
+
+/** Right-aligned text button across from the label; opens the media picker
+ * and writes the picked image's output path as the field's value. */
+function PickImageCta(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
+  const [open, setOpen] = useState(false);
+  const media = resolveMedia(props.ctx.config, props.field);
+  if (!media) return null;
+  return (
+    <>
+      <button type="button" className="pick-image-cta" onClick={() => setOpen(true)}>
+        Choose image
+      </button>
+      {open && (
+        <ImagePicker
+          root={props.ctx.root}
+          media={media}
+          onClose={() => setOpen(false)}
+          onPick={(outputPath) => {
+            setOpen(false);
+            props.ctx.edit(props.path, outputPath);
+          }}
+        />
+      )}
+    </>
+  );
+}
+
 /** Label + description + control + inline error, shared by all field kinds. */
 function FieldShell(props: {
   field: Field;
@@ -94,10 +133,15 @@ function FieldShell(props: {
   return (
     <div className={`form-field${error ? " invalid" : ""}`}>
       {props.field.label !== false && (
-        <label className="field-label">
-          {typeof props.field.label === "string" ? props.field.label : props.field.name}
-          {props.field.required && <span className="field-required">*</span>}
-        </label>
+        <div className="field-label-row">
+          <label className="field-label">
+            {typeof props.field.label === "string" ? props.field.label : props.field.name}
+            {props.field.required && <span className="field-required">*</span>}
+          </label>
+          {imagePickable(props.field) && (
+            <PickImageCta field={props.field} path={props.path} ctx={props.ctx} />
+          )}
+        </div>
       )}
       {props.children}
       {props.field.description && <div className="field-description">{props.field.description}</div>}

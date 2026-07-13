@@ -33,9 +33,27 @@ import {
   slotAttr,
   splitSlots,
 } from "../mdx/mdx";
+import { UNPARSED, astroPropField, jsValueProp, propJsValue, valueFits } from "../mdx/propFields";
+import type { Field, PagesConfig } from "../pagescms/config";
+import { validateForm } from "../pagescms/validate";
+import type { FileGroup } from "../ipc";
+import { FieldEditor, type FieldContext } from "./FieldEditor";
 
 /** Prop/slot schemas of imported Astro components, keyed by local name. */
 export const MdxSchemaContext = createContext<Record<string, AstroComponentSchema>>({});
+
+/** Environment FieldEditor controls need (media resolution, references). */
+export interface MdxFieldEnv {
+  config: PagesConfig;
+  root: string;
+  groups: FileGroup[];
+}
+
+export const MdxFieldEnvContext = createContext<MdxFieldEnv>({
+  config: { media: [], content: [] },
+  root: "",
+  groups: [],
+});
 
 /**
  * The same schemas, readable outside React: the markdown pipeline and the
@@ -115,90 +133,165 @@ function schemaKind(type: string): MdxProp["kind"] {
 }
 
 /**
- * Prop fields for a component, shared between the block card's header
- * popover and the inline chip popover. `parsedProps` is null when the tag's
- * props source couldn't be parsed into a form; the raw source is shown
- * instead.
+ * Prop form for a component, shared between the block card (inline, above the
+ * slot sections) and the inline chip popover. Schema-declared props render
+ * with the frontmatter form's field controls, in Props-interface order;
+ * props the schema doesn't declare (or whose type/value has no matching
+ * control) follow as raw inputs, in source order. `parsedProps` is null when
+ * the tag's props source couldn't be parsed into a form; the raw source is
+ * shown instead.
  */
-function PropsFields(fieldProps: {
+function PropsForm(formProps: {
   name: string;
   parsedProps: MdxProp[] | null;
   propsSource: string;
   onProps: (next: MdxProp[]) => void;
 }) {
   const schemas = useContext(MdxSchemaContext);
-  const { name, parsedProps } = fieldProps;
-  const existing = parsedProps ?? [];
-  const schema: AstroPropDef[] = schemas[name]?.props ?? [];
-
-  // Existing props in source order, then schema-declared props not yet set.
-  const rows: { prop: MdxProp; def: AstroPropDef | null }[] = existing.map((prop) => ({
-    prop,
-    def: schema.find((d) => d.name === prop.name) ?? null,
-  }));
-  for (const def of schema) {
-    if (!existing.some((p) => p.name === def.name)) {
-      rows.push({ prop: { name: def.name, value: "", kind: schemaKind(def.type) }, def });
-    }
-  }
-
-  function editProp(propName: string, value: string) {
-    const next = existing.some((p) => p.name === propName)
-      ? existing.map((p) =>
-          p.name === propName
-            ? {
-                ...p,
-                value,
-                // A shorthand boolean edited to anything else becomes an
-                // expression so the new value survives serialization.
-                kind: p.kind === "boolean" && value !== "true" ? "expression" : p.kind,
-              }
-            : p,
-        )
-      : [
-          ...existing,
-          {
-            name: propName,
-            value,
-            kind: rows.find((r) => r.prop.name === propName)?.prop.kind ?? "string",
-          },
-        ];
-    fieldProps.onProps(next as MdxProp[]);
-  }
+  const env = useContext(MdxFieldEnvContext);
+  const { name, parsedProps } = formProps;
 
   if (parsedProps === null) {
     return (
       <div className="mdx-component-unparsed">
-        <code>{fieldProps.propsSource.trim()}</code>
+        <code>{formProps.propsSource.trim()}</code>
       </div>
     );
   }
 
+  const existing = parsedProps;
+  const defs: AstroPropDef[] = schemas[name]?.props ?? [];
+  const values: Record<string, unknown> = {};
+  for (const prop of existing) {
+    if (prop.kind !== "spread") values[prop.name] = propJsValue(prop);
+  }
+
+  type Row =
+    | { key: string; kind: "field"; field: Field }
+    | { key: string; kind: "raw"; propName: string; def: AstroPropDef | null }
+    | { key: string; kind: "spread"; value: string };
+  const rows: Row[] = [];
+  const fields: Field[] = [];
+  for (const def of defs) {
+    const field = astroPropField(def);
+    const value = values[def.name];
+    if (field && value !== UNPARSED && valueFits(field, value)) {
+      rows.push({ key: def.name, kind: "field", field });
+      fields.push(field);
+    } else {
+      rows.push({ key: def.name, kind: "raw", propName: def.name, def });
+    }
+  }
+  existing.forEach((prop, index) => {
+    if (prop.kind === "spread") {
+      rows.push({ key: `spread-${index}`, kind: "spread", value: prop.value });
+    } else if (!defs.some((def) => def.name === prop.name)) {
+      rows.push({ key: prop.name, kind: "raw", propName: prop.name, def: null });
+    }
+  });
+  if (rows.length === 0) return null;
+
+  const errors = validateForm(fields, values);
+
+  function setProp(propName: string, next: MdxProp | null) {
+    const index = existing.findIndex((p) => p.kind !== "spread" && p.name === propName);
+    if (next === null) {
+      if (index !== -1) formProps.onProps(existing.filter((_, i) => i !== index));
+    } else if (index === -1) {
+      formProps.onProps([...existing, next]);
+    } else {
+      formProps.onProps(existing.map((p, i) => (i === index ? next : p)));
+    }
+  }
+
+  /** Writes a JS value back as a prop, keyed to the prop's declared type. */
+  function editJs(propName: string, value: unknown) {
+    const def = defs.find((d) => d.name === propName);
+    setProp(propName, jsValueProp(propName, value, def ? !def.optional : false));
+  }
+
+  const listOf = (propName: string): unknown[] => {
+    const value = values[propName];
+    return Array.isArray(value) ? [...value] : [];
+  };
+
+  // FieldEditor's context, backed by the prop list instead of a YAML doc.
+  // Paths are at most [prop] or [prop, index] — the mapped fields only nest
+  // through scalar lists.
+  const ctx: FieldContext = {
+    config: env.config,
+    root: env.root,
+    groups: env.groups,
+    errors: () => errors,
+    value: (path) =>
+      path.length === 1 ? values[String(path[0])] : listOf(String(path[0]))[Number(path[1])],
+    edit: (path, value) => {
+      if (path.length === 1) {
+        editJs(String(path[0]), value);
+        return;
+      }
+      const items = listOf(String(path[0]));
+      items[Number(path[1])] = value ?? "";
+      editJs(String(path[0]), items);
+    },
+    listAppend: (path, value) => editJs(String(path[0]), [...listOf(String(path[0])), value]),
+    listRemove: (path, index) => {
+      const items = listOf(String(path[0]));
+      items.splice(index, 1);
+      editJs(String(path[0]), items);
+    },
+    listMove: (path, from, to) => {
+      const items = listOf(String(path[0]));
+      const [moved] = items.splice(from, 1);
+      items.splice(to, 0, moved);
+      editJs(String(path[0]), items);
+    },
+  };
+
+  // Raw rows keep the old text-input semantics: value text edited verbatim,
+  // kind preserved (a shorthand boolean edited to anything else becomes an
+  // expression so the new value survives serialization).
+  function editRaw(propName: string, def: AstroPropDef | null, value: string) {
+    const prop = existing.find((p) => p.kind !== "spread" && p.name === propName);
+    if (prop) {
+      setProp(propName, {
+        ...prop,
+        value,
+        kind: prop.kind === "boolean" && value !== "true" ? "expression" : prop.kind,
+      });
+    } else {
+      setProp(propName, { name: propName, value, kind: schemaKind(def?.type ?? "") });
+    }
+  }
+
   return (
     <div className="mdx-component-body">
-      {rows.map(({ prop, def }) =>
-        prop.kind === "spread" ? (
+      {rows.map((row) => {
+        if (row.kind === "field") {
+          return <FieldEditor key={row.key} field={row.field} path={[row.field.name]} ctx={ctx} />;
+        }
+        if (row.kind === "spread") {
+          return (
+            <TextInput key={row.key} size="xs" label="(spread)" value={`{${row.value}}`} disabled />
+          );
+        }
+        const prop = existing.find((p) => p.kind !== "spread" && p.name === row.propName);
+        return (
           <TextInput
-            key={`spread-${prop.value}`}
+            key={row.key}
             size="xs"
-            label="(spread)"
-            value={`{${prop.value}}`}
-            disabled
-          />
-        ) : (
-          <TextInput
-            key={prop.name}
-            size="xs"
-            label={prop.name}
-            placeholder={def?.type}
+            label={row.propName}
+            placeholder={row.def?.type}
             leftSection={
-              prop.kind === "string" ? undefined : <span className="mdx-expr-hint">{"{}"}</span>
+              (prop?.kind ?? schemaKind(row.def?.type ?? "")) === "string" ? undefined : (
+                <span className="mdx-expr-hint">{"{}"}</span>
+              )
             }
-            value={prop.value === "true" && prop.kind === "boolean" ? "true" : prop.value}
-            onChange={(e) => editProp(prop.name, e.currentTarget.value)}
+            value={prop?.value ?? ""}
+            onChange={(e) => editRaw(row.propName, row.def, e.currentTarget.value)}
           />
-        ),
-      )}
+        );
+      })}
     </div>
   );
 }
@@ -404,26 +497,43 @@ interface SlotTokenData {
 
 function ComponentCardView(props: NodeViewProps) {
   const name = String(props.node.attrs.name ?? "");
+  const schemas = useContext(MdxSchemaContext);
+  const parsedProps = props.node.attrs.props as MdxProp[] | null;
+  // Props render inline on the card, above the slot sections; the header chip
+  // collapses them for cards whose form would otherwise dominate.
+  const [propsOpen, setPropsOpen] = useState(true);
+  const hasProps =
+    parsedProps === null || parsedProps.length > 0 || (schemas[name]?.props.length ?? 0) > 0;
   return (
     <NodeViewWrapper className="mdx-component mdx-component-card">
       <div className="mdx-card-header" contentEditable={false}>
-        <ComponentPopover
-          name={name}
-          target={(toggle) => (
-            <button type="button" className="mdx-pill mdx-component-chip" onClick={toggle}>
-              <ComponentIcon size={14} />
-              <span>{name}</span>
-            </button>
-          )}
-        >
-          <PropsFields
+        {hasProps ? (
+          <button
+            type="button"
+            className="mdx-pill mdx-component-chip"
+            title={propsOpen ? "Hide props" : "Show props"}
+            onClick={() => setPropsOpen((open) => !open)}
+          >
+            <ComponentIcon size={14} />
+            <span>{name}</span>
+          </button>
+        ) : (
+          <span className="mdx-pill mdx-component-chip">
+            <ComponentIcon size={14} />
+            <span>{name}</span>
+          </span>
+        )}
+      </div>
+      {hasProps && propsOpen && (
+        <div className="mdx-card-props" contentEditable={false}>
+          <PropsForm
             name={name}
-            parsedProps={props.node.attrs.props as MdxProp[] | null}
+            parsedProps={parsedProps}
             propsSource={String(props.node.attrs.propsSource ?? "")}
             onProps={(next) => props.updateAttributes({ props: next, raw: null })}
           />
-        </ComponentPopover>
-      </div>
+        </div>
+      )}
       <NodeViewContent className="mdx-card-slots" />
     </NodeViewWrapper>
   );
@@ -663,7 +773,7 @@ function RawInlineView(props: NodeViewProps) {
           </button>
         )}
       >
-        <PropsFields
+        <PropsForm
           name={block.name}
           parsedProps={parsed}
           propsSource={block.propsSource}
