@@ -422,6 +422,12 @@ body,
   background: var(--mantine-color-default);
 }
 
+/* Same hover affordance as inline chips, scoped to the element that opens
+   the props popover — the rest of the card doesn't light up. */
+.mdx-component-card:has(> .mdx-card-header .mdx-component-chip:hover) {
+  border-color: var(--mantine-color-default-color);
+}
+
 .mdx-card-header {
   display: flex;
   align-items: center;
