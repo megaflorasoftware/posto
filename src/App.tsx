@@ -263,6 +263,10 @@ function App() {
   // Publish while true.
   const [behindUpstream, setBehindUpstream] = useState(false);
   const [pulling, setPulling] = useState(false);
+  // Whether git reports uncommitted local changes; the header's Publish
+  // button is disabled while false. Kept fresh by refreshGroups (which runs
+  // on saves via the fs watcher, deletes, reverts, pulls, …) and publish.
+  const [hasLocalChanges, setHasLocalChanges] = useState(false);
   // null while the modal is loading the change list.
   const [changes, setChanges] = useState<ChangedFile[] | null>(null);
   const [changesError, setChangesError] = useState<string | null>(null);
@@ -670,6 +674,9 @@ function App() {
   }
 
   async function refreshGroups(dir: string) {
+    // Every event that can change git status also refreshes the sidebar, so
+    // this keeps the header's Publish button state current too.
+    void refreshLocalChanges(dir);
     try {
       const listed = await invoke<FileGroup[]>("list_files", { root: dir });
       setGroups(listed);
@@ -677,6 +684,17 @@ function App() {
     } catch (e) {
       setGroups([]);
       setPublishState(String(e));
+    }
+  }
+
+  async function refreshLocalChanges(dir: string) {
+    try {
+      const changed = await invoke<ChangedFile[]>("changed_files", { root: dir });
+      if (rootRef.current === dir) setHasLocalChanges(changed.length > 0);
+    } catch {
+      // Status unavailable (e.g. not a git repo) — leave the button enabled
+      // so publishing surfaces the real error instead of silently locking.
+      if (rootRef.current === dir) setHasLocalChanges(true);
     }
   }
 
@@ -938,6 +956,8 @@ function App() {
     } catch (e) {
       setPublishState(`Publish failed: ${e}`);
     }
+    // Committing doesn't touch watched files, so refresh the flag directly.
+    void refreshLocalChanges(dir);
   }
 
   function onDividerPointerMove(e: React.PointerEvent) {
@@ -1072,7 +1092,11 @@ function App() {
               Fetch Changes
             </Button>
           ) : (
-            <Button size="xs" disabled={!root} onClick={() => void openPublishModal()}>
+            <Button
+              size="xs"
+              disabled={!root || !hasLocalChanges}
+              onClick={() => void openPublishModal()}
+            >
               Publish…
             </Button>
           )}
