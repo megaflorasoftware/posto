@@ -434,6 +434,26 @@ body,
   padding: 0.35rem 0.5rem;
 }
 
+.mdx-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: auto;
+}
+
+.mdx-type-indicator {
+  display: inline-flex;
+  align-items: center;
+}
+
+.mdx-type-indicator.typed {
+  color: var(--mantine-color-teal-6);
+}
+
+.mdx-type-indicator.untyped {
+  color: var(--mantine-color-dimmed);
+}
+
 .mdx-card-header .mdx-component-chip {
   border: none;
   background: none;

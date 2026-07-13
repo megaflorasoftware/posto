@@ -15,8 +15,14 @@ import {
   ReactNodeViewRenderer,
   type NodeViewProps,
 } from "@tiptap/react";
-import { Popover, Textarea, TextInput } from "@mantine/core";
-import { Component as ComponentIcon, SquareArrowDownRight } from "lucide-react";
+import { ActionIcon, Popover, Textarea, TextInput, Tooltip } from "@mantine/core";
+import {
+  Check,
+  CircleSlash,
+  Component as ComponentIcon,
+  SquareArrowDownRight,
+  X,
+} from "lucide-react";
 
 import {
   type AstroComponentSchema,
@@ -537,6 +543,7 @@ function ComponentCardView(props: NodeViewProps) {
   const [propsOpen, setPropsOpen] = useState(true);
   const hasProps =
     parsedProps === null || parsedProps.length > 0 || (schemas[name]?.props.length ?? 0) > 0;
+  const typed = (schemas[name]?.props.length ?? 0) > 0;
   return (
     <NodeViewWrapper className="mdx-component mdx-component-card">
       <div className="mdx-card-header" contentEditable={false}>
@@ -556,6 +563,31 @@ function ComponentCardView(props: NodeViewProps) {
             <span>{name}</span>
           </span>
         )}
+        <div className="mdx-card-actions">
+          <Tooltip
+            label={
+              typed
+                ? "We've verified these fields represent all the possible configuration options."
+                : "We're not sure what the fields for this component should be. If you're a developer, add a type definition to this component."
+            }
+            withinPortal
+            multiline
+            w={220}
+          >
+            <span className={`mdx-type-indicator ${typed ? "typed" : "untyped"}`}>
+              {typed ? <Check size={14} /> : <CircleSlash size={14} />}
+            </span>
+          </Tooltip>
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size="sm"
+            title="Delete component"
+            onClick={() => props.deleteNode()}
+          >
+            <X size={14} />
+          </ActionIcon>
+        </div>
       </div>
       {hasProps && propsOpen && (
         <div className="mdx-card-props" contentEditable={false}>
