@@ -7,7 +7,7 @@
 
 # Posto
 
-A fast and simple desktop editor for static, markdown-based personal websites. Posto lives a level up from a traditional IDE or code editor, enabling non-programmers to easily update a site built for them and serving as a more pleasant way for developers to make frequent updates to their static sites.
+A fast and simple desktop editor for static, markdown-based personal websites. Posto lives a level up from a traditional IDE or code editor, enabling non-programmers to easily update a site built for them or serving as a more pleasant way for developers to make frequent updates to their static sites.
 
 ![](/public/screenshot.png)
 
