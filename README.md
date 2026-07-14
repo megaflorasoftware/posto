@@ -20,4 +20,4 @@ A fast and simple desktop editor for static, markdown-based personal websites. P
   - Rich text `.mdx` editing, enabling non-technical users to drop in custom components alongside traditional markdown in an easy-to-use interface
   - Markdown schemas based on content collections, intelligently rendering specific field inputs or option dropdowns based on the actual site schema (for both markdown frontmatter and custom component props)
 - Easy site publish flow, making site updates simple for everyone
-
+- SEO and social previews
