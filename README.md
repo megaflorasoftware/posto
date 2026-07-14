@@ -8,3 +8,5 @@
 # Posto
 
 A fast and simple desktop editor for static, markdown-based personal websites.
+
+![](/public/screenshot.png)
