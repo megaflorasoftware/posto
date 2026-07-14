@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open as tauriOpen } from "@tauri-apps/plugin-dialog";
-import { openPath as tauriOpenPath } from "@tauri-apps/plugin-opener";
+import { openPath as tauriOpenPath, openUrl as tauriOpenUrl } from "@tauri-apps/plugin-opener";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 
@@ -241,6 +241,51 @@ function mockTitle(path: string): string | null {
   return value || null;
 }
 
+// Catalog fixtures for the template gallery outside Tauri (the real portal
+// API sends no CORS headers, so the browser can't hit it directly either).
+const mockThemes = [
+  {
+    slug: "mock-blog",
+    title: "Mock Blog",
+    description: "A minimal blog starter with MDX posts and dark mode.",
+    category: { value: "blog", name: "Blog" },
+  },
+  {
+    slug: "mock-portfolio",
+    title: "Mock Portfolio",
+    description: "A portfolio template with project galleries and an about page.",
+    category: { value: "portfolio", name: "Portfolio" },
+  },
+  {
+    slug: "mock-docs",
+    title: "Mock Docs",
+    description: "Documentation starter with sidebar navigation and search.",
+    category: { value: "docs", name: "Docs" },
+  },
+]
+  // Replicate to catalog-like volume so gallery scrolling is exercised.
+  .flatMap((t) =>
+    Array.from({ length: 16 }, (_, n) => ({
+      ...t,
+      slug: n === 0 ? t.slug : `${t.slug}-${n}`,
+      title: n === 0 ? t.title : `${t.title} ${n}`,
+    })),
+  )
+  .map((t, i) => ({
+  Theme: {
+    id: i + 1,
+    slug: t.slug,
+    title: t.title,
+    description: t.description,
+    image: `https://placehold.co/600x338?text=${encodeURIComponent(t.title)}`,
+    featured: false,
+    paid: false,
+    updatedAt: "2026-07-01T00:00:00.000Z",
+  },
+  Author: { id: i + 1, name: "Mock Author", avatar: "https://placehold.co/32x32" },
+  ThemeCategory: t.category,
+}));
+
 async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
   switch (cmd) {
     case "list_files": {
@@ -414,6 +459,25 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       ];
     case "publish":
       return "Published (mock).";
+    case "themes_api": {
+      const path = args?.path as string;
+      if (path.startsWith("/api/themes/details")) {
+        const slug = new URLSearchParams(path.split("?")[1] ?? "").get("slug");
+        const match = mockThemes.find((t) => t.Theme.slug === slug);
+        if (!match) throw new Error(`Unknown theme: ${slug}`);
+        return JSON.stringify({
+          Theme: {
+            ...match.Theme,
+            repoUrl: "https://github.com/withastro/astro.build",
+            demoUrl: "https://example.com",
+          },
+          Author: match.Author,
+        });
+      }
+      return JSON.stringify(mockThemes);
+    }
+    case "clone_template":
+      return null;
     case "get_last_route":
       return (window as { __mockLastRoute?: string }).__mockLastRoute ?? null;
     case "get_last_root":
@@ -453,6 +517,13 @@ export function assetUrl(absolutePath: string): string | null {
 export const openPath: (absolutePath: string) => Promise<void> = inTauri
   ? tauriOpenPath
   : async () => {};
+
+/** Open a URL in the system browser; a new tab outside Tauri. */
+export const openUrl: (url: string) => Promise<void> = inTauri
+  ? tauriOpenUrl
+  : async (url) => {
+      window.open(url, "_blank", "noopener");
+    };
 
 /**
  * Subscribes to the backend's debounced `fs-changed` events (absolute paths

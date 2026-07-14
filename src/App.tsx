@@ -33,6 +33,7 @@ import { parseFile, type ParsedFile } from "./pagescms/frontmatter";
 import { FormEditor } from "./components/FormEditor";
 import { NewFileModal } from "./components/NewFileModal";
 import { SeoPreview } from "./components/SeoPreview";
+import { TemplateGallery } from "./components/TemplateGallery";
 
 import "@mantine/core/styles.css";
 import "@mantine/tiptap/styles.css";
@@ -273,6 +274,8 @@ function App() {
   const [commitMessage, setCommitMessage] = useState(DEFAULT_COMMIT_MESSAGE);
   // Directory the "new file" dialog is creating into, when open.
   const [newFileGroup, setNewFileGroup] = useState<FileGroup | null>(null);
+  // Whether the "start with a template" gallery covers the app.
+  const [showTemplates, setShowTemplates] = useState(false);
   // While the split divider is being dragged, the preview iframe must not
   // receive pointer events or it swallows the drag mid-motion.
   const [dragging, setDragging] = useState(false);
@@ -1066,23 +1069,28 @@ function App() {
             </Button>
             <Menu position="bottom-start" width={220}>
               <Menu.Target>
-                <Button
-                  size="xs"
-                  variant="default"
-                  px={6}
-                  aria-label="Recent sites"
-                  disabled={recentOptions.length === 0}
-                >
+                <Button size="xs" variant="default" px={6} aria-label="Site menu">
                   <ChevronDown size={14} />
                 </Button>
               </Menu.Target>
               <Menu.Dropdown>
-                <Menu.Label>Recent sites</Menu.Label>
-                {recentOptions.map((dir) => (
-                  <Menu.Item key={dir} title={dir} onClick={() => void selectRoot(dir)}>
-                    {dir.split("/").filter(Boolean).pop()}
-                  </Menu.Item>
-                ))}
+                <Menu.Item
+                  leftSection={<Plus size={14} />}
+                  onClick={() => setShowTemplates(true)}
+                >
+                  New site from template
+                </Menu.Item>
+                {recentOptions.length > 0 && (
+                  <>
+                    <Menu.Divider />
+                    <Menu.Label>Recent sites</Menu.Label>
+                    {recentOptions.map((dir) => (
+                      <Menu.Item key={dir} title={dir} onClick={() => void selectRoot(dir)}>
+                        {dir.split("/").filter(Boolean).pop()}
+                      </Menu.Item>
+                    ))}
+                  </>
+                )}
               </Menu.Dropdown>
             </Menu>
           </Button.Group>
@@ -1153,6 +1161,16 @@ function App() {
           </Button>
         </Modal>
 
+        {showTemplates && (
+          <TemplateGallery
+            onClose={() => setShowTemplates(false)}
+            onCloned={(dir) => {
+              setShowTemplates(false);
+              void selectRoot(dir);
+            }}
+          />
+        )}
+
         {root && newFileGroup && (
           <NewFileModal
             root={root}
@@ -1166,8 +1184,13 @@ function App() {
 
         {!root ? (
           <div className="empty-state">
-            <p>Select the folder that holds your site to get started.</p>
-            <Button onClick={() => void chooseDirectory()}>Choose directory</Button>
+            <p>Select the folder that holds your site, or start fresh from a template.</p>
+            <div className="empty-state-actions">
+              <Button onClick={() => void chooseDirectory()}>Choose directory</Button>
+              <Button variant="default" onClick={() => setShowTemplates(true)}>
+                Start with a template
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="body">

@@ -39,6 +39,157 @@ body,
   color: var(--mantine-color-dimmed);
 }
 
+.empty-state-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* Template gallery: a full-window page layered over the app. */
+.template-page {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  background: var(--mantine-color-body);
+}
+
+.template-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+
+.template-heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.template-heading h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.template-note {
+  margin: 0.15rem 0 0;
+  font-size: 0.8rem;
+  color: var(--mantine-color-dimmed);
+}
+
+.template-status {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--mantine-color-dimmed);
+}
+
+.template-grid {
+  flex: 1;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  /* The cards' overflow:hidden zeroes their automatic minimum size, so
+     auto rows would squish to fit the container instead of scrolling. */
+  grid-auto-rows: max-content;
+  gap: 1rem;
+  padding: 1rem;
+  align-content: start;
+}
+
+.template-card {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  background: var(--mantine-color-default);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.template-card:hover {
+  border-color: var(--mantine-color-default-color);
+}
+
+.template-card-image {
+  width: 100%;
+  height: 240px;
+  flex-shrink: 0;
+  object-fit: cover;
+  object-position: top;
+  display: block;
+  background: var(--mantine-color-default-hover);
+}
+
+.template-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.6rem 0.75rem 0.75rem;
+}
+
+.template-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.template-card-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.template-card-description {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--mantine-color-dimmed);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.template-card-author {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--mantine-color-dimmed);
+}
+
+.template-card-author img {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+}
+
+.template-modal-image {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  display: block;
+  border-radius: 6px;
+}
+
+.template-modal-description {
+  margin: 0.75rem 0 0;
+  font-size: 0.85rem;
+}
+
+.template-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
 .body {
   display: flex;
   flex: 1;
