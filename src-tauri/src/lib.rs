@@ -1365,6 +1365,56 @@ async fn pull_upstream(root: String) -> Result<String, String> {
     Ok("Updated from server.".to_string())
 }
 
+/// GET against the Astro themes catalog API (portal.astro.build). Done in
+/// Rust because the portal sends no CORS headers, so the webview can't fetch
+/// it directly. curl ships with macOS, Windows 10+, and virtually all Linux
+/// distros (same assumption install_node makes).
+#[tauri::command]
+async fn themes_api(path: String) -> Result<String, String> {
+    if !path.starts_with("/api/themes") || path.contains(|c: char| c.is_whitespace()) {
+        return Err(format!("Invalid themes API path: {path}"));
+    }
+    let url = format!("https://portal.astro.build{path}");
+    let output = Command::new("curl")
+        .args(["-fsSL", "--retry", "2", "--max-time", "30", &url])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("Failed to run curl: {e}"))?;
+    if !output.status.success() {
+        return Err("Could not reach the Astro themes catalog — check your connection and retry.".to_string());
+    }
+    String::from_utf8(output.stdout).map_err(|e| format!("Unreadable catalog response: {e}"))
+}
+
+/// Clones a template repository into `dest` (which must not exist yet), then
+/// detaches it from the template author's remote — otherwise Publish would
+/// push to the theme's repo and the upstream poll would offer its updates.
+#[tauri::command]
+async fn clone_template(app: tauri::AppHandle, url: String, dest: String) -> Result<(), String> {
+    if !url.starts_with("https://") {
+        return Err(format!("Invalid repository URL: {url}"));
+    }
+    if Path::new(&dest).exists() {
+        return Err(format!("{dest} already exists — pick a different name"));
+    }
+    let output = Command::new("git")
+        .args(["clone", "--depth", "1", "--single-branch", &url, &dest])
+        .env("PATH", setup_path(&app))
+        // Fail on private/missing repos instead of hanging on a credentials prompt.
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("Failed to run git: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "Could not clone the template: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let _ = run_git(&dest, &["remote", "remove", "origin"]);
+    Ok(())
+}
+
 #[tauri::command]
 async fn publish(root: String, message: Option<String>) -> Result<String, String> {
     run_git(&root, &["add", "-A"])?;
@@ -1585,6 +1635,8 @@ pub fn run() {
             fetch_upstream,
             pull_upstream,
             publish,
+            themes_api,
+            clone_template,
             watch_root
         ])
         .build(tauri::generate_context!())
