@@ -2711,7 +2711,7 @@ dependencies = [
 
 [[package]]
 name = "posto"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "fix-path-env",
  "notify",
