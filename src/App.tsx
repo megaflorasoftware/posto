@@ -4,6 +4,7 @@ import {
   Alert,
   Badge,
   Button,
+  CopyButton,
   Loader,
   MantineProvider,
   Menu,
@@ -11,7 +12,7 @@ import {
   Tabs,
   TextInput,
 } from "@mantine/core";
-import { Check, ChevronDown, Plus, Undo2, X } from "lucide-react";
+import { Check, ChevronDown, Copy, Plus, Undo2, X } from "lucide-react";
 import { invoke, onFsChanged, openDirectory } from "./ipc";
 import { checkForAppUpdate } from "./updater";
 import type { ChangedFile, FileEntry, FileGroup } from "./ipc";
@@ -72,6 +73,43 @@ const AUTOSAVE_DELAY_MS = 800;
 const FETCH_INTERVAL_MS = 30_000;
 const PING_INTERVAL_MS = 500;
 const PING_TIMEOUT_MS = 60_000;
+
+/** "Show info for developers" reveal for a failed dev server start: fetches
+ * the server's captured stdout/stderr only when the user asks for it. */
+function DevServerLogs() {
+  const [lines, setLines] = useState<string[] | null>(null);
+  if (lines === null) {
+    return (
+      <Button
+        size="xs"
+        variant="subtle"
+        onClick={() => void invoke<string[]>("get_dev_server_logs").then(setLines)}
+      >
+        Show info for developers
+      </Button>
+    );
+  }
+  return (
+    <div className="dev-server-logs-wrap">
+      <pre className="dev-server-logs">
+        {lines.length > 0 ? lines.join("\n") : "The dev server produced no output."}
+      </pre>
+      <CopyButton value={lines.join("\n")}>
+        {({ copied, copy }) => (
+          <ActionIcon
+            className="dev-server-logs-copy"
+            variant="default"
+            size="sm"
+            title="Copy logs"
+            onClick={copy}
+          >
+            {copied ? <Check size={14} /> : <Copy size={14} />}
+          </ActionIcon>
+        )}
+      </CopyButton>
+    </div>
+  );
+}
 
 function frontmatterSlug(content: string): string | null {
   const fm = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -1358,6 +1396,11 @@ function App() {
                           >
                             Retry
                           </Button>
+                        )}
+                        {/* Logs exist only once the server process was spawned,
+                            so install-step failures don't offer them. */}
+                        {server.steps.some((s) => s.id === "server" && s.status === "error") && (
+                          <DevServerLogs />
                         )}
                       </div>
                     )}

@@ -135,6 +135,41 @@ export function scanAnyElement(src: string): JsxBlock | null {
   return scanElementWith(src, ANY_TAG_NAME);
 }
 
+/** HTML elements with no closing tag, per the HTML spec. */
+const VOID_ELEMENTS = new Set([
+  "area", "base", "br", "col", "embed", "hr", "img", "input", "link",
+  "meta", "param", "source", "track", "wbr",
+]);
+
+/** Elements that read as standalone blocks when they open a line; anything
+ * else (`<kbd>`, `<abbr>`, …) stays inline even at a line start, matching how
+ * CommonMark distinguishes HTML blocks from inline HTML. */
+export const BLOCK_HTML_TAGS = new Set([
+  "address", "article", "aside", "audio", "blockquote", "details", "dialog",
+  "div", "dl", "fieldset", "figcaption", "figure", "footer", "form",
+  "h1", "h2", "h3", "h4", "h5", "h6", "header", "hgroup", "hr", "iframe",
+  "main", "nav", "ol", "p", "pre", "script", "section", "style", "table",
+  "ul", "video",
+]);
+
+/** Scans a lowercase HTML element at the start of `src`: paired tags (with
+ * nesting), self-closing tags, and void elements written without a slash. */
+export function scanHtmlElement(src: string): JsxBlock | null {
+  if (!/^<[a-z]/.test(src)) return null;
+  const el = scanAnyElement(src);
+  if (el) return el;
+  const open = scanOpenTagWith(src, ANY_TAG_NAME);
+  if (open && VOID_ELEMENTS.has(open.name)) {
+    return {
+      raw: src.slice(0, open.end),
+      name: open.name,
+      propsSource: open.propsSource,
+      children: null,
+    };
+  }
+  return null;
+}
+
 /** Value of a tag's `slot="…"` attribute, or null when absent/dynamic. */
 export function slotAttr(propsSource: string): string | null {
   const match = /(?:^|\s)slot\s*=\s*(?:"([^"]*)"|'([^']*)')/.exec(propsSource);

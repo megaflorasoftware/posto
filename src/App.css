@@ -606,6 +606,15 @@ body,
   vertical-align: text-bottom;
 }
 
+.html-block {
+  margin: 1.5rem 0;
+}
+
+.html-block .mdx-component-chip {
+  padding: 0.05rem 0.5rem;
+  font-size: 0.75rem;
+}
+
 .mdx-component-dropdown {
   display: flex;
   flex-direction: column;
@@ -1154,6 +1163,34 @@ body,
 
 .setup-step-error .setup-step-detail {
   color: var(--mantine-color-red-7);
+}
+
+.dev-server-logs-wrap {
+  position: relative;
+  align-self: stretch;
+  padding: 0 0.75rem;
+}
+
+.dev-server-logs-copy {
+  position: absolute;
+  right: 1.25rem;
+  bottom: 0.5rem;
+}
+
+.dev-server-logs {
+  margin: 0;
+  max-height: 15rem;
+  overflow: auto;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+  background: var(--mantine-color-default);
+  color: var(--mantine-color-text);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .setup-step-detail {

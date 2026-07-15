@@ -4,7 +4,7 @@ import { useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import { Markdown } from "@tiptap/markdown";
-import { Blocks, Image as ImageIcon } from "lucide-react";
+import { Blocks, CodeXml, Image as ImageIcon } from "lucide-react";
 
 import { assetUrl, invoke } from "../ipc";
 import type { FileEntry, FileGroup } from "../ipc";
@@ -20,6 +20,7 @@ import {
   resolveImportPath,
 } from "../mdx/mdx";
 import { ComponentPicker } from "./ComponentPicker";
+import { htmlNodes } from "./HtmlNodes";
 import { ImagePicker } from "./ImagePicker";
 import { MdxFieldEnvContext, MdxSchemaContext, componentSchemas, mdxNodes } from "./MdxNodes";
 
@@ -77,6 +78,9 @@ export function BodyEditor(props: {
           return ["img", { ...HTMLAttributes, src: resolveRef.current(HTMLAttributes.src) }];
         },
       }),
+      // HTML preservation applies to .md and .mdx alike: authored tags like
+      // <kbd> round-trip as chips instead of being stripped.
+      ...htmlNodes,
       ...(props.mdx ? mdxNodes : []),
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -197,6 +201,23 @@ export function BodyEditor(props: {
     chain.run();
   }
 
+  // Inserts an empty custom-HTML chip at the cursor: inline when the cursor
+  // sits inside written text, block otherwise (mirrors insertComponent).
+  function insertHtml() {
+    if (!editor) return;
+    const { $from } = editor.state.selection;
+    const inline = $from.parent.isTextblock && $from.parent.content.size > 0;
+    editor
+      .chain()
+      .focus()
+      .insertContent(
+        inline
+          ? { type: "htmlInline", attrs: { source: "<span></span>" } }
+          : { type: "htmlBlock", attrs: { source: "<div>\n</div>" } },
+      )
+      .run();
+  }
+
   return (
     // Component-card node views render through portals inside the content
     // element, so these providers reach them.
@@ -242,6 +263,13 @@ export function BodyEditor(props: {
           >
             <ImageIcon size={16} />
           </RichTextEditor.Control>
+          <RichTextEditor.Control
+            title="Insert HTML"
+            aria-label="Insert HTML"
+            onClick={insertHtml}
+          >
+            <CodeXml size={16} />
+          </RichTextEditor.Control>
           {props.mdx && (
             <RichTextEditor.Control
               title="Insert component"
@@ -276,6 +304,10 @@ export function BodyEditor(props: {
           onPick={(file) => {
             setComponentPickerOpen(false);
             insertComponent(file);
+          }}
+          onPickHtml={() => {
+            setComponentPickerOpen(false);
+            insertHtml();
           }}
         />
       )}

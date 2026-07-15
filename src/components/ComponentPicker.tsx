@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Loader } from "@mantine/core";
 import { Spotlight, spotlight } from "@mantine/spotlight";
-import { Blocks } from "lucide-react";
+import { Blocks, CodeXml } from "lucide-react";
 
 import { invoke } from "../ipc";
 import type { FileEntry } from "../ipc";
@@ -23,6 +23,8 @@ export function ComponentPicker(props: {
   root: string;
   onClose: () => void;
   onPick: (file: FileEntry) => void;
+  /** Picked the built-in "HTML" entry (a custom raw-HTML chip). */
+  onPickHtml: () => void;
 }) {
   const [files, setFiles] = useState<FileEntry[] | null>(null);
 
@@ -51,13 +53,22 @@ export function ComponentPicker(props: {
     };
   }, [props.root]);
 
-  const actions = (files ?? []).map((file) => ({
-    id: file.path,
-    label: componentNameFromFile(file.name),
-    description: file.path.slice(props.root.length + 1),
-    leftSection: <Blocks size={16} />,
-    onClick: () => props.onPick(file),
-  }));
+  const actions = [
+    {
+      id: "__html__",
+      label: "HTML",
+      description: "Custom HTML element",
+      leftSection: <CodeXml size={16} />,
+      onClick: props.onPickHtml,
+    },
+    ...(files ?? []).map((file) => ({
+      id: file.path,
+      label: componentNameFromFile(file.name),
+      description: file.path.slice(props.root.length + 1),
+      leftSection: <Blocks size={16} />,
+      onClick: () => props.onPick(file),
+    })),
+  ];
 
   return (
     <Spotlight

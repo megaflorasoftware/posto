@@ -405,7 +405,7 @@ function SlotChildrenFields(fieldProps: {
 }
 
 /** A clickable target that opens a component's edit form in a popover. */
-function ComponentPopover(popoverProps: {
+export function ComponentPopover(popoverProps: {
   name: string;
   target: (toggle: () => void) => ReactElement;
   children: ReactNode;

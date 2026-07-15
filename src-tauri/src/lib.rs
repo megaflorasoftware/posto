@@ -256,6 +256,10 @@ struct DevServer {
 #[derive(Default)]
 struct AppState {
     server: Mutex<Option<DevServer>>,
+    // Rolling tail of the current dev server's stdout/stderr, kept so the
+    // frontend can show diagnostics when the server fails to come up. Survives
+    // the DevServer entry being reaped after an early exit.
+    server_logs: std::sync::Arc<Mutex<Vec<String>>>,
     // The preview iframe loads the site through a local proxy (see
     // `start_proxy`) so the app can observe which page the user navigates to
     // — the iframe itself is cross-origin and unreadable.
@@ -1033,6 +1037,49 @@ fn kill_stale_server(app: &tauri::AppHandle) {
     let _ = std::fs::remove_file(path);
 }
 
+const SERVER_LOG_LINES: usize = 400;
+
+/// Drops ANSI escape sequences (colors, cursor moves) from dev server output
+/// so the captured logs read as plain text.
+fn strip_ansi(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut chars = line.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '\u{1b}' {
+            out.push(ch);
+            continue;
+        }
+        if chars.peek() == Some(&'[') {
+            chars.next();
+            // CSI sequence: parameters end at the first alphabetic final byte.
+            for terminator in chars.by_ref() {
+                if terminator.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Streams one of the dev server's output pipes into the rolling log buffer.
+fn spool_server_output(
+    reader: impl std::io::Read + Send + 'static,
+    logs: std::sync::Arc<Mutex<Vec<String>>>,
+) {
+    std::thread::spawn(move || {
+        use std::io::{BufRead, BufReader};
+        for line in BufReader::new(reader).lines() {
+            let Ok(line) = line else { break };
+            let mut logs = logs.lock().unwrap();
+            if logs.len() >= SERVER_LOG_LINES {
+                logs.remove(0);
+            }
+            logs.push(strip_ansi(&line));
+        }
+    });
+}
+
 #[tauri::command]
 async fn start_dev_server(
     app: tauri::AppHandle,
@@ -1044,16 +1091,24 @@ async fn start_dev_server(
     let mut cmd = detect_dev_command(root_path, port, &setup_path(&app))?;
     cmd.current_dir(root_path)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
     }
-    let child = cmd
+    let mut child = cmd
         .spawn()
         .map_err(|e| format!("Failed to start dev server: {e}"))?;
+
+    state.server_logs.lock().unwrap().clear();
+    if let Some(stdout) = child.stdout.take() {
+        spool_server_output(stdout, state.server_logs.clone());
+    }
+    if let Some(stderr) = child.stderr.take() {
+        spool_server_output(stderr, state.server_logs.clone());
+    }
 
     if let Some(path) = pid_file(&app) {
         if let Some(dir) = path.parent() {
@@ -1073,6 +1128,13 @@ async fn start_dev_server(
     *guard = Some(DevServer { child, port });
     // The frontend talks to the proxy; the dev server itself stays internal.
     Ok(proxy_port)
+}
+
+/// Tail of the current dev server's stdout/stderr, for the "info for
+/// developers" panel shown when the server fails to start.
+#[tauri::command]
+fn get_dev_server_logs(state: tauri::State<'_, AppState>) -> Vec<String> {
+    state.server_logs.lock().unwrap().clone()
 }
 
 #[tauri::command]
@@ -1569,6 +1631,7 @@ pub fn run() {
             start_dev_server,
             stop_dev_server,
             ping_dev_server,
+            get_dev_server_logs,
             fetch_page,
             get_last_route,
             needs_install,

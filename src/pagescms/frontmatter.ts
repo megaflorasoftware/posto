@@ -1,4 +1,4 @@
-import { Document, YAMLSeq, isSeq, parseDocument } from "yaml";
+import { Document, Scalar, YAMLSeq, isSeq, parseDocument, visit } from "yaml";
 
 // Frontmatter round-tripping. Edits go through the retained YAML Document so
 // comments, key order, quoting style, and keys the schema doesn't know about
@@ -44,8 +44,23 @@ export function getValue(doc: Document, path: ValuePath): unknown {
   return (node as { toJS?: (doc: Document) => unknown }).toJS?.(doc) ?? doc.getIn(path);
 }
 
+/** Node for `value` with every string scalar double-quoted (map keys stay
+ * plain). Explicit quotes keep saved strings from being reparsed as YAML
+ * numbers, booleans, or dates. */
+function quotedNode(doc: Document, value: unknown) {
+  const node = doc.createNode(value);
+  visit(node, {
+    Scalar(key, scalar) {
+      if (key !== "key" && typeof scalar.value === "string") {
+        scalar.type = Scalar.QUOTE_DOUBLE;
+      }
+    },
+  });
+  return node;
+}
+
 export function setValue(doc: Document, path: ValuePath, value: unknown): void {
-  doc.setIn(path, value);
+  doc.setIn(path, quotedNode(doc, value));
 }
 
 export function deleteValue(doc: Document, path: ValuePath): void {
@@ -65,9 +80,9 @@ export function listLength(doc: Document, path: ValuePath): number {
 export function appendListItem(doc: Document, path: ValuePath, value: unknown): void {
   const seq = seqAt(doc, path);
   if (seq) {
-    seq.items.push(doc.createNode(value));
+    seq.items.push(quotedNode(doc, value));
   } else {
-    doc.setIn(path, [value]);
+    doc.setIn(path, quotedNode(doc, [value]));
   }
 }
 
