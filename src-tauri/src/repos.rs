@@ -1,7 +1,7 @@
 #![cfg_attr(test, allow(dead_code))]
 
 use crate::git::creds::{platform_creds, remote_callbacks};
-use git2::{build::CheckoutBuilder, build::RepoBuilder, FetchOptions, Repository};
+use git2::{build::CheckoutBuilder, build::RepoBuilder, BranchType, FetchOptions, Repository};
 use serde::Serialize;
 use std::cell::RefCell;
 use std::path::{Component, Path, PathBuf};
@@ -243,20 +243,22 @@ fn read_managed(base: &Path) -> Vec<ManagedRepo> {
                 continue;
             }
             let root = repo_entry.path();
-            let Ok(repo) = Repository::open(&root) else {
-                continue;
-            };
-            let Ok(remote) = repo.find_remote("origin") else {
-                continue;
-            };
-            let Ok(url) = remote.url() else {
-                continue;
-            };
+            // Keep damaged final directories visible as managed repositories.
+            // Opening one can then run the repository doctor and offer a safe
+            // remove-and-redownload path instead of trying to clone over it.
+            let url = Repository::open(&root)
+                .ok()
+                .and_then(|repo| {
+                    repo.find_remote("origin")
+                        .ok()
+                        .and_then(|remote| remote.url().ok().map(str::to_owned))
+                })
+                .unwrap_or_else(|| format!("https://github.com/{owner}/{name}.git"));
             repos.push(ManagedRepo {
                 owner: owner.clone(),
                 name,
                 root: root.to_string_lossy().to_string(),
-                url: url.to_string(),
+                url,
             });
         }
     }
@@ -312,14 +314,110 @@ fn remove_managed(base: &Path, root: &Path) -> Result<(), String> {
             return Err("Managed repository path cannot contain symlinks".to_string());
         }
     }
-    if !root.join(".git").is_dir() {
-        return Err("Path is not a managed git repository".to_string());
+    if !root.is_dir() {
+        return Err("Managed repository directory does not exist".to_string());
     }
     std::fs::remove_dir_all(root).map_err(err_str)?;
     if let Some(owner_dir) = root.parent() {
         let _ = std::fs::remove_dir(owner_dir);
     }
     Ok(())
+}
+
+fn doctor_managed(base: &Path, root: &Path, expected_url: &str) -> Result<String, String> {
+    let identity = managed_identity_for_root(base, root)?;
+    if github_identity(expected_url)? != identity {
+        return Err("Repository identity does not match its managed directory".to_string());
+    }
+    for path in [
+        base.to_path_buf(),
+        base.join(&identity.owner),
+        root.to_path_buf(),
+    ] {
+        if std::fs::symlink_metadata(path)
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            return Err("Managed repository path cannot contain symlinks".to_string());
+        }
+    }
+
+    let repo = Repository::open(root)
+        .map_err(|error| format!("The local Git repository could not be opened: {error}"))?;
+    let expected_workdir = std::fs::canonicalize(root).map_err(err_str)?;
+    let actual_workdir = repo
+        .workdir()
+        .and_then(|path| std::fs::canonicalize(path).ok());
+    if repo.is_bare() || actual_workdir.as_deref() != Some(expected_workdir.as_path()) {
+        return Err("The local repository has an invalid working directory".to_string());
+    }
+
+    let mut repaired = false;
+    if repo.state() != git2::RepositoryState::Clean {
+        repo.cleanup_state().map_err(err_str)?;
+        repaired = true;
+    }
+
+    let head = repo
+        .head()
+        .and_then(|reference| reference.peel_to_commit())
+        .map_err(|error| format!("The local repository has no readable current commit: {error}"))?;
+    let tree = head
+        .tree()
+        .map_err(|error| format!("The current repository snapshot is unreadable: {error}"))?;
+
+    match repo.find_remote("origin") {
+        Ok(remote) if remote.url().ok() == Some(expected_url) => {}
+        Ok(_) => {
+            repo.remote_set_url("origin", expected_url)
+                .map_err(err_str)?;
+            repaired = true;
+        }
+        Err(_) => {
+            repo.remote("origin", expected_url).map_err(err_str)?;
+            repaired = true;
+        }
+    }
+
+    let index_healthy = repo.index().and_then(|mut index| index.read(true)).is_ok();
+    if !index_healthy {
+        let index_path = repo.path().join("index");
+        if std::fs::symlink_metadata(&index_path)
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            return Err("The repository index cannot be repaired safely".to_string());
+        }
+        if index_path.exists() {
+            std::fs::remove_file(&index_path).map_err(err_str)?;
+        }
+        let mut index = repo.index().map_err(err_str)?;
+        index.read_tree(&tree).map_err(err_str)?;
+        index.write().map_err(err_str)?;
+        repaired = true;
+    }
+
+    if let Some(branch_name) = repo
+        .head()
+        .ok()
+        .and_then(|head| head.shorthand().ok().map(str::to_owned))
+    {
+        if let Ok(mut branch) = repo.find_branch(&branch_name, BranchType::Local) {
+            let upstream_name = format!("origin/{branch_name}");
+            if branch.upstream().is_err()
+                && repo.find_branch(&upstream_name, BranchType::Remote).is_ok()
+            {
+                branch.set_upstream(Some(&upstream_name)).map_err(err_str)?;
+                repaired = true;
+            }
+        }
+    }
+
+    Ok(if repaired {
+        "Repository repaired.".to_string()
+    } else {
+        "Repository checked.".to_string()
+    })
 }
 
 /// Clones a GitHub repository into app data and returns its sandbox root.
@@ -344,6 +442,19 @@ pub async fn clone_repo(app: tauri::AppHandle, url: String) -> Result<String, St
 #[tauri::command]
 pub fn list_repos(app: tauri::AppHandle) -> Result<Vec<ManagedRepo>, String> {
     Ok(read_managed(&managed_repos_dir(&app)?))
+}
+
+#[tauri::command]
+pub async fn doctor_repo(
+    app: tauri::AppHandle,
+    root: String,
+    expected_url: String,
+) -> Result<String, String> {
+    let base = managed_repos_dir(&app)?;
+    let doctor_root = PathBuf::from(&root);
+    tauri::async_runtime::spawn_blocking(move || doctor_managed(&base, &doctor_root, &expected_url))
+        .await
+        .map_err(err_str)?
 }
 
 #[tauri::command]
@@ -491,6 +602,57 @@ mod tests {
         assert!(!target.exists());
         assert!(!clone_staging_path(&base, &identity).exists());
         assert!(!base.join("owner").exists());
+    }
+
+    #[test]
+    fn doctor_repairs_origin_and_corrupt_index() {
+        let temp = tempfile::tempdir().unwrap();
+        let origin = init_origin(temp.path());
+        let base = temp.path().join("repos");
+        let identity = RepoIdentity {
+            owner: "owner".into(),
+            name: "site".into(),
+        };
+        let root = clone_managed(&base, &identity, origin.to_str().unwrap(), |_| {}).unwrap();
+        let repo = Repository::open(&root).unwrap();
+        repo.remote_delete("origin").unwrap();
+        let index_path = repo.path().join("index");
+        drop(repo);
+        std::fs::write(&index_path, "not a git index").unwrap();
+
+        let expected_url = "https://github.com/owner/site.git";
+        assert_eq!(
+            doctor_managed(&base, &root, expected_url).unwrap(),
+            "Repository repaired."
+        );
+        let repaired = Repository::open(&root).unwrap();
+        assert_eq!(
+            repaired.find_remote("origin").unwrap().url().unwrap(),
+            expected_url
+        );
+        assert!(repaired.index().is_ok());
+    }
+
+    #[test]
+    fn broken_managed_directory_can_be_removed_for_redownload() {
+        let temp = tempfile::tempdir().unwrap();
+        let base = temp.path().join("repos");
+        let root = base.join("owner/site");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("partial-data"), "broken").unwrap();
+
+        assert_eq!(
+            read_managed(&base),
+            vec![ManagedRepo {
+                owner: "owner".into(),
+                name: "site".into(),
+                root: root.to_string_lossy().to_string(),
+                url: "https://github.com/owner/site.git".into(),
+            }]
+        );
+
+        remove_managed(&base, &root).unwrap();
+        assert!(!root.exists());
     }
 
     #[test]

@@ -134,6 +134,10 @@ export default function App() {
       });
       return;
     }
+    await downloadRepo(repo);
+  }
+
+  async function downloadRepo(repo: GitHubRepo) {
     setProgress(emptyProgress);
     setStage("cloning");
     try {
@@ -151,6 +155,13 @@ export default function App() {
       setError(message(cloneError));
       setStage("clone-error");
     }
+  }
+
+  async function redownloadRepo(repo: GitHubRepo, root: string) {
+    await invoke("remove_repo", { root });
+    setManaged((current) => current.filter((candidate) => candidate.root !== root));
+    setReadyRoot(null);
+    await downloadRepo(repo);
   }
 
   const downloaded = useMemo(
@@ -180,6 +191,7 @@ export default function App() {
           setError(null);
           setStage("repos");
         }}
+        onRedownloadRepo={(repo, root) => redownloadRepo(repo, root)}
         onChangeRepo={() => setStage("repos")}
       />
     </MantineProvider>

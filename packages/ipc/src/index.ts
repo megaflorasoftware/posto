@@ -508,6 +508,11 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     }
     case "list_repos":
       return mockRepos.map((repo) => ({ ...repo }));
+    case "doctor_repo":
+      if (new URLSearchParams(window.location.search).has("mockRepoBroken")) {
+        throw new Error("The local Git repository could not be opened: repository data is incomplete");
+      }
+      return "Repository checked.";
     case "remove_repo": {
       const root = args?.root as string;
       const index = mockRepos.findIndex((repo) => repo.root === root);

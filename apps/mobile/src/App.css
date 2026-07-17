@@ -52,12 +52,18 @@ input {
 
 .mobile-app .mantine-Button-root,
 .mobile-app .mantine-ActionIcon-root {
+  min-width: 44px;
   min-height: 44px;
 }
 
 .mobile-breadcrumbs {
   min-width: 0;
+  flex: 1;
   overflow: hidden;
+}
+
+.mobile-header > .mantine-ActionIcon-root {
+  flex-shrink: 0;
 }
 
 .mobile-breadcrumbs .mantine-Breadcrumbs-breadcrumb {

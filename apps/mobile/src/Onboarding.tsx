@@ -2,7 +2,6 @@ import {
   ActionIcon,
   Alert,
   Avatar,
-  Breadcrumbs,
   Button,
   Center,
   Group,
@@ -14,7 +13,6 @@ import {
   TextInput,
   ThemeIcon,
   Title,
-  UnstyledButton,
 } from "@mantine/core";
 import type {
   CloneProgress,
@@ -65,30 +63,18 @@ type Props = {
   onRetryRepos: () => void;
   onRetryClone: () => void;
   onCancelClone: () => void;
+  onRedownloadRepo: (repo: GitHubRepo, root: string) => Promise<void>;
   onChangeRepo: () => void;
 };
 
 function Header({
   stage,
   user,
-  selectedRepo,
   onSignOut,
-  onChangeRepo,
-}: Pick<Props, "stage" | "user" | "selectedRepo" | "onSignOut" | "onChangeRepo">) {
-  const inRepo = stage === "home" && selectedRepo;
-
+}: Pick<Props, "stage" | "user" | "onSignOut">) {
   return (
     <header className="mobile-header">
-      {inRepo ? (
-        <Breadcrumbs separator="/" className="mobile-breadcrumbs">
-          <UnstyledButton className="mobile-breadcrumb-link" onClick={onChangeRepo}>
-            Repositories
-          </UnstyledButton>
-          <Text fw={600} size="sm" truncate>{selectedRepo.name}</Text>
-        </Breadcrumbs>
-      ) : (
-        <Text fw={600} size="sm">{stage === "repos" ? "Repositories" : "Posto"}</Text>
-      )}
+      <Text fw={600} size="sm">{stage === "repos" ? "Repositories" : "Posto"}</Text>
       {stage === "repos" && user && (
         <Group gap="xs" wrap="nowrap">
           <Avatar src={user.avatar_url} alt={user.name} size={36} radius="xl" />
@@ -323,15 +309,16 @@ function CloneError({
 }
 
 export default function Onboarding(props: Props) {
+  function redownloadSelectedRepo() {
+    if (!props.selectedRepo || !props.readyRoot) return Promise.resolve();
+    return props.onRedownloadRepo(props.selectedRepo, props.readyRoot);
+  }
+
   return (
     <div className="mobile-app">
-      <Header
-        stage={props.stage}
-        user={props.user}
-        selectedRepo={props.selectedRepo}
-        onSignOut={props.onSignOut}
-        onChangeRepo={props.onChangeRepo}
-      />
+      {props.stage !== "home" && (
+        <Header stage={props.stage} user={props.user} onSignOut={props.onSignOut} />
+      )}
       {props.stage === "loading" && <Center className="screen"><Loader /></Center>}
       {props.stage === "signed-out" && <SignIn onSignIn={props.onSignIn} />}
       {props.stage === "authorizing" && (
@@ -348,7 +335,12 @@ export default function Onboarding(props: Props) {
         />
       )}
       {props.stage === "home" && props.readyRoot && (
-        <RepoHome root={props.readyRoot} />
+        <RepoHome
+          root={props.readyRoot}
+          repo={props.selectedRepo}
+          onChangeRepo={props.onChangeRepo}
+          onRedownloadRepo={redownloadSelectedRepo}
+        />
       )}
       {props.stage !== "repos" && props.stage !== "clone-error" && (
         <div className="floating-error"><ErrorNotice error={props.error} /></div>

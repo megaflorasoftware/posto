@@ -1,5 +1,7 @@
 import {
+  ActionIcon,
   Alert,
+  Breadcrumbs,
   Button,
   Center,
   Group,
@@ -7,26 +9,39 @@ import {
   ScrollArea,
   Stack,
   Text,
+  UnstyledButton,
 } from "@mantine/core";
 import { PublishModal, useFileGroups, useGitSync } from "@posto/editor/sync";
-import type { ChangedFile } from "@posto/ipc";
+import { invoke } from "@posto/ipc";
+import type { ChangedFile, GitHubRepo } from "@posto/ipc";
 import {
   CloudDownload,
   ChevronDown,
   GitCommitHorizontal,
   RefreshCw,
+  TriangleAlert,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 type Props = {
   root: string;
+  repo: GitHubRepo | null;
+  onChangeRepo: () => void;
+  onRedownloadRepo: () => Promise<void>;
 };
 
-export default function RepoHome({ root }: Props) {
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [repairError, setRepairError] = useState<string | null>(null);
+  const [redownloading, setRedownloading] = useState(false);
   const files = useFileGroups(setError);
   const git = useGitSync(root, {
     onStatus: setStatus,
@@ -63,9 +78,97 @@ export default function RepoHome({ root }: Props) {
     void files.refreshGroups(root);
   }
 
+  async function refreshRepository() {
+    if (!repo || refreshing) return;
+    setRefreshing(true);
+    setRepairError(null);
+    setError(null);
+    setStatus("Checking repository…");
+    try {
+      const check = await invoke<string>("doctor_repo", {
+        root,
+        expectedUrl: repo.clone_url,
+      });
+      setStatus(check === "Repository repaired." ? "Repository repaired. Updating…" : "Updating…");
+    } catch (checkError) {
+      setStatus(null);
+      setRepairError(message(checkError));
+      setRefreshing(false);
+      return;
+    }
+
+    try {
+      const behind = await invoke<boolean>("fetch_upstream", { root });
+      if (behind) {
+        setStatus("Downloading updates…");
+        await invoke<string>("pull_upstream", { root });
+      }
+      await files.refreshGroups(root);
+      await git.refreshLocalChanges(root);
+      setStatus("Repository is up to date.");
+    } catch (refreshError) {
+      setStatus(null);
+      setError(`Could not refresh the repository: ${message(refreshError)}`);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  async function redownloadRepository() {
+    setRedownloading(true);
+    try {
+      await onRedownloadRepo();
+    } catch (removeError) {
+      setRepairError(`Could not remove the damaged repository: ${message(removeError)}`);
+      setRedownloading(false);
+    }
+  }
+
   return (
-    <main className="repo-home">
+    <>
+      <header className="mobile-header">
+        <Breadcrumbs separator="/" className="mobile-breadcrumbs">
+          <UnstyledButton className="mobile-breadcrumb-link" onClick={onChangeRepo}>
+            Repositories
+          </UnstyledButton>
+          <Text fw={600} size="sm" truncate>{repo?.name ?? "Repository"}</Text>
+        </Breadcrumbs>
+        <ActionIcon
+          variant="subtle"
+          aria-label="Refresh repository"
+          title="Refresh repository"
+          loading={refreshing}
+          onClick={() => void refreshRepository()}
+        >
+          <RefreshCw size={19} />
+        </ActionIcon>
+      </header>
+      <main className="repo-home">
       <Stack gap="sm" className="repo-home-notices">
+        {repairError && (
+          <Alert
+            color="red"
+            variant="light"
+            icon={<TriangleAlert size={19} />}
+            title="This repository needs to be downloaded again"
+          >
+            <Stack gap="sm">
+              <Text size="sm">{repairError}</Text>
+              <Text size="sm">
+                Remove the damaged local copy and download a clean copy from GitHub. Files that
+                have not been published may be lost.
+              </Text>
+              <Button
+                color="red"
+                variant="light"
+                loading={redownloading}
+                onClick={() => void redownloadRepository()}
+              >
+                Remove and redownload
+              </Button>
+            </Stack>
+          </Alert>
+        )}
         {git.behindUpstream && (
           <Alert
             color="blue"
@@ -176,6 +279,7 @@ export default function RepoHome({ root }: Props) {
           void git.publish(message);
         }}
       />
-    </main>
+      </main>
+    </>
   );
 }

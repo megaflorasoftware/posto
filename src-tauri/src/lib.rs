@@ -113,6 +113,7 @@ pub fn run() {
                 git::pull_upstream,
                 git::publish,
                 repos::clone_repo,
+                repos::doctor_repo,
                 repos::list_repos,
                 repos::remove_repo
             ]);
