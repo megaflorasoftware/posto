@@ -2806,7 +2806,7 @@ dependencies = [
 
 [[package]]
 name = "posto"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "fix-path-env",
  "git2",
