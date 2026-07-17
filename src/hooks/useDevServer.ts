@@ -4,7 +4,7 @@ import { invoke } from "../ipc";
 const PING_INTERVAL_MS = 500;
 const PING_TIMEOUT_MS = 60_000;
 
-export type SetupStepId = "git" | "node" | "pm" | "deps" | "server";
+export type SetupStepId = "node" | "pm" | "deps" | "server";
 
 export type SetupStep = {
   id: SetupStepId;
@@ -15,7 +15,6 @@ export type SetupStep = {
 
 /** Result of the backend's `check_environment` command. */
 type EnvCheck = {
-  git_version: string | null;
   node_version: string | null;
   package_manager: string;
   package_manager_version: string | null;
@@ -79,7 +78,6 @@ export function useDevServer() {
     setServer({
       state: "setup",
       steps: [
-        { id: "git", label: "Git", status: "active", detail: "Checking…" },
         { id: "node", label: "Node.js", status: "active", detail: "Checking…" },
         { id: "pm", label: "Package manager", status: "active", detail: "Checking…" },
         { id: "deps", label: "Project dependencies", status: "pending" },
@@ -94,17 +92,10 @@ export function useDevServer() {
       setServer({ state: "error", message: String(e) });
       return;
     }
-    const gitOk = env.git_version !== null;
     const nodeOk = env.node_version !== null;
     const pmOk = env.package_manager_version !== null;
     const depsOk = !env.needs_node_modules;
     const steps: SetupStep[] = [
-      {
-        id: "git",
-        label: "Git",
-        status: gitOk ? "done" : "pending",
-        detail: gitOk ? env.git_version! : "Not found — will be installed",
-      },
       {
         id: "node",
         label: "Node.js",
@@ -127,7 +118,7 @@ export function useDevServer() {
     ];
     // Anything that would install waits for one explicit Install click;
     // when everything is already in place, go straight to the server.
-    const needsInstall = !gitOk || !nodeOk || !pmOk || !depsOk;
+    const needsInstall = !nodeOk || !pmOk || !depsOk;
     setServer({ state: "setup", steps, awaitingInstall: needsInstall });
     if (!needsInstall) void runSetup(dir, steps);
   }
@@ -136,17 +127,9 @@ export function useDevServer() {
   async function runSetup(dir: string, steps: SetupStep[]) {
     setServer({ state: "setup", steps, awaitingInstall: false });
     const pending = new Set(steps.filter((s) => s.status === "pending").map((s) => s.id));
-    let current: SetupStepId = "git";
+    let current: SetupStepId = "node";
     try {
-      if (pending.has("git")) {
-        // On macOS this opens Apple's Command Line Tools dialog; the backend
-        // waits for the user to finish it.
-        updateStep("git", { status: "active", detail: "Installing… follow any system prompt" });
-        const version = await invoke<string>("install_git");
-        updateStep("git", { status: "done", detail: version });
-      }
       if (pending.has("node")) {
-        current = "node";
         updateStep("node", { status: "active", detail: "Installing…" });
         const version = await invoke<string>("install_node");
         updateStep("node", { status: "done", detail: version });
