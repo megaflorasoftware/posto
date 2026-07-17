@@ -386,6 +386,11 @@ mod tests {
     }
 
     #[test]
+    fn github_client_id_is_configured() {
+        assert_eq!(client_id().unwrap(), "Ov23li8hm9JvEhpLOaAc");
+    }
+
+    #[test]
     fn device_poll_honors_pending_interval_and_slow_down() {
         assert!(matches!(
             poll_action(token_response(Some("authorization_pending"), Some(7)), 5),

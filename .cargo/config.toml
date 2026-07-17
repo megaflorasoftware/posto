@@ -1,0 +1,5 @@
+[env]
+# GitHub OAuth device flow uses a public client ID, not a secret. Keep a
+# buildable default for Xcode's isolated build phase while allowing CI and
+# local shells to override it through POSTO_GITHUB_CLIENT_ID.
+POSTO_GITHUB_CLIENT_ID = { value = "Ov23li8hm9JvEhpLOaAc", force = false }
