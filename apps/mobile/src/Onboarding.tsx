@@ -1,7 +1,6 @@
 import {
   ActionIcon,
   Avatar,
-  Badge,
   Button,
   Center,
   Group,
@@ -193,11 +192,10 @@ function RepoPicker({ repos, downloaded, error, onChooseRepo, onRetryRepos }: Pr
                   <div className="repo-info">
                     <Group gap="xs" wrap="nowrap">
                       <Text fw={650} truncate>{repo.name}</Text>
-                      {repo.private && <Badge size="xs" variant="light">Private</Badge>}
                     </Group>
                     <Text size="xs" c="dimmed" truncate>{repo.owner}</Text>
                   </div>
-                  {isDownloaded ? <Badge variant="dot">On device</Badge> : <ChevronRight size={18} />}
+                  {isDownloaded ? <ChevronRight size={18} /> : <Download size={18} />}
                 </button>
               );
             })}
