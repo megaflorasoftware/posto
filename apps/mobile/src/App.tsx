@@ -1,4 +1,4 @@
-import { MantineProvider } from "@mantine/core";
+import { createTheme, MantineProvider } from "@mantine/core";
 import {
   invoke,
   onAuthDeviceCode,
@@ -16,14 +16,33 @@ import type {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Onboarding from "./Onboarding";
 
-type Stage = "loading" | "signed-out" | "authorizing" | "repos" | "cloning" | "ready";
+type Stage =
+  | "loading"
+  | "signed-out"
+  | "authorizing"
+  | "repos"
+  | "cloning"
+  | "clone-error"
+  | "home";
 
 const emptyProgress: CloneProgress = {
   received_objects: 0,
   total_objects: 0,
   indexed_objects: 0,
   received_bytes: 0,
+  checkout_completed: 0,
+  checkout_total: 0,
+  phase: "downloading",
 };
+
+const mobileTheme = createTheme({
+  components: {
+    ActionIcon: { defaultProps: { size: "lg" } },
+    Button: { defaultProps: { size: "md" } },
+    TextInput: { defaultProps: { size: "lg" } },
+    ThemeIcon: { defaultProps: { size: "lg" } },
+  },
+});
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -108,26 +127,41 @@ export default function App() {
       (candidate) => candidate.owner === repo.owner && candidate.name === repo.name,
     );
     if (existing) {
-      await invoke("set_last_root", { root: existing.root });
       setReadyRoot(existing.root);
-      setStage("ready");
+      setStage("home");
+      void invoke("set_last_root", { root: existing.root }).catch((rememberError) => {
+        setError(`Repository opened, but it could not be remembered: ${message(rememberError)}`);
+      });
       return;
     }
+    await downloadRepo(repo);
+  }
+
+  async function downloadRepo(repo: GitHubRepo) {
     setProgress(emptyProgress);
     setStage("cloning");
     try {
       const root = await invoke<string>("clone_repo", { url: repo.clone_url });
-      await invoke("set_last_root", { root });
       setReadyRoot(root);
       setManaged((current) => [
         ...current,
         { owner: repo.owner, name: repo.name, root, url: repo.clone_url },
       ]);
-      setStage("ready");
+      setStage("home");
+      void invoke("set_last_root", { root }).catch((rememberError) => {
+        setError(`Repository opened, but it could not be remembered: ${message(rememberError)}`);
+      });
     } catch (cloneError) {
       setError(message(cloneError));
-      setStage("repos");
+      setStage("clone-error");
     }
+  }
+
+  async function redownloadRepo(repo: GitHubRepo, root: string) {
+    await invoke("remove_repo", { root });
+    setManaged((current) => current.filter((candidate) => candidate.root !== root));
+    setReadyRoot(null);
+    await downloadRepo(repo);
   }
 
   const downloaded = useMemo(
@@ -136,14 +170,7 @@ export default function App() {
   );
 
   return (
-    <MantineProvider
-      defaultColorScheme="auto"
-      theme={{
-        primaryColor: "violet",
-        fontFamily: "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif",
-        headings: { fontFamily: "Georgia, ui-serif, serif" },
-      }}
-    >
+    <MantineProvider defaultColorScheme="auto" theme={mobileTheme}>
       <Onboarding
         stage={stage}
         user={user}
@@ -159,6 +186,13 @@ export default function App() {
         onOpenVerification={() => device && void openUrl(device.verification_uri)}
         onChooseRepo={(repo) => void chooseRepo(repo)}
         onRetryRepos={() => void loadRepos()}
+        onRetryClone={() => selectedRepo && void chooseRepo(selectedRepo)}
+        onCancelClone={() => {
+          setError(null);
+          setStage("repos");
+        }}
+        onRedownloadRepo={(repo, root) => redownloadRepo(repo, root)}
+        onChangeRepo={() => setStage("repos")}
       />
     </MantineProvider>
   );

@@ -1,7 +1,7 @@
 import {
   ActionIcon,
+  Alert,
   Avatar,
-  Badge,
   Button,
   Center,
   Group,
@@ -30,12 +30,21 @@ import {
   LockKeyhole,
   LogOut,
   RefreshCw,
+  RotateCcw,
   Search,
   Smartphone,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import RepoHome from "./RepoHome";
 
-type Stage = "loading" | "signed-out" | "authorizing" | "repos" | "cloning" | "ready";
+type Stage =
+  | "loading"
+  | "signed-out"
+  | "authorizing"
+  | "repos"
+  | "cloning"
+  | "clone-error"
+  | "home";
 
 type Props = {
   stage: Stage;
@@ -52,18 +61,23 @@ type Props = {
   onOpenVerification: () => void;
   onChooseRepo: (repo: GitHubRepo) => void;
   onRetryRepos: () => void;
+  onRetryClone: () => void;
+  onCancelClone: () => void;
+  onRedownloadRepo: (repo: GitHubRepo, root: string) => Promise<void>;
+  onChangeRepo: () => void;
 };
 
-function Header({ user, onSignOut }: Pick<Props, "user" | "onSignOut">) {
+function Header({
+  stage,
+  user,
+  onSignOut,
+}: Pick<Props, "stage" | "user" | "onSignOut">) {
   return (
     <header className="mobile-header">
-      <div className="wordmark" aria-label="Posto">
-        <span>P</span>
-        <strong>posto</strong>
-      </div>
-      {user && (
+      <Text fw={600} size="sm">{stage === "repos" ? "Repositories" : "Posto"}</Text>
+      {stage === "repos" && user && (
         <Group gap="xs" wrap="nowrap">
-          <Avatar src={user.avatar_url} alt={user.name} size={30} radius="xl" />
+          <Avatar src={user.avatar_url} alt={user.name} size={36} radius="xl" />
           <ActionIcon variant="subtle" color="gray" aria-label="Sign out" onClick={onSignOut}>
             <LogOut size={18} />
           </ActionIcon>
@@ -84,31 +98,15 @@ function ErrorNotice({ error }: { error: string | null }) {
 
 function SignIn({ onSignIn }: Pick<Props, "onSignIn">) {
   return (
-    <main className="welcome-screen">
-      <div className="welcome-art" aria-hidden="true">
-        <div className="paper paper-back" />
-        <div className="paper paper-front">
-          <span />
-          <span />
-          <span />
-          <i>P</i>
-        </div>
-      </div>
-      <Stack gap="md" align="center" className="welcome-copy">
-        <Text className="eyebrow">Your site, in your pocket</Text>
-        <Title order={1}>Write wherever the idea finds you.</Title>
-        <Text c="dimmed" ta="center" maw={330}>
-          Connect GitHub to edit and publish your site without bringing a laptop.
+    <main className="centered-screen">
+      <Stack gap="md" align="center" w="100%" maw={340}>
+        <Title order={2}>Posto</Title>
+        <Text c="dimmed" ta="center">
+          Connect GitHub to choose a site and edit its documents.
         </Text>
-      </Stack>
-      <Stack gap="sm" className="welcome-actions">
-        <Button size="lg" radius="xl" leftSection={<FolderGit2 size={20} />} onClick={onSignIn}>
+        <Button leftSection={<FolderGit2 size={16} />} onClick={onSignIn}>
           Continue with GitHub
         </Button>
-        <Group gap={6} justify="center" c="dimmed">
-          <LockKeyhole size={13} />
-          <Text size="xs">Your token stays in this device's secure storage</Text>
-        </Group>
       </Stack>
     </main>
   );
@@ -128,7 +126,7 @@ function Authorizing({ device, onOpenVerification }: Pick<Props, "device" | "onO
     <main className="centered-screen">
       {!device ? (
         <Stack align="center" gap="lg">
-          <Loader color="violet" />
+          <Loader />
           <div>
             <Title order={2} ta="center">Connecting to GitHub</Title>
             <Text c="dimmed" ta="center" mt={6}>Requesting a one-time sign-in code…</Text>
@@ -136,20 +134,17 @@ function Authorizing({ device, onOpenVerification }: Pick<Props, "device" | "onO
         </Stack>
       ) : (
         <Stack gap="xl" w="100%" maw={380}>
-          <ThemeIcon size={58} radius="xl" variant="light" mx="auto">
-            <Smartphone size={27} />
+          <ThemeIcon size={56} radius="sm" variant="light" mx="auto">
+            <Smartphone size={30} />
           </ThemeIcon>
           <div>
-            <Text className="eyebrow" ta="center">One quick step</Text>
-            <Title order={2} ta="center" mt={6}>Enter this code on GitHub</Title>
+            <Title order={2} ta="center">Enter this code on GitHub</Title>
           </div>
           <button className="device-code" onClick={() => void copyCode()}>
             <span>{device.user_code}</span>
             {copied ? <Check size={20} /> : <Copy size={20} />}
           </button>
           <Button
-            size="lg"
-            radius="xl"
             rightSection={<ExternalLink size={18} />}
             onClick={onOpenVerification}
           >
@@ -168,28 +163,30 @@ function RepoPicker({ repos, downloaded, error, onChooseRepo, onRetryRepos }: Pr
   const [query, setQuery] = useState("");
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    return normalized
+    const matching = normalized
       ? repos.filter((repo) => repo.full_name.toLowerCase().includes(normalized))
       : repos;
-  }, [query, repos]);
+    return [...matching].sort((left, right) => {
+      return Number(downloaded.has(right.full_name)) - Number(downloaded.has(left.full_name));
+    });
+  }, [downloaded, query, repos]);
 
   return (
     <main className="repo-screen">
-      <div className="screen-title">
-        <Text className="eyebrow">Choose a site</Text>
-        <Title order={1}>Your repositories</Title>
-        <Text c="dimmed" mt={6}>Pick the site you want available on this device.</Text>
+      <div className="repo-screen-search">
+        <TextInput
+          size="lg"
+          radius="sm"
+          leftSection={<Search size={20} />}
+          placeholder="Search repositories"
+          value={query}
+          onChange={(event) => setQuery(event.currentTarget.value)}
+          aria-label="Search repositories"
+        />
       </div>
-      <TextInput
-        size="md"
-        radius="xl"
-        leftSection={<Search size={18} />}
-        placeholder="Search repositories"
-        value={query}
-        onChange={(event) => setQuery(event.currentTarget.value)}
-        aria-label="Search repositories"
-      />
-      <ErrorNotice error={error} />
+      <div className="repo-error-slot">
+        <ErrorNotice error={error} />
+      </div>
       {error && repos.length === 0 ? (
         <Center className="empty-state">
           <Stack align="center">
@@ -201,22 +198,21 @@ function RepoPicker({ repos, downloaded, error, onChooseRepo, onRetryRepos }: Pr
         </Center>
       ) : (
         <ScrollArea className="repo-list" type="auto">
-          <Stack gap="xs">
+          <div className="repo-list-content">
             {filtered.map((repo) => {
               const isDownloaded = downloaded.has(repo.full_name);
               return (
                 <button className="repo-row" key={repo.id} onClick={() => onChooseRepo(repo)}>
-                  <ThemeIcon variant="light" color={repo.private ? "grape" : "gray"} radius="md">
+                  <ThemeIcon variant="light" color={repo.private ? undefined : "gray"} radius="sm">
                     {repo.private ? <LockKeyhole size={17} /> : <FolderGit2 size={17} />}
                   </ThemeIcon>
                   <div className="repo-info">
                     <Group gap="xs" wrap="nowrap">
                       <Text fw={650} truncate>{repo.name}</Text>
-                      {repo.private && <Badge size="xs" variant="light">Private</Badge>}
                     </Group>
                     <Text size="xs" c="dimmed" truncate>{repo.owner}</Text>
                   </div>
-                  {isDownloaded ? <Badge variant="dot">On device</Badge> : <ChevronRight size={18} />}
+                  {isDownloaded ? <ChevronRight size={18} /> : <Download size={18} />}
                 </button>
               );
             })}
@@ -225,7 +221,7 @@ function RepoPicker({ repos, downloaded, error, onChooseRepo, onRetryRepos }: Pr
                 <Text c="dimmed">No repositories match “{query}”.</Text>
               </Center>
             )}
-          </Stack>
+          </div>
         </ScrollArea>
       )}
     </main>
@@ -233,68 +229,122 @@ function RepoPicker({ repos, downloaded, error, onChooseRepo, onRetryRepos }: Pr
 }
 
 function Cloning({ repo, progress }: { repo: GitHubRepo | null; progress: CloneProgress }) {
-  const percent = progress.total_objects
-    ? Math.min(100, Math.round((progress.received_objects / progress.total_objects) * 100))
-    : 4;
+  const checkingOut = progress.phase === "checking_out";
+  const percent = checkingOut
+    ? progress.checkout_total
+      ? Math.min(100, Math.round((progress.checkout_completed / progress.checkout_total) * 100))
+      : 4
+    : progress.total_objects
+      ? Math.min(100, Math.round((progress.received_objects / progress.total_objects) * 100))
+      : 4;
   const megabytes = progress.received_bytes / 1_048_576;
 
   return (
     <main className="centered-screen">
       <Stack gap="xl" w="100%" maw={380}>
-        <ThemeIcon size={62} radius="xl" variant="light" mx="auto">
-          <Download size={28} />
+        <ThemeIcon size={56} radius="sm" variant="light" mx="auto">
+          <Download size={30} />
         </ThemeIcon>
         <div>
-          <Text className="eyebrow" ta="center">Making it available offline</Text>
-          <Title order={2} ta="center" mt={6}>{repo?.name ?? "Repository"}</Title>
-          <Text c="dimmed" ta="center" mt={8}>Downloading files and commit history…</Text>
+          <Title order={2} ta="center">{repo?.name ?? "Repository"}</Title>
+          <Text c="dimmed" ta="center" mt={8}>
+            {checkingOut ? "Preparing downloaded files…" : "Downloading the latest repository snapshot…"}
+          </Text>
         </div>
         <div>
           <Group justify="space-between" mb={8}>
             <Text size="sm" fw={600}>{percent}%</Text>
             <Text size="xs" c="dimmed">
-              {megabytes >= 0.1 ? `${megabytes.toFixed(1)} MB` : `${progress.received_objects} objects`}
+              {checkingOut
+                ? progress.checkout_total
+                  ? `${progress.checkout_completed} of ${progress.checkout_total} files`
+                  : "Preparing files"
+                : megabytes >= 0.1
+                  ? `${megabytes.toFixed(1)} MB`
+                  : `${progress.received_objects} objects`}
             </Text>
           </Group>
-          <Progress value={percent} size="md" radius="xl" animated />
+          <Progress value={percent} size="lg" radius="xl" animated />
         </div>
-        <Text size="xs" c="dimmed" ta="center">Keep Posto open until the download finishes.</Text>
+        <Text size="xs" c="dimmed" ta="center">
+          Keep Posto open until the repository is ready. Large media libraries may take several minutes.
+        </Text>
       </Stack>
     </main>
   );
 }
 
-function Ready({ repo, root }: { repo: GitHubRepo | null; root: string | null }) {
+function CloneError({
+  repo,
+  error,
+  onRetry,
+  onCancel,
+}: {
+  repo: GitHubRepo | null;
+  error: string | null;
+  onRetry: () => void;
+  onCancel: () => void;
+}) {
   return (
     <main className="centered-screen">
-      <Stack gap="xl" align="center" maw={380}>
-        <div className="success-mark"><Check size={34} /></div>
+      <Stack gap="md" w="100%" maw={420}>
         <div>
-          <Text className="eyebrow" ta="center">Ready to write</Text>
-          <Title order={2} ta="center" mt={6}>{repo?.name ?? "Your site"} is on this device.</Title>
-          <Text c="dimmed" ta="center" mt={10}>
-            The repository is ready. The file browser and editor arrive in the next mobile milestone.
-          </Text>
+          <Title order={2}>Download interrupted</Title>
+          <Text c="dimmed" size="sm" mt={4}>{repo?.full_name ?? "Repository"}</Text>
         </div>
-        {root && <Text size="xs" c="dimmed" className="root-path">{root}</Text>}
+        <Alert color="red" title="The repository was not added">
+          {error ?? "The download could not be completed."}
+        </Alert>
+        <Text size="sm" c="dimmed">
+          Large repositories need enough free space for both Git data and checked-out files. Keep
+          the app open on a stable connection while retrying.
+        </Text>
+        <Group grow>
+          <Button variant="default" onClick={onCancel}>Choose another</Button>
+          <Button leftSection={<RotateCcw size={16} />} onClick={onRetry}>Try again</Button>
+        </Group>
       </Stack>
     </main>
   );
 }
 
 export default function Onboarding(props: Props) {
+  function redownloadSelectedRepo() {
+    if (!props.selectedRepo || !props.readyRoot) return Promise.resolve();
+    return props.onRedownloadRepo(props.selectedRepo, props.readyRoot);
+  }
+
   return (
     <div className="mobile-app">
-      <Header user={props.user} onSignOut={props.onSignOut} />
-      {props.stage === "loading" && <Center className="screen"><Loader color="violet" /></Center>}
+      {props.stage !== "home" && (
+        <Header stage={props.stage} user={props.user} onSignOut={props.onSignOut} />
+      )}
+      {props.stage === "loading" && <Center className="screen"><Loader /></Center>}
       {props.stage === "signed-out" && <SignIn onSignIn={props.onSignIn} />}
       {props.stage === "authorizing" && (
         <Authorizing device={props.device} onOpenVerification={props.onOpenVerification} />
       )}
       {props.stage === "repos" && <RepoPicker {...props} />}
       {props.stage === "cloning" && <Cloning repo={props.selectedRepo} progress={props.progress} />}
-      {props.stage === "ready" && <Ready repo={props.selectedRepo} root={props.readyRoot} />}
-      {props.stage !== "repos" && <div className="floating-error"><ErrorNotice error={props.error} /></div>}
+      {props.stage === "clone-error" && (
+        <CloneError
+          repo={props.selectedRepo}
+          error={props.error}
+          onRetry={props.onRetryClone}
+          onCancel={props.onCancelClone}
+        />
+      )}
+      {props.stage === "home" && props.readyRoot && (
+        <RepoHome
+          root={props.readyRoot}
+          repo={props.selectedRepo}
+          onChangeRepo={props.onChangeRepo}
+          onRedownloadRepo={redownloadSelectedRepo}
+        />
+      )}
+      {props.stage !== "repos" && props.stage !== "clone-error" && (
+        <div className="floating-error"><ErrorNotice error={props.error} /></div>
+      )}
     </div>
   );
 }
