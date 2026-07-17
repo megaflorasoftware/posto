@@ -7,6 +7,7 @@ use git2::{
 };
 use serde::Serialize;
 use std::path::Path;
+use tauri::Emitter;
 
 use creds::{platform_creds, platform_signature, remote_callbacks};
 
@@ -448,8 +449,10 @@ pub async fn fetch_upstream(root: String) -> Result<bool, String> {
 /// around the merge — reapplied afterwards, except where they collide with
 /// what the server changed (the merged version is kept there).
 #[tauri::command]
-pub async fn pull_upstream(root: String) -> Result<String, String> {
-    Client::open(&root)?.pull()
+pub async fn pull_upstream(app: tauri::AppHandle, root: String) -> Result<String, String> {
+    let result = Client::open(&root)?.pull()?;
+    let _ = app.emit("fs-changed", vec![root]);
+    Ok(result)
 }
 
 #[tauri::command]
