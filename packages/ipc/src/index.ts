@@ -26,6 +26,20 @@ export interface ChangedFile {
   path: string;
 }
 
+export interface ManagedRepo {
+  owner: string;
+  name: string;
+  root: string;
+  url: string;
+}
+
+export interface CloneProgress {
+  received_objects: number;
+  total_objects: number;
+  indexed_objects: number;
+  received_bytes: number;
+}
+
 // Browser-only mock so the UI can be developed and tested outside the Tauri
 // shell (invoke/dialog are unavailable there).
 const mockFiles: Record<string, string> = {
@@ -224,6 +238,14 @@ const mockFiles: Record<string, string> = {
 // Files removed via delete_file; list_files' static groups filter these out
 // so deletion is observable in the mock, mirroring the real backend.
 const mockDeleted = new Set<string>();
+const mockRepos: ManagedRepo[] = [
+  {
+    owner: "megaflorasoftware",
+    name: "posto",
+    root: "/mock/repos/megaflorasoftware/posto",
+    url: "https://github.com/megaflorasoftware/posto.git",
+  },
+];
 
 function mockTitle(path: string): string | null {
   if (!/\.(md|mdx|markdown)$/i.test(path)) return null;
@@ -355,6 +377,27 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     }
     case "revert_file":
       return null;
+    case "clone_repo": {
+      const url = args?.url as string;
+      const match = url.match(/github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?$/);
+      if (!match) throw new Error("Only GitHub repository URLs are supported");
+      const [, owner, name] = match;
+      const root = `/mock/repos/${owner}/${name}`;
+      if (mockRepos.some((repo) => repo.root === root)) {
+        throw new Error(`${owner}/${name} is already cloned`);
+      }
+      mockRepos.push({ owner, name, root, url });
+      return root;
+    }
+    case "list_repos":
+      return mockRepos.map((repo) => ({ ...repo }));
+    case "remove_repo": {
+      const root = args?.root as string;
+      const index = mockRepos.findIndex((repo) => repo.root === root);
+      if (index < 0) throw new Error("Path is not a managed git repository");
+      mockRepos.splice(index, 1);
+      return null;
+    }
     case "fetch_upstream":
       return (window as { __mockBehindUpstream?: boolean }).__mockBehindUpstream ?? false;
     case "pull_upstream":
@@ -466,6 +509,15 @@ export const openPath: (absolutePath: string) => Promise<void> = inTauri
 export function onFsChanged(handler: (paths: string[]) => void): () => void {
   if (!inTauri) return () => {};
   const unlisten = listen<string[]>("fs-changed", (event) => handler(event.payload));
+  return () => {
+    void unlisten.then((fn) => fn());
+  };
+}
+
+/** Subscribes to progress updates for the active managed-repository clone. */
+export function onCloneProgress(handler: (progress: CloneProgress) => void): () => void {
+  if (!inTauri) return () => {};
+  const unlisten = listen<CloneProgress>("clone-progress", (event) => handler(event.payload));
   return () => {
     void unlisten.then((fn) => fn());
   };
