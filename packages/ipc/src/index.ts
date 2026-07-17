@@ -40,6 +40,36 @@ export interface CloneProgress {
   received_bytes: number;
 }
 
+export interface GitHubUser {
+  id: number;
+  login: string;
+  name: string;
+  avatar_url: string;
+  commit_email: string;
+}
+
+export interface AuthStatus {
+  signed_in: boolean;
+  user: GitHubUser | null;
+}
+
+export interface DeviceAuthorization {
+  user_code: string;
+  verification_uri: string;
+  expires_in: number;
+}
+
+export interface GitHubRepo {
+  id: number;
+  owner: string;
+  name: string;
+  full_name: string;
+  private: boolean;
+  clone_url: string;
+  default_branch: string;
+  updated_at: string;
+}
+
 // Browser-only mock so the UI can be developed and tested outside the Tauri
 // shell (invoke/dialog are unavailable there).
 const mockFiles: Record<string, string> = {
@@ -246,6 +276,27 @@ const mockRepos: ManagedRepo[] = [
     url: "https://github.com/megaflorasoftware/posto.git",
   },
 ];
+const mockUser: GitHubUser = {
+  id: 48483883,
+  login: "hfellerhoff",
+  name: "Henry Fellerhoff",
+  avatar_url: "https://github.com/hfellerhoff.png",
+  commit_email: "48483883+hfellerhoff@users.noreply.github.com",
+};
+let mockSignedIn = false;
+const mockDeviceCodeHandlers = new Set<(authorization: DeviceAuthorization) => void>();
+const mockGitHubRepos: GitHubRepo[] = [
+  {
+    id: 1,
+    owner: "megaflorasoftware",
+    name: "posto",
+    full_name: "megaflorasoftware/posto",
+    private: false,
+    clone_url: "https://github.com/megaflorasoftware/posto.git",
+    default_branch: "main",
+    updated_at: "2026-07-17T12:00:00Z",
+  },
+];
 
 function mockTitle(path: string): string | null {
   if (!/\.(md|mdx|markdown)$/i.test(path)) return null;
@@ -377,6 +428,24 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     }
     case "revert_file":
       return null;
+    case "auth_status":
+      return { signed_in: mockSignedIn, user: mockSignedIn ? { ...mockUser } : null };
+    case "sign_in":
+      mockDeviceCodeHandlers.forEach((handler) =>
+        handler({
+          user_code: "POST-O123",
+          verification_uri: "https://github.com/login/device",
+          expires_in: 900,
+        }),
+      );
+      mockSignedIn = true;
+      return { ...mockUser };
+    case "sign_out":
+      mockSignedIn = false;
+      return null;
+    case "list_user_repos":
+      if (!mockSignedIn) throw new Error("Not signed in to GitHub");
+      return mockGitHubRepos.map((repo) => ({ ...repo }));
     case "clone_repo": {
       const url = args?.url as string;
       const match = url.match(/github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?$/);
@@ -518,6 +587,22 @@ export function onFsChanged(handler: (paths: string[]) => void): () => void {
 export function onCloneProgress(handler: (progress: CloneProgress) => void): () => void {
   if (!inTauri) return () => {};
   const unlisten = listen<CloneProgress>("clone-progress", (event) => handler(event.payload));
+  return () => {
+    void unlisten.then((fn) => fn());
+  };
+}
+
+/** Subscribes to the public code emitted while GitHub sign-in is pending. */
+export function onAuthDeviceCode(
+  handler: (authorization: DeviceAuthorization) => void,
+): () => void {
+  if (!inTauri) {
+    mockDeviceCodeHandlers.add(handler);
+    return () => mockDeviceCodeHandlers.delete(handler);
+  }
+  const unlisten = listen<DeviceAuthorization>("auth-device-code", (event) =>
+    handler(event.payload),
+  );
   return () => {
     void unlisten.then((fn) => fn());
   };
