@@ -1,13 +1,15 @@
+#[cfg(any(mobile, test))]
+mod auth;
 #[cfg(desktop)]
 mod devserver;
 #[cfg(desktop)]
 mod env;
 mod fs;
 pub mod git;
-#[cfg(any(mobile, test))]
-mod repos;
 #[cfg(desktop)]
 mod proxy;
+#[cfg(any(mobile, test))]
+mod repos;
 mod settings;
 #[cfg(desktop)]
 mod watch;
@@ -88,25 +90,32 @@ pub fn run() {
         watch::watch_root
     ]);
     #[cfg(mobile)]
-    let builder = builder.invoke_handler(tauri::generate_handler![
-        fs::list_files,
-        fs::list_dir_files,
-        fs::read_text_file,
-        fs::write_text_file,
-        fs::create_text_file,
-        fs::delete_file,
-        settings::get_last_root,
-        settings::get_recent_roots,
-        settings::set_last_root,
-        git::changed_files,
-        git::revert_file,
-        git::fetch_upstream,
-        git::pull_upstream,
-        git::publish,
-        repos::clone_repo,
-        repos::list_repos,
-        repos::remove_repo
-    ]);
+    let builder =
+        builder
+            .manage(auth::AuthState::default())
+            .invoke_handler(tauri::generate_handler![
+                auth::auth_status,
+                auth::sign_in,
+                auth::sign_out,
+                auth::list_user_repos,
+                fs::list_files,
+                fs::list_dir_files,
+                fs::read_text_file,
+                fs::write_text_file,
+                fs::create_text_file,
+                fs::delete_file,
+                settings::get_last_root,
+                settings::get_recent_roots,
+                settings::set_last_root,
+                git::changed_files,
+                git::revert_file,
+                git::fetch_upstream,
+                git::pull_upstream,
+                git::publish,
+                repos::clone_repo,
+                repos::list_repos,
+                repos::remove_repo
+            ]);
     builder
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -8,7 +8,7 @@ use git2::{
 use serde::Serialize;
 use std::path::Path;
 
-use creds::{platform_creds, remote_callbacks};
+use creds::{platform_creds, platform_signature, remote_callbacks};
 
 #[derive(Serialize)]
 pub struct ChangedFile {
@@ -37,9 +37,7 @@ impl Client {
     }
 
     fn signature(&self) -> Result<Signature<'static>, String> {
-        self.repo
-            .signature()
-            .map_err(|_| "Set your git identity (user.name and user.email) first".to_string())
+        platform_signature(&self.repo)
     }
 
     fn workdir(&self) -> Result<&Path, String> {

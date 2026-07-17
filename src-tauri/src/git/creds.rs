@@ -1,4 +1,4 @@
-use git2::{Cred, CredentialType, RemoteCallbacks};
+use git2::{Cred, CredentialType, RemoteCallbacks, Repository, Signature};
 use std::path::PathBuf;
 
 /// Platform seam for network authentication. Shared git code never branches
@@ -77,8 +77,6 @@ impl CredentialProvider for DesktopCreds {
     }
 }
 
-/// Mobile: replaced by the stored OAuth token in Phase 3. Until then any
-/// network operation fails with a clear message.
 #[cfg(mobile)]
 pub struct MobileCreds;
 
@@ -89,11 +87,29 @@ impl CredentialProvider for MobileCreds {
         _config: &git2::Config,
         _url: &str,
         _username_from_url: Option<&str>,
-        _allowed: CredentialType,
+        allowed: CredentialType,
         _attempt: usize,
     ) -> Result<Cred, git2::Error> {
-        Err(git2::Error::from_str("not signed in"))
+        if !allowed.contains(CredentialType::USER_PASS_PLAINTEXT) {
+            return Err(git2::Error::from_str(
+                "mobile repositories must use a GitHub HTTPS remote",
+            ));
+        }
+        let token = crate::auth::stored_token().map_err(|error| git2::Error::from_str(&error))?;
+        Cred::userpass_plaintext("x-access-token", &token)
     }
+}
+
+#[cfg(desktop)]
+pub fn platform_signature(repo: &Repository) -> Result<Signature<'static>, String> {
+    repo.signature()
+        .map_err(|_| "Set your git identity (user.name and user.email) first".to_string())
+}
+
+#[cfg(mobile)]
+pub fn platform_signature(_repo: &Repository) -> Result<Signature<'static>, String> {
+    let (name, email) = crate::auth::stored_identity()?;
+    Signature::now(&name, &email).map_err(|error| error.to_string())
 }
 
 #[cfg(desktop)]
