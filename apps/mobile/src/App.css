@@ -259,22 +259,101 @@ input {
   left: max(20px, env(safe-area-inset-left));
 }
 
-.success-mark {
-  width: 76px;
-  height: 76px;
+.repo-home {
+  height: calc(100dvh - 70px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   display: grid;
-  place-items: center;
-  border-radius: 50%;
-  color: white;
-  background: #4b9a6b;
-  box-shadow: 0 16px 36px rgba(75, 154, 107, 0.25);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: var(--mantine-spacing-md);
+  padding-top: var(--mantine-spacing-md);
 }
 
-.root-path {
-  max-width: 100%;
+.repo-home-title h1 {
+  margin-top: 3px;
+  font-size: clamp(30px, 9vw, 42px);
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+}
+
+.sync-alert .mantine-Alert-message {
+  width: 100%;
+}
+
+.repo-files {
+  min-height: 0;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+
+.repo-files-state {
+  min-height: 220px;
+}
+
+.mobile-file-group {
   overflow: hidden;
+  background: color-mix(in srgb, var(--mantine-color-body) 88%, transparent);
+}
+
+.mobile-file-group-heading {
+  min-height: 48px;
+  padding: 10px var(--mantine-spacing-md);
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+
+.mobile-file-row {
+  min-height: 60px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  padding: 10px var(--mantine-spacing-md);
+}
+
+.mobile-file-row + .mobile-file-row {
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+
+.mobile-file-copy {
+  min-width: 0;
+}
+
+.repo-home-actions {
+  padding: var(--mantine-spacing-xs) 0 max(var(--mantine-spacing-sm), env(safe-area-inset-bottom));
+  background: linear-gradient(to top, var(--mantine-color-body) 72%, transparent);
+}
+
+.publish-list {
+  display: grid;
+  gap: var(--mantine-spacing-xs);
+  max-height: 42dvh;
+  overflow-y: auto;
+}
+
+.publish-item {
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-xs);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+}
+
+.publish-path {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mantine-color-text);
+  font-size: var(--mantine-font-size-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.publish-loading,
+.publish-empty {
+  min-height: 96px;
+  display: grid;
+  place-items: center;
+  color: var(--mantine-color-dimmed);
 }
 
 @media (prefers-color-scheme: dark) {

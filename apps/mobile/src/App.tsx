@@ -16,7 +16,7 @@ import type {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Onboarding from "./Onboarding";
 
-type Stage = "loading" | "signed-out" | "authorizing" | "repos" | "cloning" | "ready";
+type Stage = "loading" | "signed-out" | "authorizing" | "repos" | "cloning" | "home";
 
 const emptyProgress: CloneProgress = {
   received_objects: 0,
@@ -110,7 +110,7 @@ export default function App() {
     if (existing) {
       await invoke("set_last_root", { root: existing.root });
       setReadyRoot(existing.root);
-      setStage("ready");
+      setStage("home");
       return;
     }
     setProgress(emptyProgress);
@@ -123,7 +123,7 @@ export default function App() {
         ...current,
         { owner: repo.owner, name: repo.name, root, url: repo.clone_url },
       ]);
-      setStage("ready");
+      setStage("home");
     } catch (cloneError) {
       setError(message(cloneError));
       setStage("repos");
@@ -159,6 +159,7 @@ export default function App() {
         onOpenVerification={() => device && void openUrl(device.verification_uri)}
         onChooseRepo={(repo) => void chooseRepo(repo)}
         onRetryRepos={() => void loadRepos()}
+        onChangeRepo={() => setStage("repos")}
       />
     </MantineProvider>
   );

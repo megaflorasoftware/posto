@@ -34,8 +34,9 @@ import {
   Smartphone,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import RepoHome from "./RepoHome";
 
-type Stage = "loading" | "signed-out" | "authorizing" | "repos" | "cloning" | "ready";
+type Stage = "loading" | "signed-out" | "authorizing" | "repos" | "cloning" | "home";
 
 type Props = {
   stage: Stage;
@@ -52,6 +53,7 @@ type Props = {
   onOpenVerification: () => void;
   onChooseRepo: (repo: GitHubRepo) => void;
   onRetryRepos: () => void;
+  onChangeRepo: () => void;
 };
 
 function Header({ user, onSignOut }: Pick<Props, "user" | "onSignOut">) {
@@ -264,24 +266,6 @@ function Cloning({ repo, progress }: { repo: GitHubRepo | null; progress: CloneP
   );
 }
 
-function Ready({ repo, root }: { repo: GitHubRepo | null; root: string | null }) {
-  return (
-    <main className="centered-screen">
-      <Stack gap="xl" align="center" maw={380}>
-        <div className="success-mark"><Check size={34} /></div>
-        <div>
-          <Text className="eyebrow" ta="center">Ready to write</Text>
-          <Title order={2} ta="center" mt={6}>{repo?.name ?? "Your site"} is on this device.</Title>
-          <Text c="dimmed" ta="center" mt={10}>
-            The repository is ready. The file browser and editor arrive in the next mobile milestone.
-          </Text>
-        </div>
-        {root && <Text size="xs" c="dimmed" className="root-path">{root}</Text>}
-      </Stack>
-    </main>
-  );
-}
-
 export default function Onboarding(props: Props) {
   return (
     <div className="mobile-app">
@@ -293,7 +277,9 @@ export default function Onboarding(props: Props) {
       )}
       {props.stage === "repos" && <RepoPicker {...props} />}
       {props.stage === "cloning" && <Cloning repo={props.selectedRepo} progress={props.progress} />}
-      {props.stage === "ready" && <Ready repo={props.selectedRepo} root={props.readyRoot} />}
+      {props.stage === "home" && props.readyRoot && (
+        <RepoHome root={props.readyRoot} repo={props.selectedRepo} onChangeRepo={props.onChangeRepo} />
+      )}
       {props.stage !== "repos" && <div className="floating-error"><ErrorNotice error={props.error} /></div>}
     </div>
   );
