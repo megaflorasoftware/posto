@@ -1,40 +1,431 @@
+pub mod creds;
+
+use git2::build::CheckoutBuilder;
+use git2::{
+    Branch, FetchOptions, IndexAddOption, MergeOptions, PushOptions, Repository, Signature,
+    StashApplyOptions, StashFlags, Status, StatusOptions,
+};
 use serde::Serialize;
 use std::path::Path;
-use std::process::Command;
 
-pub(crate) fn run_git(root: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(root)
-        .output()
-        .map_err(|e| format!("Failed to run git: {e}"))?;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    if output.status.success() {
-        Ok(stdout)
-    } else {
-        Err(if stderr.trim().is_empty() { stdout } else { stderr })
-    }
-}
+use creds::{platform_creds, remote_callbacks};
 
 #[derive(Serialize)]
 pub struct ChangedFile {
     /// Porcelain XY status collapsed to one code: "M", "A", "D", "R", "??", ...
-    status: String,
-    path: String,
+    pub status: String,
+    pub path: String,
+}
+
+fn err_str(e: git2::Error) -> String {
+    e.message().to_string()
+}
+
+/// All git operations behind one libgit2-backed client. Works against any
+/// local repository path; network authentication comes from the platform's
+/// `CredentialProvider`.
+pub struct Client {
+    repo: Repository,
+}
+
+impl Client {
+    pub fn open(root: &str) -> Result<Client, String> {
+        // The chosen directory is not necessarily the repository root.
+        Repository::discover(root)
+            .map(|repo| Client { repo })
+            .map_err(err_str)
+    }
+
+    fn signature(&self) -> Result<Signature<'static>, String> {
+        self.repo
+            .signature()
+            .map_err(|_| "Set your git identity (user.name and user.email) first".to_string())
+    }
+
+    fn workdir(&self) -> Result<&Path, String> {
+        self.repo
+            .workdir()
+            .ok_or_else(|| "Repository has no working directory".to_string())
+    }
+
+    /// The porcelain-style code the frontend expects ("M", "A", "D", "??", …).
+    fn porcelain_code(status: Status) -> Option<String> {
+        if status.is_conflicted() {
+            return Some("UU".to_string());
+        }
+        if status.is_wt_new() && !status.intersects(
+            Status::INDEX_NEW
+                | Status::INDEX_MODIFIED
+                | Status::INDEX_DELETED
+                | Status::INDEX_RENAMED
+                | Status::INDEX_TYPECHANGE,
+        ) {
+            return Some("??".to_string());
+        }
+        let x = if status.is_index_new() {
+            'A'
+        } else if status.is_index_modified() {
+            'M'
+        } else if status.is_index_deleted() {
+            'D'
+        } else if status.is_index_renamed() {
+            'R'
+        } else if status.is_index_typechange() {
+            'T'
+        } else {
+            ' '
+        };
+        let y = if status.is_wt_modified() {
+            'M'
+        } else if status.is_wt_deleted() {
+            'D'
+        } else if status.is_wt_renamed() {
+            'R'
+        } else if status.is_wt_typechange() {
+            'T'
+        } else {
+            ' '
+        };
+        let code = format!("{x}{y}").trim().to_string();
+        (!code.is_empty()).then_some(code)
+    }
+
+    fn status_options() -> StatusOptions {
+        let mut opts = StatusOptions::new();
+        opts.include_untracked(true)
+            .recurse_untracked_dirs(true)
+            .renames_head_to_index(true);
+        opts
+    }
+
+    pub fn changed_files(&self) -> Result<Vec<ChangedFile>, String> {
+        let statuses = self
+            .repo
+            .statuses(Some(&mut Self::status_options()))
+            .map_err(err_str)?;
+        let mut out = Vec::new();
+        for entry in statuses.iter() {
+            let Some(code) = Self::porcelain_code(entry.status()) else {
+                continue;
+            };
+            // Renames list as "old -> new", matching porcelain output.
+            let path = if entry.status().is_index_renamed() {
+                let delta = entry.head_to_index();
+                let old = delta
+                    .as_ref()
+                    .and_then(|d| d.old_file().path())
+                    .map(|p| p.to_string_lossy().to_string());
+                let new = delta
+                    .as_ref()
+                    .and_then(|d| d.new_file().path())
+                    .map(|p| p.to_string_lossy().to_string());
+                match (old, new) {
+                    (Some(old), Some(new)) => format!("{old} -> {new}"),
+                    _ => entry.path().unwrap_or_default().to_string(),
+                }
+            } else {
+                entry.path().unwrap_or_default().to_string()
+            };
+            out.push(ChangedFile { status: code, path });
+        }
+        Ok(out)
+    }
+
+    fn is_dirty(&self) -> Result<bool, String> {
+        Ok(!self
+            .repo
+            .statuses(Some(&mut Self::status_options()))
+            .map_err(err_str)?
+            .is_empty())
+    }
+
+    /// Reverts one file to its committed state; `path` is repo-relative.
+    /// Untracked files have no committed state, so revert deletes them.
+    pub fn revert_file(&self, path: &str) -> Result<(), String> {
+        let status = self.repo.status_file(Path::new(path)).map_err(err_str)?;
+        if status.is_wt_new() && !status.is_index_new() {
+            let absolute = self.workdir()?.join(path);
+            return std::fs::remove_file(&absolute)
+                .map_err(|e| format!("Failed to delete {}: {e}", absolute.display()));
+        }
+        let head = self.repo.head().map_err(err_str)?;
+        let commit = head.peel_to_commit().map_err(err_str)?;
+        let tree = commit.tree().map_err(err_str)?;
+        if tree.get_path(Path::new(path)).is_err() {
+            return Err(format!("{path} has no committed state to revert to"));
+        }
+        // Restores both index and working tree from HEAD (checkout HEAD -- path).
+        let mut checkout = CheckoutBuilder::new();
+        checkout.force().path(path);
+        self.repo
+            .checkout_tree(tree.as_object(), Some(&mut checkout))
+            .map_err(err_str)
+    }
+
+    /// The upstream branch of HEAD, or an error when there is none — callers
+    /// treat that as "nothing to fetch".
+    fn upstream(&self) -> Result<Branch<'_>, String> {
+        let head = self.repo.head().map_err(err_str)?;
+        if !head.is_branch() {
+            return Err("Not on a branch".to_string());
+        }
+        Branch::wrap(head)
+            .upstream()
+            .map_err(|_| "No upstream branch configured".to_string())
+    }
+
+    fn fetch(&self) -> Result<(), String> {
+        let head = self.repo.head().map_err(err_str)?;
+        let refname = head.name().map_err(err_str)?;
+        let remote_name = self
+            .repo
+            .branch_upstream_remote(refname)
+            .map_err(|_| "No upstream branch configured".to_string())?;
+        let remote_name = remote_name.as_str().map_err(err_str)?;
+        let mut remote = self.repo.find_remote(remote_name).map_err(err_str)?;
+        let config = self.repo.config().map_err(err_str)?;
+        let mut opts = FetchOptions::new();
+        opts.remote_callbacks(remote_callbacks(config, platform_creds()));
+        // Empty refspec list = the remote's configured fetch refspecs, which
+        // is what plain `git fetch` did.
+        remote
+            .fetch(&[] as &[&str], Some(&mut opts), None)
+            .map_err(err_str)
+    }
+
+    /// Fetches and reports whether the upstream has commits HEAD lacks.
+    pub fn fetch_and_check_behind(&self) -> Result<bool, String> {
+        self.fetch()?;
+        self.behind_upstream()
+    }
+
+    fn behind_upstream(&self) -> Result<bool, String> {
+        let local = self
+            .repo
+            .head()
+            .map_err(err_str)?
+            .target()
+            .ok_or("Unborn HEAD")?;
+        let upstream = self
+            .upstream()?
+            .get()
+            .target()
+            .ok_or("Upstream branch has no commits")?;
+        let (_, behind) = self.repo.graph_ahead_behind(local, upstream).map_err(err_str)?;
+        Ok(behind > 0)
+    }
+
+    /// One merge attempt of the already-fetched upstream into HEAD, server
+    /// wins on content conflicts (`-X theirs`). The merge is computed
+    /// in-memory first, so a failure — real conflicts libgit2 can't favor
+    /// away, or local edits the checkout would overwrite — leaves the
+    /// repository untouched (no MERGE_HEAD, no abort needed).
+    fn merge_upstream(&self) -> Result<(), String> {
+        let upstream = self.upstream()?;
+        let upstream_oid = upstream
+            .get()
+            .target()
+            .ok_or("Upstream branch has no commits")?;
+        let annotated = self.repo.find_annotated_commit(upstream_oid).map_err(err_str)?;
+        let (analysis, _) = self.repo.merge_analysis(&[&annotated]).map_err(err_str)?;
+        if analysis.is_up_to_date() {
+            return Ok(());
+        }
+        let upstream_commit = self.repo.find_commit(upstream_oid).map_err(err_str)?;
+        let head = self.repo.head().map_err(err_str)?;
+        let refname = head.name().map_err(err_str)?.to_string();
+        if analysis.is_fast_forward() {
+            // Safe checkout: refuses (and changes nothing) when local edits
+            // overlap the incoming changes — the caller stashes and retries.
+            let tree = upstream_commit.tree().map_err(err_str)?;
+            self.repo
+                .checkout_tree(tree.as_object(), Some(CheckoutBuilder::new().safe()))
+                .map_err(err_str)?;
+            self.repo
+                .find_reference(&refname)
+                .map_err(err_str)?
+                .set_target(upstream_oid, "pull: fast-forward")
+                .map_err(err_str)?;
+            let mut index = self.repo.index().map_err(err_str)?;
+            index.read_tree(&tree).map_err(err_str)?;
+            index.write().map_err(err_str)?;
+            return Ok(());
+        }
+        let local_commit = head.peel_to_commit().map_err(err_str)?;
+        let mut merge_opts = MergeOptions::new();
+        merge_opts.file_favor(git2::FileFavor::Theirs);
+        let mut merged = self
+            .repo
+            .merge_commits(&local_commit, &upstream_commit, Some(&merge_opts))
+            .map_err(err_str)?;
+        if merged.has_conflicts() {
+            // -X theirs settles content conflicts; what remains (e.g.
+            // modify/delete) is a real failure, same as CLI merge.
+            return Err("The server's changes could not be merged automatically".to_string());
+        }
+        let tree_oid = merged.write_tree_to(&self.repo).map_err(err_str)?;
+        let tree = self.repo.find_tree(tree_oid).map_err(err_str)?;
+        self.repo
+            .checkout_tree(tree.as_object(), Some(CheckoutBuilder::new().safe()))
+            .map_err(err_str)?;
+        let mut index = self.repo.index().map_err(err_str)?;
+        index.read_tree(&tree).map_err(err_str)?;
+        index.write().map_err(err_str)?;
+        let sig = self.signature()?;
+        let upstream_name = upstream.name().ok().flatten().unwrap_or("upstream").to_string();
+        self.repo
+            .commit(
+                Some("HEAD"),
+                &sig,
+                &sig,
+                &format!("Merge remote-tracking branch '{upstream_name}'"),
+                &tree,
+                &[&local_commit, &upstream_commit],
+            )
+            .map_err(err_str)?;
+        Ok(())
+    }
+
+    /// Pulls the upstream with "server wins" semantics; see the command doc.
+    pub fn pull(&mut self) -> Result<String, String> {
+        self.fetch()?;
+        let first = match self.merge_upstream() {
+            Ok(()) => return Ok("Updated from server.".to_string()),
+            Err(e) => e,
+        };
+        if !self.is_dirty()? {
+            // A clean tree that still can't merge is a real failure (unrelated
+            // histories, conflicts -X theirs can't settle, …).
+            return Err(first);
+        }
+        // Uncommitted local edits block the merge: stash them around it —
+        // reapplied afterwards, except where they collide with what the
+        // server changed (the merged version is kept there).
+        let sig = self.signature()?;
+        self.repo
+            .stash_save(&sig, "posto-fetch", Some(StashFlags::INCLUDE_UNTRACKED))
+            .map_err(err_str)?;
+        if let Err(e) = self.merge_upstream() {
+            // Put the stashed edits back; on failure the stash stays intact.
+            let mut opts = StashApplyOptions::new();
+            if self.repo.stash_apply(0, Some(&mut opts)).is_ok() {
+                let _ = self.repo.stash_drop(0);
+            }
+            return Err(e);
+        }
+        self.pop_stash_server_wins()?;
+        Ok("Updated from server.".to_string())
+    }
+
+    /// `git stash pop`, where conflicts resolve to the merged (server)
+    /// version and the stash is dropped regardless — local edits that
+    /// collide with the server's changes are deliberately discarded.
+    fn pop_stash_server_wins(&mut self) -> Result<(), String> {
+        let mut opts = StashApplyOptions::new();
+        let mut checkout = CheckoutBuilder::new();
+        checkout.allow_conflicts(true);
+        opts.checkout_options(checkout);
+        let _ = self.repo.stash_apply(0, Some(&mut opts));
+        let mut conflicted: Vec<String> = Vec::new();
+        {
+            let index = self.repo.index().map_err(err_str)?;
+            let conflict_iter = index.conflicts();
+            if let Ok(conflicts) = conflict_iter {
+                for conflict in conflicts.filter_map(|c| c.ok()) {
+                    if let Some(entry) = conflict
+                        .our
+                        .as_ref()
+                        .or(conflict.their.as_ref())
+                        .or(conflict.ancestor.as_ref())
+                    {
+                        conflicted.push(String::from_utf8_lossy(&entry.path).to_string());
+                    }
+                }
+            }
+        }
+        if !conflicted.is_empty() {
+            // Keep the merged version of each conflicted file (HEAD holds it
+            // — the merge commit already landed), then unstage everything.
+            let head_tree = self
+                .repo
+                .head()
+                .and_then(|h| h.peel_to_tree())
+                .map_err(err_str)?;
+            let mut checkout = CheckoutBuilder::new();
+            checkout.force();
+            for path in &conflicted {
+                checkout.path(path);
+            }
+            self.repo
+                .checkout_tree(head_tree.as_object(), Some(&mut checkout))
+                .map_err(err_str)?;
+            let head_obj = self.repo.revparse_single("HEAD").map_err(err_str)?;
+            self.repo
+                .reset(&head_obj, git2::ResetType::Mixed, None)
+                .map_err(err_str)?;
+        }
+        self.repo.stash_drop(0).map_err(err_str)?;
+        Ok(())
+    }
+
+    /// Stages everything, commits, and pushes HEAD to origin.
+    pub fn publish(&self, message: &str) -> Result<String, String> {
+        let mut index = self.repo.index().map_err(err_str)?;
+        // add_all picks up new/modified files, update_all staged deletions —
+        // together they are `git add -A`.
+        index
+            .add_all(["*"].iter(), IndexAddOption::DEFAULT, None)
+            .map_err(err_str)?;
+        index.update_all(["*"].iter(), None).map_err(err_str)?;
+        index.write().map_err(err_str)?;
+        let tree_oid = index.write_tree().map_err(err_str)?;
+        let head_commit = self
+            .repo
+            .head()
+            .ok()
+            .and_then(|h| h.peel_to_commit().ok());
+        if let Some(head_commit) = &head_commit {
+            if head_commit.tree_id() == tree_oid {
+                return Ok("Nothing to publish — no local changes.".to_string());
+            }
+        }
+        let tree = self.repo.find_tree(tree_oid).map_err(err_str)?;
+        let sig = self.signature()?;
+        let parents: Vec<&git2::Commit> = head_commit.iter().collect();
+        self.repo
+            .commit(Some("HEAD"), &sig, &sig, message, &tree, &parents)
+            .map_err(err_str)?;
+
+        let head = self.repo.head().map_err(err_str)?;
+        let refname = head.name().map_err(err_str)?;
+        let mut remote = self.repo.find_remote("origin").map_err(err_str)?;
+        let config = self.repo.config().map_err(err_str)?;
+        // Per-ref push failures (non-fast-forward, rejected hooks) surface
+        // through this callback, not as an Err from push().
+        let rejection = std::rc::Rc::new(std::cell::RefCell::new(None::<String>));
+        let rejection_cb = rejection.clone();
+        let mut callbacks = remote_callbacks(config, platform_creds());
+        callbacks.push_update_reference(move |_refname, status| {
+            if let Some(status) = status {
+                *rejection_cb.borrow_mut() = Some(status.to_string());
+            }
+            Ok(())
+        });
+        let mut opts = PushOptions::new();
+        opts.remote_callbacks(callbacks);
+        remote
+            .push(&[format!("{refname}:{refname}")], Some(&mut opts))
+            .map_err(err_str)?;
+        if let Some(rejection) = rejection.borrow().as_ref() {
+            return Err(format!("Push rejected: {rejection}"));
+        }
+        Ok("Published.".to_string())
+    }
 }
 
 #[tauri::command]
 pub fn changed_files(root: String) -> Result<Vec<ChangedFile>, String> {
-    let output = run_git(&root, &["status", "--porcelain"])?;
-    Ok(output
-        .lines()
-        .filter(|line| line.len() > 3)
-        .map(|line| ChangedFile {
-            status: line[..2].trim().to_string(),
-            path: line[3..].to_string(),
-        })
-        .collect())
+    Client::open(&root)?.changed_files()
 }
 
 /// Reverts one changed file to its committed state. `path` is repo-relative
@@ -42,19 +433,7 @@ pub fn changed_files(root: String) -> Result<Vec<ChangedFile>, String> {
 /// so revert means deleting them.
 #[tauri::command]
 pub fn revert_file(root: String, path: String) -> Result<(), String> {
-    // `git status --porcelain` paths are relative to the repository root,
-    // which is not necessarily the chosen directory.
-    let toplevel = run_git(&root, &["rev-parse", "--show-toplevel"])?;
-    let toplevel = toplevel.trim();
-    let status = run_git(toplevel, &["status", "--porcelain", "--", &path])?;
-    if status.starts_with("??") {
-        let absolute = Path::new(toplevel).join(&path);
-        std::fs::remove_file(&absolute)
-            .map_err(|e| format!("Failed to delete {}: {e}", absolute.display()))
-    } else {
-        // Restores both index and working tree from HEAD.
-        run_git(toplevel, &["checkout", "HEAD", "--", &path]).map(|_| ())
-    }
+    Client::open(&root)?.revert_file(&path)
 }
 
 /// Fetches the remote and reports whether the upstream branch has commits the
@@ -62,64 +441,24 @@ pub fn revert_file(root: String, path: String) -> Result<(), String> {
 /// treat that as "nothing to fetch".
 #[tauri::command]
 pub async fn fetch_upstream(root: String) -> Result<bool, String> {
-    run_git(&root, &["fetch", "--quiet"])?;
-    let behind = run_git(&root, &["rev-list", "--count", "HEAD..@{u}"])?;
-    Ok(behind.trim().parse::<u64>().unwrap_or(0) > 0)
+    Client::open(&root)?.fetch_and_check_behind()
 }
 
 /// Merges the already-fetched upstream branch into the working tree. The
-/// server always wins: committed conflicts resolve with `-X theirs`, and when
-/// a merge is blocked by uncommitted local edits those are stashed around the
-/// merge — reapplied afterwards, except where they collide with what the
-/// server changed (the merged version is kept there).
+/// server always wins: committed conflicts resolve in the server's favor, and
+/// when a merge is blocked by uncommitted local edits those are stashed
+/// around the merge — reapplied afterwards, except where they collide with
+/// what the server changed (the merged version is kept there).
 #[tauri::command]
 pub async fn pull_upstream(root: String) -> Result<String, String> {
-    run_git(&root, &["fetch", "--quiet"])?;
-    let merge = || run_git(&root, &["merge", "--no-edit", "-X", "theirs", "@{u}"]);
-    if merge().is_ok() {
-        return Ok("Updated from server.".to_string());
-    }
-    let _ = run_git(&root, &["merge", "--abort"]);
-    let dirty = !run_git(&root, &["status", "--porcelain"])?.trim().is_empty();
-    if !dirty {
-        // A clean tree that still can't merge is a real failure (unrelated
-        // histories, diverged in a way -X theirs can't settle, …).
-        return merge().map(|_| "Updated from server.".to_string());
-    }
-    run_git(
-        &root,
-        &["stash", "push", "--include-untracked", "-m", "posto-fetch"],
-    )?;
-    if let Err(e) = merge() {
-        let _ = run_git(&root, &["merge", "--abort"]);
-        let _ = run_git(&root, &["stash", "pop"]);
-        return Err(e);
-    }
-    if run_git(&root, &["stash", "pop"]).is_err() {
-        // Local edits conflict with what the server changed: keep the merged
-        // (server) version of each conflicted file, then drop the stash.
-        let conflicted = run_git(&root, &["diff", "--name-only", "--diff-filter=U"])?;
-        for file in conflicted.lines().map(str::trim).filter(|l| !l.is_empty()) {
-            let _ = run_git(&root, &["checkout", "--ours", "--", file]);
-        }
-        let _ = run_git(&root, &["reset", "-q"]);
-        let _ = run_git(&root, &["stash", "drop"]);
-    }
-    Ok("Updated from server.".to_string())
+    Client::open(&root)?.pull()
 }
 
 #[tauri::command]
 pub async fn publish(root: String, message: Option<String>) -> Result<String, String> {
-    run_git(&root, &["add", "-A"])?;
-    let status = run_git(&root, &["status", "--porcelain"])?;
-    if status.trim().is_empty() {
-        return Ok("Nothing to publish — no local changes.".to_string());
-    }
     let message = message
         .map(|m| m.trim().to_string())
         .filter(|m| !m.is_empty())
         .unwrap_or_else(|| "Site updates".to_string());
-    run_git(&root, &["commit", "-m", &message])?;
-    run_git(&root, &["push", "origin", "HEAD"])?;
-    Ok("Published.".to_string())
+    Client::open(&root)?.publish(&message)
 }

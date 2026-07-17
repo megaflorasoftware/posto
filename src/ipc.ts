@@ -366,14 +366,11 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       return false;
     case "check_environment":
       return {
-        git_version: "git version 2.47.0",
         node_version: "v22.14.0",
         package_manager: "pnpm",
         package_manager_version: "10.4.0",
         needs_node_modules: false,
       };
-    case "install_git":
-      return "git version 2.47.0";
     case "install_node":
       return "v22.14.0";
     case "install_package_manager":

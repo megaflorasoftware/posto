@@ -3,7 +3,7 @@ mod devserver;
 #[cfg(desktop)]
 mod env;
 mod fs;
-mod git;
+pub mod git;
 #[cfg(desktop)]
 mod proxy;
 mod settings;
@@ -73,7 +73,6 @@ pub fn run() {
         env::needs_install,
         env::install_dependencies,
         env::check_environment,
-        env::install_git,
         env::install_node,
         env::install_package_manager,
         settings::get_last_root,

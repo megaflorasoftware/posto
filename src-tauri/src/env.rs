@@ -9,7 +9,6 @@
 use serde::Serialize;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::time::Duration;
 use tauri::Manager;
 
 /// Node version posto provisions when the system has none. Pinned so the
@@ -89,86 +88,8 @@ fn tool_version(app: &tauri::AppHandle, tool: &str, cwd: Option<&Path>) -> Optio
     (!v.is_empty()).then_some(v)
 }
 
-/// Git's version, or None when git isn't usable. On macOS a git shim exists
-/// at /usr/bin/git even without the Xcode Command Line Tools, and *running*
-/// it pops Apple's install dialog — so probe `xcode-select -p` first. (CLT
-/// presence is an accurate proxy: Homebrew git implies CLT too.)
-fn git_version(app: &tauri::AppHandle) -> Option<String> {
-    if cfg!(target_os = "macos") {
-        let clt = Command::new("xcode-select")
-            .arg("-p")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-        if !clt {
-            return None;
-        }
-    }
-    tool_version(app, "git", None)
-}
-
-#[tauri::command]
-pub async fn install_git(app: tauri::AppHandle) -> Result<String, String> {
-    if let Some(v) = git_version(&app) {
-        return Ok(v);
-    }
-    #[cfg(target_os = "macos")]
-    {
-        // Opens Apple's GUI installer for the Command Line Tools. The command
-        // returns immediately while the user drives the dialog, so poll until
-        // the tools land (or the user gives up).
-        Command::new("xcode-select")
-            .arg("--install")
-            .status()
-            .map_err(|e| format!("Failed to run xcode-select: {e}"))?;
-        let deadline = std::time::Instant::now() + Duration::from_secs(15 * 60);
-        while std::time::Instant::now() < deadline {
-            std::thread::sleep(Duration::from_secs(3));
-            if let Some(v) = git_version(&app) {
-                return Ok(v);
-            }
-        }
-        return Err(
-            "Timed out waiting for the Command Line Tools install — finish the system dialog, then retry"
-                .to_string(),
-        );
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let output = Command::new("winget")
-            .args([
-                "install",
-                "--id",
-                "Git.Git",
-                "-e",
-                "--silent",
-                "--accept-package-agreements",
-                "--accept-source-agreements",
-            ])
-            .stdin(Stdio::null())
-            .output()
-            .map_err(|e| format!("Failed to run winget: {e}"))?;
-        if !output.status.success() {
-            return Err(format!(
-                "winget install of git failed: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            ));
-        }
-        return git_version(&app)
-            .ok_or_else(|| "Git was installed but isn't runnable yet — restart posto".to_string());
-    }
-    #[allow(unreachable_code)]
-    Err(
-        "Install git with your distribution's package manager (e.g. `sudo apt install git`), then retry"
-            .to_string(),
-    )
-}
-
 #[derive(Serialize)]
 pub struct EnvCheck {
-    git_version: Option<String>,
     node_version: Option<String>,
     package_manager: String,
     package_manager_version: Option<String>,
@@ -182,7 +103,6 @@ pub async fn check_environment(app: tauri::AppHandle, root: String) -> EnvCheck 
     // cwd matters for corepack shims: a `packageManager` pin in package.json
     // decides which pnpm/yarn version the shim resolves.
     EnvCheck {
-        git_version: git_version(&app),
         node_version: tool_version(&app, "node", None),
         package_manager: pm.to_string(),
         package_manager_version: tool_version(&app, pm, Some(path)),
