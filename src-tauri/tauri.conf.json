@@ -4,10 +4,10 @@
   "version": "0.7.0",
   "identifier": "com.henryfellerhoff.posto",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "pnpm --filter desktop dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm build",
-    "frontendDist": "../dist"
+    "beforeBuildCommand": "pnpm --filter desktop build",
+    "frontendDist": "../apps/desktop/dist"
   },
   "app": {
     "windows": [
