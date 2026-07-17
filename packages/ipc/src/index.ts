@@ -38,6 +38,9 @@ export interface CloneProgress {
   total_objects: number;
   indexed_objects: number;
   received_bytes: number;
+  checkout_completed: number;
+  checkout_total: number;
+  phase: "downloading" | "checking_out";
 }
 
 export interface GitHubUser {
@@ -474,9 +477,31 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
             total_objects: 100,
             indexed_objects: Math.max(0, received - 8),
             received_bytes: received * 18_000,
+            checkout_completed: 0,
+            checkout_total: 0,
+            phase: "downloading",
           }),
         );
         await new Promise((resolve) => window.setTimeout(resolve, 120));
+      }
+      for (const completed of [0, 24, 72, 112]) {
+        mockCloneProgressHandlers.forEach((handler) =>
+          handler({
+            received_objects: 100,
+            total_objects: 100,
+            indexed_objects: 100,
+            received_bytes: 1_800_000,
+            checkout_completed: completed,
+            checkout_total: 112,
+            phase: "checking_out",
+          }),
+        );
+        await new Promise((resolve) => window.setTimeout(resolve, 250));
+      }
+      if (new URLSearchParams(window.location.search).has("mockCloneError")) {
+        throw new Error(
+          `Could not download ${owner}/${name}. Check your internet connection and available device storage, keep Posto open, then try again. Any partial download was removed. Details: connection interrupted`,
+        );
       }
       mockRepos.push({ owner, name, root, url });
       return root;

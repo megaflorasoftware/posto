@@ -1,5 +1,6 @@
 import {
   ActionIcon,
+  Alert,
   Avatar,
   Button,
   Center,
@@ -29,13 +30,21 @@ import {
   LockKeyhole,
   LogOut,
   RefreshCw,
+  RotateCcw,
   Search,
   Smartphone,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import RepoHome from "./RepoHome";
 
-type Stage = "loading" | "signed-out" | "authorizing" | "repos" | "cloning" | "home";
+type Stage =
+  | "loading"
+  | "signed-out"
+  | "authorizing"
+  | "repos"
+  | "cloning"
+  | "clone-error"
+  | "home";
 
 type Props = {
   stage: Stage;
@@ -52,6 +61,8 @@ type Props = {
   onOpenVerification: () => void;
   onChooseRepo: (repo: GitHubRepo) => void;
   onRetryRepos: () => void;
+  onRetryClone: () => void;
+  onCancelClone: () => void;
   onChangeRepo: () => void;
 };
 
@@ -212,9 +223,14 @@ function RepoPicker({ repos, downloaded, error, onChooseRepo, onRetryRepos }: Pr
 }
 
 function Cloning({ repo, progress }: { repo: GitHubRepo | null; progress: CloneProgress }) {
-  const percent = progress.total_objects
-    ? Math.min(100, Math.round((progress.received_objects / progress.total_objects) * 100))
-    : 4;
+  const checkingOut = progress.phase === "checking_out";
+  const percent = checkingOut
+    ? progress.checkout_total
+      ? Math.min(100, Math.round((progress.checkout_completed / progress.checkout_total) * 100))
+      : 4
+    : progress.total_objects
+      ? Math.min(100, Math.round((progress.received_objects / progress.total_objects) * 100))
+      : 4;
   const megabytes = progress.received_bytes / 1_048_576;
 
   return (
@@ -225,18 +241,62 @@ function Cloning({ repo, progress }: { repo: GitHubRepo | null; progress: CloneP
         </ThemeIcon>
         <div>
           <Title order={2} ta="center">{repo?.name ?? "Repository"}</Title>
-          <Text c="dimmed" ta="center" mt={8}>Downloading files and commit history…</Text>
+          <Text c="dimmed" ta="center" mt={8}>
+            {checkingOut ? "Preparing downloaded files…" : "Downloading the latest repository snapshot…"}
+          </Text>
         </div>
         <div>
           <Group justify="space-between" mb={8}>
             <Text size="sm" fw={600}>{percent}%</Text>
             <Text size="xs" c="dimmed">
-              {megabytes >= 0.1 ? `${megabytes.toFixed(1)} MB` : `${progress.received_objects} objects`}
+              {checkingOut
+                ? progress.checkout_total
+                  ? `${progress.checkout_completed} of ${progress.checkout_total} files`
+                  : "Preparing files"
+                : megabytes >= 0.1
+                  ? `${megabytes.toFixed(1)} MB`
+                  : `${progress.received_objects} objects`}
             </Text>
           </Group>
           <Progress value={percent} size="md" radius="xl" animated />
         </div>
-        <Text size="xs" c="dimmed" ta="center">Keep Posto open until the download finishes.</Text>
+        <Text size="xs" c="dimmed" ta="center">
+          Keep Posto open until the repository is ready. Large media libraries may take several minutes.
+        </Text>
+      </Stack>
+    </main>
+  );
+}
+
+function CloneError({
+  repo,
+  error,
+  onRetry,
+  onCancel,
+}: {
+  repo: GitHubRepo | null;
+  error: string | null;
+  onRetry: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <main className="centered-screen">
+      <Stack gap="md" w="100%" maw={420}>
+        <div>
+          <Title order={2}>Download interrupted</Title>
+          <Text c="dimmed" size="sm" mt={4}>{repo?.full_name ?? "Repository"}</Text>
+        </div>
+        <Alert color="red" title="The repository was not added">
+          {error ?? "The download could not be completed."}
+        </Alert>
+        <Text size="sm" c="dimmed">
+          Large repositories need enough free space for both Git data and checked-out files. Keep
+          the app open on a stable connection while retrying.
+        </Text>
+        <Group grow>
+          <Button variant="default" onClick={onCancel}>Choose another</Button>
+          <Button leftSection={<RotateCcw size={16} />} onClick={onRetry}>Try again</Button>
+        </Group>
       </Stack>
     </main>
   );
@@ -253,10 +313,20 @@ export default function Onboarding(props: Props) {
       )}
       {props.stage === "repos" && <RepoPicker {...props} />}
       {props.stage === "cloning" && <Cloning repo={props.selectedRepo} progress={props.progress} />}
+      {props.stage === "clone-error" && (
+        <CloneError
+          repo={props.selectedRepo}
+          error={props.error}
+          onRetry={props.onRetryClone}
+          onCancel={props.onCancelClone}
+        />
+      )}
       {props.stage === "home" && props.readyRoot && (
         <RepoHome root={props.readyRoot} repo={props.selectedRepo} onChangeRepo={props.onChangeRepo} />
       )}
-      {props.stage !== "repos" && <div className="floating-error"><ErrorNotice error={props.error} /></div>}
+      {props.stage !== "repos" && props.stage !== "clone-error" && (
+        <div className="floating-error"><ErrorNotice error={props.error} /></div>
+      )}
     </div>
   );
 }

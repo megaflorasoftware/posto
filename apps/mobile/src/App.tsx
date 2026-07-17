@@ -16,13 +16,23 @@ import type {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Onboarding from "./Onboarding";
 
-type Stage = "loading" | "signed-out" | "authorizing" | "repos" | "cloning" | "home";
+type Stage =
+  | "loading"
+  | "signed-out"
+  | "authorizing"
+  | "repos"
+  | "cloning"
+  | "clone-error"
+  | "home";
 
 const emptyProgress: CloneProgress = {
   received_objects: 0,
   total_objects: 0,
   indexed_objects: 0,
   received_bytes: 0,
+  checkout_completed: 0,
+  checkout_total: 0,
+  phase: "downloading",
 };
 
 function message(error: unknown): string {
@@ -108,25 +118,29 @@ export default function App() {
       (candidate) => candidate.owner === repo.owner && candidate.name === repo.name,
     );
     if (existing) {
-      await invoke("set_last_root", { root: existing.root });
       setReadyRoot(existing.root);
       setStage("home");
+      void invoke("set_last_root", { root: existing.root }).catch((rememberError) => {
+        setError(`Repository opened, but it could not be remembered: ${message(rememberError)}`);
+      });
       return;
     }
     setProgress(emptyProgress);
     setStage("cloning");
     try {
       const root = await invoke<string>("clone_repo", { url: repo.clone_url });
-      await invoke("set_last_root", { root });
       setReadyRoot(root);
       setManaged((current) => [
         ...current,
         { owner: repo.owner, name: repo.name, root, url: repo.clone_url },
       ]);
       setStage("home");
+      void invoke("set_last_root", { root }).catch((rememberError) => {
+        setError(`Repository opened, but it could not be remembered: ${message(rememberError)}`);
+      });
     } catch (cloneError) {
       setError(message(cloneError));
-      setStage("repos");
+      setStage("clone-error");
     }
   }
 
@@ -152,6 +166,11 @@ export default function App() {
         onOpenVerification={() => device && void openUrl(device.verification_uri)}
         onChooseRepo={(repo) => void chooseRepo(repo)}
         onRetryRepos={() => void loadRepos()}
+        onRetryClone={() => selectedRepo && void chooseRepo(selectedRepo)}
+        onCancelClone={() => {
+          setError(null);
+          setStage("repos");
+        }}
         onChangeRepo={() => setStage("repos")}
       />
     </MantineProvider>
