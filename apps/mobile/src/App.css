@@ -284,9 +284,12 @@ input {
   overflow: hidden;
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
+  border: 0;
   color: var(--mantine-color-text);
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+  background: transparent;
 }
 
 .mobile-file-item:active {
@@ -334,4 +337,64 @@ input {
   display: grid;
   place-items: center;
   color: var(--mantine-color-dimmed);
+}
+
+.mobile-editor-screen {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.mobile-editor-screen > .pane-header {
+  flex-shrink: 0;
+}
+
+.mobile-editor-screen > .pane-tabs,
+.mobile-editor-screen > .editor {
+  min-height: 0;
+}
+
+.mobile-editor-screen .form-fields {
+  padding-bottom: max(var(--mantine-spacing-md), env(safe-area-inset-bottom));
+}
+
+/* Shared desktop field controls are intentionally compact. On mobile their
+   text must remain at least 16px to avoid WebKit focus zoom, with touch-sized
+   control heights while preserving the same Mantine colors and borders. */
+.mobile-editor-screen :is(input, textarea, select) {
+  font-size: 16px;
+}
+
+.mobile-editor-screen .mantine-Input-input {
+  min-height: 44px;
+}
+
+.mobile-editor-screen .pane-tabs .mantine-Tabs-tab {
+  min-height: 44px;
+  font-size: var(--mantine-font-size-sm);
+}
+
+.mobile-editor-screen .body-rich-editor .mantine-RichTextEditor-control {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.mobile-editor-screen .body-rich-editor .mantine-RichTextEditor-toolbar {
+  flex-wrap: nowrap;
+  max-height: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-editor-screen .body-rich-editor .mantine-RichTextEditor-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+.mobile-editor-screen .body-rich-editor .mantine-RichTextEditor-controlsGroup {
+  flex-shrink: 0;
 }

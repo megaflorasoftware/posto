@@ -11,7 +11,18 @@ import {
   Text,
   UnstyledButton,
 } from "@mantine/core";
-import { PublishModal, useFileGroups, useGitSync } from "@posto/editor/sync";
+import {
+  EditorPane,
+  PublishModal,
+  contentHasFields,
+  useCurrentFile,
+  useFileGroups,
+  useGitSync,
+  useSchemas,
+  type EditorTab,
+} from "@posto/editor";
+import { matchEntry } from "@posto/core/pagescms/config";
+import { parseFile } from "@posto/core/pagescms/frontmatter";
 import { invoke } from "@posto/ipc";
 import type { ChangedFile, GitHubRepo } from "@posto/ipc";
 import {
@@ -42,9 +53,37 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   const [refreshing, setRefreshing] = useState(false);
   const [repairError, setRepairError] = useState<string | null>(null);
   const [redownloading, setRedownloading] = useState(false);
+  const [showEditor, setShowEditor] = useState(false);
+  const [editorTab, setEditorTab] = useState<EditorTab>("fields");
+  const schemas = useSchemas();
   const files = useFileGroups(setError);
+  const currentFile = useCurrentFile({
+    onAfterSave(path, content) {
+      files.updateSidebarTitle(path, content);
+      if (path === root + "/.pages.yml") void schemas.loadPagesConfig(root);
+      if (path === root + "/src/content.config.ts" || path === root + "/src/content/config.ts") {
+        void schemas.loadAstroConfig(root);
+      }
+    },
+    onOpened(path, content) {
+      if (!/\.(md|mdx|markdown)$/i.test(path)) return;
+      const entry = schemas.configRef.current
+        ? matchEntry(schemas.configRef.current, root, path)
+        : null;
+      const parsed = parseFile(content);
+      const hasFields = contentHasFields(entry, parsed);
+      const hasBody = parsed.body.trim() !== "";
+      setEditorTab((last) => {
+        if (last === "fields" && !hasFields) return "body";
+        if (last === "body" && !hasBody && hasFields) return "fields";
+        return last;
+      });
+    },
+    onOpenError: setError,
+  });
   const git = useGitSync(root, {
     onStatus: setStatus,
+    beforeSync: () => currentFile.flushPendingSave(),
     afterPull: (dir) => void files.refreshGroups(dir),
   });
 
@@ -56,6 +95,8 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
       if (active) setLoading(false);
     });
     void git.refreshLocalChanges(root);
+    void schemas.loadPagesConfig(root);
+    void schemas.loadAstroConfig(root);
     return () => {
       active = false;
     };
@@ -69,6 +110,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   );
 
   function openPublish() {
+    currentFile.flushPendingSave();
     setPublishOpen(true);
     void git.loadChanges(root);
   }
@@ -105,6 +147,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
       }
       await files.refreshGroups(root);
       await git.refreshLocalChanges(root);
+      await currentFile.reloadFromDisk();
       setStatus("Repository is up to date.");
     } catch (refreshError) {
       setStatus(null);
@@ -124,14 +167,47 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     }
   }
 
+  async function openFile(path: string) {
+    await currentFile.openFile(path);
+    if (currentFile.filePathRef.current === path) setShowEditor(true);
+  }
+
+  function closeEditor() {
+    currentFile.flushPendingSave();
+    setShowEditor(false);
+    currentFile.closeFile();
+  }
+
+  function leaveRepository() {
+    currentFile.flushPendingSave();
+    currentFile.closeFile();
+    onChangeRepo();
+  }
+
+  const config = schemas.config;
+  const entry = useMemo(() => {
+    if (!currentFile.filePath || !config) return null;
+    return matchEntry(config, root, currentFile.filePath);
+  }, [config, currentFile.filePath, root]);
+  const entrySource =
+    entry === null ? null : schemas.astroConfig?.content.includes(entry) ? "astro" : "pages";
+  const openFileName = currentFile.filePath?.split("/").pop() ?? "File";
+
   return (
     <>
       <header className="mobile-header">
         <Breadcrumbs separator="/" className="mobile-breadcrumbs">
-          <UnstyledButton className="mobile-breadcrumb-link" onClick={onChangeRepo}>
+          <UnstyledButton className="mobile-breadcrumb-link" onClick={leaveRepository}>
             Repositories
           </UnstyledButton>
-          <Text fw={600} size="sm" truncate>{repo?.name ?? "Repository"}</Text>
+          {showEditor ? (
+            <UnstyledButton className="mobile-breadcrumb-link" onClick={closeEditor}>
+              {repo?.name ?? "Repository"}
+            </UnstyledButton>
+          ) : (
+            <Text fw={600} size="sm" truncate>{repo?.name ?? "Repository"}</Text>
+          )}
+          {showEditor && <Text fw={600} size="sm" truncate>{openFileName}</Text>}
         </Breadcrumbs>
         <ActionIcon
           variant="subtle"
@@ -143,6 +219,26 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
           <RefreshCw size={19} />
         </ActionIcon>
       </header>
+      {showEditor ? (
+        <main className="mobile-editor-screen">
+          <EditorPane
+            root={root}
+            filePath={currentFile.filePath}
+            fileContent={currentFile.fileContent}
+            saveState={currentFile.saveState}
+            entry={entry}
+            entrySource={entrySource}
+            config={config}
+            configError={schemas.configError}
+            hasAstroFallback={schemas.astroConfig !== null}
+            groups={files.groups}
+            editorTab={editorTab}
+            onTabChange={setEditorTab}
+            onEdit={currentFile.onEdit}
+            onFormEdit={currentFile.onFormEdit}
+          />
+        </main>
+      ) : (
       <main className="repo-home">
       <Stack gap="sm" className="repo-home-notices">
         {repairError && (
@@ -237,17 +333,27 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
                     <ChevronDown size={14} className="mobile-group-chevron" />
                   </summary>
                   {group.files.map((file) => (
-                    <div className="mobile-file-item" key={file.path} title={file.name}>
+                    <button
+                      className="mobile-file-item"
+                      key={file.path}
+                      title={file.name}
+                      onClick={() => void openFile(file.path)}
+                    >
                       {file.title ?? file.name}
-                    </div>
+                    </button>
                   ))}
                 </details>
               ) : (
                 <div key={`${group.kind ?? ""}:${group.path}`}>
                   {group.files.map((file) => (
-                    <div className="mobile-file-item" key={file.path} title={file.name}>
+                    <button
+                      className="mobile-file-item"
+                      key={file.path}
+                      title={file.name}
+                      onClick={() => void openFile(file.path)}
+                    >
                       {file.title ?? file.name}
-                    </div>
+                    </button>
                   ))}
                 </div>
               )
@@ -280,6 +386,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
         }}
       />
       </main>
+      )}
     </>
   );
 }

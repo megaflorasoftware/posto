@@ -1,0 +1,562 @@
+.pane-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  /* 30px = Mantine xs button height (preview header), so headers without
+     a button stay the same height as those with one. */
+  min-height: calc(30px + 2 * 0.35rem + 1px);
+  padding: 0.35rem 0.75rem;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+  font-size: 0.8rem;
+}
+
+.pane-title {
+  font-weight: 600;
+  /* Pushes whatever follows (save state, schema badge, buttons) to the right. */
+  margin-right: auto;
+}
+
+.save-state {
+  color: var(--mantine-color-dimmed);
+}
+
+.save-state.error {
+  color: var(--mantine-color-error);
+}
+
+.editor {
+  flex: 1;
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 0.75rem;
+  box-sizing: border-box;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: inherit;
+  background: transparent;
+}
+
+.config-error {
+  margin: 0.5rem 0.75rem 0;
+  font-size: 0.8rem;
+}
+
+/* Fields/Body/Raw tabs fill the editor pane; panels stretch to full height. */
+.pane-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pane-tabs .mantine-Tabs-list {
+  flex-shrink: 0;
+}
+
+.pane-tabs .mantine-Tabs-tab {
+  font-size: 0.8rem;
+  padding: 0.5rem 1rem;
+}
+
+.pane-tabs .mantine-Tabs-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Inactive keep-mounted panels are hidden via the `hidden` attribute, which
+   the flex display above would otherwise override. */
+.pane-tabs .mantine-Tabs-panel[hidden] {
+  display: none;
+}
+
+.form-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.form-fields {
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.form-unavailable {
+  padding: 0.75rem;
+}
+
+/* Rich-text body editor fills the pane; the toolbar stays put and the
+   content area scrolls. Every wrapper down to the scroll container needs
+   flex + min-height: 0 or tall documents push past the pane instead of
+   scrolling. Borders come from the pane, not the editor. */
+.body-rich-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: none;
+  border-radius: 0;
+}
+
+.body-rich-editor .mantine-RichTextEditor-toolbar {
+  flex-shrink: 0;
+}
+
+/* Typography wrapper Mantine inserts between the root and the content. */
+.body-rich-typography {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.body-rich-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: transparent;
+}
+
+/* Let clicks below short documents land in the editor. */
+.body-rich-content .tiptap {
+  min-height: 100%;
+  box-sizing: border-box;
+}
+
+.body-rich-content img {
+  max-width: 100%;
+}
+
+/* Modest heading sizes — Mantine's typography defaults are tuned for full
+   pages, too large for an editing pane — and a little breathing room before
+   headings, except one that starts the document. */
+.body-rich-content .tiptap h1 {
+  font-size: 1.4rem;
+}
+
+.body-rich-content .tiptap h2 {
+  font-size: 1.2rem;
+}
+
+.body-rich-content .tiptap h3 {
+  font-size: 1.05rem;
+}
+
+.body-rich-content .tiptap h4 {
+  font-size: 0.95rem;
+}
+
+.body-rich-content .tiptap :is(h1, h2, h3, h4):not(:first-child) {
+  margin-top: 1em;
+}
+
+/* --- MDX constructs inside the rich body editor. --- */
+
+/* Inline-flex so consecutive import chips flow onto one wrapped row instead
+   of stacking; margins act as the gap between them. Tiptap wraps each React
+   node view in a `.node-mdxImport` container — that's the block to inline. */
+.body-rich-content .node-mdxImport {
+  display: inline-flex;
+  vertical-align: top;
+  margin: 0 0.35rem 0.35rem 0;
+}
+
+.mdx-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.7rem;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 999px;
+  background: var(--mantine-color-default);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  user-select: none;
+}
+
+.mdx-pill svg {
+  flex-shrink: 0;
+  color: var(--mantine-color-dimmed);
+}
+
+.mdx-component {
+  margin: 1.5rem 0;
+}
+
+/* Block components render as a card: a minimal header (click to edit props)
+   with slightly inset, editable sections underneath — one per slot. */
+.mdx-component-card {
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 8px;
+  background: var(--mantine-color-default);
+}
+
+/* Same hover affordance as inline chips, scoped to the element that opens
+   the props popover — the rest of the card doesn't light up. */
+.mdx-component-card:has(> .mdx-card-header .mdx-component-chip:hover) {
+  border-color: var(--mantine-color-default-color);
+}
+
+.mdx-card-header {
+  display: flex;
+  align-items: center;
+  padding: 0.35rem 0.5rem;
+}
+
+.mdx-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: auto;
+}
+
+.mdx-type-indicator {
+  display: inline-flex;
+  align-items: center;
+}
+
+.mdx-type-indicator.typed {
+  color: var(--mantine-color-teal-6);
+}
+
+.mdx-type-indicator.untyped {
+  color: var(--mantine-color-dimmed);
+}
+
+.mdx-card-header .mdx-component-chip {
+  border: none;
+  background: none;
+}
+
+/* Prop fields inline on the card, above the slot sections. A dense grid
+   keeps the form compact; multi-row controls (lists) span the full width. */
+.mdx-card-props {
+  padding: 0 0.75rem 0.6rem;
+}
+
+.mdx-card-props .mdx-component-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.4rem 0.75rem;
+  align-items: start;
+}
+
+.mdx-card-props .form-field:has(.list-field),
+.mdx-card-props .form-field:has(.object-fields) {
+  grid-column: 1 / -1;
+}
+
+.mdx-card-props .form-field {
+  gap: 0.15rem;
+}
+
+.mdx-card-props .field-label,
+.mdx-component-dropdown .form-field .field-label {
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 500;
+}
+
+/* Slot-less components are just their header: the sections container only
+   takes up space when it holds sections (`:empty` misses ProseMirror's
+   internal placeholder children, so match on real sections instead). */
+.mdx-card-slots {
+  display: none;
+}
+
+.mdx-card-slots:has(.mdx-slot) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0 0.5rem 0.5rem 0.75rem;
+}
+
+.mdx-slot {
+  /* Dashed to differentiate slot sections from solid component borders. */
+  border: 1px dashed var(--mantine-color-default-border);
+  border-radius: 6px;
+  background: var(--mantine-color-body);
+}
+
+.mdx-slot-label {
+  padding: 0.25rem 0.6rem 0;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.7rem;
+  color: var(--mantine-color-dimmed);
+  user-select: none;
+}
+
+.mdx-slot-content {
+  padding: 0.35rem 0.6rem;
+}
+
+.mdx-slot-content > :first-child {
+  margin-top: 0;
+}
+
+.mdx-slot-content > :last-child {
+  margin-bottom: 0;
+}
+
+/* Nested cards inside a slot stay compact. */
+.mdx-slot .mdx-component {
+  margin: 0.75rem 0;
+}
+
+.mdx-component-chip {
+  cursor: pointer;
+  color: inherit;
+  font-size: 0.8rem;
+}
+
+.mdx-component-chip:hover {
+  border-color: var(--mantine-color-default-color);
+}
+
+.mdx-component-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.mdx-component-name {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.mdx-component-dropdown .field-label {
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 500;
+}
+
+.mdx-component-unparsed code {
+  font-size: 0.75rem;
+  word-break: break-all;
+}
+
+.mdx-expr-hint {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.7rem;
+  color: var(--mantine-color-dimmed);
+}
+
+.mdx-children-input {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.8rem;
+}
+
+.mdx-raw-block {
+  margin: 1.5rem 0;
+}
+
+.mdx-raw-block pre {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px dashed var(--mantine-color-default-border);
+  border-radius: 6px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.75rem;
+  overflow-x: auto;
+  color: var(--mantine-color-dimmed);
+}
+
+.mdx-raw-inline code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.85em;
+  padding: 0.1em 0.3em;
+  border: 1px dashed var(--mantine-color-default-border);
+  border-radius: 4px;
+  color: var(--mantine-color-dimmed);
+}
+
+.mdx-raw-inline .mdx-component-chip {
+  padding: 0.05rem 0.5rem;
+  font-size: 0.75rem;
+  vertical-align: text-bottom;
+}
+
+.html-block {
+  margin: 1.5rem 0;
+}
+
+.html-block .mdx-component-chip {
+  padding: 0.05rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.mdx-component-dropdown {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.field-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+}
+
+.pick-image-cta {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 0.7rem;
+  color: var(--mantine-color-anchor);
+}
+
+.pick-image-cta:hover {
+  text-decoration: underline;
+}
+
+.field-required {
+  color: var(--mantine-color-error);
+  margin-left: 0.15rem;
+}
+
+.field-description {
+  font-size: 0.75rem;
+  color: var(--mantine-color-dimmed);
+}
+
+.field-error {
+  font-size: 0.75rem;
+  color: var(--mantine-color-error);
+}
+
+.object-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.6rem;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 6px;
+}
+
+.list-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.list-field > .mantine-Button-root {
+  align-self: flex-start;
+}
+
+.list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.25rem;
+  padding: 0.5rem;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 6px;
+}
+
+.list-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Item editors reuse FieldEditor with the label suppressed; strip the
+   double border when the item itself is an object. */
+.list-item-body .object-fields {
+  border: none;
+  padding: 0;
+}
+
+.list-item-actions {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.collapsed-item {
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.expanded-item {
+  align-items: flex-start;
+}
+
+.drag-handle {
+  display: inline-flex;
+  align-items: center;
+  cursor: grab;
+  color: var(--mantine-color-dimmed);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  padding: 0.25rem 0.1rem;
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  outline-offset: 2px;
+}
+
+/* The row being dragged floats above its siblings while they shift around. */
+.list-item.dragging {
+  position: relative;
+  z-index: 1;
+  background: var(--mantine-color-body);
+  box-shadow: var(--mantine-shadow-md);
+  border-color: var(--mantine-primary-color-filled);
+}
+
+.thumb {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+  background: var(--mantine-color-default-hover);
+}
+
+.thumb-placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+}
+
+.item-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+.image-field {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.image-field .mantine-TextInput-root {
+  flex: 1;
+  min-width: 0;
+}
