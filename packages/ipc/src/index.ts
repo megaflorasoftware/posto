@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open as tauriOpen } from "@tauri-apps/plugin-dialog";
-import { openPath as tauriOpenPath } from "@tauri-apps/plugin-opener";
+import { openPath as tauriOpenPath, openUrl as tauriOpenUrl } from "@tauri-apps/plugin-opener";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 
@@ -285,6 +285,7 @@ const mockUser: GitHubUser = {
 };
 let mockSignedIn = false;
 const mockDeviceCodeHandlers = new Set<(authorization: DeviceAuthorization) => void>();
+const mockCloneProgressHandlers = new Set<(progress: CloneProgress) => void>();
 const mockGitHubRepos: GitHubRepo[] = [
   {
     id: 1,
@@ -295,6 +296,16 @@ const mockGitHubRepos: GitHubRepo[] = [
     clone_url: "https://github.com/megaflorasoftware/posto.git",
     default_branch: "main",
     updated_at: "2026-07-17T12:00:00Z",
+  },
+  {
+    id: 2,
+    owner: "megaflorasoftware",
+    name: "site-starter",
+    full_name: "megaflorasoftware/site-starter",
+    private: true,
+    clone_url: "https://github.com/megaflorasoftware/site-starter.git",
+    default_branch: "main",
+    updated_at: "2026-07-16T18:30:00Z",
   },
 ];
 
@@ -438,6 +449,7 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
           expires_in: 900,
         }),
       );
+      await new Promise((resolve) => window.setTimeout(resolve, 1_000));
       mockSignedIn = true;
       return { ...mockUser };
     case "sign_out":
@@ -454,6 +466,17 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       const root = `/mock/repos/${owner}/${name}`;
       if (mockRepos.some((repo) => repo.root === root)) {
         throw new Error(`${owner}/${name} is already cloned`);
+      }
+      for (const received of [8, 31, 68, 100]) {
+        mockCloneProgressHandlers.forEach((handler) =>
+          handler({
+            received_objects: received,
+            total_objects: 100,
+            indexed_objects: Math.max(0, received - 8),
+            received_bytes: received * 18_000,
+          }),
+        );
+        await new Promise((resolve) => window.setTimeout(resolve, 120));
       }
       mockRepos.push({ owner, name, root, url });
       return root;
@@ -570,6 +593,13 @@ export const openPath: (absolutePath: string) => Promise<void> = inTauri
   ? tauriOpenPath
   : async () => {};
 
+/** Open an external URL in the system browser. */
+export const openUrl: (url: string) => Promise<void> = inTauri
+  ? tauriOpenUrl
+  : async (url) => {
+      window.open(url, "_blank", "noopener,noreferrer");
+    };
+
 /**
  * Subscribes to the backend's debounced `fs-changed` events (absolute paths
  * touched outside or inside the app). Returns an unsubscribe function; no-op
@@ -585,7 +615,10 @@ export function onFsChanged(handler: (paths: string[]) => void): () => void {
 
 /** Subscribes to progress updates for the active managed-repository clone. */
 export function onCloneProgress(handler: (progress: CloneProgress) => void): () => void {
-  if (!inTauri) return () => {};
+  if (!inTauri) {
+    mockCloneProgressHandlers.add(handler);
+    return () => mockCloneProgressHandlers.delete(handler);
+  }
   const unlisten = listen<CloneProgress>("clone-progress", (event) => handler(event.payload));
   return () => {
     void unlisten.then((fn) => fn());
