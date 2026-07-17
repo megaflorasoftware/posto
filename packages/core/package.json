@@ -1,0 +1,14 @@
+{
+  "name": "@posto/core",
+  "version": "0.7.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./astro/*": "./src/astro/*.ts",
+    "./mdx/*": "./src/mdx/*.ts",
+    "./pagescms/*": "./src/pagescms/*.ts"
+  },
+  "dependencies": {
+    "yaml": "^2.9.0"
+  }
+}

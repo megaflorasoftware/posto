@@ -28,7 +28,14 @@ echo "Bumping to $VERSION"
 
 node -e '
   const fs = require("fs");
-  for (const f of ["package.json", "src-tauri/tauri.conf.json"]) {
+  for (const f of [
+    "package.json",
+    "apps/desktop/package.json",
+    "packages/core/package.json",
+    "packages/editor/package.json",
+    "packages/ipc/package.json",
+    "src-tauri/tauri.conf.json",
+  ]) {
     const j = JSON.parse(fs.readFileSync(f, "utf8"));
     j.version = process.argv[1];
     fs.writeFileSync(f, JSON.stringify(j, null, 2) + "\n");
@@ -40,7 +47,8 @@ sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
 # refresh Cargo.lock so it picks up the new package version
 cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 >/dev/null
 
-git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+git add package.json apps/desktop/package.json packages/*/package.json \
+  src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
 git commit -m "release v$VERSION"
 git tag "v$VERSION"
 
