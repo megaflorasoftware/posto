@@ -59,10 +59,7 @@ type Props = {
 function Header({ user, onSignOut }: Pick<Props, "user" | "onSignOut">) {
   return (
     <header className="mobile-header">
-      <div className="wordmark" aria-label="Posto">
-        <span>P</span>
-        <strong>posto</strong>
-      </div>
+      <Text fw={600} size="sm">Posto</Text>
       {user && (
         <Group gap="xs" wrap="nowrap">
           <Avatar src={user.avatar_url} alt={user.name} size={30} radius="xl" />
@@ -86,31 +83,15 @@ function ErrorNotice({ error }: { error: string | null }) {
 
 function SignIn({ onSignIn }: Pick<Props, "onSignIn">) {
   return (
-    <main className="welcome-screen">
-      <div className="welcome-art" aria-hidden="true">
-        <div className="paper paper-back" />
-        <div className="paper paper-front">
-          <span />
-          <span />
-          <span />
-          <i>P</i>
-        </div>
-      </div>
-      <Stack gap="md" align="center" className="welcome-copy">
-        <Text className="eyebrow">Your site, in your pocket</Text>
-        <Title order={1}>Write wherever the idea finds you.</Title>
-        <Text c="dimmed" ta="center" maw={330}>
-          Connect GitHub to edit and publish your site without bringing a laptop.
+    <main className="centered-screen">
+      <Stack gap="md" align="center" w="100%" maw={340}>
+        <Title order={2}>Posto</Title>
+        <Text c="dimmed" ta="center">
+          Connect GitHub to choose a site and edit its documents.
         </Text>
-      </Stack>
-      <Stack gap="sm" className="welcome-actions">
-        <Button size="lg" radius="xl" leftSection={<FolderGit2 size={20} />} onClick={onSignIn}>
+        <Button leftSection={<FolderGit2 size={16} />} onClick={onSignIn}>
           Continue with GitHub
         </Button>
-        <Group gap={6} justify="center" c="dimmed">
-          <LockKeyhole size={13} />
-          <Text size="xs">Your token stays in this device's secure storage</Text>
-        </Group>
       </Stack>
     </main>
   );
@@ -130,7 +111,7 @@ function Authorizing({ device, onOpenVerification }: Pick<Props, "device" | "onO
     <main className="centered-screen">
       {!device ? (
         <Stack align="center" gap="lg">
-          <Loader color="violet" />
+          <Loader />
           <div>
             <Title order={2} ta="center">Connecting to GitHub</Title>
             <Text c="dimmed" ta="center" mt={6}>Requesting a one-time sign-in code…</Text>
@@ -138,20 +119,17 @@ function Authorizing({ device, onOpenVerification }: Pick<Props, "device" | "onO
         </Stack>
       ) : (
         <Stack gap="xl" w="100%" maw={380}>
-          <ThemeIcon size={58} radius="xl" variant="light" mx="auto">
+          <ThemeIcon size={48} radius="sm" variant="light" mx="auto">
             <Smartphone size={27} />
           </ThemeIcon>
           <div>
-            <Text className="eyebrow" ta="center">One quick step</Text>
-            <Title order={2} ta="center" mt={6}>Enter this code on GitHub</Title>
+            <Title order={2} ta="center">Enter this code on GitHub</Title>
           </div>
           <button className="device-code" onClick={() => void copyCode()}>
             <span>{device.user_code}</span>
             {copied ? <Check size={20} /> : <Copy size={20} />}
           </button>
           <Button
-            size="lg"
-            radius="xl"
             rightSection={<ExternalLink size={18} />}
             onClick={onOpenVerification}
           >
@@ -178,20 +156,21 @@ function RepoPicker({ repos, downloaded, error, onChooseRepo, onRetryRepos }: Pr
   return (
     <main className="repo-screen">
       <div className="screen-title">
-        <Text className="eyebrow">Choose a site</Text>
-        <Title order={1}>Your repositories</Title>
+        <Title order={2}>Your repositories</Title>
         <Text c="dimmed" mt={6}>Pick the site you want available on this device.</Text>
       </div>
       <TextInput
-        size="md"
-        radius="xl"
+        size="sm"
+        radius="sm"
         leftSection={<Search size={18} />}
         placeholder="Search repositories"
         value={query}
         onChange={(event) => setQuery(event.currentTarget.value)}
         aria-label="Search repositories"
       />
-      <ErrorNotice error={error} />
+      <div className="repo-error-slot">
+        <ErrorNotice error={error} />
+      </div>
       {error && repos.length === 0 ? (
         <Center className="empty-state">
           <Stack align="center">
@@ -208,7 +187,7 @@ function RepoPicker({ repos, downloaded, error, onChooseRepo, onRetryRepos }: Pr
               const isDownloaded = downloaded.has(repo.full_name);
               return (
                 <button className="repo-row" key={repo.id} onClick={() => onChooseRepo(repo)}>
-                  <ThemeIcon variant="light" color={repo.private ? "grape" : "gray"} radius="md">
+                  <ThemeIcon variant="light" color={repo.private ? undefined : "gray"} radius="sm">
                     {repo.private ? <LockKeyhole size={17} /> : <FolderGit2 size={17} />}
                   </ThemeIcon>
                   <div className="repo-info">
@@ -243,12 +222,11 @@ function Cloning({ repo, progress }: { repo: GitHubRepo | null; progress: CloneP
   return (
     <main className="centered-screen">
       <Stack gap="xl" w="100%" maw={380}>
-        <ThemeIcon size={62} radius="xl" variant="light" mx="auto">
+        <ThemeIcon size={48} radius="sm" variant="light" mx="auto">
           <Download size={28} />
         </ThemeIcon>
         <div>
-          <Text className="eyebrow" ta="center">Making it available offline</Text>
-          <Title order={2} ta="center" mt={6}>{repo?.name ?? "Repository"}</Title>
+          <Title order={2} ta="center">{repo?.name ?? "Repository"}</Title>
           <Text c="dimmed" ta="center" mt={8}>Downloading files and commit history…</Text>
         </div>
         <div>
@@ -270,7 +248,7 @@ export default function Onboarding(props: Props) {
   return (
     <div className="mobile-app">
       <Header user={props.user} onSignOut={props.onSignOut} />
-      {props.stage === "loading" && <Center className="screen"><Loader color="violet" /></Center>}
+      {props.stage === "loading" && <Center className="screen"><Loader /></Center>}
       {props.stage === "signed-out" && <SignIn onSignIn={props.onSignIn} />}
       {props.stage === "authorizing" && (
         <Authorizing device={props.device} onOpenVerification={props.onOpenVerification} />

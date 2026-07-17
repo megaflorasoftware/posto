@@ -1,23 +1,18 @@
 import {
   Alert,
-  Badge,
   Button,
   Center,
   Group,
   Loader,
-  Paper,
   ScrollArea,
   Stack,
   Text,
-  ThemeIcon,
-  Title,
 } from "@mantine/core";
 import { PublishModal, useFileGroups, useGitSync } from "@posto/editor/sync";
 import type { ChangedFile, GitHubRepo } from "@posto/ipc";
 import {
   CloudDownload,
-  FileText,
-  FolderGit2,
+  ChevronDown,
   GitCommitHorizontal,
   RefreshCw,
 } from "lucide-react";
@@ -72,18 +67,14 @@ export default function RepoHome({ root, repo, onChangeRepo }: Props) {
 
   return (
     <main className="repo-home">
-      <Group justify="space-between" align="flex-start" wrap="nowrap" className="repo-home-title">
+      <Group justify="space-between" align="center" wrap="nowrap" className="repo-home-title">
         <div>
-          <Text className="eyebrow">On this device</Text>
-          <Title order={1}>{repo?.name ?? "Your site"}</Title>
-          <Group gap="xs" mt={8}>
-            <Badge variant="light" color="violet" leftSection={<FolderGit2 size={12} />}>
-              {repo?.owner ?? "Repository"}
-            </Badge>
-            {!loading && <Text size="xs" c="dimmed">{fileCount} files</Text>}
-          </Group>
+          <Text fw={600} size="sm">{repo?.name ?? "Your site"}</Text>
+          <Text size="xs" c="dimmed">
+            {repo?.owner ?? "Repository"}{!loading ? ` · ${fileCount} files` : ""}
+          </Text>
         </div>
-        <Button variant="subtle" color="gray" size="compact-sm" onClick={onChangeRepo}>
+        <Button variant="default" size="compact-xs" onClick={onChangeRepo}>
           Change
         </Button>
       </Group>
@@ -91,7 +82,7 @@ export default function RepoHome({ root, repo, onChangeRepo }: Props) {
       <Stack gap="sm" className="repo-home-notices">
         {git.behindUpstream && (
           <Alert
-            color="violet"
+            color="blue"
             variant="light"
             icon={<CloudDownload size={18} />}
             title="Updates are available"
@@ -112,7 +103,7 @@ export default function RepoHome({ root, repo, onChangeRepo }: Props) {
         )}
 
         {status && (
-          <Alert color={status.includes("failed") ? "red" : "violet"} variant="light">
+          <Alert color={status.includes("failed") ? "red" : "blue"} variant="light">
             {status}
           </Alert>
         )}
@@ -141,9 +132,6 @@ export default function RepoHome({ root, repo, onChangeRepo }: Props) {
         ) : fileCount === 0 && !error ? (
           <Center className="repo-files-state">
             <Stack align="center" gap="xs">
-              <ThemeIcon variant="light" color="gray" radius="xl" size="lg">
-                <FileText size={18} />
-              </ThemeIcon>
               <Text fw={600}>No editable files found</Text>
               <Text size="sm" c="dimmed" ta="center">
                 Markdown, MDX, text, and stylesheet files will appear here.
@@ -151,47 +139,43 @@ export default function RepoHome({ root, repo, onChangeRepo }: Props) {
             </Stack>
           </Center>
         ) : (
-          <Stack gap="md" pb="md">
+          <div className="mobile-document-list">
             {files.groups.map((group) => (
-              <Paper
-                key={`${group.kind ?? ""}:${group.path}`}
-                withBorder
-                radius="lg"
-                className="mobile-file-group"
-              >
-                <Group justify="space-between" className="mobile-file-group-heading">
-                  <Text fw={700} size="sm">{group.label || "Site files"}</Text>
-                  <Badge size="sm" variant="light" color="gray">{group.files.length}</Badge>
-                </Group>
-                <Stack gap={0}>
+              group.label ? (
+                <details key={`${group.kind ?? ""}:${group.path}`} open>
+                  <summary>
+                    <span className="mobile-group-label" title={group.label}>{group.label}</span>
+                    <ChevronDown size={14} className="mobile-group-chevron" />
+                  </summary>
                   {group.files.map((file) => (
-                    <div className="mobile-file-row" key={file.path}>
-                      <ThemeIcon variant="light" color="violet" radius="md" size="md">
-                        <FileText size={16} />
-                      </ThemeIcon>
-                      <div className="mobile-file-copy">
-                        <Text fw={600} size="sm" truncate>{file.title ?? file.name}</Text>
-                        {file.title && <Text size="xs" c="dimmed" truncate>{file.name}</Text>}
-                      </div>
+                    <div className="mobile-file-item" key={file.path} title={file.name}>
+                      {file.title ?? file.name}
                     </div>
                   ))}
-                </Stack>
-              </Paper>
+                </details>
+              ) : (
+                <div key={`${group.kind ?? ""}:${group.path}`}>
+                  {group.files.map((file) => (
+                    <div className="mobile-file-item" key={file.path} title={file.name}>
+                      {file.title ?? file.name}
+                    </div>
+                  ))}
+                </div>
+              )
             ))}
-          </Stack>
+          </div>
         )}
       </ScrollArea>
 
       <div className="repo-home-actions">
         <Button
           fullWidth
-          size="md"
-          radius="xl"
+          size="xs"
           leftSection={<GitCommitHorizontal size={19} />}
           disabled={!git.hasLocalChanges}
           onClick={openPublish}
         >
-          {git.hasLocalChanges ? "Publish changes" : "Everything is published"}
+          {git.hasLocalChanges ? "Publish…" : "Everything is published"}
         </Button>
       </div>
 

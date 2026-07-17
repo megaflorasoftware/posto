@@ -136,14 +136,7 @@ export default function App() {
   );
 
   return (
-    <MantineProvider
-      defaultColorScheme="auto"
-      theme={{
-        primaryColor: "violet",
-        fontFamily: "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif",
-        headings: { fontFamily: "Georgia, ui-serif, serif" },
-      }}
-    >
+    <MantineProvider defaultColorScheme="auto">
       <Onboarding
         stage={stage}
         user={user}
