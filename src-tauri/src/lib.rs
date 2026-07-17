@@ -4,6 +4,8 @@ mod devserver;
 mod env;
 mod fs;
 pub mod git;
+#[cfg(any(mobile, test))]
+mod repos;
 #[cfg(desktop)]
 mod proxy;
 mod settings;
@@ -100,7 +102,10 @@ pub fn run() {
         git::revert_file,
         git::fetch_upstream,
         git::pull_upstream,
-        git::publish
+        git::publish,
+        repos::clone_repo,
+        repos::list_repos,
+        repos::remove_repo
     ]);
     builder
         .build(tauri::generate_context!())
