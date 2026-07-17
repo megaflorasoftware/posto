@@ -41,13 +41,34 @@ input {
 
 .mobile-header {
   min-width: 0;
-  flex: 0 0 49px;
+  flex: 0 0 57px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--mantine-spacing-sm);
   padding: 0 var(--mantine-spacing-sm);
   border-bottom: 1px solid var(--mantine-color-default-border);
+}
+
+.mobile-app .mantine-Button-root,
+.mobile-app .mantine-ActionIcon-root {
+  min-height: 44px;
+}
+
+.mobile-breadcrumbs {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mobile-breadcrumbs .mantine-Breadcrumbs-breadcrumb {
+  min-width: 0;
+}
+
+.mobile-breadcrumb-link {
+  flex-shrink: 0;
+  color: var(--mantine-primary-color-filled);
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 500;
 }
 
 .screen,
@@ -69,7 +90,7 @@ input {
 
 .device-code {
   width: 100%;
-  min-height: 64px;
+  min-height: 72px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -87,23 +108,31 @@ input {
 }
 
 .repo-screen {
-  display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: var(--mantine-spacing-sm);
   width: 100%;
   overflow: hidden;
-  padding: var(--mantine-spacing-md);
+  padding: var(--mantine-spacing-md) 0 0;
 }
 
-.screen-title {
-  min-width: 0;
+.repo-screen-search,
+.repo-error-slot {
+  padding: 0 var(--mantine-spacing-md);
 }
 
 .repo-list {
+  flex: 1;
   width: 100%;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+.repo-list-content {
+  display: grid;
+  gap: var(--mantine-spacing-xs);
+  padding: 0 var(--mantine-spacing-md) var(--mantine-spacing-md);
 }
 
 .repo-list .mantine-ScrollArea-viewport,
@@ -116,7 +145,7 @@ input {
 .repo-row {
   width: 100%;
   min-width: 0;
-  min-height: 50px;
+  min-height: 58px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -161,28 +190,19 @@ input {
 .repo-home {
   width: 100%;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   grid-template-areas:
-    "title"
     "notices"
     "files"
     "actions";
   gap: var(--mantine-spacing-xs);
   overflow: hidden;
-  padding: var(--mantine-spacing-sm) var(--mantine-spacing-sm) 0;
-}
-
-.repo-home-title,
-.repo-home-title > div {
-  min-width: 0;
-}
-
-.repo-home-title {
-  grid-area: title;
+  padding: var(--mantine-spacing-sm) 0 0;
 }
 
 .repo-home-notices {
   grid-area: notices;
+  padding: 0 var(--mantine-spacing-sm);
 }
 
 .repo-home-notices:empty {
@@ -205,7 +225,7 @@ input {
 .mobile-document-list {
   width: 100%;
   max-width: 100%;
-  padding: 0 0 var(--mantine-spacing-sm);
+  padding: 0 var(--mantine-spacing-sm) var(--mantine-spacing-sm);
   font-size: 0.85rem;
 }
 
@@ -270,7 +290,7 @@ input {
 .repo-home-actions {
   grid-area: actions;
   min-width: 0;
-  padding: var(--mantine-spacing-xs) 0 var(--mantine-spacing-sm);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm) var(--mantine-spacing-sm);
   border-top: 1px solid var(--mantine-color-default-border);
   background: var(--mantine-color-body);
 }

@@ -9,7 +9,7 @@ import {
   Text,
 } from "@mantine/core";
 import { PublishModal, useFileGroups, useGitSync } from "@posto/editor/sync";
-import type { ChangedFile, GitHubRepo } from "@posto/ipc";
+import type { ChangedFile } from "@posto/ipc";
 import {
   CloudDownload,
   ChevronDown,
@@ -20,11 +20,9 @@ import { useEffect, useMemo, useState } from "react";
 
 type Props = {
   root: string;
-  repo: GitHubRepo | null;
-  onChangeRepo: () => void;
 };
 
-export default function RepoHome({ root, repo, onChangeRepo }: Props) {
+export default function RepoHome({ root }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -67,18 +65,6 @@ export default function RepoHome({ root, repo, onChangeRepo }: Props) {
 
   return (
     <main className="repo-home">
-      <Group justify="space-between" align="center" wrap="nowrap" className="repo-home-title">
-        <div>
-          <Text fw={600} size="sm">{repo?.name ?? "Your site"}</Text>
-          <Text size="xs" c="dimmed">
-            {repo?.owner ?? "Repository"}{!loading ? ` · ${fileCount} files` : ""}
-          </Text>
-        </div>
-        <Button variant="default" size="compact-xs" onClick={onChangeRepo}>
-          Change
-        </Button>
-      </Group>
-
       <Stack gap="sm" className="repo-home-notices">
         {git.behindUpstream && (
           <Alert
@@ -91,7 +77,7 @@ export default function RepoHome({ root, repo, onChangeRepo }: Props) {
             <Group justify="space-between" align="center" wrap="nowrap">
               <Text size="sm">Pull the latest changes before editing.</Text>
               <Button
-                size="compact-sm"
+                size="sm"
                 variant="light"
                 loading={git.pulling}
                 onClick={() => void git.fetchChanges()}
@@ -115,7 +101,7 @@ export default function RepoHome({ root, repo, onChangeRepo }: Props) {
               <Button
                 variant="light"
                 color="red"
-                size="compact-sm"
+                size="sm"
                 leftSection={<RefreshCw size={14} />}
                 onClick={() => void files.refreshGroups(root)}
               >
@@ -126,9 +112,9 @@ export default function RepoHome({ root, repo, onChangeRepo }: Props) {
         )}
       </Stack>
 
-      <ScrollArea className="repo-files" type="auto" offsetScrollbars>
+      <ScrollArea className="repo-files" type="auto">
         {loading ? (
-          <Center className="repo-files-state"><Loader size="sm" /></Center>
+          <Center className="repo-files-state"><Loader size="md" /></Center>
         ) : fileCount === 0 && !error ? (
           <Center className="repo-files-state">
             <Stack align="center" gap="xs">
@@ -170,7 +156,7 @@ export default function RepoHome({ root, repo, onChangeRepo }: Props) {
       <div className="repo-home-actions">
         <Button
           fullWidth
-          size="xs"
+          size="sm"
           leftSection={<GitCommitHorizontal size={19} />}
           disabled={!git.hasLocalChanges}
           onClick={openPublish}

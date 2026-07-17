@@ -1,4 +1,4 @@
-import { MantineProvider } from "@mantine/core";
+import { createTheme, MantineProvider } from "@mantine/core";
 import {
   invoke,
   onAuthDeviceCode,
@@ -34,6 +34,15 @@ const emptyProgress: CloneProgress = {
   checkout_total: 0,
   phase: "downloading",
 };
+
+const mobileTheme = createTheme({
+  components: {
+    ActionIcon: { defaultProps: { size: "lg" } },
+    Button: { defaultProps: { size: "md" } },
+    TextInput: { defaultProps: { size: "lg" } },
+    ThemeIcon: { defaultProps: { size: "lg" } },
+  },
+});
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -150,7 +159,7 @@ export default function App() {
   );
 
   return (
-    <MantineProvider defaultColorScheme="auto">
+    <MantineProvider defaultColorScheme="auto" theme={mobileTheme}>
       <Onboarding
         stage={stage}
         user={user}

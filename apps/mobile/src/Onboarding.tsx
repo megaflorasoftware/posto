@@ -2,6 +2,7 @@ import {
   ActionIcon,
   Alert,
   Avatar,
+  Breadcrumbs,
   Button,
   Center,
   Group,
@@ -13,6 +14,7 @@ import {
   TextInput,
   ThemeIcon,
   Title,
+  UnstyledButton,
 } from "@mantine/core";
 import type {
   CloneProgress,
@@ -66,13 +68,30 @@ type Props = {
   onChangeRepo: () => void;
 };
 
-function Header({ user, onSignOut }: Pick<Props, "user" | "onSignOut">) {
+function Header({
+  stage,
+  user,
+  selectedRepo,
+  onSignOut,
+  onChangeRepo,
+}: Pick<Props, "stage" | "user" | "selectedRepo" | "onSignOut" | "onChangeRepo">) {
+  const inRepo = stage === "home" && selectedRepo;
+
   return (
     <header className="mobile-header">
-      <Text fw={600} size="sm">Posto</Text>
-      {user && (
+      {inRepo ? (
+        <Breadcrumbs separator="/" className="mobile-breadcrumbs">
+          <UnstyledButton className="mobile-breadcrumb-link" onClick={onChangeRepo}>
+            Repositories
+          </UnstyledButton>
+          <Text fw={600} size="sm" truncate>{selectedRepo.name}</Text>
+        </Breadcrumbs>
+      ) : (
+        <Text fw={600} size="sm">{stage === "repos" ? "Repositories" : "Posto"}</Text>
+      )}
+      {stage === "repos" && user && (
         <Group gap="xs" wrap="nowrap">
-          <Avatar src={user.avatar_url} alt={user.name} size={30} radius="xl" />
+          <Avatar src={user.avatar_url} alt={user.name} size={36} radius="xl" />
           <ActionIcon variant="subtle" color="gray" aria-label="Sign out" onClick={onSignOut}>
             <LogOut size={18} />
           </ActionIcon>
@@ -129,8 +148,8 @@ function Authorizing({ device, onOpenVerification }: Pick<Props, "device" | "onO
         </Stack>
       ) : (
         <Stack gap="xl" w="100%" maw={380}>
-          <ThemeIcon size={48} radius="sm" variant="light" mx="auto">
-            <Smartphone size={27} />
+          <ThemeIcon size={56} radius="sm" variant="light" mx="auto">
+            <Smartphone size={30} />
           </ThemeIcon>
           <div>
             <Title order={2} ta="center">Enter this code on GitHub</Title>
@@ -158,26 +177,27 @@ function RepoPicker({ repos, downloaded, error, onChooseRepo, onRetryRepos }: Pr
   const [query, setQuery] = useState("");
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    return normalized
+    const matching = normalized
       ? repos.filter((repo) => repo.full_name.toLowerCase().includes(normalized))
       : repos;
-  }, [query, repos]);
+    return [...matching].sort((left, right) => {
+      return Number(downloaded.has(right.full_name)) - Number(downloaded.has(left.full_name));
+    });
+  }, [downloaded, query, repos]);
 
   return (
     <main className="repo-screen">
-      <div className="screen-title">
-        <Title order={2}>Your repositories</Title>
-        <Text c="dimmed" mt={6}>Pick the site you want available on this device.</Text>
+      <div className="repo-screen-search">
+        <TextInput
+          size="lg"
+          radius="sm"
+          leftSection={<Search size={20} />}
+          placeholder="Search repositories"
+          value={query}
+          onChange={(event) => setQuery(event.currentTarget.value)}
+          aria-label="Search repositories"
+        />
       </div>
-      <TextInput
-        size="sm"
-        radius="sm"
-        leftSection={<Search size={18} />}
-        placeholder="Search repositories"
-        value={query}
-        onChange={(event) => setQuery(event.currentTarget.value)}
-        aria-label="Search repositories"
-      />
       <div className="repo-error-slot">
         <ErrorNotice error={error} />
       </div>
@@ -192,7 +212,7 @@ function RepoPicker({ repos, downloaded, error, onChooseRepo, onRetryRepos }: Pr
         </Center>
       ) : (
         <ScrollArea className="repo-list" type="auto">
-          <Stack gap="xs">
+          <div className="repo-list-content">
             {filtered.map((repo) => {
               const isDownloaded = downloaded.has(repo.full_name);
               return (
@@ -215,7 +235,7 @@ function RepoPicker({ repos, downloaded, error, onChooseRepo, onRetryRepos }: Pr
                 <Text c="dimmed">No repositories match “{query}”.</Text>
               </Center>
             )}
-          </Stack>
+          </div>
         </ScrollArea>
       )}
     </main>
@@ -236,8 +256,8 @@ function Cloning({ repo, progress }: { repo: GitHubRepo | null; progress: CloneP
   return (
     <main className="centered-screen">
       <Stack gap="xl" w="100%" maw={380}>
-        <ThemeIcon size={48} radius="sm" variant="light" mx="auto">
-          <Download size={28} />
+        <ThemeIcon size={56} radius="sm" variant="light" mx="auto">
+          <Download size={30} />
         </ThemeIcon>
         <div>
           <Title order={2} ta="center">{repo?.name ?? "Repository"}</Title>
@@ -258,7 +278,7 @@ function Cloning({ repo, progress }: { repo: GitHubRepo | null; progress: CloneP
                   : `${progress.received_objects} objects`}
             </Text>
           </Group>
-          <Progress value={percent} size="md" radius="xl" animated />
+          <Progress value={percent} size="lg" radius="xl" animated />
         </div>
         <Text size="xs" c="dimmed" ta="center">
           Keep Posto open until the repository is ready. Large media libraries may take several minutes.
@@ -305,7 +325,13 @@ function CloneError({
 export default function Onboarding(props: Props) {
   return (
     <div className="mobile-app">
-      <Header user={props.user} onSignOut={props.onSignOut} />
+      <Header
+        stage={props.stage}
+        user={props.user}
+        selectedRepo={props.selectedRepo}
+        onSignOut={props.onSignOut}
+        onChangeRepo={props.onChangeRepo}
+      />
       {props.stage === "loading" && <Center className="screen"><Loader /></Center>}
       {props.stage === "signed-out" && <SignIn onSignIn={props.onSignIn} />}
       {props.stage === "authorizing" && (
@@ -322,7 +348,7 @@ export default function Onboarding(props: Props) {
         />
       )}
       {props.stage === "home" && props.readyRoot && (
-        <RepoHome root={props.readyRoot} repo={props.selectedRepo} onChangeRepo={props.onChangeRepo} />
+        <RepoHome root={props.readyRoot} />
       )}
       {props.stage !== "repos" && props.stage !== "clone-error" && (
         <div className="floating-error"><ErrorNotice error={props.error} /></div>
