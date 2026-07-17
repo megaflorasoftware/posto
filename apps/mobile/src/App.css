@@ -383,11 +383,18 @@ input {
 }
 
 .mobile-editor-screen .body-rich-editor .mantine-RichTextEditor-toolbar {
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   max-height: none;
-  overflow: visible;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-editor-screen .body-rich-editor .mantine-RichTextEditor-toolbar::-webkit-scrollbar {
+  display: none;
 }
 
 .mobile-editor-screen .body-rich-editor .mantine-RichTextEditor-controlsGroup {
-  flex-flow: row wrap;
+  flex-shrink: 0;
 }
