@@ -1,9 +1,11 @@
 import { createTheme, MantineProvider } from "@mantine/core";
+import { DialogVariantProvider } from "@posto/editor";
 import {
+  closeInAppBrowser,
   invoke,
   onAuthDeviceCode,
   onCloneProgress,
-  openUrl,
+  openUrlInApp,
 } from "@posto/ipc";
 import type {
   AuthStatus,
@@ -181,6 +183,9 @@ export default function App() {
     } catch (signInError) {
       setError(message(signInError));
       setStage("signed-out");
+    } finally {
+      // The device-flow page may still be presented over the app.
+      void closeInAppBrowser();
     }
   }
 
@@ -249,6 +254,7 @@ export default function App() {
 
   return (
     <MantineProvider defaultColorScheme="auto" theme={mobileTheme}>
+      <DialogVariantProvider variant="drawer">
       <Onboarding
         stage={stage}
         user={user}
@@ -261,7 +267,7 @@ export default function App() {
         error={error}
         onSignIn={() => void signIn()}
         onSignOut={() => void signOut()}
-        onOpenVerification={() => device && void openUrl(device.verification_uri)}
+        onOpenVerification={() => device && void openUrlInApp(device.verification_uri)}
         onChooseRepo={(repo) => void chooseRepo(repo)}
         onRetryRepos={() => void loadRepos()}
         onRetryClone={() => selectedRepo && void chooseRepo(selectedRepo)}
@@ -272,6 +278,7 @@ export default function App() {
         onRedownloadRepo={(repo, root) => redownloadRepo(repo, root)}
         onChangeRepo={() => setStage("repos")}
       />
+      </DialogVariantProvider>
     </MantineProvider>
   );
 }

@@ -1,14 +1,13 @@
 import {
   ActionIcon,
   Alert,
-  Breadcrumbs,
   Button,
   Center,
   Group,
+  Loader,
   ScrollArea,
   Stack,
   Text,
-  UnstyledButton,
 } from "@mantine/core";
 import {
   EditorPane,
@@ -28,13 +27,24 @@ import type { ChangedFile, FileGroup, GitHubRepo } from "@posto/ipc";
 import {
   CloudDownload,
   ChevronDown,
+  ChevronLeft,
   GitCommitHorizontal,
   Menu,
   Plus,
   RefreshCw,
+  Trash2,
   TriangleAlert,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type TouchEvent as ReactTouchEvent,
+} from "react";
+
+// Drag distance (after damping) that arms the pull-to-refresh gesture.
+const PULL_REFRESH_THRESHOLD = 60;
 
 type Props = {
   root: string;
@@ -59,6 +69,11 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   const [checkingChanges, setCheckingChanges] = useState(false);
   const [newFileGroup, setNewFileGroup] = useState<FileGroup | null>(null);
   const [editorTab, setEditorTab] = useState<EditorTab>("fields");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [pullDistance, setPullDistance] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const filesViewportRef = useRef<HTMLDivElement>(null);
+  const pullStartY = useRef<number | null>(null);
   const schemas = useSchemas();
   const files = useFileGroups(setError);
   const currentFile = useCurrentFile({
@@ -89,6 +104,8 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     onStatus: setStatus,
     beforeSync: () => currentFile.flushPendingSave(),
     afterPull: (dir) => void files.refreshGroups(dir),
+    // Publish progress lives on the Publish button; only failures surface.
+    onPublishError: setStatus,
   });
 
   useEffect(() => {
@@ -144,6 +161,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   }
 
   async function openFile(path: string) {
+    setConfirmingDelete(false);
     await currentFile.openFile(path);
     if (currentFile.filePathRef.current === path) setShowEditor(true);
   }
@@ -154,9 +172,76 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     await openFile(path);
   }
 
+  // The armed "Delete?" confirm disarms on its own after a moment, the touch
+  // equivalent of desktop's cancel-on-mouse-leave.
+  useEffect(() => {
+    if (!confirmingDelete) return;
+    const timer = setTimeout(() => setConfirmingDelete(false), 4000);
+    return () => clearTimeout(timer);
+  }, [confirmingDelete]);
+
+  async function deleteOpenFile() {
+    const path = currentFile.filePathRef.current;
+    if (!path) return;
+    setConfirmingDelete(false);
+    // A pending autosave would recreate the file right after the delete.
+    currentFile.clearPendingSave();
+    try {
+      await invoke("delete_file", { path });
+    } catch (deleteError) {
+      // The repo home screen is the only surface that shows status messages.
+      setStatus(`Delete failed: ${message(deleteError)}`);
+      setShowEditor(false);
+      return;
+    }
+    currentFile.closeFile();
+    setShowEditor(false);
+    if (path === root + "/.pages.yml") void schemas.loadPagesConfig(root);
+    void files.refreshGroups(root);
+    void git.refreshLocalChanges(root);
+  }
+
+  async function refreshFromPull() {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        git.checkUpstream(),
+        git.refreshLocalChanges(root),
+        files.refreshGroups(root),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  function onFilesTouchStart(event: ReactTouchEvent) {
+    if (refreshing || (filesViewportRef.current?.scrollTop ?? 1) > 0) return;
+    pullStartY.current = event.touches[0].clientY;
+  }
+
+  function onFilesTouchMove(event: ReactTouchEvent) {
+    if (pullStartY.current === null) return;
+    if ((filesViewportRef.current?.scrollTop ?? 0) > 0) {
+      pullStartY.current = null;
+      setPullDistance(0);
+      return;
+    }
+    const delta = event.touches[0].clientY - pullStartY.current;
+    // Damped so the indicator trails the finger like the native gesture.
+    setPullDistance(delta > 0 ? Math.min(delta / 2, 90) : 0);
+  }
+
+  function onFilesTouchEnd() {
+    if (pullStartY.current === null) return;
+    pullStartY.current = null;
+    if (pullDistance >= PULL_REFRESH_THRESHOLD) void refreshFromPull();
+    setPullDistance(0);
+  }
+
   function closeEditor() {
     const pendingSave = currentFile.flushPendingSave();
     setShowEditor(false);
+    setConfirmingDelete(false);
     currentFile.closeFile();
     setCheckingChanges(true);
     void pendingSave
@@ -188,22 +273,18 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   return (
     <>
       <header className="mobile-header">
-        <Breadcrumbs separator="/" className="mobile-breadcrumbs">
-          <UnstyledButton className="mobile-breadcrumb-link" onClick={leaveRepository}>
-            Repositories
-          </UnstyledButton>
-          {showEditor || showSettings ? (
-            <UnstyledButton className="mobile-breadcrumb-link" onClick={closeSecondaryView}>
-              {repo?.name ?? "Repository"}
-            </UnstyledButton>
-          ) : (
-            <Text fw={600} size="sm" truncate>{repo?.name ?? "Repository"}</Text>
-          )}
-          {showEditor && (
-            <Text fw={600} size="sm" className="mobile-file-breadcrumb">{openFileName}</Text>
-          )}
-          {showSettings && <Text fw={600} size="sm" truncate>Settings</Text>}
-        </Breadcrumbs>
+        <Group gap={0} wrap="nowrap" className="mobile-header-title">
+          <ActionIcon
+            variant="subtle"
+            aria-label="Back"
+            onClick={showEditor || showSettings ? closeSecondaryView : leaveRepository}
+          >
+            <ChevronLeft size={22} />
+          </ActionIcon>
+          <Text fw={600} size="sm" truncate>
+            {showEditor ? openFileName : showSettings ? "Settings" : repo?.name ?? "Repository"}
+          </Text>
+        </Group>
         {!showEditor && !showSettings && (
           <ActionIcon
             variant="subtle"
@@ -214,6 +295,28 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
             <Menu size={20} />
           </ActionIcon>
         )}
+        {showEditor &&
+          (confirmingDelete ? (
+            <Button
+              color="red"
+              variant="light"
+              size="compact-md"
+              className="mobile-delete-confirm"
+              onClick={() => void deleteOpenFile()}
+            >
+              Delete?
+            </Button>
+          ) : (
+            <ActionIcon
+              variant="subtle"
+              color="red"
+              aria-label={`Delete ${openFileName}`}
+              title={`Delete ${openFileName}`}
+              onClick={() => setConfirmingDelete(true)}
+            >
+              <Trash2 size={19} />
+            </ActionIcon>
+          ))}
       </header>
       {showEditor ? (
         <main className="mobile-editor-screen">
@@ -326,7 +429,33 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
         )}
       </Stack>
 
-      <ScrollArea className="repo-files" type="auto">
+      <div
+        className="repo-files"
+        onTouchStart={onFilesTouchStart}
+        onTouchMove={onFilesTouchMove}
+        onTouchEnd={onFilesTouchEnd}
+        onTouchCancel={onFilesTouchEnd}
+      >
+      <div
+        className="mobile-refresh-indicator"
+        // The indicator tracks the finger directly while dragging; the height
+        // transition only smooths the settle after release.
+        style={{
+          height: refreshing ? 44 : pullDistance,
+          transition: pullDistance > 0 ? "none" : undefined,
+        }}
+        aria-hidden={!refreshing && pullDistance === 0}
+      >
+        {refreshing ? (
+          <Loader size="sm" />
+        ) : (
+          <RefreshCw
+            size={18}
+            style={{ opacity: Math.min(pullDistance / PULL_REFRESH_THRESHOLD, 1) }}
+          />
+        )}
+      </div>
+      <ScrollArea className="repo-files-scroll" type="auto" viewportRef={filesViewportRef}>
         {loading ? (
           null
         ) : fileCount === 0 && !error ? (
@@ -392,6 +521,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
           </div>
         )}
       </ScrollArea>
+      </div>
 
       <div className="repo-home-actions">
         <Button
@@ -399,14 +529,16 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
           size="sm"
           leftSection={<GitCommitHorizontal size={19} />}
           disabled={!git.hasLocalChanges}
-          loading={checkingChanges}
+          loading={checkingChanges || git.publishing}
           onClick={() => void openPublish()}
         >
-          {checkingChanges
-            ? "Checking changes…"
-            : git.hasLocalChanges
-              ? "Publish…"
-              : "Up to date"}
+          {git.publishing
+            ? "Publishing…"
+            : checkingChanges
+              ? "Checking changes…"
+              : git.hasLocalChanges
+                ? "Publish…"
+                : "Up to date"}
         </Button>
       </div>
 

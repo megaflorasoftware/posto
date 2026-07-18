@@ -2934,6 +2934,8 @@ dependencies = [
  "keyring-core",
  "notify",
  "notify-debouncer-mini",
+ "objc2",
+ "objc2-foundation",
  "reqwest",
  "serde",
  "serde_json",

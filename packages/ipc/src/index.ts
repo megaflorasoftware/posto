@@ -442,6 +442,11 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     }
     case "revert_file":
       return null;
+    case "open_in_app_browser":
+      window.open(args?.url as string, "_blank", "noopener,noreferrer");
+      return null;
+    case "close_in_app_browser":
+      return null;
     case "auth_status":
       return { signed_in: mockSignedIn, user: mockSignedIn ? { ...mockUser } : null };
     case "sign_in":
@@ -629,6 +634,17 @@ export const openUrl: (url: string) => Promise<void> = inTauri
   : async (url) => {
       window.open(url, "_blank", "noopener,noreferrer");
     };
+
+/** Open a URL in an in-app browser tab over the app (mobile; falls back to
+ * the system browser where no in-app tab exists). */
+export function openUrlInApp(url: string): Promise<void> {
+  return invoke("open_in_app_browser", { url });
+}
+
+/** Dismiss the in-app browser tab if one is presented. */
+export function closeInAppBrowser(): Promise<void> {
+  return invoke("close_in_app_browser");
+}
 
 /**
  * Subscribes to the backend's debounced `fs-changed` events (absolute paths

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { ActionIcon, Alert, Badge, Button, Loader, Modal, TextInput } from "@mantine/core";
+import { ActionIcon, Alert, Badge, Button, Loader, TextInput } from "@mantine/core";
+import { Dialog } from "./Dialog";
 import { Undo2 } from "lucide-react";
 import type { ChangedFile } from "@posto/ipc";
 
@@ -72,7 +73,7 @@ export function PublishModal(props: {
   }, [props.opened]);
 
   return (
-    <Modal opened={props.opened} onClose={props.onClose} title="Publish changes">
+    <Dialog opened={props.opened} onClose={props.onClose} title="Publish changes">
       {props.error !== null ? (
         <Alert color="red">Could not read changes: {props.error}</Alert>
       ) : props.changes === null ? (
@@ -116,6 +117,6 @@ export function PublishModal(props: {
       >
         Publish
       </Button>
-    </Modal>
+    </Dialog>
   );
 }
