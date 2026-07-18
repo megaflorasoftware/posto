@@ -5,7 +5,7 @@ import {
   Button,
   Center,
   Group,
-  Loader,
+  Skeleton,
   ScrollArea,
   Stack,
   Text,
@@ -29,6 +29,7 @@ import {
   CloudDownload,
   ChevronDown,
   GitCommitHorizontal,
+  Menu,
   RefreshCw,
   TriangleAlert,
 } from "lucide-react";
@@ -50,10 +51,11 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [repairError, setRepairError] = useState<string | null>(null);
   const [redownloading, setRedownloading] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [checkingChanges, setCheckingChanges] = useState(false);
   const [editorTab, setEditorTab] = useState<EditorTab>("fields");
   const schemas = useSchemas();
   const files = useFileGroups(setError);
@@ -91,7 +93,13 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     let active = true;
     setLoading(true);
     setError(null);
-    void files.refreshGroups(root).finally(() => {
+    setRepairError(null);
+    const repositoryCheck = repo
+      ? invoke<string>("doctor_repo", { root, expectedUrl: repo.clone_url }).catch((checkError) => {
+          if (active) setRepairError(message(checkError));
+        })
+      : Promise.resolve();
+    void Promise.all([files.refreshGroups(root), repositoryCheck]).finally(() => {
       if (active) setLoading(false);
     });
     void git.refreshLocalChanges(root);
@@ -109,52 +117,15 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     [files.groups],
   );
 
-  function openPublish() {
-    currentFile.flushPendingSave();
+  async function openPublish() {
+    await currentFile.flushPendingSave();
     setPublishOpen(true);
-    void git.loadChanges(root);
+    await git.loadChanges(root);
   }
 
   async function revert(file: ChangedFile) {
     if (!(await git.revertChange(root, file))) return;
     void files.refreshGroups(root);
-  }
-
-  async function refreshRepository() {
-    if (!repo || refreshing) return;
-    setRefreshing(true);
-    setRepairError(null);
-    setError(null);
-    setStatus("Checking repository…");
-    try {
-      const check = await invoke<string>("doctor_repo", {
-        root,
-        expectedUrl: repo.clone_url,
-      });
-      setStatus(check === "Repository repaired." ? "Repository repaired. Updating…" : "Updating…");
-    } catch (checkError) {
-      setStatus(null);
-      setRepairError(message(checkError));
-      setRefreshing(false);
-      return;
-    }
-
-    try {
-      const behind = await invoke<boolean>("fetch_upstream", { root });
-      if (behind) {
-        setStatus("Downloading updates…");
-        await invoke<string>("pull_upstream", { root });
-      }
-      await files.refreshGroups(root);
-      await git.refreshLocalChanges(root);
-      await currentFile.reloadFromDisk();
-      setStatus("Repository is up to date.");
-    } catch (refreshError) {
-      setStatus(null);
-      setError(`Could not refresh the repository: ${message(refreshError)}`);
-    } finally {
-      setRefreshing(false);
-    }
   }
 
   async function redownloadRepository() {
@@ -173,14 +144,24 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   }
 
   function closeEditor() {
-    currentFile.flushPendingSave();
+    const pendingSave = currentFile.flushPendingSave();
     setShowEditor(false);
     currentFile.closeFile();
+    setCheckingChanges(true);
+    void pendingSave
+      .then(() => git.refreshLocalChanges(root))
+      .finally(() => setCheckingChanges(false));
+  }
+
+  function closeSecondaryView() {
+    if (showEditor) closeEditor();
+    else setShowSettings(false);
   }
 
   function leaveRepository() {
     currentFile.flushPendingSave();
     currentFile.closeFile();
+    setShowSettings(false);
     onChangeRepo();
   }
 
@@ -200,24 +181,28 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
           <UnstyledButton className="mobile-breadcrumb-link" onClick={leaveRepository}>
             Repositories
           </UnstyledButton>
-          {showEditor ? (
-            <UnstyledButton className="mobile-breadcrumb-link" onClick={closeEditor}>
+          {showEditor || showSettings ? (
+            <UnstyledButton className="mobile-breadcrumb-link" onClick={closeSecondaryView}>
               {repo?.name ?? "Repository"}
             </UnstyledButton>
           ) : (
             <Text fw={600} size="sm" truncate>{repo?.name ?? "Repository"}</Text>
           )}
-          {showEditor && <Text fw={600} size="sm" truncate>{openFileName}</Text>}
+          {showEditor && (
+            <Text fw={600} size="sm" className="mobile-file-breadcrumb">{openFileName}</Text>
+          )}
+          {showSettings && <Text fw={600} size="sm" truncate>Settings</Text>}
         </Breadcrumbs>
-        <ActionIcon
-          variant="subtle"
-          aria-label="Refresh repository"
-          title="Refresh repository"
-          loading={refreshing}
-          onClick={() => void refreshRepository()}
-        >
-          <RefreshCw size={19} />
-        </ActionIcon>
+        {!showEditor && !showSettings && (
+          <ActionIcon
+            variant="subtle"
+            aria-label="Site settings"
+            title="Site settings"
+            onClick={() => setShowSettings(true)}
+          >
+            <Menu size={20} />
+          </ActionIcon>
+        )}
       </header>
       {showEditor ? (
         <main className="mobile-editor-screen">
@@ -237,6 +222,25 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
             onEdit={currentFile.onEdit}
             onFormEdit={currentFile.onFormEdit}
           />
+        </main>
+      ) : showSettings ? (
+        <main className="mobile-settings-screen">
+          <Stack gap="xs">
+            {[
+              ["Site details", "Name, URL, and metadata"],
+              ["Publishing", "Branch and deployment settings"],
+              ["Media", "Image sources and upload settings"],
+              ["Domains", "Custom domains and redirects"],
+            ].map(([label, description]) => (
+              <div className="mobile-settings-row" key={label}>
+                <div>
+                  <Text fw={600} size="sm">{label}</Text>
+                  <Text c="dimmed" size="xs">{description}</Text>
+                </div>
+                <Text c="dimmed" size="xs">Coming soon</Text>
+              </div>
+            ))}
+          </Stack>
         </main>
       ) : (
       <main className="repo-home">
@@ -313,7 +317,12 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
 
       <ScrollArea className="repo-files" type="auto">
         {loading ? (
-          <Center className="repo-files-state"><Loader size="md" /></Center>
+          <div className="mobile-document-list mobile-document-skeleton" aria-label="Loading files">
+            <Skeleton height={14} width="38%" />
+            {[78, 61, 86, 54].map((width) => <Skeleton height={18} width={`${width}%`} key={width} />)}
+            <Skeleton height={14} width="46%" mt="sm" />
+            {[68, 82, 57].map((width) => <Skeleton height={18} width={`${width}%`} key={width} />)}
+          </div>
         ) : fileCount === 0 && !error ? (
           <Center className="repo-files-state">
             <Stack align="center" gap="xs">
@@ -368,9 +377,14 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
           size="sm"
           leftSection={<GitCommitHorizontal size={19} />}
           disabled={!git.hasLocalChanges}
-          onClick={openPublish}
+          loading={checkingChanges}
+          onClick={() => void openPublish()}
         >
-          {git.hasLocalChanges ? "Publish…" : "Everything is published"}
+          {checkingChanges
+            ? "Checking changes…"
+            : git.hasLocalChanges
+              ? "Publish…"
+              : "Everything is published"}
         </Button>
       </div>
 

@@ -8,7 +8,7 @@ type Callbacks = {
   /** Status-bar message updates ("Publishing…", results, errors). */
   onStatus: (message: string | null) => void;
   /** Flushes pending edits to disk so git sees them. */
-  beforeSync?: () => void;
+  beforeSync?: () => void | Promise<void>;
   /** Runs after a pull rewrote the working tree. */
   afterPull?: (dir: string) => void;
 };
@@ -28,6 +28,7 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
   // null while the publish modal is loading the change list.
   const [changes, setChanges] = useState<ChangedFile[] | null>(null);
   const [changesError, setChangesError] = useState<string | null>(null);
+  const changedFilesRef = useRef<{ root: string; files: ChangedFile[] } | null>(null);
 
   const rootRef = useRef(root);
   rootRef.current = root;
@@ -59,7 +60,11 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
   async function refreshLocalChanges(dir: string) {
     try {
       const changed = await invoke<ChangedFile[]>("changed_files", { root: dir });
-      if (rootRef.current === dir) setHasLocalChanges(changed.length > 0);
+      if (rootRef.current === dir) {
+        changedFilesRef.current = { root: dir, files: changed };
+        setHasLocalChanges(changed.length > 0);
+        setChanges((current) => (current === null ? current : changed));
+      }
     } catch {
       // Status unavailable (e.g. not a git repo) — leave the button enabled
       // so publishing surfaces the real error instead of silently locking.
@@ -71,7 +76,7 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
     const dir = rootRef.current;
     if (!dir) return;
     // Local edits must be on disk so the pull can stash-carry them.
-    cb.current.beforeSync?.();
+    await cb.current.beforeSync?.();
     setPulling(true);
     cb.current.onStatus("Fetching changes…");
     try {
@@ -87,10 +92,18 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
 
   /** (Re)loads the publish modal's change list. */
   async function loadChanges(dir: string) {
-    setChanges(null);
     setChangesError(null);
+    const cached = changedFilesRef.current;
+    if (cached?.root === dir) {
+      setChanges(cached.files);
+      return;
+    }
+    setChanges(null);
     try {
-      setChanges(await invoke<ChangedFile[]>("changed_files", { root: dir }));
+      const changed = await invoke<ChangedFile[]>("changed_files", { root: dir });
+      changedFilesRef.current = { root: dir, files: changed };
+      setHasLocalChanges(changed.length > 0);
+      setChanges(changed);
     } catch (e) {
       setChangesError(String(e));
     }
@@ -100,23 +113,25 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
    * revert itself failed (the caller skips its follow-up work then). */
   async function revertChange(dir: string, file: ChangedFile): Promise<boolean> {
     try {
-      await invoke("revert_file", { root: dir, path: file.path });
+      await invoke("revert_file", { root: dir, path: file.path, status: file.status });
     } catch (e) {
       setChangesError(String(e));
       return false;
     }
-    try {
-      setChanges(await invoke<ChangedFile[]>("changed_files", { root: dir }));
-    } catch (e) {
-      setChangesError(String(e));
-    }
+    const cached = changedFilesRef.current;
+    const next = (cached?.root === dir ? cached.files : changes ?? []).filter(
+      (candidate) => candidate.path !== file.path,
+    );
+    changedFilesRef.current = { root: dir, files: next };
+    setChanges(next);
+    setHasLocalChanges(next.length > 0);
     return true;
   }
 
   async function publish(message: string) {
     const dir = rootRef.current;
     if (!dir) return;
-    cb.current.beforeSync?.();
+    await cb.current.beforeSync?.();
     cb.current.onStatus("Publishing…");
     try {
       cb.current.onStatus(await invoke<string>("publish", { root: dir, message }));

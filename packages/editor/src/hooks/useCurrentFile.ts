@@ -29,29 +29,40 @@ export function useCurrentFile(callbacks: Callbacks) {
   cb.current = callbacks;
 
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const activeSave = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     return () => clearTimeout(saveTimer.current);
   }, []);
 
-  async function saveNow(path: string, content: string) {
+  function saveNow(path: string, content: string): Promise<void> {
     setSaveState("saving");
-    try {
-      await invoke("write_text_file", { path, content });
-      setSaveState("saved");
-      cb.current.onAfterSave?.(path, content);
-    } catch {
-      setSaveState("error");
-    }
+    const previous = activeSave.current ?? Promise.resolve();
+    const task = previous
+      .then(() => invoke("write_text_file", { path, content }))
+      .then(() => {
+        setSaveState("saved");
+        cb.current.onAfterSave?.(path, content);
+      })
+      .catch(() => {
+        setSaveState("error");
+      })
+      .finally(() => {
+        if (activeSave.current === task) activeSave.current = null;
+      });
+    activeSave.current = task;
+    return task;
   }
 
-  function flushPendingSave() {
+  async function flushPendingSave() {
     if (saveTimer.current !== undefined) {
       clearTimeout(saveTimer.current);
       saveTimer.current = undefined;
       const path = filePathRef.current;
-      if (path) void saveNow(path, fileContentRef.current);
+      if (path) await saveNow(path, fileContentRef.current);
+      return;
     }
+    if (activeSave.current) await activeSave.current;
   }
 
   /** Drops a pending autosave without writing it (delete/revert flows, where
@@ -90,7 +101,7 @@ export function useCurrentFile(callbacks: Callbacks) {
 
   async function openFile(path: string) {
     if (path === filePathRef.current) return;
-    flushPendingSave();
+    await flushPendingSave();
     try {
       const content = await invoke<string>("read_text_file", { path });
       setFilePath(path);

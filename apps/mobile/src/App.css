@@ -77,6 +77,14 @@ input {
   font-weight: 500;
 }
 
+.mobile-file-breadcrumb {
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
 .screen,
 .centered-screen,
 .repo-screen,
@@ -287,8 +295,11 @@ input {
   border: 0;
   color: var(--mantine-color-text);
   text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  line-height: 1.4;
+  white-space: normal;
   background: transparent;
 }
 
@@ -302,6 +313,31 @@ input {
   padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm) var(--mantine-spacing-sm);
   border-top: 1px solid var(--mantine-color-default-border);
   background: var(--mantine-color-body);
+}
+
+.mobile-document-skeleton {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+  padding-top: var(--mantine-spacing-xs);
+}
+
+.mobile-settings-screen {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--mantine-spacing-sm);
+}
+
+.mobile-settings-row {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-md);
+  padding: var(--mantine-spacing-sm);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
 }
 
 .publish-list {
@@ -383,12 +419,16 @@ input {
 }
 
 .mobile-editor-screen .body-rich-editor .mantine-RichTextEditor-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   flex-wrap: nowrap;
   max-height: none;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
+  background: var(--mantine-color-body);
 }
 
 .mobile-editor-screen .body-rich-editor .mantine-RichTextEditor-toolbar::-webkit-scrollbar {
@@ -397,4 +437,33 @@ input {
 
 .mobile-editor-screen .body-rich-editor .mantine-RichTextEditor-controlsGroup {
   flex-shrink: 0;
+}
+
+.mobile-editor-screen .body-rich-scroll {
+  position: relative;
+  overflow-y: auto;
+}
+
+.mobile-editor-screen .body-rich-content,
+.mobile-editor-screen .body-rich-typography {
+  flex: none;
+  overflow: visible;
+}
+
+.mobile-app .picker-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--mantine-spacing-xs);
+  max-width: 100%;
+}
+
+.mobile-app .picker-card {
+  width: 100%;
+  min-width: 0;
+  padding: var(--mantine-spacing-xs);
+}
+
+.mobile-app .picker-card-preview {
+  width: 100%;
+  max-width: 100%;
+  aspect-ratio: 1;
 }

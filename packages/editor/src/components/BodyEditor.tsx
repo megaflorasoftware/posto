@@ -232,6 +232,7 @@ export function BodyEditor(props: {
       // the ProseMirror element; Mantine's generated names aren't stable.
       classNames={{ Typography: "body-rich-typography", content: "body-rich-content" }}
     >
+      <div className="body-rich-scroll">
       <RichTextEditor.Toolbar>
         <RichTextEditor.ControlsGroup>
           <RichTextEditor.H1 />
@@ -243,7 +244,6 @@ export function BodyEditor(props: {
           <RichTextEditor.Bold />
           <RichTextEditor.Italic />
           <RichTextEditor.Strikethrough />
-          <RichTextEditor.Code />
         </RichTextEditor.ControlsGroup>
         <RichTextEditor.ControlsGroup>
           <RichTextEditor.BulletList />
@@ -286,6 +286,7 @@ export function BodyEditor(props: {
         </RichTextEditor.ControlsGroup>
       </RichTextEditor.Toolbar>
       <RichTextEditor.Content />
+      </div>
       {pickerOpen && props.media && (
         <ImagePicker
           root={props.root}

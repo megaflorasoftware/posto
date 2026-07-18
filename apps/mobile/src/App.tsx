@@ -35,6 +35,43 @@ const emptyProgress: CloneProgress = {
   phase: "downloading",
 };
 
+const REPOSITORY_CACHE_KEY = "posto.mobile.repositories.v1";
+
+type RepositoryCache = {
+  repos: GitHubRepo[];
+  managed: ManagedRepo[];
+};
+
+function readRepositoryCache(): RepositoryCache {
+  try {
+    const cached = JSON.parse(
+      localStorage.getItem(REPOSITORY_CACHE_KEY) ?? "null",
+    ) as Partial<RepositoryCache> | null;
+    return {
+      repos: Array.isArray(cached?.repos) ? cached.repos : [],
+      managed: Array.isArray(cached?.managed) ? cached.managed : [],
+    };
+  } catch {
+    return { repos: [], managed: [] };
+  }
+}
+
+function writeRepositoryCache(cache: RepositoryCache) {
+  try {
+    localStorage.setItem(REPOSITORY_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // Repository refresh still works when persistent web storage is unavailable.
+  }
+}
+
+function clearRepositoryCache() {
+  try {
+    localStorage.removeItem(REPOSITORY_CACHE_KEY);
+  } catch {
+    // Nothing else is required for sign-out; in-memory state is cleared below.
+  }
+}
+
 const mobileTheme = createTheme({
   components: {
     ActionIcon: { defaultProps: { size: "lg" } },
@@ -49,11 +86,12 @@ function message(error: unknown): string {
 }
 
 export default function App() {
+  const cachedRepositories = useMemo(readRepositoryCache, []);
   const [stage, setStage] = useState<Stage>("loading");
   const [user, setUser] = useState<GitHubUser | null>(null);
   const [device, setDevice] = useState<DeviceAuthorization | null>(null);
-  const [repos, setRepos] = useState<GitHubRepo[]>([]);
-  const [managed, setManaged] = useState<ManagedRepo[]>([]);
+  const [repos, setRepos] = useState<GitHubRepo[]>(cachedRepositories.repos);
+  const [managed, setManaged] = useState<ManagedRepo[]>(cachedRepositories.managed);
   const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
   const [readyRoot, setReadyRoot] = useState<string | null>(null);
   const [progress, setProgress] = useState<CloneProgress>(emptyProgress);
@@ -62,17 +100,22 @@ export default function App() {
   const loadRepos = useCallback(async () => {
     setError(null);
     setStage("repos");
-    try {
-      const [available, downloaded] = await Promise.all([
-        invoke<GitHubRepo[]>("list_user_repos"),
-        invoke<ManagedRepo[]>("list_repos"),
-      ]);
-      setRepos(available);
-      setManaged(downloaded);
-    } catch (loadError) {
-      setError(message(loadError));
+    const [available, downloaded] = await Promise.allSettled([
+      invoke<GitHubRepo[]>("list_user_repos"),
+      invoke<ManagedRepo[]>("list_repos"),
+    ]);
+    if (available.status === "fulfilled") setRepos(available.value);
+    if (downloaded.status === "fulfilled") setManaged(downloaded.value);
+    if (available.status === "rejected") {
+      setError(message(available.reason));
+    } else if (downloaded.status === "rejected") {
+      setError(message(downloaded.reason));
     }
   }, []);
+
+  useEffect(() => {
+    writeRepositoryCache({ repos, managed });
+  }, [managed, repos]);
 
   useEffect(() => {
     const stopDevice = onAuthDeviceCode(setDevice);
@@ -114,6 +157,7 @@ export default function App() {
       setUser(null);
       setRepos([]);
       setManaged([]);
+      clearRepositoryCache();
       setStage("signed-out");
     } catch (signOutError) {
       setError(message(signOutError));
