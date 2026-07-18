@@ -1,5 +1,7 @@
 #[cfg(any(mobile, test))]
 mod auth;
+#[cfg(mobile)]
+mod browser;
 #[cfg(desktop)]
 mod devserver;
 #[cfg(desktop)]
@@ -98,6 +100,8 @@ pub fn run() {
                 auth::sign_in,
                 auth::sign_out,
                 auth::list_user_repos,
+                browser::open_in_app_browser,
+                browser::close_in_app_browser,
                 fs::list_files,
                 fs::list_dir_files,
                 fs::read_text_file,

@@ -11,6 +11,9 @@ type Callbacks = {
   beforeSync?: () => void | Promise<void>;
   /** Runs after a pull rewrote the working tree. */
   afterPull?: (dir: string) => void;
+  /** When set, publish skips onStatus entirely — progress is read from the
+   * `publishing` flag and only failures are reported, through this. */
+  onPublishError?: (message: string) => void;
 };
 
 /** Git state for the selected root: local changes, upstream polling,
@@ -21,6 +24,7 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
   // Publish while true.
   const [behindUpstream, setBehindUpstream] = useState(false);
   const [pulling, setPulling] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   // Whether git reports uncommitted local changes; the header's Publish
   // button is disabled while false. Kept fresh by refreshLocalChanges (run
   // on saves via the fs watcher, deletes, reverts, pulls, …) and publish.
@@ -142,19 +146,27 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
     const dir = rootRef.current;
     if (!dir) return;
     await cb.current.beforeSync?.();
-    cb.current.onStatus("Publishing…");
+    const quiet = cb.current.onPublishError !== undefined;
+    setPublishing(true);
+    if (!quiet) cb.current.onStatus("Publishing…");
     try {
-      cb.current.onStatus(await invoke<string>("publish", { root: dir, message }));
+      const result = await invoke<string>("publish", { root: dir, message });
+      if (!quiet) cb.current.onStatus(result);
     } catch (e) {
-      cb.current.onStatus(`Publish failed: ${e}`);
+      if (quiet) cb.current.onPublishError?.(`Publish failed: ${e}`);
+      else cb.current.onStatus(`Publish failed: ${e}`);
     }
-    // Committing doesn't touch watched files, so refresh the flag directly.
-    void refreshLocalChanges(dir);
+    // Committing doesn't touch watched files, so refresh the flag directly —
+    // and before clearing `publishing`, so the button lands on "Up to date"
+    // without flashing an enabled "Publish…" in between.
+    await refreshLocalChanges(dir);
+    setPublishing(false);
   }
 
   return {
     behindUpstream,
     pulling,
+    publishing,
     hasLocalChanges,
     changes,
     changesError,

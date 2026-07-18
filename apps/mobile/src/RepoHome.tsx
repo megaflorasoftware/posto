@@ -104,6 +104,8 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     onStatus: setStatus,
     beforeSync: () => currentFile.flushPendingSave(),
     afterPull: (dir) => void files.refreshGroups(dir),
+    // Publish progress lives on the Publish button; only failures surface.
+    onPublishError: setStatus,
   });
 
   useEffect(() => {
@@ -527,14 +529,16 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
           size="sm"
           leftSection={<GitCommitHorizontal size={19} />}
           disabled={!git.hasLocalChanges}
-          loading={checkingChanges}
+          loading={checkingChanges || git.publishing}
           onClick={() => void openPublish()}
         >
-          {checkingChanges
-            ? "Checking changes…"
-            : git.hasLocalChanges
-              ? "Publish…"
-              : "Up to date"}
+          {git.publishing
+            ? "Publishing…"
+            : checkingChanges
+              ? "Checking changes…"
+              : git.hasLocalChanges
+                ? "Publish…"
+                : "Up to date"}
         </Button>
       </div>
 
