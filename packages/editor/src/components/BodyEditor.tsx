@@ -243,7 +243,6 @@ export function BodyEditor(props: {
           <RichTextEditor.Bold />
           <RichTextEditor.Italic />
           <RichTextEditor.Strikethrough />
-          <RichTextEditor.Code />
         </RichTextEditor.ControlsGroup>
         <RichTextEditor.ControlsGroup>
           <RichTextEditor.BulletList />
@@ -285,7 +284,9 @@ export function BodyEditor(props: {
           <RichTextEditor.Redo />
         </RichTextEditor.ControlsGroup>
       </RichTextEditor.Toolbar>
-      <RichTextEditor.Content />
+      <div className="body-rich-scroll">
+        <RichTextEditor.Content />
+      </div>
       {pickerOpen && props.media && (
         <ImagePicker
           root={props.root}

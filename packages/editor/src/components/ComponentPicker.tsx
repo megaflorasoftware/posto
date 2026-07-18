@@ -74,6 +74,15 @@ export function ComponentPicker(props: {
     <Spotlight
       shortcut={null}
       actions={actions}
+      classNames={{
+        content: "component-picker-content",
+        body: "component-picker-body",
+        actionsList: "component-picker-actions",
+        action: "component-picker-action",
+        actionBody: "component-picker-action-body",
+        actionLabel: "component-picker-action-label",
+        actionDescription: "component-picker-action-description",
+      }}
       highlightQuery
       onSpotlightClose={props.onClose}
       searchProps={{ placeholder: "Search components…" }}

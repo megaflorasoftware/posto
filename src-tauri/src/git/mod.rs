@@ -93,7 +93,12 @@ impl Client {
         let mut opts = StatusOptions::new();
         opts.include_untracked(true)
             .recurse_untracked_dirs(true)
-            .renames_head_to_index(true);
+            // Mobile repositories can contain large vendored submodules and
+            // media trees. Publishing only needs the changed paths; expensive
+            // rename detection and submodule traversal add no useful detail.
+            .renames_head_to_index(false)
+            .exclude_submodules(true)
+            .update_index(false);
         opts
     }
 
@@ -141,8 +146,22 @@ impl Client {
     /// Reverts one file to its committed state; `path` is repo-relative.
     /// Untracked files have no committed state, so revert deletes them.
     pub fn revert_file(&self, path: &str) -> Result<(), String> {
-        let status = self.repo.status_file(Path::new(path)).map_err(err_str)?;
-        if status.is_wt_new() && !status.is_index_new() {
+        self.revert_file_with_status(path, None)
+    }
+
+    pub fn revert_file_with_status(
+        &self,
+        path: &str,
+        status_hint: Option<&str>,
+    ) -> Result<(), String> {
+        let untracked = match status_hint {
+            Some(status) => status == "??",
+            None => {
+                let status = self.repo.status_file(Path::new(path)).map_err(err_str)?;
+                status.is_wt_new() && !status.is_index_new()
+            }
+        };
+        if untracked {
             let absolute = self.workdir()?.join(path);
             return std::fs::remove_file(&absolute)
                 .map_err(|e| format!("Failed to delete {}: {e}", absolute.display()));
@@ -423,16 +442,22 @@ impl Client {
 }
 
 #[tauri::command]
-pub fn changed_files(root: String) -> Result<Vec<ChangedFile>, String> {
-    Client::open(&root)?.changed_files()
+pub async fn changed_files(root: String) -> Result<Vec<ChangedFile>, String> {
+    tauri::async_runtime::spawn_blocking(move || Client::open(&root)?.changed_files())
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Reverts one changed file to its committed state. `path` is repo-relative
 /// (as reported by `changed_files`). Untracked files have no committed state,
 /// so revert means deleting them.
 #[tauri::command]
-pub fn revert_file(root: String, path: String) -> Result<(), String> {
-    Client::open(&root)?.revert_file(&path)
+pub async fn revert_file(root: String, path: String, status: Option<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        Client::open(&root)?.revert_file_with_status(&path, status.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Fetches the remote and reports whether the upstream branch has commits the

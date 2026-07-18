@@ -5,19 +5,32 @@ import {
   Button,
   Center,
   Group,
-  Loader,
   ScrollArea,
   Stack,
   Text,
   UnstyledButton,
 } from "@mantine/core";
-import { PublishModal, useFileGroups, useGitSync } from "@posto/editor/sync";
+import {
+  EditorPane,
+  NewFileModal,
+  PublishModal,
+  contentHasFields,
+  useCurrentFile,
+  useFileGroups,
+  useGitSync,
+  useSchemas,
+  type EditorTab,
+} from "@posto/editor";
+import { matchEntry } from "@posto/core/pagescms/config";
+import { parseFile } from "@posto/core/pagescms/frontmatter";
 import { invoke } from "@posto/ipc";
-import type { ChangedFile, GitHubRepo } from "@posto/ipc";
+import type { ChangedFile, FileGroup, GitHubRepo } from "@posto/ipc";
 import {
   CloudDownload,
   ChevronDown,
   GitCommitHorizontal,
+  Menu,
+  Plus,
   RefreshCw,
   TriangleAlert,
 } from "lucide-react";
@@ -39,12 +52,42 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [repairError, setRepairError] = useState<string | null>(null);
   const [redownloading, setRedownloading] = useState(false);
+  const [showEditor, setShowEditor] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [checkingChanges, setCheckingChanges] = useState(false);
+  const [newFileGroup, setNewFileGroup] = useState<FileGroup | null>(null);
+  const [editorTab, setEditorTab] = useState<EditorTab>("fields");
+  const schemas = useSchemas();
   const files = useFileGroups(setError);
+  const currentFile = useCurrentFile({
+    onAfterSave(path, content) {
+      files.updateSidebarTitle(path, content);
+      if (path === root + "/.pages.yml") void schemas.loadPagesConfig(root);
+      if (path === root + "/src/content.config.ts" || path === root + "/src/content/config.ts") {
+        void schemas.loadAstroConfig(root);
+      }
+    },
+    onOpened(path, content) {
+      if (!/\.(md|mdx|markdown)$/i.test(path)) return;
+      const entry = schemas.configRef.current
+        ? matchEntry(schemas.configRef.current, root, path)
+        : null;
+      const parsed = parseFile(content);
+      const hasFields = contentHasFields(entry, parsed);
+      const hasBody = parsed.body.trim() !== "";
+      setEditorTab((last) => {
+        if (last === "fields" && !hasFields) return "body";
+        if (last === "body" && !hasBody && hasFields) return "fields";
+        return last;
+      });
+    },
+    onOpenError: setError,
+  });
   const git = useGitSync(root, {
     onStatus: setStatus,
+    beforeSync: () => currentFile.flushPendingSave(),
     afterPull: (dir) => void files.refreshGroups(dir),
   });
 
@@ -52,7 +95,18 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     let active = true;
     setLoading(true);
     setError(null);
-    void files.refreshGroups(root).finally(() => {
+    setRepairError(null);
+    const repositoryCheck = repo
+      ? invoke<string>("doctor_repo", { root, expectedUrl: repo.clone_url }).catch((checkError) => {
+          if (active) setRepairError(message(checkError));
+        })
+      : Promise.resolve();
+    const repositoryContent = Promise.all([
+      files.refreshGroups(root),
+      schemas.loadPagesConfig(root),
+      schemas.loadAstroConfig(root),
+    ]);
+    void Promise.all([repositoryContent, repositoryCheck]).finally(() => {
       if (active) setLoading(false);
     });
     void git.refreshLocalChanges(root);
@@ -68,50 +122,15 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     [files.groups],
   );
 
-  function openPublish() {
+  async function openPublish() {
+    await currentFile.flushPendingSave();
     setPublishOpen(true);
-    void git.loadChanges(root);
+    await git.loadChanges(root);
   }
 
   async function revert(file: ChangedFile) {
     if (!(await git.revertChange(root, file))) return;
     void files.refreshGroups(root);
-  }
-
-  async function refreshRepository() {
-    if (!repo || refreshing) return;
-    setRefreshing(true);
-    setRepairError(null);
-    setError(null);
-    setStatus("Checking repository…");
-    try {
-      const check = await invoke<string>("doctor_repo", {
-        root,
-        expectedUrl: repo.clone_url,
-      });
-      setStatus(check === "Repository repaired." ? "Repository repaired. Updating…" : "Updating…");
-    } catch (checkError) {
-      setStatus(null);
-      setRepairError(message(checkError));
-      setRefreshing(false);
-      return;
-    }
-
-    try {
-      const behind = await invoke<boolean>("fetch_upstream", { root });
-      if (behind) {
-        setStatus("Downloading updates…");
-        await invoke<string>("pull_upstream", { root });
-      }
-      await files.refreshGroups(root);
-      await git.refreshLocalChanges(root);
-      setStatus("Repository is up to date.");
-    } catch (refreshError) {
-      setStatus(null);
-      setError(`Could not refresh the repository: ${message(refreshError)}`);
-    } finally {
-      setRefreshing(false);
-    }
   }
 
   async function redownloadRepository() {
@@ -124,25 +143,117 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     }
   }
 
+  async function openFile(path: string) {
+    await currentFile.openFile(path);
+    if (currentFile.filePathRef.current === path) setShowEditor(true);
+  }
+
+  async function openCreatedFile(path: string) {
+    setNewFileGroup(null);
+    await files.refreshGroups(root);
+    await openFile(path);
+  }
+
+  function closeEditor() {
+    const pendingSave = currentFile.flushPendingSave();
+    setShowEditor(false);
+    currentFile.closeFile();
+    setCheckingChanges(true);
+    void pendingSave
+      .then(() => git.refreshLocalChanges(root))
+      .finally(() => setCheckingChanges(false));
+  }
+
+  function closeSecondaryView() {
+    if (showEditor) closeEditor();
+    else setShowSettings(false);
+  }
+
+  function leaveRepository() {
+    currentFile.flushPendingSave();
+    currentFile.closeFile();
+    setShowSettings(false);
+    onChangeRepo();
+  }
+
+  const config = schemas.config;
+  const entry = useMemo(() => {
+    if (!currentFile.filePath || !config) return null;
+    return matchEntry(config, root, currentFile.filePath);
+  }, [config, currentFile.filePath, root]);
+  const entrySource =
+    entry === null ? null : schemas.astroConfig?.content.includes(entry) ? "astro" : "pages";
+  const openFileName = currentFile.filePath?.split("/").pop() ?? "File";
+
   return (
     <>
       <header className="mobile-header">
         <Breadcrumbs separator="/" className="mobile-breadcrumbs">
-          <UnstyledButton className="mobile-breadcrumb-link" onClick={onChangeRepo}>
+          <UnstyledButton className="mobile-breadcrumb-link" onClick={leaveRepository}>
             Repositories
           </UnstyledButton>
-          <Text fw={600} size="sm" truncate>{repo?.name ?? "Repository"}</Text>
+          {showEditor || showSettings ? (
+            <UnstyledButton className="mobile-breadcrumb-link" onClick={closeSecondaryView}>
+              {repo?.name ?? "Repository"}
+            </UnstyledButton>
+          ) : (
+            <Text fw={600} size="sm" truncate>{repo?.name ?? "Repository"}</Text>
+          )}
+          {showEditor && (
+            <Text fw={600} size="sm" className="mobile-file-breadcrumb">{openFileName}</Text>
+          )}
+          {showSettings && <Text fw={600} size="sm" truncate>Settings</Text>}
         </Breadcrumbs>
-        <ActionIcon
-          variant="subtle"
-          aria-label="Refresh repository"
-          title="Refresh repository"
-          loading={refreshing}
-          onClick={() => void refreshRepository()}
-        >
-          <RefreshCw size={19} />
-        </ActionIcon>
+        {!showEditor && !showSettings && (
+          <ActionIcon
+            variant="subtle"
+            aria-label="Site settings"
+            title="Site settings"
+            onClick={() => setShowSettings(true)}
+          >
+            <Menu size={20} />
+          </ActionIcon>
+        )}
       </header>
+      {showEditor ? (
+        <main className="mobile-editor-screen">
+          <EditorPane
+            root={root}
+            filePath={currentFile.filePath}
+            fileContent={currentFile.fileContent}
+            saveState={currentFile.saveState}
+            entry={entry}
+            entrySource={entrySource}
+            config={config}
+            configError={schemas.configError}
+            hasAstroFallback={schemas.astroConfig !== null}
+            groups={files.groups}
+            editorTab={editorTab}
+            onTabChange={setEditorTab}
+            onEdit={currentFile.onEdit}
+            onFormEdit={currentFile.onFormEdit}
+          />
+        </main>
+      ) : showSettings ? (
+        <main className="mobile-settings-screen">
+          <Stack gap="xs">
+            {[
+              ["Site details", "Name, URL, and metadata"],
+              ["Publishing", "Branch and deployment settings"],
+              ["Media", "Image sources and upload settings"],
+              ["Domains", "Custom domains and redirects"],
+            ].map(([label, description]) => (
+              <div className="mobile-settings-row" key={label}>
+                <div>
+                  <Text fw={600} size="sm">{label}</Text>
+                  <Text c="dimmed" size="xs">{description}</Text>
+                </div>
+                <Text c="dimmed" size="xs">Coming soon</Text>
+              </div>
+            ))}
+          </Stack>
+        </main>
+      ) : (
       <main className="repo-home">
       <Stack gap="sm" className="repo-home-notices">
         {repairError && (
@@ -217,7 +328,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
 
       <ScrollArea className="repo-files" type="auto">
         {loading ? (
-          <Center className="repo-files-state"><Loader size="md" /></Center>
+          null
         ) : fileCount === 0 && !error ? (
           <Center className="repo-files-state">
             <Stack align="center" gap="xs">
@@ -234,20 +345,46 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
                 <details key={`${group.kind ?? ""}:${group.path}`} open>
                   <summary>
                     <span className="mobile-group-label" title={group.label}>{group.label}</span>
+                    {group.kind !== "styles" && (
+                      <ActionIcon
+                        className="mobile-group-action"
+                        variant="subtle"
+                        color="gray"
+                        aria-label={`New file in ${group.label}`}
+                        title="New file"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setNewFileGroup(group);
+                        }}
+                      >
+                        <Plus size={16} />
+                      </ActionIcon>
+                    )}
                     <ChevronDown size={14} className="mobile-group-chevron" />
                   </summary>
                   {group.files.map((file) => (
-                    <div className="mobile-file-item" key={file.path} title={file.name}>
+                    <button
+                      className="mobile-file-item"
+                      key={file.path}
+                      title={file.name}
+                      onClick={() => void openFile(file.path)}
+                    >
                       {file.title ?? file.name}
-                    </div>
+                    </button>
                   ))}
                 </details>
               ) : (
                 <div key={`${group.kind ?? ""}:${group.path}`}>
                   {group.files.map((file) => (
-                    <div className="mobile-file-item" key={file.path} title={file.name}>
+                    <button
+                      className="mobile-file-item"
+                      key={file.path}
+                      title={file.name}
+                      onClick={() => void openFile(file.path)}
+                    >
                       {file.title ?? file.name}
-                    </div>
+                    </button>
                   ))}
                 </div>
               )
@@ -262,11 +399,27 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
           size="sm"
           leftSection={<GitCommitHorizontal size={19} />}
           disabled={!git.hasLocalChanges}
-          onClick={openPublish}
+          loading={checkingChanges}
+          onClick={() => void openPublish()}
         >
-          {git.hasLocalChanges ? "Publish…" : "Everything is published"}
+          {checkingChanges
+            ? "Checking changes…"
+            : git.hasLocalChanges
+              ? "Publish…"
+              : "Up to date"}
         </Button>
       </div>
+
+      {newFileGroup && config && (
+        <NewFileModal
+          root={root}
+          group={newFileGroup}
+          config={config}
+          astroContent={schemas.astroConfig?.content ?? []}
+          onClose={() => setNewFileGroup(null)}
+          onCreated={(path) => void openCreatedFile(path)}
+        />
+      )}
 
       <PublishModal
         opened={publishOpen}
@@ -280,6 +433,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
         }}
       />
       </main>
+      )}
     </>
   );
 }

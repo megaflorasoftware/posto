@@ -10,6 +10,9 @@
   },
   "dependencies": {
     "@mantine/core": "^9.4.1",
+    "@mantine/spotlight": "9.4.1",
+    "@mantine/tiptap": "^9.4.1",
+    "@posto/core": "workspace:*",
     "@posto/editor": "workspace:*",
     "@posto/ipc": "workspace:*",
     "lucide-react": "^1.23.0",
