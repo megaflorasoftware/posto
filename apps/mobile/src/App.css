@@ -38,8 +38,10 @@ input {
   overflow: hidden;
   color: var(--mantine-color-text);
   background: var(--mantine-color-body);
-  padding: env(safe-area-inset-top) env(safe-area-inset-right)
-    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  /* No bottom inset here: scrollable screens run to the device edge and pad
+     their own content past the home indicator instead. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0
+    env(safe-area-inset-left);
 }
 
 .mobile-header {
@@ -84,7 +86,8 @@ input {
   align-items: center;
   justify-content: center;
   overflow-y: auto;
-  padding: var(--mantine-spacing-xl) var(--mantine-spacing-md);
+  padding: var(--mantine-spacing-xl) var(--mantine-spacing-md)
+    max(var(--mantine-spacing-xl), env(safe-area-inset-bottom));
 }
 
 .device-code {
@@ -112,7 +115,7 @@ input {
   gap: var(--mantine-spacing-sm);
   width: 100%;
   overflow: hidden;
-  padding: var(--mantine-spacing-md) 0 0;
+  padding: var(--mantine-spacing-sm) 0 0;
 }
 
 .repo-screen-search,
@@ -131,7 +134,8 @@ input {
 .repo-list-content {
   display: grid;
   gap: var(--mantine-spacing-xs);
-  padding: 0 var(--mantine-spacing-md) var(--mantine-spacing-md);
+  padding: 0 var(--mantine-spacing-md)
+    calc(var(--mantine-spacing-md) + env(safe-area-inset-bottom));
 }
 
 .repo-list .mantine-ScrollArea-viewport,
@@ -194,14 +198,12 @@ input {
     "notices"
     "files"
     "actions";
-  gap: var(--mantine-spacing-xs);
   overflow: hidden;
-  padding: var(--mantine-spacing-sm) 0 0;
 }
 
 .repo-home-notices {
   grid-area: notices;
-  padding: 0 var(--mantine-spacing-sm);
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-sm) var(--mantine-spacing-xs);
 }
 
 .repo-home-notices:empty {
@@ -247,7 +249,7 @@ input {
 .mobile-document-list {
   width: 100%;
   max-width: 100%;
-  padding: 0 var(--mantine-spacing-sm) var(--mantine-spacing-sm);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm) var(--mantine-spacing-sm);
   font-size: 0.85rem;
 }
 
@@ -324,7 +326,8 @@ input {
 .repo-home-actions {
   grid-area: actions;
   min-width: 0;
-  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm) var(--mantine-spacing-sm);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm)
+    max(var(--mantine-spacing-sm), env(safe-area-inset-bottom));
   border-top: 1px solid var(--mantine-color-default-border);
   background: var(--mantine-color-body);
 }
@@ -334,7 +337,8 @@ input {
   min-height: 0;
   flex: 1;
   overflow-y: auto;
-  padding: var(--mantine-spacing-sm);
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-sm)
+    max(var(--mantine-spacing-sm), env(safe-area-inset-bottom));
 }
 
 .mobile-settings-row {
@@ -453,6 +457,16 @@ input {
 .mobile-editor-screen .body-rich-typography {
   flex: none;
   overflow: visible;
+}
+
+/* The editor runs to the device edge; the scrolling content pads itself past
+   the home indicator so the last line stays reachable. */
+.mobile-editor-screen .body-rich-content {
+  padding-bottom: max(var(--mantine-spacing-md), env(safe-area-inset-bottom));
+}
+
+.mobile-editor-screen .editor {
+  padding-bottom: max(var(--mantine-spacing-md), env(safe-area-inset-bottom));
 }
 
 .posto-mobile-shell .picker-grid {
