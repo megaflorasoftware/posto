@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Button, Modal } from "@mantine/core";
+import { Button } from "@mantine/core";
+import { Dialog } from "./Dialog";
 
 import { assetUrl, invoke, openPath } from "@posto/ipc";
 import type { FileEntry } from "@posto/ipc";
@@ -35,7 +36,7 @@ export function ImagePicker(props: {
   }, [dir]);
 
   return (
-    <Modal opened onClose={props.onClose} title={props.media.label ?? "Choose image"} size="xl">
+    <Dialog opened onClose={props.onClose} title={props.media.label ?? "Choose image"} size="xl">
       {error != null && (
         <div className="picker-error">
           Could not read {props.media.input}: {String(error)}
@@ -73,6 +74,6 @@ export function ImagePicker(props: {
       <Button fullWidth variant="light" mt="sm" onClick={() => void openPath(dir)}>
         Open Media Folder
       </Button>
-    </Modal>
+    </Dialog>
   );
 }

@@ -1,4 +1,5 @@
 import { createTheme, MantineProvider } from "@mantine/core";
+import { DialogVariantProvider } from "@posto/editor";
 import {
   invoke,
   onAuthDeviceCode,
@@ -249,6 +250,7 @@ export default function App() {
 
   return (
     <MantineProvider defaultColorScheme="auto" theme={mobileTheme}>
+      <DialogVariantProvider variant="drawer">
       <Onboarding
         stage={stage}
         user={user}
@@ -272,6 +274,7 @@ export default function App() {
         onRedownloadRepo={(repo, root) => redownloadRepo(repo, root)}
         onChangeRepo={() => setStage("repos")}
       />
+      </DialogVariantProvider>
     </MantineProvider>
   );
 }

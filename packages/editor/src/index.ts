@@ -1,3 +1,4 @@
+export * from "./components/Dialog";
 export * from "./components/EditorPane";
 export * from "./components/FileList";
 export * from "./components/NewFileModal";

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Alert, Button, Modal, TextInput } from "@mantine/core";
+import { Alert, Button, TextInput } from "@mantine/core";
+import { Dialog } from "./Dialog";
 import { Document } from "yaml";
 
 import { invoke } from "@posto/ipc";
@@ -99,7 +100,7 @@ export function NewFileModal(props: {
     primary && typeof primary.label === "string" ? primary.label : (primary?.name ?? "");
 
   return (
-    <Modal opened onClose={props.onClose} title={`New file in ${props.group.label || "root"}`}>
+    <Dialog opened onClose={props.onClose} title={`New file in ${props.group.label || "root"}`}>
       {error !== null && (
         <Alert color="red" mb="sm">
           {error}
@@ -129,6 +130,6 @@ export function NewFileModal(props: {
       <Button fullWidth mt="md" disabled={invalid || creating} onClick={() => void create()}>
         Create
       </Button>
-    </Modal>
+    </Dialog>
   );
 }
