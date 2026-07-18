@@ -251,6 +251,8 @@ function PropsForm(formProps: {
   const ctx: FieldContext = {
     config: env.config,
     root: env.root,
+    // Component props aren't collection frontmatter; media stays global.
+    entry: null,
     groups: env.groups,
     errors: () => errors,
     value: (path) => {

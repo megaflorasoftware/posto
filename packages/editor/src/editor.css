@@ -641,3 +641,47 @@
   color: var(--mantine-color-dimmed);
   font-size: 0.85rem;
 }
+
+/* Collection order dialog: label rows with up/down movers. */
+.collection-order-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.collection-order-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0;
+  font-size: 0.85rem;
+}
+
+.collection-order-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Footer launcher for workspace collection settings. */
+.sidebar-footer-action {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.35rem 0.25rem;
+  border: none;
+  border-top: 1px solid var(--mantine-color-default-border);
+  border-radius: 0;
+  background: none;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+  cursor: pointer;
+}
+
+.sidebar-footer-action:hover {
+  color: inherit;
+}

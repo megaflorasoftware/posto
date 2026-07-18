@@ -18,7 +18,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
-import type { Field, PagesConfig } from "@posto/core/pagescms/config";
+import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
 import { collectionExtension, mediaInputPath, resolveMedia } from "@posto/core/pagescms/config";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 import type { Errors } from "@posto/core/pagescms/validate";
@@ -29,6 +29,8 @@ import { ImagePicker } from "./ImagePicker";
 export interface FieldContext {
   config: PagesConfig;
   root: string;
+  /** Collection entry the edited file belongs to; scopes media resolution. */
+  entry: ContentEntry | null;
   groups: FileGroup[];
   errors: () => Errors;
   /** Current value at a frontmatter path. */
@@ -100,7 +102,7 @@ function imagePickable(field: Field): boolean {
  * and writes the picked image's output path as the field's value. */
 function PickImageCta(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
   const [open, setOpen] = useState(false);
-  const media = resolveMedia(props.ctx.config, props.field);
+  const media = resolveMedia(props.ctx.config, props.field, props.ctx.entry);
   if (!media) return null;
   return (
     <>
@@ -375,7 +377,7 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
     if (!imageChild) return null;
     const value = itemRecord(index)[imageChild.name];
     if (typeof value !== "string" || value === "") return null;
-    const media = resolveMedia(props.ctx.config, imageChild);
+    const media = resolveMedia(props.ctx.config, imageChild, props.ctx.entry);
     if (!media) return null;
     const absolute = mediaInputPath(props.ctx.root, media, value);
     return absolute ? assetUrl(absolute) : null;
@@ -482,7 +484,7 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
 
 function ImageField(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
   const [pickerOpen, setPickerOpen] = useState(false);
-  const media = resolveMedia(props.ctx.config, props.field);
+  const media = resolveMedia(props.ctx.config, props.field, props.ctx.entry);
   const value = asString(props.ctx.value(props.path));
 
   return (

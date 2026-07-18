@@ -128,6 +128,7 @@ function App() {
     preview.resetRoute();
     void schemas.loadPagesConfig(dir);
     void schemas.loadAstroConfig(dir);
+    void schemas.loadPostoConfig(dir);
     await refreshGroups(dir);
     void devServer.startServer(dir);
     void invoke("set_last_root", { root: dir }).then(() => refreshRecentRoots());
@@ -167,6 +168,7 @@ function App() {
     if (!dir) return;
     void refreshGroups(dir);
     if (paths.includes(dir + "/.pages.yml")) void schemas.loadPagesConfig(dir);
+    if (paths.some((p) => p.startsWith(dir + "/.posto/"))) void schemas.loadPostoConfig(dir);
     if (
       paths.some(
         (p) =>
@@ -260,9 +262,17 @@ function App() {
     return matchEntry(config, root, currentFile.filePath);
   }, [root, currentFile.filePath, config]);
 
-  // Which source the matched entry came from, for the header badge.
+  // Which source the matched entry came from, for the header badge. Matched
+  // by name+path because the `.posto` overlay clones entries it touches;
+  // `.pages.yml` wins ties, matching the config's precedence order.
   const entrySource =
-    entry === null ? null : schemas.astroConfig?.content.includes(entry) ? "astro" : "pages";
+    entry === null
+      ? null
+      : schemas.pagesConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
+        ? "pages"
+        : schemas.astroConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
+          ? "astro"
+          : "pages";
 
   return (
     <MantineProvider defaultColorScheme="auto">
@@ -318,6 +328,7 @@ function App() {
               onOpen={(path) => openFile(path)}
               onDelete={(file) => void deleteFile(file)}
               onNewFile={setNewFileGroup}
+              onPostoSaved={() => void schemas.loadPostoConfig(root)}
             />
 
             <div className="panes" ref={preview.panesEl}>

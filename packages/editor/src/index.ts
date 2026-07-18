@@ -1,3 +1,5 @@
+export * from "./components/CollectionOrderDialog";
+export * from "./components/CollectionSettingsDialog";
 export * from "./components/Dialog";
 export * from "./components/EditorPane";
 export * from "./components/FileList";

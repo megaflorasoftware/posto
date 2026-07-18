@@ -1,8 +1,129 @@
-import { useMemo } from "react";
-import { ChevronDown, Plus } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ChevronDown, Plus, SlidersHorizontal } from "lucide-react";
 import type { FileEntry, FileGroup } from "@posto/ipc";
-import { matchCollectionForDir, type PagesConfig } from "@posto/core/pagescms/config";
+import {
+  matchCollectionForDir,
+  type ContentEntry,
+  type PagesConfig,
+} from "@posto/core/pagescms/config";
+import { compareBySort, expandEntryName } from "@posto/core/posto/config";
+import { CollectionOrderDialog } from "./CollectionOrderDialog";
+import { CollectionSettingsDialog } from "./CollectionSettingsDialog";
 import { FileList } from "./FileList";
+
+/** Applies the collection's `.posto` preferences to a group's files:
+ * templated entry labels, frontmatter sort, then pinned entries on top
+ * (stable sorts keep the frontmatter order among unpinned files). */
+function applyCollectionPrefs(files: FileEntry[], collection: ContentEntry): FileEntry[] {
+  const { entryName, sort, pinned } = collection;
+  if (!entryName && !sort && !pinned?.length) return files;
+  let result = files;
+  if (entryName) {
+    result = result.map((file) => {
+      const label = expandEntryName(entryName, file.frontmatter);
+      return label ? { ...file, title: label } : file;
+    });
+  }
+  if (sort) {
+    result = [...result].sort((a, b) => compareBySort(a.frontmatter, b.frontmatter, sort));
+  }
+  if (pinned?.length) {
+    const rank = new Map(pinned.map((name, i) => [name, i]));
+    result = [...result].sort(
+      (a, b) => (rank.get(a.name) ?? Infinity) - (rank.get(b.name) ?? Infinity),
+    );
+  }
+  return result;
+}
+
+export interface DisplayGroup {
+  group: FileGroup;
+  /** Collection the group's directory belongs to, when one is defined. */
+  collection: ContentEntry | null;
+  /** True when the group is the collection's own folder (not a subfolder);
+   * only these carry the collection's label and settings button. */
+  exact: boolean;
+}
+
+/**
+ * Groups in display order with collection settings applied: loose root files
+ * stay at the very top, then groups whose directory belongs to a defined
+ * collection — taking that collection's label and sorting by `.posto`
+ * collection order, then alphabetically, regardless of schema source — and
+ * plain directory groups follow in backend order. Shared with the mobile
+ * file list, which renders groups without this component.
+ */
+export function sidebarDisplayGroups(
+  groups: FileGroup[],
+  config: PagesConfig | null,
+  root: string,
+): DisplayGroup[] {
+  if (!config) return groups.map((group) => ({ group, collection: null, exact: false }));
+  return groups
+    .map((group, original) => {
+      if (group.kind === "styles") {
+        return {
+          display: { group, collection: null, exact: false },
+          tier: 3,
+          order: Infinity,
+          collectionLabel: "",
+          exact: false,
+          original,
+        };
+      }
+      const collection = group.label ? matchCollectionForDir(config, root, group.path) : null;
+      const exact = collection !== null && group.path === root + "/" + collection.path;
+      const withPrefs = collection
+        ? { ...group, files: applyCollectionPrefs(group.files, collection) }
+        : group;
+      return {
+        // Subfolder groups of a collection sort with it but keep their
+        // directory label, so nested dirs stay distinguishable.
+        display: {
+          group: exact ? { ...withPrefs, label: collection.label ?? collection.name } : withPrefs,
+          collection,
+          exact,
+        },
+        tier: !group.label ? 0 : collection ? 1 : 2,
+        order: collection?.order ?? Infinity,
+        collectionLabel: collection ? (collection.label ?? collection.name) : "",
+        exact,
+        original,
+      };
+    })
+    .sort(
+      (a, b) =>
+        a.tier - b.tier ||
+        a.order - b.order ||
+        a.collectionLabel.localeCompare(b.collectionLabel, undefined, {
+          sensitivity: "base",
+        }) ||
+        Number(b.exact) - Number(a.exact) ||
+        a.original - b.original,
+    )
+    .map((d) => d.display);
+}
+
+/**
+ * Collections eligible for the order dialog, unique by name in current
+ * display order. Derived from the config (not the visible groups) so
+ * collections whose folder is currently empty still appear.
+ */
+export function orderableCollections(config: PagesConfig | null): ContentEntry[] {
+  if (!config) return [];
+  const seen = new Set<string>();
+  return config.content
+    .filter((entry) => {
+      if (entry.type !== "collection" || seen.has(entry.name)) return false;
+      seen.add(entry.name);
+      return true;
+    })
+    .sort(
+      (a, b) =>
+        (a.order ?? Infinity) - (b.order ?? Infinity) ||
+        (a.label ?? a.name).localeCompare(b.label ?? b.name, undefined, { sensitivity: "base" }),
+    );
+}
 
 export function Sidebar(props: {
   root: string;
@@ -12,89 +133,109 @@ export function Sidebar(props: {
   onOpen: (path: string) => void;
   onDelete: (file: FileEntry) => void;
   onNewFile: (group: FileGroup) => void;
+  /** `.posto` settings were saved; reload the overlay. */
+  onPostoSaved: () => void;
 }) {
   const { root, groups, config } = props;
 
-  // Sidebar groups: loose root files stay at the very top, then groups whose
-  // directory belongs to a defined collection — taking that collection's
-  // label and sorting alphabetically regardless of schema source — and plain
-  // directory groups follow in backend order.
-  const displayGroups = useMemo(() => {
-    if (!config) return groups;
-    return groups
-      .map((group, original) => {
-        if (group.kind === "styles") {
-          return { group, tier: 3, collectionLabel: "", exact: false, original };
-        }
-        const collection = group.label ? matchCollectionForDir(config, root, group.path) : null;
-        const exact = collection !== null && group.path === root + "/" + collection.path;
-        return {
-          // Subfolder groups of a collection sort with it but keep their
-          // directory label, so nested dirs stay distinguishable.
-          group: exact ? { ...group, label: collection.label ?? collection.name } : group,
-          tier: !group.label ? 0 : collection ? 1 : 2,
-          collectionLabel: collection ? (collection.label ?? collection.name) : "",
-          exact,
-          original,
-        };
-      })
-      .sort(
-        (a, b) =>
-          a.tier - b.tier ||
-          a.collectionLabel.localeCompare(b.collectionLabel, undefined, {
-            sensitivity: "base",
-          }) ||
-          Number(b.exact) - Number(a.exact) ||
-          a.original - b.original,
-      )
-      .map((d) => d.group);
-  }, [groups, config, root]);
+  // Collection whose settings dialog is open, with its group's files for
+  // pinning suggestions.
+  const [settingsFor, setSettingsFor] = useState<{
+    collection: ContentEntry;
+    files: FileEntry[];
+  } | null>(null);
+  const [orderOpen, setOrderOpen] = useState(false);
+
+  const displayGroups = useMemo(
+    () => sidebarDisplayGroups(groups, config, root),
+    [groups, config, root],
+  );
 
   return (
     <aside className="sidebar">
-      {displayGroups.map((group) =>
-        group.label ? (
-          // The synthetic Styles group shares its path with the root
-          // group, so the key needs the kind to stay unique.
-          <details key={`${group.kind ?? ""}:${group.path}`} open>
-            <summary>
-              <span className="group-label" title={group.label}>
-                {group.label}
-              </span>
-              {group.kind !== "styles" && (
-                <button
-                  type="button"
-                  className="group-action"
-                  title="New file"
-                  aria-label={`New file in ${group.label}`}
-                  onClick={(e) => {
-                    // A click inside <summary> would also toggle the group.
-                    e.preventDefault();
-                    e.stopPropagation();
-                    props.onNewFile(group);
-                  }}
-                >
-                  <Plus size={14} />
-                </button>
-              )}
-              <ChevronDown size={14} className="group-chevron" />
-            </summary>
+      {settingsFor && (
+        <CollectionSettingsDialog
+          root={root}
+          collection={settingsFor.collection}
+          files={settingsFor.files}
+          onClose={() => setSettingsFor(null)}
+          onSaved={props.onPostoSaved}
+        />
+      )}
+      {orderOpen && (
+        <CollectionOrderDialog
+          root={root}
+          collections={orderableCollections(config)}
+          onClose={() => setOrderOpen(false)}
+          onSaved={props.onPostoSaved}
+        />
+      )}
+      <div className="sidebar-groups">
+        {displayGroups.map(({ group, collection, exact }) =>
+          group.label ? (
+            // The synthetic Styles group shares its path with the root
+            // group, so the key needs the kind to stay unique.
+            <details key={`${group.kind ?? ""}:${group.path}`} open>
+              <summary>
+                <span className="group-label" title={group.label}>
+                  {group.label}
+                </span>
+                {group.kind !== "styles" && (
+                  <button
+                    type="button"
+                    className="group-action"
+                    title="New file"
+                    aria-label={`New file in ${group.label}`}
+                    onClick={(e) => {
+                      // A click inside <summary> would also toggle the group.
+                      e.preventDefault();
+                      e.stopPropagation();
+                      props.onNewFile(group);
+                    }}
+                  >
+                    <Plus size={14} />
+                  </button>
+                )}
+                {collection && exact && (
+                  <button
+                    type="button"
+                    className="group-action"
+                    title="Collection settings"
+                    aria-label={`Settings for ${group.label}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setSettingsFor({ collection, files: group.files });
+                    }}
+                  >
+                    <SlidersHorizontal size={14} />
+                  </button>
+                )}
+                <ChevronDown size={14} className="group-chevron" />
+              </summary>
+              <FileList
+                files={group.files}
+                activePath={props.activePath}
+                onOpen={props.onOpen}
+                onDelete={props.onDelete}
+              />
+            </details>
+          ) : (
             <FileList
+              key={group.path}
               files={group.files}
               activePath={props.activePath}
               onOpen={props.onOpen}
               onDelete={props.onDelete}
             />
-          </details>
-        ) : (
-          <FileList
-            key={group.path}
-            files={group.files}
-            activePath={props.activePath}
-            onOpen={props.onOpen}
-            onDelete={props.onDelete}
-          />
-        ),
+          ),
+        )}
+      </div>
+      {orderableCollections(config).length > 1 && (
+        <button type="button" className="sidebar-footer-action" onClick={() => setOrderOpen(true)}>
+          <SlidersHorizontal size={14} />
+          Collection settings
+        </button>
       )}
     </aside>
   );

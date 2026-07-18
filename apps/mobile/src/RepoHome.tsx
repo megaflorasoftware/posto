@@ -10,20 +10,24 @@ import {
   Text,
 } from "@mantine/core";
 import {
+  CollectionOrderDialog,
+  CollectionSettingsDialog,
   EditorPane,
   NewFileModal,
   PublishModal,
   contentHasFields,
+  orderableCollections,
+  sidebarDisplayGroups,
   useCurrentFile,
   useFileGroups,
   useGitSync,
   useSchemas,
   type EditorTab,
 } from "@posto/editor";
-import { matchEntry } from "@posto/core/pagescms/config";
+import { matchEntry, type ContentEntry } from "@posto/core/pagescms/config";
 import { parseFile } from "@posto/core/pagescms/frontmatter";
 import { invoke } from "@posto/ipc";
-import type { ChangedFile, FileGroup, GitHubRepo } from "@posto/ipc";
+import type { ChangedFile, FileEntry, FileGroup, GitHubRepo } from "@posto/ipc";
 import {
   CloudDownload,
   ChevronDown,
@@ -32,6 +36,7 @@ import {
   Menu,
   Plus,
   RefreshCw,
+  SlidersHorizontal,
   Trash2,
   TriangleAlert,
 } from "lucide-react";
@@ -68,6 +73,12 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   const [showSettings, setShowSettings] = useState(false);
   const [checkingChanges, setCheckingChanges] = useState(false);
   const [newFileGroup, setNewFileGroup] = useState<FileGroup | null>(null);
+  // `.posto` settings dialogs: one per collection, one for workspace order.
+  const [settingsFor, setSettingsFor] = useState<{
+    collection: ContentEntry;
+    files: FileEntry[];
+  } | null>(null);
+  const [orderOpen, setOrderOpen] = useState(false);
   const [editorTab, setEditorTab] = useState<EditorTab>("fields");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -122,6 +133,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
       files.refreshGroups(root),
       schemas.loadPagesConfig(root),
       schemas.loadAstroConfig(root),
+      schemas.loadPostoConfig(root),
     ]);
     void Promise.all([repositoryContent, repositoryCheck]).finally(() => {
       if (active) setLoading(false);
@@ -137,6 +149,13 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   const fileCount = useMemo(
     () => files.groups.reduce((total, group) => total + group.files.length, 0),
     [files.groups],
+  );
+
+  // Same ordering, labels, and `.posto` collection preferences as the
+  // desktop sidebar.
+  const displayGroups = useMemo(
+    () => sidebarDisplayGroups(files.groups, schemas.config, root),
+    [files.groups, schemas.config, root],
   );
 
   async function openPublish() {
@@ -266,8 +285,16 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     if (!currentFile.filePath || !config) return null;
     return matchEntry(config, root, currentFile.filePath);
   }, [config, currentFile.filePath, root]);
+  // Matched by name+path because the `.posto` overlay clones entries it
+  // touches; `.pages.yml` wins ties, matching the config's precedence order.
   const entrySource =
-    entry === null ? null : schemas.astroConfig?.content.includes(entry) ? "astro" : "pages";
+    entry === null
+      ? null
+      : schemas.pagesConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
+        ? "pages"
+        : schemas.astroConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
+          ? "astro"
+          : "pages";
   const openFileName = currentFile.filePath?.split("/").pop() ?? "File";
 
   return (
@@ -469,7 +496,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
           </Center>
         ) : (
           <div className="mobile-document-list">
-            {files.groups.map((group) => (
+            {displayGroups.map(({ group, collection, exact }) => (
               group.label ? (
                 <details key={`${group.kind ?? ""}:${group.path}`} open>
                   <summary>
@@ -488,6 +515,22 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
                         }}
                       >
                         <Plus size={16} />
+                      </ActionIcon>
+                    )}
+                    {collection && exact && (
+                      <ActionIcon
+                        className="mobile-group-action"
+                        variant="subtle"
+                        color="gray"
+                        aria-label={`Settings for ${group.label}`}
+                        title="Collection settings"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setSettingsFor({ collection, files: group.files });
+                        }}
+                      >
+                        <SlidersHorizontal size={16} />
                       </ActionIcon>
                     )}
                     <ChevronDown size={14} className="mobile-group-chevron" />
@@ -518,6 +561,16 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
                 </div>
               )
             ))}
+            {orderableCollections(schemas.config).length > 1 && (
+              <button
+                type="button"
+                className="mobile-collections-settings"
+                onClick={() => setOrderOpen(true)}
+              >
+                <SlidersHorizontal size={16} />
+                Collection settings
+              </button>
+            )}
           </div>
         )}
       </ScrollArea>
@@ -550,6 +603,25 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
           astroContent={schemas.astroConfig?.content ?? []}
           onClose={() => setNewFileGroup(null)}
           onCreated={(path) => void openCreatedFile(path)}
+        />
+      )}
+
+      {settingsFor && (
+        <CollectionSettingsDialog
+          root={root}
+          collection={settingsFor.collection}
+          files={settingsFor.files}
+          onClose={() => setSettingsFor(null)}
+          onSaved={() => void schemas.loadPostoConfig(root)}
+        />
+      )}
+
+      {orderOpen && (
+        <CollectionOrderDialog
+          root={root}
+          collections={orderableCollections(schemas.config)}
+          onClose={() => setOrderOpen(false)}
+          onSaved={() => void schemas.loadPostoConfig(root)}
         />
       )}
 

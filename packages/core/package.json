@@ -6,7 +6,8 @@
   "exports": {
     "./astro/*": "./src/astro/*.ts",
     "./mdx/*": "./src/mdx/*.ts",
-    "./pagescms/*": "./src/pagescms/*.ts"
+    "./pagescms/*": "./src/pagescms/*.ts",
+    "./posto/*": "./src/posto/*.ts"
   },
   "dependencies": {
     "yaml": "^2.9.0"

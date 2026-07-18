@@ -16,6 +16,9 @@ pub struct FileEntry {
     path: String,
     /// Display label from frontmatter (`title:`, else `name:`), when present.
     title: Option<String>,
+    /// Top-level scalar frontmatter pairs, for `.posto` collection settings
+    /// (entry-name templates, sorting). None for non-markdown files.
+    frontmatter: Option<std::collections::BTreeMap<String, String>>,
 }
 
 const FRONTMATTER_TITLE_EXTENSIONS: &[&str] = &["md", "mdx", "markdown"];
@@ -30,10 +33,14 @@ fn frontmatter_scalar(value: &str) -> Option<String> {
     (!trimmed.is_empty()).then_some(trimmed)
 }
 
-/// Extracts `title:` (falling back to `name:`) from a markdown file's leading
-/// frontmatter block. Line-based on purpose: sidebar labels don't warrant a
-/// YAML parser, and multiline scalars simply fall back to the filename.
-fn frontmatter_title(path: &Path, ext: &str) -> Option<String> {
+/// Extracts top-level `key: value` scalar pairs from a markdown file's
+/// leading frontmatter block. Line-based on purpose: sidebar labels and
+/// sort keys don't warrant a YAML parser — nested/multiline values are
+/// simply skipped and their consumers fall back (label → filename).
+fn frontmatter_scalars(
+    path: &Path,
+    ext: &str,
+) -> Option<std::collections::BTreeMap<String, String>> {
     if !FRONTMATTER_TITLE_EXTENSIONS.contains(&ext) {
         return None;
     }
@@ -42,20 +49,35 @@ fn frontmatter_title(path: &Path, ext: &str) -> Option<String> {
     if lines.next()?.trim_end() != "---" {
         return None;
     }
-    let mut title = None;
-    let mut name = None;
+    let mut pairs = std::collections::BTreeMap::new();
     for line in lines {
         let end = line.trim_end();
         if end == "---" || end == "..." {
             break;
         }
-        if let Some(v) = line.strip_prefix("title:") {
-            title = frontmatter_scalar(v);
-        } else if let Some(v) = line.strip_prefix("name:") {
-            name = frontmatter_scalar(v);
+        // Indented lines belong to nested values; `- ` lines to sequences.
+        if line.starts_with(' ') || line.starts_with('\t') {
+            continue;
+        }
+        if let Some((key, value)) = line.split_once(':') {
+            let key = key.trim();
+            if key.is_empty() || key.contains(' ') {
+                continue;
+            }
+            if let Some(scalar) = frontmatter_scalar(value) {
+                pairs.insert(key.to_string(), scalar);
+            }
         }
     }
-    title.or(name)
+    (!pairs.is_empty()).then_some(pairs)
+}
+
+/// Display label from frontmatter: `title:`, else `name:`.
+fn frontmatter_title(
+    frontmatter: Option<&std::collections::BTreeMap<String, String>>,
+) -> Option<String> {
+    let pairs = frontmatter?;
+    pairs.get("title").or_else(|| pairs.get("name")).cloned()
 }
 
 /// One flat sidebar section: a directory that directly contains text files.
@@ -96,8 +118,10 @@ fn collect_groups(root: &Path, dir: &Path, groups: &mut Vec<FileGroup>) {
                 .map(|e| e.to_string_lossy().to_lowercase())
                 .unwrap_or_default();
             if is_schema || TEXT_EXTENSIONS.contains(&ext.as_str()) {
+                let frontmatter = frontmatter_scalars(&path, &ext);
                 files.push(FileEntry {
-                    title: frontmatter_title(&path, &ext),
+                    title: frontmatter_title(frontmatter.as_ref()),
+                    frontmatter,
                     name,
                     path: path.to_string_lossy().to_string(),
                 });
@@ -173,6 +197,7 @@ fn collect_dir_files(dir: &Path, extensions: &[String], out: &mut Vec<FileEntry>
                     name,
                     path: path.to_string_lossy().to_string(),
                     title: None,
+                    frontmatter: None,
                 });
             }
         }
@@ -206,6 +231,11 @@ pub fn write_text_file(path: String, content: String) -> Result<(), String> {
     // a truncate followed by a write — a truncate-then-write can trigger two
     // hot reloads in a row.
     let target = Path::new(&path);
+    // Settings writes target files in directories that may not exist yet
+    // (`.posto/collections/…`); create them rather than failing.
+    if let Some(dir) = target.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("Failed to write {path}: {e}"))?;
+    }
     let file_name = target
         .file_name()
         .ok_or_else(|| format!("Invalid path: {path}"))?

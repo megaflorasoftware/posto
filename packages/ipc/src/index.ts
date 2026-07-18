@@ -10,6 +10,9 @@ export interface FileEntry {
   path: string;
   /** Frontmatter `title:` (else `name:`) for display; filename when absent. */
   title?: string | null;
+  /** Top-level scalar frontmatter pairs, for `.posto` collection settings
+   * (entry-name templates, sorting). Absent for non-markdown files. */
+  frontmatter?: Record<string, string> | null;
 }
 
 export interface FileGroup {
@@ -128,6 +131,29 @@ const mockFiles: Record<string, string> = {
     "    filename: '{primary}.astro'",
     "",
   ].join("\n"),
+  // `.posto` overlay fixtures: pages before blog, blog sorted by date with a
+  // templated entry label — exercising the collection-preferences path.
+  "/mock/site/.posto/index.json": JSON.stringify(
+    { version: 0, collections: { order: ["pages", "blog"] } },
+    null,
+    2,
+  ),
+  "/mock/site/.posto/collections/pages.json": JSON.stringify(
+    { pinned: ["index.mdx"] },
+    null,
+    2,
+  ),
+  "/mock/site/.posto/collections/blog.json": JSON.stringify(
+    {
+      displayName: "Writing",
+      entryName: "{fields.title}",
+      filename: "{fields.title}.mdx",
+      mediaDir: "public",
+      sort: { by: "fields.publish_date", direction: "desc" },
+    },
+    null,
+    2,
+  ),
   // Astro content-collection fixtures: `posts` has no `.pages.yml` entry, so
   // its form schema comes from the generated JSON Schema (fallback path).
   "/mock/site/src/content.config.ts": [
@@ -214,8 +240,8 @@ const mockFiles: Record<string, string> = {
   "/mock/site/src/styles/global.css": "body {\n  margin: 0;\n}\n",
   "/mock/site/public/theme.css": ":root {\n  --accent: rebeccapurple;\n}\n",
   "/mock/site/src/blog/with-slug.mdx":
-    "---\ntitle: X\nslug: custom-slug\nrelated: src/blog/no-slug.mdx\nsee_also:\n  - src/blog/no-slug.mdx\nworks:\n  - src: src/blog/no-slug.mdx\n  - src: src/blog/with-slug.mdx\nimages:\n  - src: /images/photo.jpg\n    alt: A photo\n  - src: /images/nested/logo.png\n    alt: The logo\n---\n\nBody.\n",
-  "/mock/site/src/blog/no-slug.mdx": "---\ntitle: Y\n---\n\nBody.\n",
+    "---\ntitle: X\nslug: custom-slug\npublish_date: 2026-02-06\nrelated: src/blog/no-slug.mdx\nsee_also:\n  - src/blog/no-slug.mdx\nworks:\n  - src: src/blog/no-slug.mdx\n  - src: src/blog/with-slug.mdx\nimages:\n  - src: /images/photo.jpg\n    alt: A photo\n  - src: /images/nested/logo.png\n    alt: The logo\n---\n\nBody.\n",
+  "/mock/site/src/blog/no-slug.mdx": "---\ntitle: Y\npublish_date: 2026-01-03\n---\n\nBody.\n",
   "/mock/site/src/blog/mdx-demo.mdx": [
     "---",
     "title: MDX demo",
@@ -312,20 +338,28 @@ const mockGitHubRepos: GitHubRepo[] = [
   },
 ];
 
-function mockTitle(path: string): string | null {
+function mockFrontmatter(path: string): Record<string, string> | null {
   if (!/\.(md|mdx|markdown)$/i.test(path)) return null;
   const content = mockFiles[path];
   const fm = content?.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!fm) return null;
-  const lines = fm[1].split(/\r?\n/);
-  const line =
-    lines.find((l) => l.startsWith("title:")) ?? lines.find((l) => l.startsWith("name:"));
-  if (!line) return null;
-  const value = line
-    .slice(line.indexOf(":") + 1)
-    .trim()
-    .replace(/^["']|["']$/g, "");
-  return value || null;
+  const pairs: Record<string, string> = {};
+  for (const line of fm[1].split(/\r?\n/)) {
+    if (/^[\s-]/.test(line)) continue; // nested values and sequence items
+    const sep = line.indexOf(":");
+    if (sep === -1) continue;
+    const key = line.slice(0, sep).trim();
+    const value = line
+      .slice(sep + 1)
+      .trim()
+      .replace(/^["']|["']$/g, "");
+    if (key !== "" && !key.includes(" ") && value !== "") pairs[key] = value;
+  }
+  return Object.keys(pairs).length > 0 ? pairs : null;
+}
+
+function mockTitle(frontmatter: Record<string, string> | null): string | null {
+  return frontmatter?.title ?? frontmatter?.name ?? null;
 }
 
 async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
@@ -384,7 +418,10 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
           ...group,
           files: [...group.files, ...created]
             .filter((file) => !mockDeleted.has(file.path))
-            .map((file) => ({ ...file, title: mockTitle(file.path) })),
+            .map((file) => {
+              const frontmatter = mockFrontmatter(file.path);
+              return { ...file, title: mockTitle(frontmatter), frontmatter };
+            }),
         };
       });
       const styles = Object.keys(mockFiles)

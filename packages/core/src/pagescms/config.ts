@@ -39,6 +39,18 @@ export interface ContentEntry {
   /** Field named by `view.primary`; the entry's display/primary field. */
   viewPrimary?: string;
   fields: Field[];
+  // `.posto` overlay settings (see posto/config.ts); never set by `.pages.yml`
+  // or Astro parsing — mergePostoConfig fills them on the effective config.
+  /** Sidebar position from `.posto` `collections.order` (lower first). */
+  order?: number;
+  /** Entry-label template over frontmatter, e.g. `{fields.title}`. */
+  entryName?: string;
+  /** Sidebar sort for the collection's entries. */
+  sort?: { by: string; direction: "asc" | "desc" };
+  /** Entry filenames pinned to the top of the collection, in order. */
+  pinned?: string[];
+  /** Collection-scoped media source, preferred over the global list. */
+  media?: MediaEntry;
 }
 
 export interface PagesConfig {
@@ -395,13 +407,20 @@ export function inferFields(values: Record<string, unknown>): Field[] {
   return Object.entries(values).map(([name, value]) => inferField(name, value));
 }
 
-/** Media source for an image field: `options.media` by name, else the first. */
-export function resolveMedia(config: PagesConfig, field: Field): MediaEntry | null {
+/**
+ * Media source for an image field: `options.media` by name, else the entry's
+ * collection-scoped source (from `.posto` `mediaDir`), else the first global.
+ */
+export function resolveMedia(
+  config: PagesConfig,
+  field: Field,
+  entry?: ContentEntry | null,
+): MediaEntry | null {
   const name = field.options?.media;
   if (typeof name === "string") {
     return config.media.find((m) => m.name === name) ?? null;
   }
-  return config.media[0] ?? null;
+  return entry?.media ?? config.media[0] ?? null;
 }
 
 /**

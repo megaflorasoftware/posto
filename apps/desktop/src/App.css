@@ -48,10 +48,19 @@ body,
 .sidebar {
   width: 240px;
   flex-shrink: 0;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 0.5rem;
   border-right: 1px solid var(--mantine-color-default-border);
   font-size: 0.85rem;
+}
+
+/* Groups scroll; the collection-settings footer stays pinned below. */
+.sidebar-groups {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .sidebar details {

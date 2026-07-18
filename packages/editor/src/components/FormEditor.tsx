@@ -138,6 +138,7 @@ export function FormEditor(props: {
   const ctx: FieldContext = {
     config: props.config,
     root: props.root,
+    entry: props.entry,
     groups: props.groups,
     errors: () => errors,
     value: (path) => {
