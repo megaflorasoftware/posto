@@ -410,9 +410,10 @@ input {
 }
 
 /* Shared desktop field controls are intentionally compact. On mobile their
-   text must remain at least 16px to avoid WebKit focus zoom, with touch-sized
-   control heights while preserving the same Mantine colors and borders. */
-.mobile-editor-screen :is(input, textarea, select) {
+   text must remain at least 16px to avoid WebKit focus zoom while preserving
+   the same Mantine colors and borders. Scoped to the body class so
+   portal-rendered dialogs (bottom drawers) are covered too. */
+.posto-mobile-shell :is(input, textarea, select) {
   font-size: 16px;
 }
 
