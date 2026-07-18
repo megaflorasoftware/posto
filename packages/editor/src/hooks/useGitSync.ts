@@ -35,26 +35,36 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
   const cb = useRef(callbacks);
   cb.current = callbacks;
 
+  /** Fetches the remote and updates the behind-upstream flag. Errors (no
+   * remote/upstream, offline) just mean there is nothing to fetch. */
+  async function checkUpstream() {
+    const dir = rootRef.current;
+    if (!dir) return;
+    try {
+      const behind = await invoke<boolean>("fetch_upstream", { root: dir });
+      if (rootRef.current === dir) setBehindUpstream(behind);
+    } catch {
+      if (rootRef.current === dir) setBehindUpstream(false);
+    }
+  }
+
   // Poll the remote so the header can offer "Fetch Changes" soon after
-  // someone publishes elsewhere. Errors (no remote/upstream, offline) just
-  // mean there is nothing to fetch.
+  // someone publishes elsewhere, and re-check immediately when the app
+  // returns to the foreground (mobile) or the window regains visibility.
   useEffect(() => {
     if (!root) return;
-    let cancelled = false;
-    const check = async () => {
-      try {
-        const behind = await invoke<boolean>("fetch_upstream", { root });
-        if (!cancelled) setBehindUpstream(behind);
-      } catch {
-        if (!cancelled) setBehindUpstream(false);
-      }
+    void checkUpstream();
+    const timer = setInterval(() => void checkUpstream(), FETCH_INTERVAL_MS);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void checkUpstream();
     };
-    void check();
-    const timer = setInterval(() => void check(), FETCH_INTERVAL_MS);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
-      cancelled = true;
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
+    // checkUpstream reads the current root from rootRef.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [root]);
 
   async function refreshLocalChanges(dir: string) {
@@ -148,6 +158,7 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
     hasLocalChanges,
     changes,
     changesError,
+    checkUpstream,
     refreshLocalChanges,
     fetchChanges,
     loadChanges,

@@ -153,7 +153,7 @@ input {
 }
 
 .repo-list .mantine-ScrollArea-viewport,
-.repo-files .mantine-ScrollArea-viewport {
+.repo-files-scroll .mantine-ScrollArea-viewport {
   width: 100%;
   max-width: 100%;
   overflow-x: hidden !important;
@@ -236,7 +236,30 @@ input {
   max-width: 100%;
   min-width: 0;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
+}
+
+.repo-files-scroll {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Keeps WebKit's rubber-band bounce from swallowing the drag that drives the
+   pull-to-refresh indicator. */
+.repo-files-scroll .mantine-ScrollArea-viewport {
+  overscroll-behavior-y: none;
+}
+
+.mobile-refresh-indicator {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: var(--mantine-color-dimmed);
+  transition: height 150ms ease;
 }
 
 .mobile-document-list {
