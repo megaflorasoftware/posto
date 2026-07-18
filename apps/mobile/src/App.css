@@ -59,33 +59,15 @@ input {
   min-height: 44px;
 }
 
-.mobile-breadcrumbs {
+.mobile-header-title {
   min-width: 0;
   flex: 1;
-  overflow: hidden;
 }
 
-.mobile-header > .mantine-ActionIcon-root {
+.mobile-header > .mantine-ActionIcon-root,
+.mobile-header > .mantine-Button-root,
+.mobile-header-title > .mantine-ActionIcon-root {
   flex-shrink: 0;
-}
-
-.mobile-breadcrumbs .mantine-Breadcrumbs-breadcrumb {
-  min-width: 0;
-}
-
-.mobile-breadcrumb-link {
-  flex-shrink: 0;
-  color: var(--mantine-primary-color-filled);
-  font-size: var(--mantine-font-size-sm);
-  font-weight: 500;
-}
-
-.mobile-file-breadcrumb {
-  min-width: 0;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 1;
 }
 
 .screen,

@@ -1,7 +1,6 @@
 import {
   ActionIcon,
   Alert,
-  Breadcrumbs,
   Button,
   Center,
   Group,
@@ -9,7 +8,6 @@ import {
   ScrollArea,
   Stack,
   Text,
-  UnstyledButton,
 } from "@mantine/core";
 import {
   EditorPane,
@@ -29,6 +27,7 @@ import type { ChangedFile, FileGroup, GitHubRepo } from "@posto/ipc";
 import {
   CloudDownload,
   ChevronDown,
+  ChevronLeft,
   GitCommitHorizontal,
   Menu,
   Plus,
@@ -272,22 +271,18 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   return (
     <>
       <header className="mobile-header">
-        <Breadcrumbs separator="/" className="mobile-breadcrumbs">
-          <UnstyledButton className="mobile-breadcrumb-link" onClick={leaveRepository}>
-            Repositories
-          </UnstyledButton>
-          {showEditor || showSettings ? (
-            <UnstyledButton className="mobile-breadcrumb-link" onClick={closeSecondaryView}>
-              {repo?.name ?? "Repository"}
-            </UnstyledButton>
-          ) : (
-            <Text fw={600} size="sm" truncate>{repo?.name ?? "Repository"}</Text>
-          )}
-          {showEditor && (
-            <Text fw={600} size="sm" className="mobile-file-breadcrumb">{openFileName}</Text>
-          )}
-          {showSettings && <Text fw={600} size="sm" truncate>Settings</Text>}
-        </Breadcrumbs>
+        <Group gap={0} wrap="nowrap" className="mobile-header-title">
+          <ActionIcon
+            variant="subtle"
+            aria-label="Back"
+            onClick={showEditor || showSettings ? closeSecondaryView : leaveRepository}
+          >
+            <ChevronLeft size={22} />
+          </ActionIcon>
+          <Text fw={600} size="sm" truncate>
+            {showEditor ? openFileName : showSettings ? "Settings" : repo?.name ?? "Repository"}
+          </Text>
+        </Group>
         {!showEditor && !showSettings && (
           <ActionIcon
             variant="subtle"
