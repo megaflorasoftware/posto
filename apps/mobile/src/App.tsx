@@ -13,7 +13,7 @@ import type {
   GitHubUser,
   ManagedRepo,
 } from "@posto/ipc";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import Onboarding from "./Onboarding";
 
 type Stage =
@@ -96,6 +96,40 @@ export default function App() {
   const [readyRoot, setReadyRoot] = useState<string | null>(null);
   const [progress, setProgress] = useState<CloneProgress>(emptyProgress);
   const [error, setError] = useState<string | null>(null);
+
+  useLayoutEffect(() => {
+    const viewport = window.visualViewport;
+    const root = document.documentElement;
+    let frame = 0;
+
+    const updateViewport = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        root.style.setProperty(
+          "--mobile-viewport-height",
+          `${viewport?.height ?? window.innerHeight}px`,
+        );
+        root.style.setProperty(
+          "--mobile-viewport-offset-top",
+          `${viewport?.offsetTop ?? 0}px`,
+        );
+      });
+    };
+
+    updateViewport();
+    viewport?.addEventListener("resize", updateViewport);
+    viewport?.addEventListener("scroll", updateViewport);
+    window.addEventListener("resize", updateViewport);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      viewport?.removeEventListener("resize", updateViewport);
+      viewport?.removeEventListener("scroll", updateViewport);
+      window.removeEventListener("resize", updateViewport);
+      root.style.removeProperty("--mobile-viewport-height");
+      root.style.removeProperty("--mobile-viewport-offset-top");
+    };
+  }, []);
 
   const loadRepos = useCallback(async () => {
     setError(null);

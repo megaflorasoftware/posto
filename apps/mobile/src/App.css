@@ -27,8 +27,11 @@ input {
 }
 
 .mobile-app {
+  position: absolute;
+  top: var(--mobile-viewport-offset-top, 0px);
+  left: 0;
   width: 100%;
-  height: 100dvh;
+  height: var(--mobile-viewport-height, 100dvh);
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -252,10 +255,11 @@ input {
 .mobile-document-list summary {
   width: 100%;
   min-width: 0;
+  min-height: 44px;
   display: flex;
   align-items: center;
   gap: var(--mantine-spacing-xs);
-  padding: 0.25rem;
+  padding: 0 0.25rem;
   color: var(--mantine-color-dimmed);
   font-size: 0.8rem;
   font-weight: 600;
@@ -282,6 +286,10 @@ input {
   transition: transform 120ms ease;
 }
 
+.mobile-group-action {
+  flex-shrink: 0;
+}
+
 .mobile-document-list details:not([open]) .mobile-group-chevron {
   transform: rotate(-90deg);
 }
@@ -289,17 +297,18 @@ input {
 .mobile-file-item {
   width: 100%;
   min-width: 0;
+  min-height: 44px;
   overflow: hidden;
-  padding: 0.25rem 0.5rem;
+  padding: 0 0.5rem;
   border-radius: 4px;
   border: 0;
   color: var(--mantine-color-text);
   text-align: left;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 1;
+  display: flex;
+  align-items: center;
   line-height: 1.4;
-  white-space: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   background: transparent;
 }
 
@@ -313,12 +322,6 @@ input {
   padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm) var(--mantine-spacing-sm);
   border-top: 1px solid var(--mantine-color-default-border);
   background: var(--mantine-color-body);
-}
-
-.mobile-document-skeleton {
-  display: grid;
-  gap: var(--mantine-spacing-sm);
-  padding-top: var(--mantine-spacing-xs);
 }
 
 .mobile-settings-screen {
@@ -419,9 +422,6 @@ input {
 }
 
 .mobile-editor-screen .body-rich-editor .mantine-RichTextEditor-toolbar {
-  position: sticky;
-  top: 0;
-  z-index: 2;
   flex-wrap: nowrap;
   max-height: none;
   overflow-x: auto;
@@ -450,20 +450,52 @@ input {
   overflow: visible;
 }
 
-.mobile-app .picker-grid {
+.posto-mobile-shell .picker-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--mantine-spacing-xs);
   max-width: 100%;
 }
 
-.mobile-app .picker-card {
+.posto-mobile-shell .picker-card {
   width: 100%;
   min-width: 0;
   padding: var(--mantine-spacing-xs);
 }
 
-.mobile-app .picker-card-preview {
+.posto-mobile-shell .picker-card-preview {
   width: 100%;
   max-width: 100%;
   aspect-ratio: 1;
+}
+
+/* Spotlight compensates for its vertical scrollbar with a negative inline
+   margin. On a phone that pushes the actions list a few pixels past the modal
+   and creates horizontal scrolling, so keep the compensation contained. */
+.posto-mobile-shell .component-picker-content,
+.posto-mobile-shell .component-picker-body,
+.posto-mobile-shell .component-picker-actions {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.posto-mobile-shell .component-picker-actions {
+  margin-inline-end: 0;
+}
+
+.posto-mobile-shell .component-picker-action {
+  min-width: 0;
+  padding-inline: var(--mantine-spacing-sm);
+}
+
+.posto-mobile-shell .component-picker-action-body {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.posto-mobile-shell .component-picker-action-label,
+.posto-mobile-shell .component-picker-action-description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

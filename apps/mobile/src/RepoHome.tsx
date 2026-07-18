@@ -5,7 +5,6 @@ import {
   Button,
   Center,
   Group,
-  Skeleton,
   ScrollArea,
   Stack,
   Text,
@@ -13,6 +12,7 @@ import {
 } from "@mantine/core";
 import {
   EditorPane,
+  NewFileModal,
   PublishModal,
   contentHasFields,
   useCurrentFile,
@@ -24,12 +24,13 @@ import {
 import { matchEntry } from "@posto/core/pagescms/config";
 import { parseFile } from "@posto/core/pagescms/frontmatter";
 import { invoke } from "@posto/ipc";
-import type { ChangedFile, GitHubRepo } from "@posto/ipc";
+import type { ChangedFile, FileGroup, GitHubRepo } from "@posto/ipc";
 import {
   CloudDownload,
   ChevronDown,
   GitCommitHorizontal,
   Menu,
+  Plus,
   RefreshCw,
   TriangleAlert,
 } from "lucide-react";
@@ -56,6 +57,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   const [showEditor, setShowEditor] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [checkingChanges, setCheckingChanges] = useState(false);
+  const [newFileGroup, setNewFileGroup] = useState<FileGroup | null>(null);
   const [editorTab, setEditorTab] = useState<EditorTab>("fields");
   const schemas = useSchemas();
   const files = useFileGroups(setError);
@@ -99,12 +101,15 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
           if (active) setRepairError(message(checkError));
         })
       : Promise.resolve();
-    void Promise.all([files.refreshGroups(root), repositoryCheck]).finally(() => {
+    const repositoryContent = Promise.all([
+      files.refreshGroups(root),
+      schemas.loadPagesConfig(root),
+      schemas.loadAstroConfig(root),
+    ]);
+    void Promise.all([repositoryContent, repositoryCheck]).finally(() => {
       if (active) setLoading(false);
     });
     void git.refreshLocalChanges(root);
-    void schemas.loadPagesConfig(root);
-    void schemas.loadAstroConfig(root);
     return () => {
       active = false;
     };
@@ -141,6 +146,12 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   async function openFile(path: string) {
     await currentFile.openFile(path);
     if (currentFile.filePathRef.current === path) setShowEditor(true);
+  }
+
+  async function openCreatedFile(path: string) {
+    setNewFileGroup(null);
+    await files.refreshGroups(root);
+    await openFile(path);
   }
 
   function closeEditor() {
@@ -317,12 +328,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
 
       <ScrollArea className="repo-files" type="auto">
         {loading ? (
-          <div className="mobile-document-list mobile-document-skeleton" aria-label="Loading files">
-            <Skeleton height={14} width="38%" />
-            {[78, 61, 86, 54].map((width) => <Skeleton height={18} width={`${width}%`} key={width} />)}
-            <Skeleton height={14} width="46%" mt="sm" />
-            {[68, 82, 57].map((width) => <Skeleton height={18} width={`${width}%`} key={width} />)}
-          </div>
+          null
         ) : fileCount === 0 && !error ? (
           <Center className="repo-files-state">
             <Stack align="center" gap="xs">
@@ -339,6 +345,22 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
                 <details key={`${group.kind ?? ""}:${group.path}`} open>
                   <summary>
                     <span className="mobile-group-label" title={group.label}>{group.label}</span>
+                    {group.kind !== "styles" && (
+                      <ActionIcon
+                        className="mobile-group-action"
+                        variant="subtle"
+                        color="gray"
+                        aria-label={`New file in ${group.label}`}
+                        title="New file"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setNewFileGroup(group);
+                        }}
+                      >
+                        <Plus size={16} />
+                      </ActionIcon>
+                    )}
                     <ChevronDown size={14} className="mobile-group-chevron" />
                   </summary>
                   {group.files.map((file) => (
@@ -384,9 +406,20 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
             ? "Checking changes…"
             : git.hasLocalChanges
               ? "Publish…"
-              : "Everything is published"}
+              : "Up to date"}
         </Button>
       </div>
+
+      {newFileGroup && config && (
+        <NewFileModal
+          root={root}
+          group={newFileGroup}
+          config={config}
+          astroContent={schemas.astroConfig?.content ?? []}
+          onClose={() => setNewFileGroup(null)}
+          onCreated={(path) => void openCreatedFile(path)}
+        />
+      )}
 
       <PublishModal
         opened={publishOpen}

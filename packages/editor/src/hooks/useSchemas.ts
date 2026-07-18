@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { invoke } from "@posto/ipc";
 import { parsePagesConfig, type Field, type PagesConfig } from "@posto/core/pagescms/config";
 import {
+  DEFAULT_ASTRO_MEDIA,
   buildAstroConfig,
   parseCollectionSchema,
   parseLoaderConfig,
@@ -75,9 +76,10 @@ export function useSchemas() {
   // labels, media, widget types), Astro collection schemas after them as a
   // fallback. matchEntry's first-match-wins ordering makes the precedence.
   const config = useMemo<PagesConfig | null>(() => {
-    if (!pagesConfig && !astroConfig) return null;
     return {
-      media: pagesConfig?.media.length ? pagesConfig.media : (astroConfig?.media ?? []),
+      media: pagesConfig?.media.length
+        ? pagesConfig.media
+        : (astroConfig?.media.length ? astroConfig.media : DEFAULT_ASTRO_MEDIA),
       content: [...(pagesConfig?.content ?? []), ...(astroConfig?.content ?? [])],
     };
   }, [pagesConfig, astroConfig]);
