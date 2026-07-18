@@ -24,34 +24,34 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		07173D7AC2DB8A0B6D84DC46 /* env.rs */ = {isa = PBXFileReference; path = env.rs; sourceTree = "<group>"; };
-		0C5486C2E0D9BA5C0FCFA7DE /* posto_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = posto_iOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		07173D7AC2DB8A0B6D84DC46 /* env.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = env.rs; sourceTree = "<group>"; };
+		0C5486C2E0D9BA5C0FCFA7DE /* Posto.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Posto.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0CD0AF472DA82C274AE41881 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
 		297E3157B5E13E0AA85DA093 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		36234DD0D24B879C397849C7 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		4D342C4D5D59C4ADA68E9087 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		583B9363993071DA7ECFD4EB /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		5AAFBCCB4537E4D31DF364C7 /* libz.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libz.tbd; path = usr/lib/libz.tbd; sourceTree = SDKROOT; };
-		5C4472A9865FA09A03840110 /* devserver.rs */ = {isa = PBXFileReference; path = devserver.rs; sourceTree = "<group>"; };
-		61D3DE5075FCFC58158EFF29 /* fs.rs */ = {isa = PBXFileReference; path = fs.rs; sourceTree = "<group>"; };
-		6EBDF328C008EF930BCD57DA /* watch.rs */ = {isa = PBXFileReference; path = watch.rs; sourceTree = "<group>"; };
-		78E25DC5467DDF56875D7165 /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
-		7B0AB55BE3FA449957826532 /* creds.rs */ = {isa = PBXFileReference; path = creds.rs; sourceTree = "<group>"; };
+		5C4472A9865FA09A03840110 /* devserver.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = devserver.rs; sourceTree = "<group>"; };
+		61D3DE5075FCFC58158EFF29 /* fs.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = fs.rs; sourceTree = "<group>"; };
+		6EBDF328C008EF930BCD57DA /* watch.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = watch.rs; sourceTree = "<group>"; };
+		78E25DC5467DDF56875D7165 /* main.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = main.rs; sourceTree = "<group>"; };
+		7B0AB55BE3FA449957826532 /* creds.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = creds.rs; sourceTree = "<group>"; };
 		7CC3EA9350F392F840001FAB /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		7DD6570E05640E5A7CBBEB39 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
 		7F34D6E1259ABD6E5A06335F /* libiconv.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 		AC38CB9C07B37CE88FA4C4A9 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
-		B93F672CE4D6D830E25166A0 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
-		B94A96C79EB8C0EE80EFCE58 /* auth.rs */ = {isa = PBXFileReference; path = auth.rs; sourceTree = "<group>"; };
+		B93F672CE4D6D830E25166A0 /* mod.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = mod.rs; sourceTree = "<group>"; };
+		B94A96C79EB8C0EE80EFCE58 /* auth.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = auth.rs; sourceTree = "<group>"; };
 		BA284D51410E0A62B608360F /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		BB51960F3281DA3611608FCA /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
-		C085699046331204C79EB33C /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
-		C3ED2382432006A39D3E4D93 /* proxy.rs */ = {isa = PBXFileReference; path = proxy.rs; sourceTree = "<group>"; };
-		C95998FD863FCBB9BF8EE999 /* settings.rs */ = {isa = PBXFileReference; path = settings.rs; sourceTree = "<group>"; };
+		C085699046331204C79EB33C /* lib.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = lib.rs; sourceTree = "<group>"; };
+		C3ED2382432006A39D3E4D93 /* proxy.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = proxy.rs; sourceTree = "<group>"; };
+		C95998FD863FCBB9BF8EE999 /* settings.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = settings.rs; sourceTree = "<group>"; };
 		DCCB215CA7B456536221CCCC /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
-		E21476643E99BF8444D9987A /* storage.rs */ = {isa = PBXFileReference; path = storage.rs; sourceTree = "<group>"; };
+		E21476643E99BF8444D9987A /* storage.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = storage.rs; sourceTree = "<group>"; };
 		E40C84AC02A33C7149183A33 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
-		E46A890029506FE1708D48E5 /* repos.rs */ = {isa = PBXFileReference; path = repos.rs; sourceTree = "<group>"; };
+		E46A890029506FE1708D48E5 /* repos.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = repos.rs; sourceTree = "<group>"; };
 		E4A61DFAF85FC7AA6AA31035 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		F083F6563DD5477B860115E7 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
 		F5981931FEE222692BC5AF82 /* posto_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = posto_iOS.entitlements; sourceTree = "<group>"; };
@@ -149,7 +149,7 @@
 		60BA69F6179B1F65BB28E1D0 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				0C5486C2E0D9BA5C0FCFA7DE /* posto_iOS.app */,
+				0C5486C2E0D9BA5C0FCFA7DE /* Posto.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -216,7 +216,7 @@
 			packageProductDependencies = (
 			);
 			productName = posto_iOS;
-			productReference = 0C5486C2E0D9BA5C0FCFA7DE /* posto_iOS.app */;
+			productReference = 0C5486C2E0D9BA5C0FCFA7DE /* Posto.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -227,8 +227,6 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
-				TargetAttributes = {
-				};
 			};
 			buildConfigurationList = 42E59B71DA9B4A58F9D9F144 /* Build configuration list for PBXProject "posto" */;
 			developmentRegion = en;
@@ -421,12 +419,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
-				ARCHS = (
-					arm64,
-				);
+				ARCHS = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = posto_iOS/posto_iOS.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 8M7CTZZZB8;
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -438,10 +435,22 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
-				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION)",
+					"$(SDKROOT)/usr/lib/swift",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION)",
+					"$(SDKROOT)/usr/lib/swift",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.henryfellerhoff.posto;
-				PRODUCT_NAME = Posto;
+				PRODUCT_NAME = "Posto";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
@@ -452,12 +461,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
-				ARCHS = (
-					arm64,
-				);
+				ARCHS = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = posto_iOS/posto_iOS.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 8M7CTZZZB8;
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -469,10 +477,22 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
-				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION)",
+					"$(SDKROOT)/usr/lib/swift",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION)",
+					"$(SDKROOT)/usr/lib/swift",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.henryfellerhoff.posto;
-				PRODUCT_NAME = Posto;
+				PRODUCT_NAME = "Posto";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
