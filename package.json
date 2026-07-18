@@ -9,7 +9,8 @@
     "dev": "pnpm --filter desktop dev",
     "build": "pnpm --filter desktop build",
     "serve": "pnpm --filter desktop serve",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:ios": "scripts/build-ios.sh"
   },
   "license": "MIT",
   "devDependencies": {
