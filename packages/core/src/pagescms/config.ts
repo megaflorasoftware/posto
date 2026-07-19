@@ -648,6 +648,32 @@ export function resolveMedia(
   return media && values ? expandMediaEntry(media, values) : media;
 }
 
+/** Media source that owns an existing stored output path. Explicit
+ * `options.media` remains authoritative; otherwise the most specific output
+ * prefix wins (`/projects` before `/`). Collection-scoped media participates
+ * alongside globals and wins an equal-prefix tie. */
+export function resolveMediaForValue(
+  config: PagesConfig,
+  field: Field,
+  outputPath: string,
+  entry?: ContentEntry | null,
+  values: Record<string, unknown> = {},
+): MediaEntry | null {
+  if (typeof field.options?.media === "string") {
+    return resolveMedia(config, field, entry, values);
+  }
+  const candidates = [entry?.media, ...config.media]
+    .filter((media): media is MediaEntry => media !== undefined)
+    .map((media, index) => ({ media: expandMediaEntry(media, values), index }))
+    .filter((candidate): candidate is { media: MediaEntry; index: number } => candidate.media !== null);
+  const value = outputPath.startsWith("/") ? outputPath : `/${outputPath}`;
+  const matches = candidates
+    .map(({ media, index }) => ({ media, index, output: normalizedOutput(media) }))
+    .filter(({ output }) => value.startsWith(`${output}/`))
+    .sort((a, b) => b.output.length - a.output.length || a.index - b.index);
+  return matches[0]?.media ?? resolveMedia(config, field, entry, values);
+}
+
 /** Resolves a media source's input and public output paths for one entry.
  * Null means a field referenced by either template is not populated yet. */
 export function expandMediaEntry(

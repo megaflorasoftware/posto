@@ -24,6 +24,7 @@ import {
   matchCollectionForDir,
   mediaInputPath,
   resolveMedia,
+  resolveMediaForValue,
 } from "@posto/core/pagescms/config";
 import { astroEntryId } from "@posto/core/astro/collections";
 import { expandEntryName } from "@posto/core/posto/config";
@@ -115,12 +116,17 @@ function imagePickable(field: Field): boolean {
  * and writes the picked image's output path as the field's value. */
 function PickImageCta(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
   const [open, setOpen] = useState(false);
-  const media = resolveMedia(
-    props.ctx.config,
-    props.field,
-    props.ctx.entry,
-    props.ctx.templateValues(),
-  );
+  const values = props.ctx.templateValues();
+  const currentValue = props.ctx.value(props.path);
+  const media = typeof currentValue === "string" && currentValue !== ""
+    ? resolveMediaForValue(
+        props.ctx.config,
+        props.field,
+        currentValue,
+        props.ctx.entry,
+        values,
+      )
+    : resolveMedia(props.ctx.config, props.field, props.ctx.entry, values);
   if (!media) return null;
   return (
     <>
