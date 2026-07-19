@@ -104,8 +104,8 @@ export function Sidebar(props: {
   root: string;
   groups: FileGroup[];
   config: PagesConfig | null;
-  activePath: string | null;
-  onOpen: (path: string) => void;
+  activeKey: string | null;
+  onOpen: (file: FileEntry) => void;
   onDelete: (file: FileEntry) => void;
   onNewFile: (group: FileGroup) => void;
   /** `.posto` settings were saved; reload the overlay. */
@@ -190,7 +190,7 @@ export function Sidebar(props: {
               </summary>
               <FileList
                 files={group.files}
-                activePath={props.activePath}
+                activeKey={props.activeKey}
                 pinned={collection?.pinned}
                 onOpen={props.onOpen}
                 onDelete={props.onDelete}
@@ -200,7 +200,7 @@ export function Sidebar(props: {
             <FileList
               key={group.path}
               files={group.files}
-              activePath={props.activePath}
+              activeKey={props.activeKey}
               onOpen={props.onOpen}
               onDelete={props.onDelete}
             />

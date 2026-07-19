@@ -10,6 +10,8 @@ import {
   PublishModal,
   Sidebar,
   buildNewFile,
+  createDataDocumentEntry,
+  deleteDataDocumentEntry,
   contentHasFields,
   renameTargetForContent,
   useCurrentFile,
@@ -52,9 +54,12 @@ function App() {
   const currentFile = useCurrentFile({
     onAfterSave(path, content) {
       files.updateSidebarTitle(path, content);
+      const dir = rootRef.current;
+      if (dir && schemas.configRef.current?.content.some((entry) => entry.dataFile && `${dir}/${entry.dataFile.path}` === path)) {
+        void files.refreshDataGroups(dir, schemas.configRef.current);
+      }
       setSaveTick((t) => t + 1);
       // Editing the schema itself must re-parse it, or forms keep the old one.
-      const dir = rootRef.current;
       if (dir && path === dir + "/.pages.yml") void schemas.loadPagesConfig(dir);
       if (dir && (path === dir + "/src/content.config.ts" || path === dir + "/src/content/config.ts")) {
         void schemas.loadAstroConfig(dir);
@@ -63,7 +68,11 @@ function App() {
       // debounced) save is the moment to bring the name back in line.
       void renameForTemplate(path, content);
     },
-    onOpened(path, content) {
+    onOpened(path, content, file) {
+      if (file?.dataEntry) {
+        setEditorTab("fields");
+        return;
+      }
       // On opening a markdown file, keep the last selected tab when it has
       // content to show, otherwise fall over to the tab that does: no fields
       // → Body; empty body but fields present → Fields. Raw stays sticky.
@@ -91,9 +100,9 @@ function App() {
   // moved first) must not, or the two would fight. The flag rides a ref
   // because onOpened runs from the hook, outside this call stack's scope.
   const navigatePreviewRef = useRef(true);
-  function openFile(path: string, navigatePreview = true) {
+  function openFile(target: string | FileEntry, navigatePreview = true) {
     navigatePreviewRef.current = navigatePreview;
-    void currentFile.openFile(path);
+    void currentFile.openFile(target);
   }
 
   const preview = usePreview({
@@ -120,6 +129,7 @@ function App() {
   async function refreshGroups(dir: string) {
     void git.refreshLocalChanges(dir);
     await files.refreshGroups(dir);
+    await files.refreshDataGroups(dir, schemas.configRef.current);
   }
 
   async function selectRoot(dir: string) {
@@ -164,6 +174,21 @@ function App() {
   async function createNewFile(group: FileGroup) {
     const dir = rootRef.current;
     if (!dir) return;
+    if (group.dataCollection) {
+      const collection = schemas.configRef.current?.content.find((entry) => entry.name === group.dataCollection);
+      if (!collection) return;
+      try {
+        const id = await createDataDocumentEntry(group, collection);
+        await files.refreshDataGroups(dir, schemas.configRef.current);
+        const created = files.groupsRef.current
+          .find((candidate) => candidate.dataCollection === group.dataCollection)
+          ?.files.find((file) => file.dataEntry?.id === id);
+        if (created) openFile(created);
+      } catch (e) {
+        setStatus(String(e));
+      }
+      return;
+    }
     const { path, content } = buildNewFile(dir, group, schemaSources());
     try {
       await invoke("create_text_file", { path, content });
@@ -247,20 +272,24 @@ function App() {
   async function deleteFile(file: FileEntry) {
     const dir = rootRef.current;
     if (!dir) return;
-    const isOpen = currentFile.filePathRef.current === file.path;
+    const isOpen = currentFile.activeKey === (file.key ?? file.path);
+    const sharesOpenDocument = !!file.dataEntry && currentFile.filePathRef.current === file.path;
     if (isOpen) {
       // A pending autosave would recreate the file right after the delete.
       currentFile.clearPendingSave();
     }
     try {
-      await invoke("delete_file", { path: file.path });
+      if (file.dataEntry) await deleteDataDocumentEntry(file);
+      else await invoke("delete_file", { path: file.path });
     } catch (e) {
       setStatus(String(e));
       return;
     }
     if (isOpen) currentFile.closeFile();
+    else if (sharesOpenDocument) void currentFile.reloadFromDisk();
     if (file.path === dir + "/.pages.yml") void schemas.loadPagesConfig(dir);
-    void refreshGroups(dir);
+    if (file.dataEntry) void files.refreshDataGroups(dir, schemas.configRef.current);
+    else void refreshGroups(dir);
   }
 
   async function revertChange(file: ChangedFile) {
@@ -292,11 +321,19 @@ function App() {
 
   const config = schemas.config;
 
+  useEffect(() => {
+    if (root) void files.refreshDataGroups(root, config);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [root, config]);
+
   // Content entry describing the open file's fields, if any.
   const entry = useMemo(() => {
     if (!root || !currentFile.filePath || !config) return null;
+    if (currentFile.dataEntry) {
+      return config.content.find((candidate) => candidate.name === currentFile.dataEntry?.collection) ?? null;
+    }
     return matchEntry(config, root, currentFile.filePath);
-  }, [root, currentFile.filePath, config]);
+  }, [root, currentFile.filePath, currentFile.dataEntry, config]);
 
   // Which source the matched entry came from, for the header badge. Matched
   // by name+path because the `.posto` overlay clones entries it touches;
@@ -349,8 +386,8 @@ function App() {
               root={root}
               groups={files.groups}
               config={config}
-              activePath={currentFile.filePath}
-              onOpen={(path) => openFile(path)}
+              activeKey={currentFile.activeKey}
+              onOpen={(file) => openFile(file)}
               onDelete={(file) => void deleteFile(file)}
               onNewFile={(group) => void createNewFile(group)}
               onPostoSaved={() => void schemas.loadPostoConfig(root)}
@@ -364,6 +401,7 @@ function App() {
                   fileContent={currentFile.fileContent}
                   saveState={currentFile.saveState}
                   entry={entry}
+                  dataEntry={currentFile.dataEntry}
                   entrySource={entrySource}
                   config={config}
                   configError={schemas.configError}

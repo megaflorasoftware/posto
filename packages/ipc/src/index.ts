@@ -13,6 +13,15 @@ export interface FileEntry {
   /** Top-level scalar frontmatter pairs, for `.posto` collection settings
    * (entry-name templates, sorting). Absent for non-markdown files. */
   frontmatter?: Record<string, string> | null;
+  /** Stable UI identity when several logical entries share one physical file. */
+  key?: string;
+  /** Logical entry inside an Astro file-loader data document. */
+  dataEntry?: {
+    collection: string;
+    id: string;
+    path: (string | number)[];
+    format: "json" | "yaml" | "toml";
+  };
 }
 
 export interface FileGroup {
@@ -21,6 +30,8 @@ export interface FileGroup {
   /** Synthetic-group marker ("styles" for the tree-wide CSS section). */
   kind?: string | null;
   files: FileEntry[];
+  /** Astro collection represented by a synthetic data-document group. */
+  dataCollection?: string;
 }
 
 export interface ChangedFile {

@@ -636,6 +636,12 @@ function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContex
   const extension = collection ? collectionExtension(collection) : null;
   const [listed, setListed] = useState<FileEntry[]>([]);
   useEffect(() => {
+    if (collection?.dataFile) {
+      setListed(
+        props.ctx.groups.find((group) => group.dataCollection === collection.name)?.files ?? [],
+      );
+      return;
+    }
     if (!dir) return;
     let cancelled = false;
     invoke<FileEntry[]>("list_dir_files", { dir, extensions: extension ? [extension] : [] })
@@ -648,7 +654,7 @@ function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContex
     return () => {
       cancelled = true;
     };
-  }, [dir, extension]);
+  }, [dir, extension, collection?.dataFile, collection?.name, props.ctx.groups]);
 
   // list_dir_files carries no frontmatter; recover title and frontmatter from
   // the sidebar groups, then apply the collection's `.posto` preferences so
@@ -658,6 +664,7 @@ function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContex
     for (const file of group.files) known.set(file.path, file);
   }
   const enriched = listed.map((file) => {
+    if (file.dataEntry) return file;
     const match = known.get(file.path);
     return match
       ? { ...file, title: file.title ?? match.title, frontmatter: match.frontmatter }
@@ -681,7 +688,7 @@ function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContex
     .map((file) => ({
       // Pages CMS stores the repo-root-relative path by default.
       value: astroBase
-        ? astroEntryId(file.path.slice(astroBase.length), file.frontmatter?.slug)
+        ? (file.dataEntry?.id ?? astroEntryId(file.path.slice(astroBase.length), file.frontmatter?.slug))
         : valueTemplate
           ? referenceTemplate(valueTemplate, props.ctx.root, file)
           : file.path.slice(props.ctx.root.length + 1),

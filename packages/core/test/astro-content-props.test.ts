@@ -138,7 +138,8 @@ const astroConfig = buildAstroConfig(
   ],
   loaders,
 );
-assert(astroConfig.content.map((entry) => entry.name).join(",") === "posts,customIds", "only editable loaders enter sidebar config");
+assert(astroConfig.content.map((entry) => entry.name).join(",") === "posts,customIds,data", "local editable loaders enter sidebar config");
+assert(astroConfig.content[2].dataFile?.path === "src/data/items.json", "file loader exposes backing document");
 assert(astroConfig.astroCollections?.map((entry) => entry.name).join(",") === "posts,customIds,data,remote", "all build-time schemas enter type registry");
 assert(astroConfig.content[0].fields[0].type === "string", "custom generated reference ids stay manual strings");
 

@@ -4,6 +4,7 @@ export * from "./components/Dialog";
 export * from "./components/EditorPane";
 export * from "./components/FileList";
 export * from "./newFile";
+export * from "./dataEntries";
 export * from "./components/PublishModal";
 export * from "./components/Sidebar";
 export * from "./hooks/useCurrentFile";

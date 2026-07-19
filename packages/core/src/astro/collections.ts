@@ -190,6 +190,10 @@ export interface LoaderInfo {
   images?: string[];
   /** A glob-loader `generateId` callback cannot be executed by the editor. */
   customIds?: boolean;
+  /** Repo-root-relative source passed to Astro's file() loader. */
+  filePath?: string;
+  /** file() uses a custom parser; standard-format editing is best-effort. */
+  customParser?: boolean;
 }
 
 /** Slice out the balanced `(...)` argument list starting at `openIndex`. */
@@ -314,7 +318,15 @@ export function parseLoaderConfig(source: string): Map<string, LoaderInfo> {
           }
         : { kind: "glob" };
     } else if (fileIdx !== -1) {
-      info = { kind: "file" };
+      const args = loaderSource
+        ? balancedSlice(loaderSource, loaderSource.indexOf("(", fileIdx))
+        : null;
+      const fileName = args?.match(/^\s*(["'`])([^"'`]+)\1/)?.[2];
+      info = {
+        kind: "file",
+        filePath: fileName,
+        customParser: !!args && /\bparser\s*:/.test(args),
+      };
     } else if (loaderSource !== undefined) {
       info = { kind: "custom" };
     }
@@ -437,7 +449,25 @@ export function buildAstroConfig(
   });
   for (const { name, fields } of collections) {
     const loader = loaders.get(name);
-    if (loader?.kind === "file" || loader?.kind === "custom") continue;
+    if (loader?.kind === "file") {
+      const filePath = loader.filePath?.replace(/^\.\//, "").replace(/^\/+/, "");
+      const format = filePath?.match(/\.(json|ya?ml|toml)$/i)?.[1].toLowerCase();
+      if (filePath && format) {
+        content.push({
+          name,
+          label: name.charAt(0).toUpperCase() + name.slice(1),
+          type: "collection",
+          path: filePath,
+          fields: resolveReferences(resolveImages(fields, loader.images), loader.references, loaders),
+          dataFile: {
+            path: filePath,
+            format: format === "yml" ? "yaml" : (format as "json" | "yaml" | "toml"),
+          },
+        });
+      }
+      continue;
+    }
+    if (loader?.kind === "custom") continue;
     const patterns = loader?.kind === "glob" ? (loader.patterns ?? []) : [];
     // A single unambiguous extension across all patterns; mixes (md + mdx)
     // leave it open so any extension is accepted.

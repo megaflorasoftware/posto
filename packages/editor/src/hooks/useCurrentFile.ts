@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@posto/ipc";
+import type { FileEntry } from "@posto/ipc";
 
 const AUTOSAVE_DELAY_MS = 800;
 
@@ -9,13 +10,15 @@ type Callbacks = {
   /** Runs after each successful write to disk. */
   onAfterSave?: (path: string, content: string) => void;
   /** Runs after a file is opened and its content loaded. */
-  onOpened?: (path: string, content: string) => void;
+  onOpened?: (path: string, content: string, file?: FileEntry) => void;
   onOpenError?: (message: string) => void;
 };
 
 /** The open file: load, in-memory edits, debounced autosave, save state. */
 export function useCurrentFile(callbacks: Callbacks) {
   const [filePath, setFilePath] = useState<string | null>(null);
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [dataEntry, setDataEntry] = useState<FileEntry["dataEntry"]>(undefined);
   const [fileContent, setFileContent] = useState("");
   const [saveState, setSaveState] = useState<SaveState>("saved");
 
@@ -25,6 +28,8 @@ export function useCurrentFile(callbacks: Callbacks) {
   filePathRef.current = filePath;
   const fileContentRef = useRef(fileContent);
   fileContentRef.current = fileContent;
+  const activeKeyRef = useRef(activeKey);
+  activeKeyRef.current = activeKey;
   const cb = useRef(callbacks);
   cb.current = callbacks;
 
@@ -77,6 +82,8 @@ export function useCurrentFile(callbacks: Callbacks) {
         if (filePathRef.current === from) {
           setFilePath(to);
           filePathRef.current = to;
+          setActiveKey(to);
+          activeKeyRef.current = to;
         }
       })
       .catch(() => {})
@@ -132,17 +139,30 @@ export function useCurrentFile(callbacks: Callbacks) {
     }
   }
 
-  async function openFile(path: string) {
-    if (path === filePathRef.current) return;
+  async function openFile(target: string | FileEntry) {
+    const file = typeof target === "string" ? undefined : target;
+    const path = typeof target === "string" ? target : target.path;
+    const key = file?.key ?? path;
+    if (key === activeKeyRef.current) return;
     await flushPendingSave();
+    if (path === filePathRef.current) {
+      setActiveKey(key);
+      activeKeyRef.current = key;
+      setDataEntry(file?.dataEntry);
+      cb.current.onOpened?.(path, fileContentRef.current, file);
+      return;
+    }
     try {
       const content = await invoke<string>("read_text_file", { path });
       setFilePath(path);
       filePathRef.current = path;
       setFileContent(content);
       fileContentRef.current = content;
+      setActiveKey(key);
+      activeKeyRef.current = key;
+      setDataEntry(file?.dataEntry);
       setSaveState("saved");
-      cb.current.onOpened?.(path, content);
+      cb.current.onOpened?.(path, content, file);
     } catch (e) {
       cb.current.onOpenError?.(String(e));
     }
@@ -153,6 +173,9 @@ export function useCurrentFile(callbacks: Callbacks) {
     setFilePath(null);
     filePathRef.current = null;
     setFileContent("");
+    setActiveKey(null);
+    activeKeyRef.current = null;
+    setDataEntry(undefined);
     fileContentRef.current = "";
     setSaveState("saved");
   }
@@ -187,6 +210,8 @@ export function useCurrentFile(callbacks: Callbacks) {
 
   return {
     filePath,
+    activeKey,
+    dataEntry,
     filePathRef,
     fileContent,
     fileContentRef,

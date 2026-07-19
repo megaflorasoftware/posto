@@ -1,9 +1,10 @@
 import { useMemo } from "react";
 import { Alert, Badge, Tabs } from "@mantine/core";
-import type { FileGroup } from "@posto/ipc";
+import type { FileEntry, FileGroup } from "@posto/ipc";
 import { EMPTY_CONFIG, type ContentEntry, type PagesConfig } from "@posto/core/pagescms/config";
 import { parseFile, type ParsedFile } from "@posto/core/pagescms/frontmatter";
 import { FormEditor } from "./FormEditor";
+import { DataFormEditor } from "./DataFormEditor";
 import type { SaveState } from "../hooks/useCurrentFile";
 
 export type EditorTab = "fields" | "body" | "raw";
@@ -26,6 +27,7 @@ export function EditorPane(props: {
   fileContent: string;
   saveState: SaveState;
   entry: ContentEntry | null;
+  dataEntry?: FileEntry["dataEntry"];
   /** Which schema source the entry came from, for the header badge. */
   entrySource: "astro" | "pages" | null;
   config: PagesConfig | null;
@@ -38,9 +40,9 @@ export function EditorPane(props: {
   onEdit: (content: string) => void;
   onFormEdit: (content: string, valid: boolean) => void;
 }) {
-  const { filePath, fileContent, entry, editorTab } = props;
+  const { filePath, fileContent, entry, editorTab, dataEntry } = props;
 
-  const fileName = filePath?.split("/").pop() ?? "";
+  const fileName = dataEntry?.id ?? filePath?.split("/").pop() ?? "";
 
   // Markdown files always get a Form tab: schema-driven when a content entry
   // matches, otherwise with fields inferred from the frontmatter's shape.
@@ -56,7 +58,9 @@ export function EditorPane(props: {
 
   // The sticky tab choice, remapped while Fields is hidden; the state keeps
   // "fields" so schema-backed files still open on their form.
-  const activeTab = !hasFields && editorTab === "fields" ? "body" : editorTab;
+  const activeTab = dataEntry && editorTab === "body"
+    ? "fields"
+    : !hasFields && editorTab === "fields" ? "body" : editorTab;
 
   if (!filePath) {
     return <div className="pane-placeholder">Select a file to edit</div>;
@@ -120,11 +124,22 @@ export function EditorPane(props: {
         >
           <Tabs.List>
             {hasFields && <Tabs.Tab value="fields">Fields</Tabs.Tab>}
-            <Tabs.Tab value="body">Body</Tabs.Tab>
+            {!dataEntry && <Tabs.Tab value="body">Body</Tabs.Tab>}
             <Tabs.Tab value="raw">Raw</Tabs.Tab>
           </Tabs.List>
           {activeTab === "raw" ? (
             rawEditor
+          ) : dataEntry && entry ? (
+            <DataFormEditor
+              key={`${filePath}:${dataEntry.collection}:${dataEntry.id}`}
+              content={fileContent}
+              entry={entry}
+              dataEntry={dataEntry}
+              config={props.config ?? EMPTY_CONFIG}
+              root={props.root}
+              groups={props.groups}
+              onChange={props.onFormEdit}
+            />
           ) : (
             // One FormEditor spans the Fields and Body tabs so the
             // parsed document survives switching between them.

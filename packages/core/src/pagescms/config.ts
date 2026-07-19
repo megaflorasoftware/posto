@@ -54,6 +54,12 @@ export interface ContentEntry {
   /** The glob loader has a custom `generateId`; Posto cannot derive ids from
    * file paths and must not offer an id-valued reference picker. */
   astroCustomIds?: boolean;
+  /** One physical data document stores many logical entries. */
+  dataFile?: {
+    format: "json" | "yaml" | "toml";
+    /** Repo-root-relative backing file. */
+    path: string;
+  };
 }
 
 /** A generated Astro collection schema used for component-prop typing. Unlike
@@ -263,6 +269,10 @@ export function matchEntry(
   const rel = filePath.slice(prefix.length);
   for (const entry of config.content) {
     if (frontmatterFields(entry).length === 0) continue;
+    if (entry.dataFile) {
+      if (rel === entry.dataFile.path) return entry;
+      continue;
+    }
     if (entry.type === "file") {
       if (rel === entry.path) return entry;
     } else {

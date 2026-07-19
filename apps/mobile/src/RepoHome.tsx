@@ -15,6 +15,8 @@ import {
   EditorPane,
   PublishModal,
   buildNewFile,
+  createDataDocumentEntry,
+  deleteDataDocumentEntry,
   contentHasFields,
   renameTargetForContent,
   orderableCollections,
@@ -91,6 +93,9 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   const currentFile = useCurrentFile({
     onAfterSave(path, content) {
       files.updateSidebarTitle(path, content);
+      if (schemas.configRef.current?.content.some((entry) => entry.dataFile && `${root}/${entry.dataFile.path}` === path)) {
+        void files.refreshDataGroups(root, schemas.configRef.current);
+      }
       if (path === root + "/.pages.yml") void schemas.loadPagesConfig(root);
       if (path === root + "/src/content.config.ts" || path === root + "/src/content/config.ts") {
         void schemas.loadAstroConfig(root);
@@ -99,7 +104,11 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
       // debounced) save is the moment to bring the name back in line.
       void renameForTemplate(path, content);
     },
-    onOpened(path, content) {
+    onOpened(path, content, file) {
+      if (file?.dataEntry) {
+        setEditorTab("fields");
+        return;
+      }
       if (!/\.(md|mdx|markdown)$/i.test(path)) return;
       const entry = schemas.configRef.current
         ? matchEntry(schemas.configRef.current, root, path)
@@ -118,7 +127,10 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   const git = useGitSync(root, {
     onStatus: setStatus,
     beforeSync: () => currentFile.flushPendingSave(),
-    afterPull: (dir) => void files.refreshGroups(dir),
+    afterPull: (dir) => {
+      void files.refreshGroups(dir);
+      void files.refreshDataGroups(dir, schemas.configRef.current);
+    },
     // Publish progress lives on the Publish button; only failures surface.
     onPublishError: setStatus,
   });
@@ -162,6 +174,11 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     [files.groups, schemas.config, root],
   );
 
+  useEffect(() => {
+    void files.refreshDataGroups(root, schemas.config);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [root, schemas.config]);
+
   async function openPublish() {
     await currentFile.flushPendingSave();
     setPublishOpen(true);
@@ -183,9 +200,10 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     }
   }
 
-  async function openFile(path: string) {
+  async function openFile(file: string | FileEntry) {
     setConfirmingDelete(false);
-    await currentFile.openFile(path);
+    await currentFile.openFile(file);
+    const path = typeof file === "string" ? file : file.path;
     if (currentFile.filePathRef.current === path) setShowEditor(true);
   }
 
@@ -201,6 +219,21 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   // collection's defaults — and opens it; no dialog. The filename follows
   // the title (or whatever fields the template names) as the user edits.
   async function createNewFile(group: FileGroup) {
+    if (group.dataCollection) {
+      const collection = schemas.configRef.current?.content.find((entry) => entry.name === group.dataCollection);
+      if (!collection) return;
+      try {
+        const id = await createDataDocumentEntry(group, collection);
+        await files.refreshDataGroups(root, schemas.configRef.current);
+        const created = files.groupsRef.current
+          .find((candidate) => candidate.dataCollection === group.dataCollection)
+          ?.files.find((file) => file.dataEntry?.id === id);
+        if (created) await openFile(created);
+      } catch (createError) {
+        setStatus(`Create failed: ${message(createError)}`);
+      }
+      return;
+    }
     const { path, content } = buildNewFile(root, group, schemaSources());
     try {
       await invoke("create_text_file", { path, content });
@@ -241,7 +274,11 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     // A pending autosave would recreate the file right after the delete.
     currentFile.clearPendingSave();
     try {
-      await invoke("delete_file", { path });
+      const selected = files.groupsRef.current
+        .flatMap((group) => group.files)
+        .find((file) => (file.key ?? file.path) === currentFile.activeKey);
+      if (selected?.dataEntry) await deleteDataDocumentEntry(selected);
+      else await invoke("delete_file", { path });
     } catch (deleteError) {
       // The repo home screen is the only surface that shows status messages.
       setStatus(`Delete failed: ${message(deleteError)}`);
@@ -252,6 +289,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     setShowEditor(false);
     if (path === root + "/.pages.yml") void schemas.loadPagesConfig(root);
     void files.refreshGroups(root);
+    void files.refreshDataGroups(root, schemas.configRef.current);
     void git.refreshLocalChanges(root);
   }
 
@@ -318,8 +356,11 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   const config = schemas.config;
   const entry = useMemo(() => {
     if (!currentFile.filePath || !config) return null;
+    if (currentFile.dataEntry) {
+      return config.content.find((candidate) => candidate.name === currentFile.dataEntry?.collection) ?? null;
+    }
     return matchEntry(config, root, currentFile.filePath);
-  }, [config, currentFile.filePath, root]);
+  }, [config, currentFile.filePath, currentFile.dataEntry, root]);
   // Matched by name+path because the `.posto` overlay clones entries it
   // touches; `.pages.yml` wins ties, matching the config's precedence order.
   const entrySource =
@@ -330,7 +371,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
         : schemas.astroConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
           ? "astro"
           : "pages";
-  const openFileName = currentFile.filePath?.split("/").pop() ?? "File";
+  const openFileName = currentFile.dataEntry?.id ?? currentFile.filePath?.split("/").pop() ?? "File";
 
   return (
     <>
@@ -388,6 +429,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
             fileContent={currentFile.fileContent}
             saveState={currentFile.saveState}
             entry={entry}
+            dataEntry={currentFile.dataEntry}
             entrySource={entrySource}
             config={config}
             configError={schemas.configError}
@@ -573,9 +615,9 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
                   {group.files.map((file) => (
                     <button
                       className="mobile-file-item"
-                      key={file.path}
+                      key={file.key ?? file.path}
                       title={file.name}
-                      onClick={() => void openFile(file.path)}
+                      onClick={() => void openFile(file)}
                     >
                       {file.title ?? file.name}
                       {collection?.pinned?.includes(file.name) && (
@@ -589,9 +631,9 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
                   {group.files.map((file) => (
                     <button
                       className="mobile-file-item"
-                      key={file.path}
+                      key={file.key ?? file.path}
                       title={file.name}
-                      onClick={() => void openFile(file.path)}
+                      onClick={() => void openFile(file)}
                     >
                       {file.title ?? file.name}
                     </button>
