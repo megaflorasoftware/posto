@@ -1,5 +1,6 @@
 import { convertFileSrc, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as tauriOpen } from "@tauri-apps/plugin-dialog";
 import { openPath as tauriOpenPath, openUrl as tauriOpenUrl } from "@tauri-apps/plugin-opener";
 
@@ -87,6 +88,21 @@ export interface GitHubRepo {
   updated_at: string;
 }
 
+export interface ImageLibraryImportRequest {
+  libraryRoot: string;
+  sourceImagePath: string;
+  destinationImagePath: string;
+  destinationMetadataPath: string;
+  serializedMetadata: string;
+  entryId: string;
+}
+
+export interface ImageLibraryImportResult {
+  entryId: string;
+  imagePath: string;
+  metadataPath: string;
+}
+
 // Browser-only mock so the UI can be developed and tested outside the Tauri
 // shell (invoke/dialog are unavailable there).
 const mockFiles: Record<string, string> = {
@@ -159,7 +175,6 @@ const mockFiles: Record<string, string> = {
       displayName: "Writing",
       entryName: "{fields.title}",
       filename: "{fields.title}.mdx",
-      mediaDir: "public",
       sort: { by: "fields.publish_date", direction: "desc" },
     },
     null,
@@ -168,15 +183,20 @@ const mockFiles: Record<string, string> = {
   // Astro content-collection fixtures: `posts` has no `.pages.yml` entry, so
   // its form schema comes from the generated JSON Schema (fallback path).
   "/mock/site/src/content.config.ts": [
-    'import { defineCollection, z } from "astro:content";',
+    'import { defineCollection, reference, z } from "astro:content";',
     'import { glob } from "astro/loaders";',
     "",
     "const posts = defineCollection({",
     '  loader: glob({ pattern: "**/*.md", base: "./posts" }),',
-    "  schema: z.object({}),",
+    '  schema: z.object({ hero: reference("media") }),',
     "});",
     "",
-    "export const collections = { posts };",
+    "const media = defineCollection({",
+    '  loader: glob({ pattern: "**/*.{yaml,yml,json}", base: "./media" }),',
+    "  schema: ({ image }) => z.object({ image: image(), alt: z.string() }),",
+    "});",
+    "",
+    "export const collections = { posts, media };",
     "",
   ].join("\n"),
   "/mock/site/.astro/collections/posts.schema.json": JSON.stringify({
@@ -186,6 +206,16 @@ const mockFiles: Record<string, string> = {
         type: "object",
         properties: {
           title: { type: "string", minLength: 3 },
+          hero: {
+            anyOf: [
+              { type: "string" },
+              {
+                type: "object",
+                properties: { id: { type: "string" }, collection: { type: "string" } },
+                required: ["id", "collection"],
+              },
+            ],
+          },
           published: { type: "boolean", default: false },
           count: { type: "number", minimum: 0, maximum: 10 },
           tags: { type: "array", items: { type: "string" }, minItems: 1 },
@@ -241,12 +271,22 @@ const mockFiles: Record<string, string> = {
     },
     $schema: "http://json-schema.org/draft-07/schema#",
   }),
+  "/mock/site/.astro/collections/media.schema.json": JSON.stringify({
+    type: "object",
+    properties: {
+      image: { type: "string" },
+      alt: { type: "string" },
+    },
+    required: ["image", "alt"],
+  }),
+  "/mock/site/media/portraits/person.yaml": "image: ./person.jpg\nalt: Portrait\n",
+  "/mock/site/media/portraits/person.jpg": "[mock image]",
   "/mock/site/src/layouts/BaseLayout.astro": "<html><slot /></html>",
   "/mock/site/src/layouts/PostLayout.astro": "<article><slot /></article>",
   "/mock/site/src/layouts/notes.txt": "not a layout",
   "/mock/site/index.md": "# Home\n\nWelcome.\n",
   "/mock/site/posts/first.md":
-    "---\ntitle: First post\npublished: true\ncount: 3\ntags:\n  - alpha\n  - beta\nauthor:\n  name: Henry\n  email: h@example.com\nlinks:\n  - label: Home\n    url: /\n  - label: About\n    url: /about\n---\n\nHello world.\n",
+    "---\ntitle: First post\nhero: portraits/person\npublished: true\ncount: 3\ntags:\n  - alpha\n  - beta\nauthor:\n  name: Henry\n  email: h@example.com\nlinks:\n  - label: Home\n    url: /\n  - label: About\n    url: /about\n---\n\nHello world.\n",
   "/mock/site/notes.txt": "Some notes.\n",
   "/mock/site/src/styles/global.css": "body {\n  margin: 0;\n}\n",
   "/mock/site/public/theme.css": ":root {\n  --accent: rebeccapurple;\n}\n",
@@ -463,6 +503,21 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
         { name: "logo.png", path: `${dir}/nested/logo.png` },
       ];
     }
+    case "image_thumbnail":
+      return args?.path as string;
+    case "list_directories": {
+      const dir = args?.dir as string;
+      const directories = new Set<string>([`${dir}/nested`]);
+      for (const path of Object.keys(mockFiles)) {
+        if (!path.startsWith(`${dir}/`) || mockDeleted.has(path)) continue;
+        let parent = path.slice(0, path.lastIndexOf("/"));
+        while (parent.startsWith(`${dir}/`)) {
+          directories.add(parent);
+          parent = parent.slice(0, parent.lastIndexOf("/"));
+        }
+      }
+      return [...directories].sort();
+    }
     case "read_text_file": {
       const path = args?.path as string;
       // Missing dotfile reads must fail like the real backend so ".pages.yml
@@ -503,6 +558,17 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       delete mockFiles[path];
       mockDeleted.add(path);
       return null;
+    }
+    case "import_image_library_asset": {
+      const plan = args?.plan as ImageLibraryImportRequest;
+      if (plan.destinationImagePath in mockFiles || plan.destinationMetadataPath in mockFiles) {
+        throw new Error("An image-library destination already exists");
+      }
+      mockFiles[plan.destinationImagePath] = "[mock image]";
+      mockFiles[plan.destinationMetadataPath] = plan.serializedMetadata;
+      mockDeleted.delete(plan.destinationImagePath);
+      mockDeleted.delete(plan.destinationMetadataPath);
+      return { entryId: plan.entryId, imagePath: plan.destinationImagePath, metadataPath: plan.destinationMetadataPath };
     }
     case "revert_file":
       return null;
@@ -678,13 +744,79 @@ export const invoke: typeof tauriInvoke = inTauri
   ? tauriInvoke
   : (mockInvoke as typeof tauriInvoke);
 
+export function importImageLibraryAsset(
+  plan: ImageLibraryImportRequest,
+): Promise<ImageLibraryImportResult> {
+  return invoke("import_image_library_asset", { plan });
+}
+
 export const openDirectory: () => Promise<string | null> = inTauri
   ? () => tauriOpen({ directory: true })
   : async () => "/mock/site";
 
+export const openImageFile: () => Promise<string | null> = inTauri
+  ? async () => {
+      const selected = await tauriOpen({
+        multiple: false,
+        filters: [{ name: "Images", extensions: ["avif", "gif", "jpeg", "jpg", "png", "svg", "tif", "tiff", "webp"] }],
+      });
+      return typeof selected === "string" ? selected : null;
+    }
+  : async () => "/mock/uploads/photo.jpg";
+
+type FileDropHandler = (paths: string[]) => void;
+const fileDropHandlers: FileDropHandler[] = [];
+let fileDropListenerStarted = false;
+
+/** Routes native desktop file drops through one shared integration point.
+ * The newest mounted surface owns the event, so a modal dropzone takes
+ * precedence over the app-wide drop importer behind it. */
+export function onFileDrop(handler: FileDropHandler): () => void {
+  fileDropHandlers.push(handler);
+  if (inTauri && !fileDropListenerStarted) {
+    fileDropListenerStarted = true;
+    void getCurrentWebview().onDragDropEvent((event) => {
+      if (event.payload.type === "drop") {
+        fileDropHandlers[fileDropHandlers.length - 1]?.(event.payload.paths);
+      }
+    });
+  }
+  return () => {
+    const index = fileDropHandlers.lastIndexOf(handler);
+    if (index >= 0) fileDropHandlers.splice(index, 1);
+  };
+}
+
 /** URL that loads a local file in the webview, or null outside Tauri. */
 export function assetUrl(absolutePath: string): string | null {
   return inTauri ? convertFileSrc(absolutePath) : null;
+}
+
+const thumbnailRequests = new Map<string, Promise<string | null>>();
+
+/** Returns a cached, bounded preview URL and falls back to the source when its
+ * format cannot be decoded by the native thumbnailer. Requests are only
+ * deduplicated while in flight so filesystem edits get a fresh cache key. */
+export function thumbnailUrl(
+  absolutePath: string,
+  maxWidth = 320,
+  maxHeight = 240,
+): Promise<string | null> {
+  const original = assetUrl(absolutePath);
+  if (!original) return Promise.resolve(null);
+  const key = `${absolutePath}:${maxWidth}:${maxHeight}`;
+  const pending = thumbnailRequests.get(key);
+  if (pending) return pending;
+  const request = invoke<string>("image_thumbnail", {
+    path: absolutePath,
+    maxWidth,
+    maxHeight,
+  })
+    .then((path) => assetUrl(path) ?? original)
+    .catch(() => original)
+    .finally(() => thumbnailRequests.delete(key));
+  thumbnailRequests.set(key, request);
+  return request;
 }
 
 /** Open a path in the OS file manager; no-op outside Tauri. */

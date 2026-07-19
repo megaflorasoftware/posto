@@ -3,10 +3,11 @@ import { Button, MantineProvider } from "@mantine/core";
 import { invoke, onFsChanged, openDirectory } from "@posto/ipc";
 import { checkForAppUpdate } from "./updater";
 import type { ChangedFile, FileEntry, FileGroup } from "@posto/ipc";
-import { EMPTY_CONFIG, matchEntry } from "@posto/core/pagescms/config";
+import { EMPTY_CONFIG, matchEntry, renamedFilename } from "@posto/core/pagescms/config";
 import { parseFile } from "@posto/core/pagescms/frontmatter";
 import {
   EditorPane,
+  ImageLibraryDropImport,
   PublishModal,
   Sidebar,
   buildNewFile,
@@ -221,6 +222,36 @@ function App() {
     void preview.navigateForFile(target, content);
   }
 
+  async function renameOpenFilename(filename: string): Promise<boolean> {
+    const dir = rootRef.current;
+    const from = currentFile.filePathRef.current;
+    if (!dir || !from || filename.includes("/")) return false;
+    const target = from.slice(0, from.lastIndexOf("/") + 1) + filename;
+    if (target === from) return true;
+    if (files.groupsRef.current.some((group) => group.files.some((file) => file.path === target))) {
+      setStatus(`A file named ${filename} already exists.`);
+      return false;
+    }
+    if (!(await currentFile.renameOpenFile(from, target))) {
+      setStatus(`Could not rename the file to ${filename}.`);
+      return false;
+    }
+    void refreshGroups(dir);
+    void preview.navigateForFile(target, currentFile.fileContentRef.current);
+    return true;
+  }
+
+  function refreshFilenameTemplate(template: string) {
+    const path = currentFile.filePathRef.current;
+    if (!path || !entry) return;
+    const parsed = parseFile(currentFile.fileContentRef.current);
+    const raw = parsed.doc.toJSON() as unknown;
+    if (parsed.error || !raw || typeof raw !== "object" || Array.isArray(raw)) return;
+    const currentName = path.slice(path.lastIndexOf("/") + 1);
+    const next = renamedFilename(template, entry, raw as Record<string, unknown>, currentName);
+    if (next) void renameOpenFilename(next);
+  }
+
   // Files changed outside the app (other editors, git, `astro sync`, …):
   // refresh whatever the paths affect. Our own saves also echo through here,
   // but resolve to no-ops (content already matches).
@@ -375,6 +406,16 @@ function App() {
           }}
         />
 
+        {root && config && (
+          <ImageLibraryDropImport
+            root={root}
+            config={config}
+            groups={files.groups}
+            onImported={() => void refreshGroups(root)}
+            onError={setStatus}
+          />
+        )}
+
         {!root ? (
           <div className="empty-state">
             <p>Select the folder that holds your site to get started.</p>
@@ -411,6 +452,9 @@ function App() {
                   onTabChange={setEditorTab}
                   onEdit={currentFile.onEdit}
                   onFormEdit={currentFile.onFormEdit}
+                  onRenameFile={renameOpenFilename}
+                  onRefreshFilename={refreshFilenameTemplate}
+                  onPostoSaved={() => void schemas.loadPostoConfig(root)}
                 />
               </div>
 

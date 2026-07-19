@@ -22,6 +22,7 @@ type Stage =
   | "loading"
   | "signed-out"
   | "authorizing"
+  | "repos-loading"
   | "repos"
   | "cloning"
   | "clone-error"
@@ -93,6 +94,9 @@ export default function App() {
   const [user, setUser] = useState<GitHubUser | null>(null);
   const [device, setDevice] = useState<DeviceAuthorization | null>(null);
   const [repos, setRepos] = useState<GitHubRepo[]>(cachedRepositories.repos);
+  // Cached roots make repository status available immediately, but the repo
+  // picker stays non-interactive until list_repos replaces them with native
+  // filesystem state.
   const [managed, setManaged] = useState<ManagedRepo[]>(cachedRepositories.managed);
   const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
   const [readyRoot, setReadyRoot] = useState<string | null>(null);
@@ -135,7 +139,7 @@ export default function App() {
 
   const loadRepos = useCallback(async () => {
     setError(null);
-    setStage("repos");
+    setStage("repos-loading");
     const [available, downloaded] = await Promise.allSettled([
       invoke<GitHubRepo[]>("list_user_repos"),
       invoke<ManagedRepo[]>("list_repos"),
@@ -147,6 +151,7 @@ export default function App() {
     } else if (downloaded.status === "rejected") {
       setError(message(downloaded.reason));
     }
+    setStage("repos");
   }, []);
 
   useEffect(() => {

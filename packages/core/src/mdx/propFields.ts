@@ -58,6 +58,8 @@ export interface AstroPropTypeContext {
   collections: AstroCollectionSchema[];
   /** File-backed collections that can power reference pickers. */
   editableCollections?: PagesConfig["content"];
+  /** Collections discovered as managed image libraries. */
+  imageLibraries?: PagesConfig["imageLibraries"];
 }
 
 function collectionSchema(
@@ -140,8 +142,16 @@ function astroContentField(
   switch (property) {
     case "id":
       if (!collection) return null;
-      return editable && !editable.astroCustomIds
-        ? { name, type: "reference", options: { collection: collectionName, astroId: true } }
+      return context?.imageLibraries?.some((library) => library.collection === collectionName) ||
+        (editable && !editable.astroCustomIds)
+        ? {
+            name,
+            type: "reference",
+            options: {
+              collection: collectionName,
+              astroId: true,
+            },
+          }
         : { name, type: "string" };
     case "filePath":
       return editable
@@ -180,6 +190,21 @@ function typeField(
   if (single === "string") return { name, type: "string" };
   if (single === "number") return { name, type: "number" };
   if (single === "boolean") return { name, type: "boolean" };
+  // Resolve the container before Astro utility types: for
+  // `CollectionEntry<'media'>['id'][]`, the trailing array brackets are not
+  // part of the indexed-access expression.
+  let item: string | null = null;
+  if (single.endsWith("[]")) item = single.slice(0, -2).trim();
+  else {
+    const array = /^(?:Readonly)?Array<([\s\S]+)>$/.exec(single);
+    if (array) item = array[1].trim();
+  }
+  if (item !== null) {
+    if (item.startsWith("(") && item.endsWith(")")) item = item.slice(1, -1).trim();
+    const itemField = typeField(name, item, context);
+    if (!itemField || itemField.list) return null; // nested arrays have no control
+    return { ...itemField, list: true };
+  }
   const contentField = astroContentField(name, single, context);
   if (contentField !== undefined) return contentField;
   if (single.startsWith("{") && single.endsWith("}")) {
@@ -194,18 +219,6 @@ function typeField(
     }
     if (children.length === 0) return null;
     return { name, type: "object", fields: children };
-  }
-  let item: string | null = null;
-  if (single.endsWith("[]")) item = single.slice(0, -2).trim();
-  else {
-    const array = /^(?:Readonly)?Array<([\s\S]+)>$/.exec(single);
-    if (array) item = array[1].trim();
-  }
-  if (item !== null) {
-    if (item.startsWith("(") && item.endsWith(")")) item = item.slice(1, -1).trim();
-    const itemField = typeField(name, item, context);
-    if (!itemField || itemField.list) return null; // nested arrays have no control
-    return { ...itemField, list: true };
   }
   return null;
 }

@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Alert } from "@mantine/core";
 import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
+import { expandFieldTemplate } from "@posto/core/pagescms/config";
 import {
   appendDataListItem,
   dataDocumentEntries,
@@ -37,7 +38,9 @@ export function DataFormEditor(props: {
   config: PagesConfig;
   root: string;
   groups: FileGroup[];
+  fieldsHeader?: ReactNode;
   onChange: (content: string, valid: boolean) => void;
+  onPostoSaved?: () => void;
 }) {
   const parsedRef = useRef<ParsedDataDocument>(null as unknown as ParsedDataDocument);
   const locatorRef = useRef<DataEntryLocator>({ id: props.dataEntry.id, path: props.dataEntry.path });
@@ -114,6 +117,35 @@ export function DataFormEditor(props: {
     props.onChange(content, nextErrors.size === 0);
   }
 
+  function applyControlledTemplates() {
+    const schemas = props.entry.fieldSchemas;
+    if (!schemas) return;
+    const controlled = Object.entries(schemas).filter(
+      ([name, schema]) => name !== "filename" && schema.template && schema.editBehavior === "controlled",
+    );
+    for (let pass = 0; pass <= controlled.length; pass++) {
+      let changed = false;
+      for (const [name, schema] of Object.entries(schemas)) {
+        if (name === "filename" || !schema.template || schema.editBehavior !== "controlled") continue;
+        const values = dataEntryValues(parsedRef.current, locatorRef.current) ?? {};
+        const expanded = expandFieldTemplate(schema.template, values);
+        const path = name.split(".");
+        let current: unknown = values;
+        for (const key of path) {
+          if (!current || typeof current !== "object") {
+            current = undefined;
+            break;
+          }
+          current = (current as Record<string, unknown>)[key];
+        }
+        if (expanded === null || current === expanded) continue;
+        setDataValue(parsedRef.current, fullPath(path), expanded);
+        changed = true;
+      }
+      if (!changed) break;
+    }
+  }
+
   const fullPath = (path: (string | number)[]) => [...locatorRef.current.path, ...path];
   const ctx: FieldContext = {
     config: props.config,
@@ -138,6 +170,7 @@ export function DataFormEditor(props: {
           dateField: fieldAt(fields, path)?.type === "date",
         });
       }
+      applyControlledTemplates();
       emit();
     },
     listAppend: (path, value) => {
@@ -155,6 +188,7 @@ export function DataFormEditor(props: {
       moveDataListItem(parsedRef.current, fullPath(path), from, to);
       emit();
     },
+    onPostoSaved: props.onPostoSaved,
   };
 
   if (parseError) {
@@ -166,6 +200,7 @@ export function DataFormEditor(props: {
   return (
     <div className="form-editor">
       <div className="form-fields">
+        {props.fieldsHeader}
         {fields.map((field) => (
           <FieldEditor key={field.name} field={field} path={[field.name]} ctx={ctx} />
         ))}

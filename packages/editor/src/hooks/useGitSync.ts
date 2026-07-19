@@ -10,7 +10,7 @@ type Callbacks = {
   /** Flushes pending edits to disk so git sees them. */
   beforeSync?: () => void | Promise<void>;
   /** Runs after a pull rewrote the working tree. */
-  afterPull?: (dir: string) => void;
+  afterPull?: (dir: string) => void | Promise<void>;
   /** When set, publish skips onStatus entirely — progress is read from the
    * `publishing` flag and only failures are reported, through this. */
   onPublishError?: (message: string) => void;
@@ -99,9 +99,9 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
     } catch (e) {
       cb.current.onStatus(`Fetch failed: ${e}`);
     } finally {
+      await cb.current.afterPull?.(dir);
       setPulling(false);
     }
-    cb.current.afterPull?.(dir);
   }
 
   /** (Re)loads the publish modal's change list. */

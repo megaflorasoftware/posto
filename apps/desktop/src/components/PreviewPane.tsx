@@ -1,5 +1,7 @@
-import { Alert, Button, Tabs } from "@mantine/core";
+import { ActionIcon, Alert, Button, Tabs } from "@mantine/core";
 import type { MediaEntry } from "@posto/core/pagescms/config";
+import { openUrl } from "@posto/ipc";
+import { SquareArrowOutUpRight } from "lucide-react";
 import type { ServerStatus, SetupStep } from "../hooks/useDevServer";
 import { SetupFlow } from "./SetupFlow";
 import { SeoPreview } from "./SeoPreview";
@@ -26,6 +28,22 @@ export function PreviewPane(props: {
     <div className="pane preview-pane">
       <div className="pane-header">
         <span className="pane-title">{props.servedRoute ?? props.previewRoute}</span>
+        <ActionIcon
+          size={30}
+          variant="default"
+          disabled={server.state !== "running"}
+          title="Open preview in browser"
+          aria-label="Open preview in browser"
+          onClick={() => {
+            if (server.state === "running") {
+              void openUrl(
+                `http://localhost:${server.port}${props.servedRoute ?? props.previewRoute}`,
+              );
+            }
+          }}
+        >
+          <SquareArrowOutUpRight size={14} />
+        </ActionIcon>
         <Button
           size="xs"
           variant="default"

@@ -1,5 +1,14 @@
 import { slug as githubSlug } from "github-slugger";
-import type { ContentEntry, Field, MediaEntry, PagesConfig } from "../pagescms/config";
+import type {
+  AstroImageLibrary,
+  AstroImageLibraryDiagnostic,
+  ContentEntry,
+  Field,
+  ImageLibraryMetadataExtension,
+  MediaEntry,
+  PagesConfig,
+} from "../pagescms/config";
+import { schemaImageFields, type SchemaImageField } from "./schemaAnalysis";
 
 // Builds a PagesConfig from Astro content collections, used as a fallback
 // schema source when `.pages.yml` doesn't cover a folder. Astro generates a
@@ -186,8 +195,9 @@ export interface LoaderInfo {
   patterns?: string[];
   /** `reference()` fields found in the schema, field name → collection. */
   references?: Record<string, string>;
-  /** Field names whose schema uses Astro's `image()` helper. */
-  images?: string[];
+  /** Image fields recovered from the schema source. Only scalar fields nested
+   * through non-list objects can back a managed image library. */
+  images?: SchemaImageField[];
   /** A glob-loader `generateId` callback cannot be executed by the editor. */
   customIds?: boolean;
   /** Repo-root-relative source passed to Astro's file() loader. */
@@ -342,10 +352,8 @@ export function parseLoaderConfig(source: string): Map<string, LoaderInfo> {
     // Schema. Preserve the hint here for scalar fields, image arrays, nested
     // objects, and arrays of objects. As with references, names are resolved
     // recursively against the generated shape below.
-    const imageRegex = /(?:(['"`])([^'"`]+)\1|(\w+))\s*:\s*(?:z\s*\.\s*array\s*\(\s*)?image\s*\(/g;
-    for (let image = imageRegex.exec(body); image; image = imageRegex.exec(body)) {
-      (info.images ??= []).push(image[2] ?? image[3]);
-    }
+    info.images = schemaImageFields(source, body, topLevelObjectProp(body, "schema"));
+    if (info.images.length === 0) delete info.images;
     byVariable.set(match[1], info);
   }
 
@@ -418,16 +426,72 @@ function resolveReferences(
 
 /** Restores Astro `image()` fields, which are plain strings in generated JSON
  * Schema. Traversing child fields also covers objects and object-list items. */
-function resolveImages(fields: Field[], images?: string[]): Field[] {
-  const names = new Set(images);
+function resolveImages(fields: Field[], images: NonNullable<LoaderInfo["images"]> = [], prefix: string[] = []): Field[] {
   return fields.map((field) => {
-    const resolved = names.has(field.name) && (field.type === "string" || field.type === "text")
+    const path = [...prefix, field.name];
+    const resolved = images.some((candidate) => candidate.path.length === path.length && candidate.path.every((part, index) => part === path[index])) && (field.type === "string" || field.type === "text")
       ? { ...field, type: "image" }
       : field;
     return resolved.fields
-      ? { ...resolved, fields: resolveImages(resolved.fields, images) }
+      ? { ...resolved, fields: resolveImages(resolved.fields, images, path) }
       : resolved;
   });
+}
+
+function metadataExtensions(patterns: string[]): ImageLibraryMetadataExtension[] {
+  const found = new Set<ImageLibraryMetadataExtension>();
+  for (const pattern of patterns) {
+    const braces = pattern.match(/\.\{([^}]+)\}/)?.[1]?.split(",") ?? [];
+    const single = pattern.match(/\.([a-z0-9]+)$/i)?.[1];
+    for (const ext of single ? [single] : braces) {
+      const normalized = ext.toLowerCase();
+      if (normalized === "yaml" || normalized === "yml" || normalized === "json") found.add(normalized);
+    }
+  }
+  return [...found];
+}
+
+function discoverImageLibraries(
+  collections: { name: string; fields: Field[] }[],
+  loaders: Map<string, LoaderInfo>,
+): { libraries: AstroImageLibrary[]; diagnostics: AstroImageLibraryDiagnostic[] } {
+  const libraries: AstroImageLibrary[] = [];
+  const diagnostics: AstroImageLibraryDiagnostic[] = [];
+  for (const collection of collections) {
+    const loader = loaders.get(collection.name);
+    const images = loader?.images ?? [];
+    if (images.length === 0 || loader?.kind !== "glob") continue;
+    if (images.length > 1) {
+      diagnostics.push({ collection: collection.name, code: "multiple-image-fields", message: `Collection ${collection.name} has multiple image fields and cannot be managed as an image library.` });
+      continue;
+    }
+    if (!loader.base) {
+      diagnostics.push({ collection: collection.name, code: "missing-loader-base", message: `Collection ${collection.name} has no static glob loader base.` });
+      continue;
+    }
+    if (loader.customIds) {
+      diagnostics.push({ collection: collection.name, code: "custom-entry-ids", message: `Collection ${collection.name} uses a custom generateId function, so Posto cannot manage its image entry IDs.` });
+      continue;
+    }
+    if (images.some((image) => !image.writable)) {
+      diagnostics.push({ collection: collection.name, code: "unsupported-image-shape", message: `Collection ${collection.name} has an image field inside a list. Posto image libraries require one scalar image field nested only through objects.` });
+      continue;
+    }
+    const extensions = metadataExtensions(loader.patterns ?? []);
+    if (extensions.length === 0) {
+      diagnostics.push({ collection: collection.name, code: "unsupported-metadata-format", message: `Collection ${collection.name} does not use YAML or JSON metadata.` });
+      continue;
+    }
+    libraries.push({
+      collection: collection.name,
+      base: normalizePath(loader.base),
+      patterns: loader.patterns ?? [],
+      metadataExtensions: extensions,
+      imageFieldPath: images[0].path,
+      fields: resolveImages(collection.fields, images),
+    });
+  }
+  return { libraries, diagnostics };
 }
 
 /**
@@ -440,6 +504,7 @@ export function buildAstroConfig(
   loaders: Map<string, LoaderInfo>,
 ): PagesConfig {
   const content: ContentEntry[] = [];
+  const discovered = discoverImageLibraries(collections, loaders);
   const astroCollections = collections.map(({ name, fields }) => {
     const loader = loaders.get(name);
     return {
@@ -496,5 +561,7 @@ export function buildAstroConfig(
     media: DEFAULT_ASTRO_MEDIA,
     content,
     astroCollections,
+    imageLibraries: discovered.libraries,
+    imageLibraryDiagnostics: discovered.diagnostics,
   };
 }

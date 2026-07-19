@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Alert } from "@mantine/core";
 
 import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
 import {
-  expandMediaEntry,
+  expandFieldTemplate,
   frontmatterFields,
   inferFields,
 } from "@posto/core/pagescms/config";
@@ -63,7 +63,9 @@ export function FormEditor(props: {
   config: PagesConfig;
   root: string;
   groups: FileGroup[];
+  fieldsHeader?: ReactNode;
   onChange: (content: string, valid: boolean) => void;
+  onPostoSaved?: () => void;
 }) {
   const parsedRef = useRef<ParsedFile>(null as unknown as ParsedFile);
   // Content emitted by this component; used to ignore the echo when it comes
@@ -150,6 +152,31 @@ export function FormEditor(props: {
     props.onChange(content, errs.size === 0);
   }
 
+  /** Recompute every controlled field after an item edit. Unrelated
+   * templates resolve to their existing value, while repeated passes let
+   * controlled fields feed one another without relying on fragile path-key
+   * comparisons for nested schemas. */
+  function applyControlledTemplates() {
+    const schemas = props.entry?.fieldSchemas;
+    if (!schemas) return;
+    const controlled = Object.entries(schemas).filter(
+      ([name, schema]) => name !== "filename" && schema.template && schema.editBehavior === "controlled",
+    );
+    for (let pass = 0; pass <= controlled.length; pass++) {
+      let changed = false;
+      for (const [name, schema] of Object.entries(schemas)) {
+        if (name === "filename" || !schema.template || schema.editBehavior !== "controlled") continue;
+        const values = plainValues(parsedRef.current);
+        const expanded = expandFieldTemplate(schema.template, values);
+        const path = name.split(".");
+        if (expanded === null || getValue(parsedRef.current.doc, path) === expanded) continue;
+        setValue(parsedRef.current.doc, path, expanded);
+        changed = true;
+      }
+      if (!changed) break;
+    }
+  }
+
   function beforeEdit() {
     if (!defaultsApplied.current) {
       defaultsApplied.current = true;
@@ -184,6 +211,7 @@ export function FormEditor(props: {
           dateField: fieldAt(fields, path)?.type === "date",
         });
       }
+      applyControlledTemplates();
       emit();
     },
     listAppend: (path, value) => {
@@ -201,6 +229,7 @@ export function FormEditor(props: {
       moveListItem(parsedRef.current.doc, path, from, to);
       emit();
     },
+    onPostoSaved: props.onPostoSaved,
   };
 
   function onBodyEdit(text: string) {
@@ -224,8 +253,7 @@ export function FormEditor(props: {
   }
 
   if (props.view === "body") {
-    const configuredMedia = props.entry?.media ?? props.config.media[0] ?? null;
-    const media = configuredMedia ? expandMediaEntry(configuredMedia, values) : null;
+    const media = props.entry?.media ?? null;
     // Rich editing for the markdown family (MDX mode adds import pills,
     // component cards, and raw-JSX preservation); plain text for anything else.
     return /\.(md|mdx|markdown)$/i.test(props.path) ? (
@@ -234,7 +262,7 @@ export function FormEditor(props: {
         path={props.path}
         mdx={/\.mdx$/i.test(props.path)}
         root={props.root}
-        media={media}
+        configuredMedia={media}
         entry={props.entry}
         templateValues={values}
         config={props.config}
@@ -254,6 +282,7 @@ export function FormEditor(props: {
   return (
     <div className="form-editor">
       <div className="form-fields">
+        {props.fieldsHeader}
         {fields.map((field) => (
           <FieldEditor key={field.name} field={field} path={[field.name]} ctx={ctx} />
         ))}

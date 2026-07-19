@@ -7,19 +7,25 @@ import {
   Loader,
   ScrollArea,
   Stack,
+  Tabs,
   Text,
 } from "@mantine/core";
 import {
   CollectionOrderDialog,
   CollectionSettingsDialog,
+  Dialog,
   EditorPane,
+  ImageLibraryImportDialog,
+  ImageLibraryList,
   PublishModal,
   buildNewFile,
   createDataDocumentEntry,
   deleteDataDocumentEntry,
   contentHasFields,
+  editorTabsForFile,
   renameTargetForContent,
   orderableCollections,
+  resolveEditorTab,
   sidebarDisplayGroups,
   useCurrentFile,
   useFileGroups,
@@ -27,7 +33,13 @@ import {
   useSchemas,
   type EditorTab,
 } from "@posto/editor";
-import { EMPTY_CONFIG, matchEntry, type ContentEntry } from "@posto/core/pagescms/config";
+import {
+  EMPTY_CONFIG,
+  matchEntry,
+  renamedFilename,
+  type AstroImageLibrary,
+  type ContentEntry,
+} from "@posto/core/pagescms/config";
 import { parseFile } from "@posto/core/pagescms/frontmatter";
 import { invoke } from "@posto/ipc";
 import type { ChangedFile, FileEntry, FileGroup, GitHubRepo } from "@posto/ipc";
@@ -54,6 +66,7 @@ import {
 
 // Drag distance (after damping) that arms the pull-to-refresh gesture.
 const PULL_REFRESH_THRESHOLD = 60;
+const TRANSIENT_NOTICE_MS = 5_000;
 
 type Props = {
   root: string;
@@ -82,6 +95,8 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     files: FileEntry[];
   } | null>(null);
   const [orderOpen, setOrderOpen] = useState(false);
+  const [mediaImportOpen, setMediaImportOpen] = useState(false);
+  const [importLibrary, setImportLibrary] = useState<AstroImageLibrary | null>(null);
   const [editorTab, setEditorTab] = useState<EditorTab>("fields");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -90,6 +105,15 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   const pullStartY = useRef<number | null>(null);
   const schemas = useSchemas();
   const files = useFileGroups(setError);
+
+  async function refreshRepositoryContent(dir: string) {
+    const [, config] = await Promise.all([
+      files.refreshGroups(dir),
+      schemas.loadSchemas(dir),
+    ]);
+    await files.refreshDataGroups(dir, config);
+  }
+
   const currentFile = useCurrentFile({
     onAfterSave(path, content) {
       files.updateSidebarTitle(path, content);
@@ -127,10 +151,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   const git = useGitSync(root, {
     onStatus: setStatus,
     beforeSync: () => currentFile.flushPendingSave(),
-    afterPull: (dir) => {
-      void files.refreshGroups(dir);
-      void files.refreshDataGroups(dir, schemas.configRef.current);
-    },
+    afterPull: refreshRepositoryContent,
     // Publish progress lives on the Publish button; only failures surface.
     onPublishError: setStatus,
   });
@@ -140,20 +161,19 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     setLoading(true);
     setError(null);
     setRepairError(null);
-    const repositoryCheck = repo
-      ? invoke<string>("doctor_repo", { root, expectedUrl: repo.clone_url }).catch((checkError) => {
-          if (active) setRepairError(message(checkError));
-        })
-      : Promise.resolve();
-    const repositoryContent = Promise.all([
-      files.refreshGroups(root),
-      schemas.loadPagesConfig(root),
-      schemas.loadAstroConfig(root),
-      schemas.loadPostoConfig(root),
-    ]);
-    void Promise.all([repositoryContent, repositoryCheck]).finally(() => {
-      if (active) setLoading(false);
-    });
+    void (async () => {
+      try {
+        // Validate/repair the native checkout before any filesystem reads.
+        // Running these concurrently caused first-open "Not a directory"
+        // errors when the repository registry was still settling.
+        if (repo) await invoke<string>("doctor_repo", { root, expectedUrl: repo.clone_url });
+        if (active) await refreshRepositoryContent(root);
+      } catch (checkError) {
+        if (active) setRepairError(message(checkError));
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
     void git.refreshLocalChanges(root);
     return () => {
       active = false;
@@ -179,6 +199,12 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [root, schemas.config]);
 
+  useEffect(() => {
+    if (!status) return;
+    const timer = window.setTimeout(() => setStatus(null), TRANSIENT_NOTICE_MS);
+    return () => window.clearTimeout(timer);
+  }, [status]);
+
   async function openPublish() {
     await currentFile.flushPendingSave();
     setPublishOpen(true);
@@ -187,7 +213,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
 
   async function revert(file: ChangedFile) {
     if (!(await git.revertChange(root, file))) return;
-    void files.refreshGroups(root);
+    void refreshRepositoryContent(root);
   }
 
   async function redownloadRepository() {
@@ -259,6 +285,35 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     void git.refreshLocalChanges(root);
   }
 
+  async function renameOpenFilename(filename: string): Promise<boolean> {
+    const from = currentFile.filePathRef.current;
+    if (!from || filename.includes("/")) return false;
+    const target = from.slice(0, from.lastIndexOf("/") + 1) + filename;
+    if (target === from) return true;
+    if (files.groupsRef.current.some((group) => group.files.some((file) => file.path === target))) {
+      setStatus(`A file named ${filename} already exists.`);
+      return false;
+    }
+    if (!(await currentFile.renameOpenFile(from, target))) {
+      setStatus(`Could not rename the file to ${filename}.`);
+      return false;
+    }
+    void files.refreshGroups(root);
+    void git.refreshLocalChanges(root);
+    return true;
+  }
+
+  function refreshFilenameTemplate(template: string) {
+    const path = currentFile.filePathRef.current;
+    if (!path || !entry) return;
+    const parsed = parseFile(currentFile.fileContentRef.current);
+    const raw = parsed.doc.toJSON() as unknown;
+    if (parsed.error || !raw || typeof raw !== "object" || Array.isArray(raw)) return;
+    const currentName = path.slice(path.lastIndexOf("/") + 1);
+    const next = renamedFilename(template, entry, raw as Record<string, unknown>, currentName);
+    if (next) void renameOpenFilename(next);
+  }
+
   // The armed "Delete?" confirm disarms on its own after a moment, the touch
   // equivalent of desktop's cancel-on-mouse-leave.
   useEffect(() => {
@@ -299,7 +354,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
       await Promise.all([
         git.checkUpstream(),
         git.refreshLocalChanges(root),
-        files.refreshGroups(root),
+        refreshRepositoryContent(root),
       ]);
     } finally {
       setRefreshing(false);
@@ -353,6 +408,23 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     onChangeRepo();
   }
 
+  function closeMediaImport() {
+    setMediaImportOpen(false);
+    setImportLibrary(null);
+  }
+
+  function openMediaImport() {
+    const libraries = config?.imageLibraries ?? [];
+    if (libraries.length === 0) return;
+    setImportLibrary(libraries.length === 1 ? libraries[0] : null);
+    setMediaImportOpen(true);
+  }
+
+  function imageImported() {
+    setStatus("Image imported. Publish when you are ready.");
+    void git.refreshLocalChanges(root);
+  }
+
   const config = schemas.config;
   const entry = useMemo(() => {
     if (!currentFile.filePath || !config) return null;
@@ -372,10 +444,17 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
           ? "astro"
           : "pages";
   const openFileName = currentFile.dataEntry?.id ?? currentFile.filePath?.split("/").pop() ?? "File";
+  const mobileEditorTabs = editorTabsForFile({
+    filePath: currentFile.filePath,
+    fileContent: currentFile.fileContent,
+    entry,
+    dataEntry: currentFile.dataEntry,
+  });
+  const mobileActiveTab = resolveEditorTab(mobileEditorTabs, editorTab);
 
   return (
     <>
-      <header className="mobile-header">
+      <header className={`mobile-header${showEditor ? " mobile-editor-header" : ""}`}>
         <Group gap={0} wrap="nowrap" className="mobile-header-title">
           <ActionIcon
             variant="subtle"
@@ -384,10 +463,26 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
           >
             <ChevronLeft size={22} />
           </ActionIcon>
-          <Text fw={600} size="sm" truncate>
-            {showEditor ? openFileName : showSettings ? "Settings" : repo?.name ?? "Repository"}
-          </Text>
+          {!showEditor && (
+            <Text fw={600} size="sm" truncate>
+              {showSettings ? "Settings" : repo?.name ?? "Repository"}
+            </Text>
+          )}
         </Group>
+        {showEditor && (
+          <Tabs
+            className="mobile-header-tabs"
+            variant="pills"
+            value={mobileActiveTab}
+            onChange={(value) => setEditorTab(value as EditorTab)}
+          >
+            <Tabs.List justify="center">
+              {mobileEditorTabs.map((tab) => (
+                <Tabs.Tab key={tab} value={tab} tt="capitalize">{tab}</Tabs.Tab>
+              ))}
+            </Tabs.List>
+          </Tabs>
+        )}
         {!showEditor && !showSettings && (
           <ActionIcon
             variant="subtle"
@@ -439,6 +534,11 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
             onTabChange={setEditorTab}
             onEdit={currentFile.onEdit}
             onFormEdit={currentFile.onFormEdit}
+            onRenameFile={renameOpenFilename}
+            onRefreshFilename={refreshFilenameTemplate}
+            onPostoSaved={() => void schemas.loadPostoConfig(root)}
+            hideTabList
+            filenamePlacement="fields"
           />
         </main>
       ) : showSettings ? (
@@ -447,8 +547,6 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
             {[
               ["Site details", "Name, URL, and metadata"],
               ["Publishing", "Branch and deployment settings"],
-              ["Media", "Image sources and upload settings"],
-              ["Domains", "Custom domains and redirects"],
             ].map(([label, description]) => (
               <div className="mobile-settings-row" key={label}>
                 <div>
@@ -458,7 +556,52 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
                 <Text c="dimmed" size="xs">Coming soon</Text>
               </div>
             ))}
+            <div className="mobile-settings-row mobile-settings-media-row">
+              <div>
+                <Text fw={600} size="sm">Media</Text>
+                <Text c="dimmed" size="xs">
+                  {config?.imageLibraries?.length
+                    ? `${config.imageLibraries.length} Astro image ${config.imageLibraries.length === 1 ? "library" : "libraries"}`
+                    : "No Astro image libraries found"}
+                </Text>
+              </div>
+              <Button
+                size="compact-sm"
+                variant="light"
+                disabled={!config?.imageLibraries?.length}
+                onClick={openMediaImport}
+              >
+                Import image
+              </Button>
+            </div>
+            <div className="mobile-settings-row">
+              <div>
+                <Text fw={600} size="sm">Domains</Text>
+                <Text c="dimmed" size="xs">Custom domains and redirects</Text>
+              </div>
+              <Text c="dimmed" size="xs">Coming soon</Text>
+            </div>
           </Stack>
+
+          {mediaImportOpen && !importLibrary && (
+            <Dialog opened onClose={closeMediaImport} title="Choose image library" size="sm">
+              <ImageLibraryList
+                libraries={config?.imageLibraries ?? []}
+                onChoose={setImportLibrary}
+              />
+            </Dialog>
+          )}
+
+          {importLibrary && config && (
+            <ImageLibraryImportDialog
+              root={root}
+              library={importLibrary}
+              config={config}
+              groups={files.groups}
+              onClose={closeMediaImport}
+              onImported={imageImported}
+            />
+          )}
         </main>
       ) : (
       <main className="repo-home">
@@ -510,7 +653,12 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
         )}
 
         {status && (
-          <Alert color={status.includes("failed") ? "red" : "blue"} variant="light">
+          <Alert
+            key={status}
+            className="mobile-transient-notice"
+            color={status.includes("failed") ? "red" : "blue"}
+            variant="light"
+          >
             {status}
           </Alert>
         )}

@@ -72,6 +72,38 @@ input {
   flex-shrink: 0;
 }
 
+.mobile-editor-header {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  gap: var(--mantine-spacing-xs);
+}
+
+.mobile-editor-header .mobile-header-title {
+  grid-column: 1;
+}
+
+.mobile-header-tabs {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.mobile-header-tabs .mantine-Tabs-list {
+  flex-wrap: nowrap;
+  gap: 2px;
+}
+
+.mobile-header-tabs .mantine-Tabs-tab {
+  min-width: 0;
+  min-height: 36px;
+  padding-inline: clamp(0.5rem, 3vw, 0.8rem);
+  font-size: var(--mantine-font-size-xs);
+}
+
+.mobile-editor-header > .mantine-ActionIcon-root,
+.mobile-editor-header > .mantine-Button-root {
+  grid-column: 3;
+}
+
 .screen,
 .centered-screen,
 .repo-screen,
@@ -204,6 +236,20 @@ input {
 .repo-home-notices {
   grid-area: notices;
   padding: var(--mantine-spacing-sm) var(--mantine-spacing-sm) var(--mantine-spacing-xs);
+}
+
+.mobile-transient-notice {
+  animation: mobile-transient-notice 5s ease forwards;
+}
+
+@keyframes mobile-transient-notice {
+  0%, 82% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
 }
 
 .repo-home-notices:empty {
@@ -381,6 +427,14 @@ input {
   border-radius: var(--mantine-radius-sm);
 }
 
+.mobile-settings-media-row {
+  align-items: center;
+}
+
+.mobile-settings-media-row > div {
+  min-width: 0;
+}
+
 .publish-list {
   display: grid;
   gap: var(--mantine-spacing-xs);
@@ -426,7 +480,7 @@ input {
 }
 
 .mobile-editor-screen > .pane-header {
-  display: none;
+  display: flex;
 }
 
 .mobile-editor-screen > .pane-tabs,
@@ -438,16 +492,127 @@ input {
   padding-bottom: max(var(--mantine-spacing-md), env(safe-area-inset-bottom));
 }
 
-/* Shared desktop field controls are intentionally compact. On mobile their
-   text must remain at least 16px to avoid WebKit focus zoom while preserving
-   the same Mantine colors and borders. Scoped to the body class so
-   portal-rendered dialogs (bottom drawers) are covered too. */
+/* Mobile input scale is applied once at Mantine's base component layer,
+   including portal-rendered drawers. Every declared size advances one token
+   from the desktop scale; xl remains capped at xl. */
 .posto-mobile-shell :is(input, textarea, select) {
   font-size: 16px;
 }
 
-.mobile-editor-screen .mantine-Input-input {
-  min-height: 44px;
+.posto-mobile-shell .mantine-Input-wrapper[data-size="xs"] {
+  --input-height: var(--input-height-sm) !important;
+  --input-padding-y: var(--input-padding-y-sm) !important;
+}
+
+.posto-mobile-shell .mantine-Input-wrapper[data-size="sm"] {
+  --input-height: var(--input-height-md) !important;
+  --input-padding-y: var(--input-padding-y-md) !important;
+}
+
+.posto-mobile-shell .mantine-Input-wrapper[data-size="md"] {
+  --input-height: var(--input-height-lg) !important;
+  --input-padding-y: var(--input-padding-y-lg) !important;
+}
+
+.posto-mobile-shell .mantine-Input-wrapper[data-size="lg"] {
+  --input-height: var(--input-height-xl) !important;
+  --input-padding-y: var(--input-padding-y-xl) !important;
+}
+
+.posto-mobile-shell .mantine-Checkbox-root[data-size="xs"] {
+  --checkbox-size: var(--checkbox-size-sm) !important;
+}
+
+.posto-mobile-shell .mantine-Checkbox-root[data-size="sm"] {
+  --checkbox-size: var(--checkbox-size-md) !important;
+}
+
+.posto-mobile-shell .mantine-Radio-root[data-size="xs"] {
+  --radio-size: var(--radio-size-sm) !important;
+}
+
+.posto-mobile-shell .mantine-Radio-root[data-size="sm"] {
+  --radio-size: var(--radio-size-md) !important;
+}
+
+.posto-mobile-shell .mantine-Switch-root[data-size="sm"] {
+  --switch-height: var(--switch-height-md) !important;
+  --switch-width: var(--switch-width-md) !important;
+  --switch-thumb-size: var(--switch-thumb-size-md) !important;
+}
+
+.posto-mobile-shell .mobile-combobox-trigger input {
+  cursor: pointer;
+}
+
+.posto-mobile-shell .mobile-combobox-drawer {
+  display: flex;
+  flex-direction: column;
+  min-height: min(26rem, calc(var(--mobile-viewport-height, 100dvh) - 10rem));
+  max-height: calc(var(--mobile-viewport-height, 100dvh) - 8rem);
+  overflow: hidden;
+}
+
+.posto-mobile-shell .mobile-combobox-options {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.posto-mobile-shell .mobile-combobox-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-sm);
+  width: 100%;
+  min-height: 48px;
+  padding: var(--mantine-spacing-sm);
+  border: 0;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+  background: transparent;
+  color: var(--mantine-color-text);
+  font: inherit;
+  text-align: left;
+}
+
+.posto-mobile-shell .mobile-combobox-option[aria-selected="true"] {
+  color: var(--mantine-primary-color-filled);
+  background: var(--mantine-primary-color-light);
+}
+
+.posto-mobile-shell .mobile-combobox-option:disabled {
+  color: var(--mantine-color-disabled-color);
+}
+
+.posto-mobile-shell .mobile-combobox-empty {
+  padding: var(--mantine-spacing-lg) var(--mantine-spacing-sm);
+  color: var(--mantine-color-dimmed);
+  text-align: center;
+}
+
+.posto-mobile-shell .mobile-combobox-search {
+  position: sticky;
+  z-index: 1;
+  bottom: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--mantine-spacing-xs);
+  flex: 0 0 auto;
+  padding: var(--mantine-spacing-sm) 0 0;
+  border-top: 1px solid var(--mantine-color-default-border);
+  background: var(--mantine-color-body);
+}
+
+.posto-mobile-shell .mobile-combobox-search .mantine-TextInput-root {
+  min-width: 0;
+  flex: 1;
+}
+
+.mobile-editor-screen .field-template-actions .mantine-ActionIcon-root {
+  width: 44px;
+  height: 44px;
 }
 
 .mobile-editor-screen .pane-tabs .mantine-Tabs-tab {
@@ -515,6 +680,23 @@ input {
   width: 100%;
   max-width: 100%;
   aspect-ratio: 1;
+}
+
+.posto-mobile-shell .image-library-open-directory,
+.posto-mobile-shell .image-library-import-desktop-copy {
+  display: none;
+}
+
+.posto-mobile-shell .image-library-import-mobile-copy {
+  display: block;
+  margin-bottom: var(--mantine-spacing-md);
+}
+
+.posto-mobile-shell .image-library-import-dropzone .mantine-Group-root {
+  min-height: 9rem;
+  flex-direction: column;
+  gap: var(--mantine-spacing-sm);
+  text-align: center;
 }
 
 /* Spotlight compensates for its vertical scrollbar with a negative inline

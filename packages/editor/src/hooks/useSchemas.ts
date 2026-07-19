@@ -17,6 +17,25 @@ import {
   type PostoConfig,
 } from "@posto/core/posto/config";
 
+function effectiveConfig(
+  pagesConfig: PagesConfig | null,
+  astroConfig: PagesConfig | null,
+  postoConfig: PostoConfig | null,
+): PagesConfig {
+  return mergePostoConfig(
+    {
+      media: pagesConfig?.media.length
+        ? pagesConfig.media
+        : (astroConfig?.media.length ? astroConfig.media : DEFAULT_ASTRO_MEDIA),
+      content: [...(pagesConfig?.content ?? []), ...(astroConfig?.content ?? [])],
+      astroCollections: astroConfig?.astroCollections,
+      imageLibraries: astroConfig?.imageLibraries,
+      imageLibraryDiagnostics: astroConfig?.imageLibraryDiagnostics,
+    },
+    postoConfig,
+  );
+}
+
 /** Schema sources for form editing: `.pages.yml` plus Astro collection
  * schemas as a fallback, merged into one effective config. */
 export function useSchemas() {
@@ -28,19 +47,22 @@ export function useSchemas() {
   const [postoConfig, setPostoConfig] = useState<PostoConfig | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
 
-  async function loadPagesConfig(dir: string) {
+  async function loadPagesConfig(dir: string): Promise<PagesConfig | null> {
     setPagesConfig(null);
     setConfigError(null);
     let source: string;
     try {
       source = await invoke<string>("read_text_file", { path: dir + "/.pages.yml" });
     } catch {
-      return; // no config file — form editing simply isn't offered
+      return null; // no config file — form editing simply isn't offered
     }
     try {
-      setPagesConfig(parsePagesConfig(source));
+      const parsed = parsePagesConfig(source);
+      setPagesConfig(parsed);
+      return parsed;
     } catch (e) {
       setConfigError(e instanceof Error ? e.message : String(e));
+      return null;
     }
   }
 
@@ -48,7 +70,7 @@ export function useSchemas() {
   // `index.json` for workspace settings and `collections/<name>.json` per
   // collection. Every read is tolerant — a missing directory or malformed
   // file degrades to defaults, never to an error.
-  async function loadPostoConfig(dir: string) {
+  async function loadPostoConfig(dir: string): Promise<PostoConfig | null> {
     setPostoConfig(null);
     const config: PostoConfig = { collections: {} };
     try {
@@ -79,13 +101,15 @@ export function useSchemas() {
     }
     if (config.collectionOrder || Object.keys(config.collections).length > 0) {
       setPostoConfig(config);
+      return config;
     }
+    return null;
   }
 
   // Astro projects generate a JSON Schema per content collection under
   // `.astro/collections/` (kept fresh by the dev server posto runs). Those
   // become fallback form schemas for folders `.pages.yml` doesn't cover.
-  async function loadAstroConfig(dir: string) {
+  async function loadAstroConfig(dir: string): Promise<PagesConfig | null> {
     setAstroConfig(null);
     let listed: { name: string; path: string }[];
     try {
@@ -94,7 +118,7 @@ export function useSchemas() {
         extensions: ["json"],
       });
     } catch {
-      return; // not an Astro project, or `astro sync` hasn't run yet
+      return null; // not an Astro project, or `astro sync` hasn't run yet
     }
     const collections: { name: string; fields: Field[] }[] = [];
     for (const file of listed) {
@@ -107,7 +131,7 @@ export function useSchemas() {
         // One unreadable schema shouldn't take down the rest.
       }
     }
-    if (collections.length === 0) return;
+    if (collections.length === 0) return null;
     let loaders = new Map<string, LoaderInfo>();
     for (const configPath of ["/src/content.config.ts", "/src/content/config.ts"]) {
       try {
@@ -117,24 +141,31 @@ export function useSchemas() {
         // Missing config file — the src/content/<name> convention applies.
       }
     }
-    setAstroConfig(buildAstroConfig(collections, loaders));
+    const parsed = buildAstroConfig(collections, loaders);
+    setAstroConfig(parsed);
+    return parsed;
+  }
+
+  /** Reloads every repository-owned schema/config source and returns the
+   * effective result immediately. Callers that must rebuild derived file
+   * groups should use this result rather than waiting for React state to
+   * commit and then reading configRef. */
+  async function loadSchemas(dir: string): Promise<PagesConfig> {
+    const [pages, astro, posto] = await Promise.all([
+      loadPagesConfig(dir),
+      loadAstroConfig(dir),
+      loadPostoConfig(dir),
+    ]);
+    return effectiveConfig(pages, astro, posto);
   }
 
   // Effective schema config: `.pages.yml` entries first (higher resolution —
   // labels, media, widget types), Astro collection schemas after them as a
   // fallback. matchEntry's first-match-wins ordering makes the precedence.
-  const config = useMemo<PagesConfig | null>(() => {
-    return mergePostoConfig(
-      {
-        media: pagesConfig?.media.length
-          ? pagesConfig.media
-          : (astroConfig?.media.length ? astroConfig.media : DEFAULT_ASTRO_MEDIA),
-        content: [...(pagesConfig?.content ?? []), ...(astroConfig?.content ?? [])],
-        astroCollections: astroConfig?.astroCollections,
-      },
-      postoConfig,
-    );
-  }, [pagesConfig, astroConfig, postoConfig]);
+  const config = useMemo(
+    () => effectiveConfig(pagesConfig, astroConfig, postoConfig),
+    [pagesConfig, astroConfig, postoConfig],
+  );
   const configRef = useRef(config);
   configRef.current = config;
 
@@ -147,5 +178,6 @@ export function useSchemas() {
     loadPagesConfig,
     loadAstroConfig,
     loadPostoConfig,
+    loadSchemas,
   };
 }

@@ -177,6 +177,7 @@ function PropsForm(formProps: {
   const typeContext = {
     collections: env.config.astroCollections ?? env.config.content,
     editableCollections: env.config.content,
+    imageLibraries: env.config.imageLibraries,
   };
   const propsTypeField = schema?.propsType
     ? astroPropField({ name: "Props", type: schema.propsType, optional: false }, typeContext)

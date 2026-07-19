@@ -1,0 +1,129 @@
+import { useState } from "react";
+import { astroEntryId } from "@posto/core/astro/collections";
+import {
+  MediaPlanError,
+  matchesImageLibraryPath,
+  planMediaImport,
+  type MediaImportPlan,
+} from "@posto/core/astro/imageLibrary";
+import type { AstroImageLibrary, ImageLibraryMetadataExtension } from "@posto/core/pagescms/config";
+import {
+  importImageLibraryAsset,
+  invoke,
+  openImageFile,
+  type FileEntry,
+  type ImageLibraryImportResult,
+} from "@posto/ipc";
+
+export interface ImageLibraryImportDraft {
+  sourceImagePath: string | null;
+  folder: string;
+  filename: string;
+  metadata: Record<string, unknown>;
+  metadataExtension?: ImageLibraryMetadataExtension;
+}
+
+function sourceStem(path: string): string {
+  const name = path.split(/[\\/]/).pop() ?? "";
+  return name.includes(".") ? name.slice(0, name.lastIndexOf(".")) : name;
+}
+
+function sourceExtension(path: string): string {
+  const name = path.split(/[\\/]/).pop() ?? "";
+  return name.includes(".") ? name.slice(name.lastIndexOf(".") + 1) : "";
+}
+
+export function useImageLibraryImport(input: {
+  root: string;
+  library: AstroImageLibrary;
+  initialSourcePath?: string;
+  onImported?: (result: ImageLibraryImportResult) => void;
+}) {
+  const [draft, setDraft] = useState<ImageLibraryImportDraft>({
+    sourceImagePath: input.initialSourcePath ?? null,
+    folder: "",
+    filename: input.initialSourcePath ? sourceStem(input.initialSourcePath) : "",
+    metadata: {},
+    metadataExtension: input.library.metadataExtensions.length === 1
+      ? input.library.metadataExtensions[0]
+      : input.library.metadataExtensions.includes("yaml")
+        ? "yaml"
+        : undefined,
+  });
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function setSource(sourceImagePath: string) {
+    setDraft((current) => ({
+      ...current,
+      sourceImagePath,
+      filename: current.filename || sourceStem(sourceImagePath),
+    }));
+    setError(null);
+  }
+
+  async function chooseSource(): Promise<string | null> {
+    const path = await openImageFile();
+    if (path) setSource(path);
+    return path;
+  }
+
+  async function plan(): Promise<MediaImportPlan> {
+    if (!draft.sourceImagePath) {
+      throw new MediaPlanError([{ code: "validation", message: "Choose an image to import." }]);
+    }
+    const libraryRoot = `${input.root}/${input.library.base}`;
+    let files: FileEntry[] = [];
+    try {
+      files = await invoke<FileEntry[]>("list_dir_files", { dir: libraryRoot, extensions: [] });
+    } catch {
+      // The native transaction creates a missing nested destination, while
+      // independently checking collisions immediately before writing.
+    }
+    const prefix = libraryRoot.endsWith("/") ? libraryRoot : `${libraryRoot}/`;
+    const metadataExts = new Set(input.library.metadataExtensions);
+    return planMediaImport({
+      library: input.library,
+      repositoryRoot: input.root,
+      sourceImagePath: draft.sourceImagePath,
+      folder: draft.folder,
+      filename: draft.filename
+        ? `${draft.filename}.${sourceExtension(draft.sourceImagePath)}`
+        : undefined,
+      metadata: draft.metadata,
+      metadataExtension: draft.metadataExtension,
+      existingPaths: files.map((file) => file.path),
+      existingEntryIds: files
+        .filter((file) =>
+          metadataExts.has(file.name.split(".").pop()?.toLowerCase() as ImageLibraryMetadataExtension)
+          && matchesImageLibraryPath(input.library, file.path.slice(prefix.length)),
+        )
+        .map((file) => astroEntryId(file.path.slice(prefix.length))),
+    });
+  }
+
+  async function execute(): Promise<ImageLibraryImportResult | null> {
+    setPending(true);
+    setError(null);
+    try {
+      const operation = await plan();
+      const result = await importImageLibraryAsset({
+        libraryRoot: operation.libraryRoot,
+        sourceImagePath: operation.sourceImagePath,
+        destinationImagePath: operation.destinationImagePath,
+        destinationMetadataPath: operation.destinationMetadataPath,
+        serializedMetadata: operation.serializedMetadata,
+        entryId: operation.entryId,
+      });
+      input.onImported?.(result);
+      return result;
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+      return null;
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return { draft, setDraft, setSource, chooseSource, plan, execute, pending, error, setError };
+}

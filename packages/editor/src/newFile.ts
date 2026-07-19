@@ -112,6 +112,7 @@ export function renameTargetForContent(
   const entry = matchEntry(sources.config, root, path);
   if (!entry || entry.type !== "collection") return null;
   if (!entry.filename) return null;
+  if (entry.fieldSchemas?.filename?.editBehavior === "manual") return null;
   const parsed = parseFile(content);
   if (parsed.error || !parsed.hadFrontmatter) return null;
   const raw = parsed.doc.toJSON() as unknown;

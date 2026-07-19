@@ -19,6 +19,42 @@ export interface Field {
   fields?: Field[];
 }
 
+export type TemplateEditBehavior = "controlled" | "manual";
+
+/** Collection-level Posto behavior for one item string field. `filename` is
+ * represented by the same schema as frontmatter fields even though it lives
+ * on disk rather than in frontmatter. */
+export interface FieldTemplateSchema {
+  template?: string;
+  editBehavior: TemplateEditBehavior;
+  /** Visible rows for this string input. One renders a single-line input. */
+  rows?: number;
+}
+
+export type ImageLibraryMetadataExtension = "yaml" | "yml" | "json";
+
+/** A local Astro glob collection that Posto can manage as paired image and
+ * metadata files. Paths are repository-root-relative. */
+export interface AstroImageLibrary {
+  collection: string;
+  base: string;
+  patterns: string[];
+  metadataExtensions: ImageLibraryMetadataExtension[];
+  imageFieldPath: string[];
+  fields: Field[];
+}
+
+export interface AstroImageLibraryDiagnostic {
+  collection: string;
+  code:
+    | "custom-entry-ids"
+    | "multiple-image-fields"
+    | "missing-loader-base"
+    | "unsupported-image-shape"
+    | "unsupported-metadata-format";
+  message: string;
+}
+
 export interface MediaEntry {
   name: string;
   label?: string;
@@ -49,6 +85,9 @@ export interface ContentEntry {
   sort?: { by: string; direction: "asc" | "desc" };
   /** Entry filenames pinned to the top of the collection, in order. */
   pinned?: string[];
+  /** Item-level template controls, keyed by field path. `filename` is the
+   * synthetic file-name field; frontmatter fields use their schema path. */
+  fieldSchemas?: Record<string, FieldTemplateSchema>;
   /** Collection-scoped media source, preferred over the global list. */
   media?: MediaEntry;
   /** The glob loader has a custom `generateId`; Posto cannot derive ids from
@@ -74,6 +113,8 @@ export interface PagesConfig {
   media: MediaEntry[];
   content: ContentEntry[];
   astroCollections?: AstroCollectionSchema[];
+  imageLibraries?: AstroImageLibrary[];
+  imageLibraryDiagnostics?: AstroImageLibraryDiagnostic[];
 }
 
 // Field types the form knows how to render; anything else falls back to a
@@ -381,9 +422,13 @@ export function entryFilenamePattern(entry: ContentEntry, astro: boolean): strin
  * `{slug}` alias resolve to the entry's primary field. Null when either alias
  * can't resolve because the entry has no primary field.
  */
-function filenameFieldName(entry: ContentEntry, token: string): string | null {
+function filenameFieldName(
+  entry: ContentEntry,
+  token: string,
+  explicitField = false,
+): string | null {
   const primary = primaryField(entry)?.name ?? null;
-  if (token === "primary" || token === "slug") return primary;
+  if (!explicitField && (token === "primary" || token === "slug")) return primary;
   return token;
 }
 
@@ -400,7 +445,17 @@ export function expandFieldTemplate(
   const expanded = template.replace(
     FIELD_TEMPLATE_TOKEN,
     (_, name: string, filter?: string) => {
-      const value = values[name];
+      let value = values[name];
+      if (value === undefined && name.includes(".")) {
+        value = values;
+        for (const part of name.split(".")) {
+          if (!value || typeof value !== "object" || Array.isArray(value)) {
+            value = undefined;
+            break;
+          }
+          value = (value as Record<string, unknown>)[part];
+        }
+      }
       if (value === undefined || value === null || String(value).trim() === "") {
         missing = true;
         return "";
@@ -425,7 +480,7 @@ function filenameFieldTokens(pattern: string, entry: ContentEntry): FilenameFiel
     const token = match[1];
     const explicitField = match[0].startsWith("{fields.");
     if (!explicitField && (DATE_TOKENS as readonly string[]).includes(token)) continue;
-    const name = filenameFieldName(entry, token);
+    const name = filenameFieldName(entry, token, explicitField);
     if (!name) continue;
     tokens.push({ name, slugged: Boolean(match[2]) || token === "primary" || token === "slug" });
   }
@@ -449,12 +504,13 @@ export function generateFilename(
   const dateTokens = { ...currentDateTokens(), ...dates };
   return pattern
     .replace(/\{(year|month|day|hour|minute|second)\}/g, (_, token: string) => dateTokens[token])
-    .replace(FIELD_TEMPLATE_TOKEN, (_, token: string, filter?: string) => {
-      const name = filenameFieldName(entry, token);
+    .replace(FIELD_TEMPLATE_TOKEN, (match: string, token: string, filter?: string) => {
+      const explicitField = match.startsWith("{fields.");
+      const name = filenameFieldName(entry, token, explicitField);
       if (name === null) return "untitled"; // `{primary}` with no primary field
       const value = values[name];
       if (value === undefined || value === null) return "";
-      const slugged = Boolean(filter) || token === "primary" || token === "slug";
+      const slugged = Boolean(filter) || (!explicitField && (token === "primary" || token === "slug"));
       return slugged ? slugify(String(value)) : String(value).trim();
     });
 }
@@ -606,7 +662,7 @@ export function inferFields(values: Record<string, unknown>): Field[] {
 
 /**
  * Media source for an image field: `options.media` by name, else the entry's
- * collection-scoped source (from `.posto` `mediaDir`), else the first global.
+ * collection-scoped source (from Pages CMS configuration), else the first global.
  */
 export function resolveMedia(
   config: PagesConfig,
@@ -622,6 +678,32 @@ export function resolveMedia(
     media = entry?.media ?? config.media[0] ?? null;
   }
   return media && values ? expandMediaEntry(media, values) : media;
+}
+
+/** Media source that owns an existing stored output path. Explicit
+ * `options.media` remains authoritative; otherwise the most specific output
+ * prefix wins (`/projects` before `/`). Collection-scoped media participates
+ * alongside globals and wins an equal-prefix tie. */
+export function resolveMediaForValue(
+  config: PagesConfig,
+  field: Field,
+  outputPath: string,
+  entry?: ContentEntry | null,
+  values: Record<string, unknown> = {},
+): MediaEntry | null {
+  if (typeof field.options?.media === "string") {
+    return resolveMedia(config, field, entry, values);
+  }
+  const candidates = [entry?.media, ...config.media]
+    .filter((media): media is MediaEntry => media !== undefined)
+    .map((media, index) => ({ media: expandMediaEntry(media, values), index }))
+    .filter((candidate): candidate is { media: MediaEntry; index: number } => candidate.media !== null);
+  const value = outputPath.startsWith("/") ? outputPath : `/${outputPath}`;
+  const matches = candidates
+    .map(({ media, index }) => ({ media, index, output: normalizedOutput(media) }))
+    .filter(({ output }) => value.startsWith(`${output}/`))
+    .sort((a, b) => b.output.length - a.output.length || a.index - b.index);
+  return matches[0]?.media ?? resolveMedia(config, field, entry, values);
 }
 
 /** Resolves a media source's input and public output paths for one entry.

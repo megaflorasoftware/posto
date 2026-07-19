@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@posto/ipc";
 import type { FileEntry } from "@posto/ipc";
-
-const AUTOSAVE_DELAY_MS = 800;
+import { AUTOSAVE_DELAY_MS } from "../autosave";
 
 export type SaveState = "saved" | "saving" | "error" | "invalid";
 

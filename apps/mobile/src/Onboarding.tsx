@@ -41,6 +41,7 @@ type Stage =
   | "loading"
   | "signed-out"
   | "authorizing"
+  | "repos-loading"
   | "repos"
   | "cloning"
   | "clone-error"
@@ -74,8 +75,10 @@ function Header({
 }: Pick<Props, "stage" | "user" | "onSignOut">) {
   return (
     <header className="mobile-header">
-      <Text fw={600} size="sm">{stage === "repos" ? "Repositories" : "Posto"}</Text>
-      {stage === "repos" && user && (
+      <Text fw={600} size="sm">
+        {stage === "repos" || stage === "repos-loading" ? "Repositories" : "Posto"}
+      </Text>
+      {(stage === "repos" || stage === "repos-loading") && user && (
         <Group gap="xs" wrap="nowrap">
           <Avatar src={user.avatar_url} alt={user.name} size={36} radius="xl" />
           <ActionIcon variant="subtle" color="gray" aria-label="Sign out" onClick={onSignOut}>
@@ -324,6 +327,7 @@ export default function Onboarding(props: Props) {
       {props.stage === "authorizing" && (
         <Authorizing device={props.device} onOpenVerification={props.onOpenVerification} />
       )}
+      {props.stage === "repos-loading" && <Center className="screen"><Loader /></Center>}
       {props.stage === "repos" && <RepoPicker {...props} />}
       {props.stage === "cloning" && <Cloning repo={props.selectedRepo} progress={props.progress} />}
       {props.stage === "clone-error" && (

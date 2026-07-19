@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ActionIcon, Button, NumberInput, Select, Switch, Textarea, TextInput } from "@mantine/core";
-import { Check, GripVertical, Image, Pencil, X } from "lucide-react";
+import { ActionIcon, Button, NumberInput, Switch, Textarea, TextInput } from "@mantine/core";
+import { Check, GripVertical, Image, Pencil, RefreshCw, X } from "lucide-react";
 import {
   closestCenter,
   DndContext,
@@ -21,9 +21,11 @@ import { CSS } from "@dnd-kit/utilities";
 import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
 import {
   collectionExtension,
+  expandFieldTemplate,
   matchCollectionForDir,
   mediaInputPath,
   resolveMedia,
+  resolveMediaForValue,
 } from "@posto/core/pagescms/config";
 import { astroEntryId } from "@posto/core/astro/collections";
 import { expandEntryName } from "@posto/core/posto/config";
@@ -31,8 +33,12 @@ import { applyCollectionPrefs } from "../collectionPrefs";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 import type { Errors } from "@posto/core/pagescms/validate";
 import type { FileEntry, FileGroup } from "@posto/ipc";
-import { assetUrl, invoke } from "@posto/ipc";
+import { invoke } from "@posto/ipc";
+import { CachedImage } from "./CachedImage";
 import { ImagePicker } from "./ImagePicker";
+import { ImageLibraryReferenceField } from "./ImageLibraryReferenceField";
+import { FieldRowsAction, FieldTemplateActions } from "./FieldTemplateActions";
+import { AdaptiveSelect } from "./AdaptiveSelect";
 
 export interface FieldContext {
   config: PagesConfig;
@@ -49,6 +55,8 @@ export interface FieldContext {
   listAppend: (path: ValuePath, value: unknown) => void;
   listRemove: (path: ValuePath, index: number) => void;
   listMove: (path: ValuePath, from: number, to: number) => void;
+  /** Reloads the effective collection config after an item-level template edit. */
+  onPostoSaved?: () => void;
 }
 
 function asString(value: unknown): string {
@@ -112,12 +120,17 @@ function imagePickable(field: Field): boolean {
  * and writes the picked image's output path as the field's value. */
 function PickImageCta(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
   const [open, setOpen] = useState(false);
-  const media = resolveMedia(
-    props.ctx.config,
-    props.field,
-    props.ctx.entry,
-    props.ctx.templateValues(),
-  );
+  const values = props.ctx.templateValues();
+  const currentValue = props.ctx.value(props.path);
+  const media = typeof currentValue === "string" && currentValue !== ""
+    ? resolveMediaForValue(
+        props.ctx.config,
+        props.field,
+        currentValue,
+        props.ctx.entry,
+        values,
+      )
+    : resolveMedia(props.ctx.config, props.field, props.ctx.entry, values);
   if (!media) return null;
   return (
     <>
@@ -145,6 +158,7 @@ function FieldShell(props: {
   path: ValuePath;
   ctx: FieldContext;
   children: ReactNode;
+  actions?: ReactNode;
 }) {
   const error = props.ctx.errors().get(props.path.join("."));
   return (
@@ -158,6 +172,7 @@ function FieldShell(props: {
           {imagePickable(props.field) && (
             <PickImageCta field={props.field} path={props.path} ctx={props.ctx} />
           )}
+          {props.actions}
         </div>
       )}
       {props.children}
@@ -172,18 +187,79 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
   // Cleared text-like inputs delete the key so optional fields don't leave
   // `key: ""` litter behind in the frontmatter.
   const editText = (raw: string) => props.ctx.edit(props.path, raw === "" ? undefined : raw);
+  const schemaName = props.path.filter((part): part is string => typeof part === "string").join(".");
+  const templateSchema = props.ctx.entry?.fieldSchemas?.[schemaName];
+  const fieldLabel = typeof props.field.label === "string" ? props.field.label : props.field.name;
+  const templatable = !props.path.some((part) => typeof part === "number");
+  const generate = (template: string) => {
+    const expanded = expandFieldTemplate(template, props.ctx.templateValues());
+    if (expanded !== null) props.ctx.edit(props.path, expanded);
+  };
+  const templateActions = templatable && props.ctx.entry && props.ctx.onPostoSaved
+    ? (
+        <span className="field-template-actions">
+          <FieldTemplateActions
+            root={props.ctx.root}
+            collection={props.ctx.entry}
+            fieldName={schemaName}
+            label={fieldLabel}
+            onPostoSaved={props.ctx.onPostoSaved}
+            onGenerate={generate}
+          />
+          <FieldRowsAction
+            root={props.ctx.root}
+            collection={props.ctx.entry}
+            fieldName={schemaName}
+            label={fieldLabel}
+            onPostoSaved={props.ctx.onPostoSaved}
+          />
+        </span>
+      )
+    : null;
 
   const control = () => {
     const field = props.field;
     switch (field.type) {
       case "string":
-        return (
-          <TextInput
-            size="xs"
-            value={asString(value)}
-            onChange={(e) => editText(e.currentTarget.value)}
-          />
-        );
+        {
+          const rows = templateSchema?.rows ?? 1;
+          const regenerate = templateSchema?.template && templateSchema.editBehavior === "manual"
+            ? (
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size="sm"
+                  title={`Regenerate ${fieldLabel} from its template`}
+                  aria-label={`Regenerate ${fieldLabel} from its template`}
+                  onClick={() => generate(templateSchema.template!)}
+                >
+                  <RefreshCw size={15} />
+                </ActionIcon>
+              )
+            : undefined;
+          return rows > 1 ? (
+            <Textarea
+              className="templated-control"
+              size="xs"
+              rows={rows}
+              disabled={templateSchema?.editBehavior === "controlled"}
+              value={asString(value)}
+              rightSection={regenerate}
+              rightSectionPointerEvents="all"
+              onChange={(e) => editText(e.currentTarget.value)}
+            />
+          ) : (
+            <TextInput
+              className="templated-control"
+              size="xs"
+              disabled={templateSchema?.editBehavior === "controlled"}
+              value={asString(value)}
+              rightSection={regenerate}
+              rightSectionPointerEvents="all"
+              onChange={(e) => editText(e.currentTarget.value)}
+            />
+          );
+        }
       case "number":
         return (
           <NumberInput
@@ -224,8 +300,9 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
         );
       case "select":
         return (
-          <Select
+          <AdaptiveSelect
             size="xs"
+            aria-label={fieldLabel}
             clearable={!field.required}
             searchable
             // Large option sets (e.g. icon-name enums) would render thousands
@@ -269,7 +346,12 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
   };
 
   return (
-    <FieldShell field={props.field} path={props.path} ctx={props.ctx}>
+    <FieldShell
+      field={props.field}
+      path={props.path}
+      ctx={props.ctx}
+      actions={props.field.type === "string" ? templateActions : undefined}
+    >
       {control()}
     </FieldShell>
   );
@@ -427,7 +509,7 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
     return `Item ${index + 1}`;
   }
 
-  function thumbSrc(index: number): string | null {
+  function thumbPath(index: number): string | null {
     if (!previewImage) return null;
     const value = descendantString(itemRecord(index), previewImage.path);
     if (!value) return null;
@@ -439,11 +521,11 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
     );
     if (!media) return null;
     const absolute = mediaInputPath(props.ctx.root, media, value);
-    return absolute ? assetUrl(absolute) : null;
+    return absolute;
   }
 
   const objectRow = (index: number) => {
-    const thumb = thumbSrc(index);
+    const thumb = thumbPath(index);
     return expanded.has(index) ? (
       <SortableRow key={index} index={index} className="list-item expanded-item">
         <div className="list-item-body">
@@ -465,7 +547,18 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
       <SortableRow key={index} index={index} className="list-item collapsed-item">
         {previewImage &&
           (thumb ? (
-            <img className="thumb" src={thumb} alt="" />
+            <CachedImage
+              className="thumb"
+              path={thumb}
+              alt=""
+              thumbnailWidth={64}
+              thumbnailHeight={64}
+              fallback={
+                <span className="thumb thumb-placeholder">
+                  <Image size={16} />
+                </span>
+              }
+            />
           ) : (
             <span className="thumb thumb-placeholder">
               <Image size={16} />
@@ -624,6 +717,12 @@ function referenceTemplate(template: string, root: string, file: FileEntry): str
 }
 
 function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
+  const imageLibrary = props.ctx.config.imageLibraries?.find(
+    (library) => library.collection === props.field.options?.collection,
+  );
+  if (props.field.options?.astroId === true && imageLibrary) {
+    return <ImageLibraryReferenceField {...props} library={imageLibrary} />;
+  }
   const collection = props.ctx.config.content.find(
     (entry) => entry.type === "collection" && entry.name === props.field.options?.collection,
   );
@@ -706,8 +805,9 @@ function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContex
   const missing = value !== "" && !files.some((f) => f.value === value);
 
   return (
-    <Select
+    <AdaptiveSelect
       size="xs"
+      aria-label={typeof props.field.label === "string" ? props.field.label : props.field.name}
       clearable={!props.field.required}
       searchable
       placeholder={collection ? undefined : "Unknown collection"}

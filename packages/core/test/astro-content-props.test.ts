@@ -1,4 +1,4 @@
-import { parseAstroProps, parseAstroPropsType, type AstroPropDef } from "../src/mdx/mdx";
+import { parseAstroExportedType, parseAstroProps, parseAstroPropsType, type AstroPropDef } from "../src/mdx/mdx";
 import { astroPropField } from "../src/mdx/propFields";
 import { buildAstroConfig, parseLoaderConfig } from "../src/astro/collections";
 import type { ContentEntry, Field } from "../src/pagescms/config";
@@ -153,5 +153,67 @@ const customIdField = astroPropField(customIdDef, {
   editableCollections: astroConfig.content,
 });
 assert(customIdField?.type === "string", "custom generated entry ids do not use a wrong picker");
+
+const mediaIdField = astroPropField(
+  { name: "media", type: "CollectionEntry<'media'>['id']", optional: false },
+  {
+    collections: [{ name: "media", fields: [{ name: "image", type: "image" }] }],
+    editableCollections: [],
+    imageLibraries: [{
+      collection: "media",
+      base: "src/media",
+      patterns: ["**/*.{yml,yaml}", "!videos/**/*.{yml,yaml}"],
+      metadataExtensions: ["yml", "yaml"],
+      imageFieldPath: ["image"],
+      fields: [{ name: "image", type: "image" }, { name: "alt", type: "string" }],
+    }],
+  },
+);
+assert(mediaIdField?.type === "reference" && mediaIdField.options?.astroId === true, "image-library IDs use the picker without entering sidebar content");
+
+const mediaContext = {
+  collections: [{ name: "media", fields: [{ name: "image", type: "image" }] }],
+  editableCollections: [],
+  imageLibraries: [{
+    collection: "media",
+    base: "src/media",
+    patterns: ["**/*.{yml,yaml}"],
+    metadataExtensions: ["yml", "yaml"] as ("yml" | "yaml")[],
+    imageFieldPath: ["image"],
+    fields: [{ name: "image", type: "image" }, { name: "alt", type: "string" }],
+  }],
+};
+const mediaShapeDefs = parseAstroProps(`---
+import type { CollectionEntry } from 'astro:content';
+interface Props {
+  mediaObject: { media: CollectionEntry<'media'>['id']; caption: string };
+  mediaIds: CollectionEntry<'media'>['id'][];
+  mediaItems: { media: CollectionEntry<'media'>['id']; caption: string }[];
+}
+---`);
+const mediaObject = astroPropField(prop(mediaShapeDefs, "mediaObject"), mediaContext);
+assert(mediaObject?.type === "object", "media IDs resolve inside objects");
+assert(mediaObject.fields?.[0].type === "reference", "object media member uses picker");
+const mediaIds = astroPropField(prop(mediaShapeDefs, "mediaIds"), mediaContext);
+assert(mediaIds?.type === "reference" && mediaIds.list === true, "media ID arrays use reorderable pickers");
+const mediaItems = astroPropField(prop(mediaShapeDefs, "mediaItems"), mediaContext);
+assert(mediaItems?.type === "object" && mediaItems.list === true, "media object arrays are reorderable");
+assert(mediaItems.fields?.[0].type === "reference", "object-array media member uses picker");
+
+const exportedMediaItem = parseAstroExportedType(`---
+import type { CollectionEntry } from 'astro:content';
+export interface PolaroidMediaItem {
+  media: CollectionEntry<'media'>['id'];
+  caption: string;
+}
+---`, "PolaroidMediaItem");
+assert(exportedMediaItem, "exported component type resolves");
+const importedAliasDefs = parseAstroProps(`---
+import type { PolaroidMediaItem } from './PolaroidStack.astro';
+export interface Props { media: PolaroidMediaItem[] }
+---`, { PolaroidMediaItem: exportedMediaItem });
+const importedMedia = astroPropField(prop(importedAliasDefs, "media"), mediaContext);
+assert(importedMedia?.type === "object" && importedMedia.list === true, "HomeIntro imported media items are reorderable");
+assert(importedMedia.fields?.[0].type === "reference", "HomeIntro imported media item uses picker");
 
 console.log("astro-content component prop tests passed");
