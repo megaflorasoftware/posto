@@ -709,3 +709,14 @@
   padding: 0.6rem 0;
   border-bottom: 1px solid var(--mantine-color-default-border);
 }
+
+.image-library-asset-row > div {
+  flex: 1;
+}
+
+.image-library-asset-preview {
+  width: 3rem;
+  height: 3rem;
+  object-fit: cover;
+  border-radius: var(--mantine-radius-sm);
+}

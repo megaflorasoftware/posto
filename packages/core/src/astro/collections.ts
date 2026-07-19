@@ -262,6 +262,46 @@ function imageFieldPaths(source: string): string[][] {
   return paths;
 }
 
+/** Source for a top-level schema function/constant referenced by identifier. */
+function declaredSchemaSource(source: string, identifier: string): string | null {
+  const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const constant = new RegExp(`(?:export\\s+)?const\\s+${escaped}\\s*=`).exec(source);
+  if (constant) {
+    let parens = 0, braces = 0, brackets = 0;
+    let quote: string | null = null;
+    for (let index = constant.index; index < source.length; index++) {
+      const ch = source[index];
+      if (quote) {
+        if (ch === "\\") index++;
+        else if (ch === quote) quote = null;
+        continue;
+      }
+      if (ch === '"' || ch === "'" || ch === "`") quote = ch;
+      else if (ch === "(") parens++;
+      else if (ch === ")") parens--;
+      else if (ch === "{") braces++;
+      else if (ch === "}") braces--;
+      else if (ch === "[") brackets++;
+      else if (ch === "]") brackets--;
+      else if (ch === ";" && parens === 0 && braces === 0 && brackets === 0) {
+        return source.slice(constant.index, index + 1);
+      }
+    }
+  }
+  const fn = new RegExp(`(?:export\\s+)?function\\s+${escaped}\\s*\\(`).exec(source);
+  if (fn) {
+    const open = source.indexOf("{", fn.index);
+    if (open >= 0) {
+      let depth = 0;
+      for (let index = open; index < source.length; index++) {
+        if (source[index] === "{") depth++;
+        else if (source[index] === "}" && --depth === 0) return source.slice(fn.index, index + 1);
+      }
+    }
+  }
+  return null;
+}
+
 /** Slice out the balanced `(...)` argument list starting at `openIndex`. */
 function balancedSlice(source: string, openIndex: number): string | null {
   let depth = 0;
@@ -409,6 +449,13 @@ export function parseLoaderConfig(source: string): Map<string, LoaderInfo> {
     // objects, and arrays of objects. As with references, names are resolved
     // recursively against the generated shape below.
     info.images = imageFieldPaths(body);
+    if (info.images.length === 0) {
+      const schemaSource = topLevelObjectProp(body, "schema");
+      if (schemaSource && /^[A-Za-z_$][\w$]*$/.test(schemaSource)) {
+        const declaration = declaredSchemaSource(source, schemaSource);
+        if (declaration) info.images = imageFieldPaths(declaration);
+      }
+    }
     if (info.images.length === 0) delete info.images;
     byVariable.set(match[1], info);
   }
@@ -493,6 +540,25 @@ function resolveImages(fields: Field[], images: string[][] = [], prefix: string[
       ? { ...resolved, fields: resolveImages(resolved.fields, images, path) }
       : resolved;
   });
+}
+
+/** Adds the media-reference hint without changing any Pages CMS field
+ * behavior or ordering. Used when `.pages.yml` wins schema precedence. */
+export function markImageLibraryReferences(
+  fields: Field[],
+  libraries: Pick<AstroImageLibrary, "collection">[],
+): Field[] {
+  const names = new Set(libraries.map((library) => library.collection));
+  return fields.map((field) => ({
+    ...field,
+    options:
+      field.type === "reference" &&
+      typeof field.options?.collection === "string" &&
+      names.has(field.options.collection)
+        ? { ...field.options, imageLibrary: true }
+        : field.options,
+    fields: field.fields ? markImageLibraryReferences(field.fields, libraries) : undefined,
+  }));
 }
 
 function metadataExtensions(patterns: string[]): ImageLibraryMetadataExtension[] {

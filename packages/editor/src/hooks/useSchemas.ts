@@ -4,6 +4,7 @@ import { parsePagesConfig, type Field, type PagesConfig } from "@posto/core/page
 import {
   DEFAULT_ASTRO_MEDIA,
   buildAstroConfig,
+  markImageLibraryReferences,
   parseCollectionSchema,
   parseLoaderConfig,
   type LoaderInfo,
@@ -124,12 +125,16 @@ export function useSchemas() {
   // labels, media, widget types), Astro collection schemas after them as a
   // fallback. matchEntry's first-match-wins ordering makes the precedence.
   const config = useMemo<PagesConfig | null>(() => {
+    const pagesContent = (pagesConfig?.content ?? []).map((entry) => ({
+      ...entry,
+      fields: markImageLibraryReferences(entry.fields, astroConfig?.imageLibraries ?? []),
+    }));
     return mergePostoConfig(
       {
         media: pagesConfig?.media.length
           ? pagesConfig.media
           : (astroConfig?.media.length ? astroConfig.media : DEFAULT_ASTRO_MEDIA),
-        content: [...(pagesConfig?.content ?? []), ...(astroConfig?.content ?? [])],
+        content: [...pagesContent, ...(astroConfig?.content ?? [])],
         astroCollections: astroConfig?.astroCollections,
         imageLibraries: astroConfig?.imageLibraries,
         imageLibraryDiagnostics: astroConfig?.imageLibraryDiagnostics,

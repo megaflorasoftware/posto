@@ -9,7 +9,7 @@ import {
 import type { AstroImageLibrary, Field } from "@posto/core/pagescms/config";
 import { validateForm } from "@posto/core/pagescms/validate";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
-import { deleteImageLibraryAsset, invoke, onFileDrop, type FileEntry } from "@posto/ipc";
+import { assetUrl, deleteImageLibraryAsset, invoke, onFileDrop, onFsChanged, type FileEntry } from "@posto/ipc";
 import { useImageLibraryImport } from "../hooks/useImageLibraryImport";
 import { buildOptionalReferenceEdits, scanMediaReferences, type ScannedMediaReferences } from "../mediaLibraryDeletion";
 import { Dialog } from "./Dialog";
@@ -242,6 +242,14 @@ export function ImageLibraryReferenceField(props: {
       .catch((caught) => { if (!cancelled) setError(String(caught)); });
     return () => { cancelled = true; };
   }, [root, props.library, refresh]);
+  useEffect(
+    () => onFsChanged((paths) => {
+      if (paths.some((path) => path === root || path.startsWith(`${root}/`))) {
+        setRefresh((value) => value + 1);
+      }
+    }),
+    [root],
+  );
   const value = valueAt(props.ctx.templateValues(), props.path);
   const selected = typeof value === "string" ? value : null;
   const options = assets.map((asset) => ({
@@ -375,6 +383,13 @@ function ImageLibraryManagerDialog(props: {
         {props.assets.length === 0 && <div>No metadata entries found.</div>}
         {props.assets.map((asset) => (
           <div key={`${asset.entryId}:${asset.metadataPath}`} className="image-library-asset-row">
+            {asset.imagePath && assetUrl(asset.imagePath) && (
+              <img
+                className="image-library-asset-preview"
+                src={assetUrl(asset.imagePath)!}
+                alt={typeof asset.metadata.alt === "string" ? asset.metadata.alt : asset.entryId}
+              />
+            )}
             <div>
               <strong>{asset.entryId}</strong>
               <div className="field-description">{asset.health.join(", ")}</div>
