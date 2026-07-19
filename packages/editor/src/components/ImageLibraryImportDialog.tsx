@@ -1,46 +1,14 @@
 import { useMemo } from "react";
 import { Alert, Button, Select, TextInput } from "@mantine/core";
-import type { AstroImageLibrary, Field, PagesConfig } from "@posto/core/pagescms/config";
+import type { AstroImageLibrary, PagesConfig } from "@posto/core/pagescms/config";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 import { validateForm } from "@posto/core/pagescms/validate";
 import type { FileGroup } from "@posto/ipc";
 import type { ImageLibraryImportResult } from "@posto/ipc";
 import { useImageLibraryImport } from "../hooks/useImageLibraryImport";
+import { editValueAtPath, imageLibraryMetadataFields, valueAtPath } from "../imageLibraryMetadata";
 import { Dialog } from "./Dialog";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
-
-function withoutImageField(fields: Field[], imagePath: string[], prefix: string[] = []): Field[] {
-  return fields.flatMap((field) => {
-    const path = [...prefix, field.name];
-    if (path.length === imagePath.length && path.every((part, index) => part === imagePath[index])) return [];
-    return [{ ...field, fields: field.fields ? withoutImageField(field.fields, imagePath, path) : undefined }];
-  });
-}
-
-function valueAt(root: unknown, path: ValuePath): unknown {
-  let value = root;
-  for (const key of path) {
-    if (!value || typeof value !== "object") return undefined;
-    value = (value as Record<string | number, unknown>)[key];
-  }
-  return value;
-}
-
-function editValue(root: Record<string, unknown>, path: ValuePath, value: unknown): Record<string, unknown> {
-  const next = structuredClone(root);
-  let target: Record<string | number, unknown> = next;
-  path.forEach((key, index) => {
-    if (index === path.length - 1) {
-      if (value === undefined) delete target[key];
-      else target[key] = value;
-      return;
-    }
-    const nextKey = path[index + 1];
-    if (!target[key] || typeof target[key] !== "object") target[key] = typeof nextKey === "number" ? [] : {};
-    target = target[key] as Record<string | number, unknown>;
-  });
-  return next;
-}
 
 export function ImageLibraryImportDialog(props: {
   root: string;
@@ -52,7 +20,7 @@ export function ImageLibraryImportDialog(props: {
   onImported: (result: ImageLibraryImportResult) => void;
 }) {
   const metadataFields = useMemo(
-    () => withoutImageField(props.library.fields, props.library.imageFieldPath),
+    () => imageLibraryMetadataFields(props.library),
     [props.library],
   );
   const importer = useImageLibraryImport({
@@ -63,7 +31,7 @@ export function ImageLibraryImportDialog(props: {
   });
   const errors = validateForm(metadataFields, importer.draft.metadata);
   const update = (path: ValuePath, value: unknown) => {
-    importer.setDraft((draft) => ({ ...draft, metadata: editValue(draft.metadata, path, value) }));
+    importer.setDraft((draft) => ({ ...draft, metadata: editValueAtPath(draft.metadata, path, value) }));
   };
   const fieldCtx: FieldContext = {
     config: props.config,
@@ -72,18 +40,18 @@ export function ImageLibraryImportDialog(props: {
     groups: props.groups,
     errors: () => errors,
     templateValues: () => importer.draft.metadata,
-    value: (path) => valueAt(importer.draft.metadata, path),
+    value: (path) => valueAtPath(importer.draft.metadata, path),
     edit: update,
     listAppend: (path, value) => {
-      const list = valueAt(importer.draft.metadata, path);
+      const list = valueAtPath(importer.draft.metadata, path);
       update(path, [...(Array.isArray(list) ? list : []), value]);
     },
     listRemove: (path, index) => {
-      const list = valueAt(importer.draft.metadata, path);
+      const list = valueAtPath(importer.draft.metadata, path);
       if (Array.isArray(list)) update(path, list.filter((_item, itemIndex) => itemIndex !== index));
     },
     listMove: (path, from, to) => {
-      const list = valueAt(importer.draft.metadata, path);
+      const list = valueAtPath(importer.draft.metadata, path);
       if (!Array.isArray(list)) return;
       const moved = [...list];
       const [item] = moved.splice(from, 1);

@@ -709,6 +709,14 @@
   cursor: pointer;
 }
 
+.image-library-reference-item {
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr);
+  align-items: start;
+  gap: 0.75rem;
+  width: 100%;
+}
+
 .image-library-reference-preview {
   width: 100%;
   height: 100%;
@@ -752,7 +760,16 @@
 }
 
 .image-library-metadata-fields {
-  margin-top: 0.75rem;
+  margin-top: 0;
+}
+
+.image-library-reference-metadata {
+  min-width: 0;
+  align-self: start;
+}
+
+.image-library-reference-metadata > .image-library-metadata-fields {
+  padding: 0;
 }
 
 .image-library-picker-actions {
