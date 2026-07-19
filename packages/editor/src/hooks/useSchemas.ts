@@ -8,6 +8,14 @@ import {
   parseLoaderConfig,
   type LoaderInfo,
 } from "@posto/core/astro/collections";
+import {
+  POSTO_COLLECTIONS_DIR,
+  POSTO_INDEX_PATH,
+  mergePostoConfig,
+  parsePostoCollection,
+  parsePostoIndex,
+  type PostoConfig,
+} from "@posto/core/posto/config";
 
 /** Schema sources for form editing: `.pages.yml` plus Astro collection
  * schemas as a fallback, merged into one effective config. */
@@ -16,6 +24,8 @@ export function useSchemas() {
   // Fallback schemas derived from Astro content collections; `.pages.yml`
   // entries take precedence when both describe a folder.
   const [astroConfig, setAstroConfig] = useState<PagesConfig | null>(null);
+  // `.posto/` user preferences, overlaid on the effective config below.
+  const [postoConfig, setPostoConfig] = useState<PostoConfig | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
 
   async function loadPagesConfig(dir: string) {
@@ -31,6 +41,44 @@ export function useSchemas() {
       setPagesConfig(parsePagesConfig(source));
     } catch (e) {
       setConfigError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  // `.posto/` holds user preferences layered over the derived config:
+  // `index.json` for workspace settings and `collections/<name>.json` per
+  // collection. Every read is tolerant — a missing directory or malformed
+  // file degrades to defaults, never to an error.
+  async function loadPostoConfig(dir: string) {
+    setPostoConfig(null);
+    const config: PostoConfig = { collections: {} };
+    try {
+      const index = await invoke<string>("read_text_file", { path: `${dir}/${POSTO_INDEX_PATH}` });
+      config.collectionOrder = parsePostoIndex(index).collectionOrder;
+    } catch {
+      // No index file; per-collection settings may still exist.
+    }
+    let listed: { name: string; path: string }[] = [];
+    try {
+      listed = await invoke<{ name: string; path: string }[]>("list_dir_files", {
+        dir: `${dir}/${POSTO_COLLECTIONS_DIR}`,
+        extensions: ["json"],
+      });
+    } catch {
+      // No collections directory.
+    }
+    for (const file of listed) {
+      if (!file.name.endsWith(".json")) continue;
+      try {
+        const settings = parsePostoCollection(
+          await invoke<string>("read_text_file", { path: file.path }),
+        );
+        if (settings) config.collections[file.name.slice(0, -".json".length)] = settings;
+      } catch {
+        // One unreadable file shouldn't take down the rest.
+      }
+    }
+    if (config.collectionOrder || Object.keys(config.collections).length > 0) {
+      setPostoConfig(config);
     }
   }
 
@@ -76,15 +124,28 @@ export function useSchemas() {
   // labels, media, widget types), Astro collection schemas after them as a
   // fallback. matchEntry's first-match-wins ordering makes the precedence.
   const config = useMemo<PagesConfig | null>(() => {
-    return {
-      media: pagesConfig?.media.length
-        ? pagesConfig.media
-        : (astroConfig?.media.length ? astroConfig.media : DEFAULT_ASTRO_MEDIA),
-      content: [...(pagesConfig?.content ?? []), ...(astroConfig?.content ?? [])],
-    };
-  }, [pagesConfig, astroConfig]);
+    return mergePostoConfig(
+      {
+        media: pagesConfig?.media.length
+          ? pagesConfig.media
+          : (astroConfig?.media.length ? astroConfig.media : DEFAULT_ASTRO_MEDIA),
+        content: [...(pagesConfig?.content ?? []), ...(astroConfig?.content ?? [])],
+        astroCollections: astroConfig?.astroCollections,
+      },
+      postoConfig,
+    );
+  }, [pagesConfig, astroConfig, postoConfig]);
   const configRef = useRef(config);
   configRef.current = config;
 
-  return { config, configRef, astroConfig, configError, loadPagesConfig, loadAstroConfig };
+  return {
+    config,
+    configRef,
+    pagesConfig,
+    astroConfig,
+    configError,
+    loadPagesConfig,
+    loadAstroConfig,
+    loadPostoConfig,
+  };
 }

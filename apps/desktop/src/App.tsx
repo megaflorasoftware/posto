@@ -7,10 +7,13 @@ import { EMPTY_CONFIG, matchEntry } from "@posto/core/pagescms/config";
 import { parseFile } from "@posto/core/pagescms/frontmatter";
 import {
   EditorPane,
-  NewFileModal,
   PublishModal,
   Sidebar,
+  buildNewFile,
+  createDataDocumentEntry,
+  deleteDataDocumentEntry,
   contentHasFields,
+  renameTargetForContent,
   useCurrentFile,
   useFileGroups,
   useGitSync,
@@ -37,8 +40,6 @@ function App() {
   // Status-bar message in the header (publish/pull results, errors).
   const [status, setStatus] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
-  // Directory the "new file" dialog is creating into, when open.
-  const [newFileGroup, setNewFileGroup] = useState<FileGroup | null>(null);
   // Bumped after each successful save so the SEO preview refetches the page.
   const [saveTick, setSaveTick] = useState(0);
 
@@ -53,15 +54,25 @@ function App() {
   const currentFile = useCurrentFile({
     onAfterSave(path, content) {
       files.updateSidebarTitle(path, content);
+      const dir = rootRef.current;
+      if (dir && schemas.configRef.current?.content.some((entry) => entry.dataFile && `${dir}/${entry.dataFile.path}` === path)) {
+        void files.refreshDataGroups(dir, schemas.configRef.current);
+      }
       setSaveTick((t) => t + 1);
       // Editing the schema itself must re-parse it, or forms keep the old one.
-      const dir = rootRef.current;
       if (dir && path === dir + "/.pages.yml") void schemas.loadPagesConfig(dir);
       if (dir && (path === dir + "/src/content.config.ts" || path === dir + "/src/content/config.ts")) {
         void schemas.loadAstroConfig(dir);
       }
+      // Frontmatter drives template-derived filenames; each (already
+      // debounced) save is the moment to bring the name back in line.
+      void renameForTemplate(path, content);
     },
-    onOpened(path, content) {
+    onOpened(path, content, file) {
+      if (file?.dataEntry) {
+        setEditorTab("fields");
+        return;
+      }
       // On opening a markdown file, keep the last selected tab when it has
       // content to show, otherwise fall over to the tab that does: no fields
       // → Body; empty body but fields present → Fields. Raw stays sticky.
@@ -89,9 +100,9 @@ function App() {
   // moved first) must not, or the two would fight. The flag rides a ref
   // because onOpened runs from the hook, outside this call stack's scope.
   const navigatePreviewRef = useRef(true);
-  function openFile(path: string, navigatePreview = true) {
+  function openFile(target: string | FileEntry, navigatePreview = true) {
     navigatePreviewRef.current = navigatePreview;
-    void currentFile.openFile(path);
+    void currentFile.openFile(target);
   }
 
   const preview = usePreview({
@@ -118,6 +129,7 @@ function App() {
   async function refreshGroups(dir: string) {
     void git.refreshLocalChanges(dir);
     await files.refreshGroups(dir);
+    await files.refreshDataGroups(dir, schemas.configRef.current);
   }
 
   async function selectRoot(dir: string) {
@@ -128,6 +140,7 @@ function App() {
     preview.resetRoute();
     void schemas.loadPagesConfig(dir);
     void schemas.loadAstroConfig(dir);
+    void schemas.loadPostoConfig(dir);
     await refreshGroups(dir);
     void devServer.startServer(dir);
     void invoke("set_last_root", { root: dir }).then(() => refreshRecentRoots());
@@ -147,16 +160,65 @@ function App() {
     if (typeof dir === "string") void selectRoot(dir);
   }
 
-  async function onFileCreated(path: string) {
-    setNewFileGroup(null);
+  function schemaSources() {
+    return {
+      config: schemas.configRef.current ?? EMPTY_CONFIG,
+      pagesContent: schemas.pagesConfig?.content ?? [],
+      astroContent: schemas.astroConfig?.content ?? [],
+    };
+  }
+
+  // "New file" creates immediately — an "Untitled" entry with the
+  // collection's defaults — and opens it; no dialog. The filename follows
+  // the title (or whatever fields the template names) as the user edits.
+  async function createNewFile(group: FileGroup) {
     const dir = rootRef.current;
-    if (dir) await refreshGroups(dir);
+    if (!dir) return;
+    if (group.dataCollection) {
+      const collection = schemas.configRef.current?.content.find((entry) => entry.name === group.dataCollection);
+      if (!collection) return;
+      try {
+        const id = await createDataDocumentEntry(group, collection);
+        await files.refreshDataGroups(dir, schemas.configRef.current);
+        const created = files.groupsRef.current
+          .find((candidate) => candidate.dataCollection === group.dataCollection)
+          ?.files.find((file) => file.dataEntry?.id === id);
+        if (created) openFile(created);
+      } catch (e) {
+        setStatus(String(e));
+      }
+      return;
+    }
+    const { path, content } = buildNewFile(dir, group, schemaSources());
+    try {
+      await invoke("create_text_file", { path, content });
+    } catch (e) {
+      setStatus(String(e));
+      return;
+    }
+    await refreshGroups(dir);
     // A new markdown file with a schema should land on its form, not on
     // whichever tab was last active (an empty file's Body/Raw view is blank).
-    if (/\.(md|mdx)$/i.test(path) && dir && config && matchEntry(config, dir, path) !== null) {
+    const cfg = schemas.configRef.current;
+    if (/\.(md|mdx)$/i.test(path) && cfg && matchEntry(cfg, dir, path) !== null) {
       setEditorTab("fields");
     }
     openFile(path);
+  }
+
+  // Keeps a template-derived filename in step with the frontmatter it's
+  // derived from, riding the (debounced) autosave: rename on disk, retarget
+  // the editor, refresh the sidebar, and move the preview to the new route.
+  async function renameForTemplate(path: string, content: string) {
+    const dir = rootRef.current;
+    if (!dir || currentFile.filePathRef.current !== path) return;
+    const target = renameTargetForContent(dir, path, content, schemaSources());
+    if (!target) return;
+    // Another entry already owns the name; keep ours until the fields change.
+    if (files.groupsRef.current.some((g) => g.files.some((f) => f.path === target))) return;
+    if (!(await currentFile.renameOpenFile(path, target))) return;
+    void refreshGroups(dir);
+    void preview.navigateForFile(target, content);
   }
 
   // Files changed outside the app (other editors, git, `astro sync`, …):
@@ -167,6 +229,7 @@ function App() {
     if (!dir) return;
     void refreshGroups(dir);
     if (paths.includes(dir + "/.pages.yml")) void schemas.loadPagesConfig(dir);
+    if (paths.some((p) => p.startsWith(dir + "/.posto/"))) void schemas.loadPostoConfig(dir);
     if (
       paths.some(
         (p) =>
@@ -209,20 +272,24 @@ function App() {
   async function deleteFile(file: FileEntry) {
     const dir = rootRef.current;
     if (!dir) return;
-    const isOpen = currentFile.filePathRef.current === file.path;
+    const isOpen = currentFile.activeKey === (file.key ?? file.path);
+    const sharesOpenDocument = !!file.dataEntry && currentFile.filePathRef.current === file.path;
     if (isOpen) {
       // A pending autosave would recreate the file right after the delete.
       currentFile.clearPendingSave();
     }
     try {
-      await invoke("delete_file", { path: file.path });
+      if (file.dataEntry) await deleteDataDocumentEntry(file);
+      else await invoke("delete_file", { path: file.path });
     } catch (e) {
       setStatus(String(e));
       return;
     }
     if (isOpen) currentFile.closeFile();
+    else if (sharesOpenDocument) void currentFile.reloadFromDisk();
     if (file.path === dir + "/.pages.yml") void schemas.loadPagesConfig(dir);
-    void refreshGroups(dir);
+    if (file.dataEntry) void files.refreshDataGroups(dir, schemas.configRef.current);
+    else void refreshGroups(dir);
   }
 
   async function revertChange(file: ChangedFile) {
@@ -254,15 +321,31 @@ function App() {
 
   const config = schemas.config;
 
+  useEffect(() => {
+    if (root) void files.refreshDataGroups(root, config);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [root, config]);
+
   // Content entry describing the open file's fields, if any.
   const entry = useMemo(() => {
     if (!root || !currentFile.filePath || !config) return null;
+    if (currentFile.dataEntry) {
+      return config.content.find((candidate) => candidate.name === currentFile.dataEntry?.collection) ?? null;
+    }
     return matchEntry(config, root, currentFile.filePath);
-  }, [root, currentFile.filePath, config]);
+  }, [root, currentFile.filePath, currentFile.dataEntry, config]);
 
-  // Which source the matched entry came from, for the header badge.
+  // Which source the matched entry came from, for the header badge. Matched
+  // by name+path because the `.posto` overlay clones entries it touches;
+  // `.pages.yml` wins ties, matching the config's precedence order.
   const entrySource =
-    entry === null ? null : schemas.astroConfig?.content.includes(entry) ? "astro" : "pages";
+    entry === null
+      ? null
+      : schemas.pagesConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
+        ? "pages"
+        : schemas.astroConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
+          ? "astro"
+          : "pages";
 
   return (
     <MantineProvider defaultColorScheme="auto">
@@ -292,17 +375,6 @@ function App() {
           }}
         />
 
-        {root && newFileGroup && (
-          <NewFileModal
-            root={root}
-            group={newFileGroup}
-            config={config ?? EMPTY_CONFIG}
-            astroContent={schemas.astroConfig?.content ?? []}
-            onClose={() => setNewFileGroup(null)}
-            onCreated={(path) => void onFileCreated(path)}
-          />
-        )}
-
         {!root ? (
           <div className="empty-state">
             <p>Select the folder that holds your site to get started.</p>
@@ -314,10 +386,11 @@ function App() {
               root={root}
               groups={files.groups}
               config={config}
-              activePath={currentFile.filePath}
-              onOpen={(path) => openFile(path)}
+              activeKey={currentFile.activeKey}
+              onOpen={(file) => openFile(file)}
               onDelete={(file) => void deleteFile(file)}
-              onNewFile={setNewFileGroup}
+              onNewFile={(group) => void createNewFile(group)}
+              onPostoSaved={() => void schemas.loadPostoConfig(root)}
             />
 
             <div className="panes" ref={preview.panesEl}>
@@ -328,6 +401,7 @@ function App() {
                   fileContent={currentFile.fileContent}
                   saveState={currentFile.saveState}
                   entry={entry}
+                  dataEntry={currentFile.dataEntry}
                   entrySource={entrySource}
                   config={config}
                   configError={schemas.configError}

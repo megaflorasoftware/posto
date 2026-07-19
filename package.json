@@ -8,6 +8,7 @@
     "start": "pnpm --filter desktop dev",
     "dev": "pnpm --filter desktop dev",
     "build": "pnpm --filter desktop build",
+    "ios:device": "tauri ios build --export-method debugging && node scripts/install-ios-device.mjs",
     "serve": "pnpm --filter desktop serve",
     "tauri": "tauri",
     "build:ios": "scripts/build-ios.sh"

@@ -6,9 +6,12 @@
   "exports": {
     "./astro/*": "./src/astro/*.ts",
     "./mdx/*": "./src/mdx/*.ts",
-    "./pagescms/*": "./src/pagescms/*.ts"
+    "./pagescms/*": "./src/pagescms/*.ts",
+    "./posto/*": "./src/posto/*.ts"
   },
   "dependencies": {
+    "github-slugger": "^2.0.0",
+    "smol-toml": "^1.7.0",
     "yaml": "^2.9.0"
   }
 }

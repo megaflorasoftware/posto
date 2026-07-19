@@ -39,11 +39,41 @@ export interface ContentEntry {
   /** Field named by `view.primary`; the entry's display/primary field. */
   viewPrimary?: string;
   fields: Field[];
+  // `.posto` overlay settings (see posto/config.ts); never set by `.pages.yml`
+  // or Astro parsing — mergePostoConfig fills them on the effective config.
+  /** Sidebar position from `.posto` `collections.order` (lower first). */
+  order?: number;
+  /** Entry-label template over frontmatter, e.g. `{fields.title}`. */
+  entryName?: string;
+  /** Sidebar sort for the collection's entries. */
+  sort?: { by: string; direction: "asc" | "desc" };
+  /** Entry filenames pinned to the top of the collection, in order. */
+  pinned?: string[];
+  /** Collection-scoped media source, preferred over the global list. */
+  media?: MediaEntry;
+  /** The glob loader has a custom `generateId`; Posto cannot derive ids from
+   * file paths and must not offer an id-valued reference picker. */
+  astroCustomIds?: boolean;
+  /** One physical data document stores many logical entries. */
+  dataFile?: {
+    format: "json" | "yaml" | "toml";
+    /** Repo-root-relative backing file. */
+    path: string;
+  };
+}
+
+/** A generated Astro collection schema used for component-prop typing. Unlike
+ * ContentEntry, this also includes collections whose source Posto cannot edit
+ * (`file()`, custom loaders, and non-Markdown data formats). */
+export interface AstroCollectionSchema {
+  name: string;
+  fields: Field[];
 }
 
 export interface PagesConfig {
   media: MediaEntry[];
   content: ContentEntry[];
+  astroCollections?: AstroCollectionSchema[];
 }
 
 // Field types the form knows how to render; anything else falls back to a
@@ -239,6 +269,10 @@ export function matchEntry(
   const rel = filePath.slice(prefix.length);
   for (const entry of config.content) {
     if (frontmatterFields(entry).length === 0) continue;
+    if (entry.dataFile) {
+      if (rel === entry.dataFile.path) return entry;
+      continue;
+    }
     if (entry.type === "file") {
       if (rel === entry.path) return entry;
     } else {
@@ -315,20 +349,12 @@ export function slugify(value: string): string {
 /** Default filename pattern for collections without a `filename` setting. */
 export const DEFAULT_FILENAME_PATTERN = "{year}-{month}-{day}-{primary}.md";
 
-/**
- * Expands a Pages CMS filename pattern: `{year}`/`{month}`/`{day}`/`{hour}`/
- * `{minute}`/`{second}` from the current time, `{primary}` (and its `{slug}`
- * alias) from the entry's primary field, and `{fields.x}` or `{x}` from
- * `values` — all field values slugified.
- */
-export function generateFilename(
-  pattern: string,
-  entry: ContentEntry,
-  values: Record<string, unknown>,
-): string {
+const DATE_TOKENS = ["year", "month", "day", "hour", "minute", "second"] as const;
+
+function currentDateTokens(): Record<string, string> {
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
-  const dates: Record<string, string> = {
+  return {
     year: String(now.getFullYear()),
     month: pad(now.getMonth() + 1),
     day: pad(now.getDate()),
@@ -336,14 +362,197 @@ export function generateFilename(
     minute: pad(now.getMinutes()),
     second: pad(now.getSeconds()),
   };
-  const primary = primaryField(entry)?.name;
-  return pattern
-    .replace(/\{(year|month|day|hour|minute|second)\}/g, (_, token: string) => dates[token])
-    .replace(/\{(?:primary|slug)\}/g, primary ? `{fields.${primary}}` : "untitled")
-    .replace(/\{(?:fields\.)?([^}]+)\}/g, (_, name: string) => {
+}
+
+/**
+ * Filename template for the entry's new files: the entry's `filename`
+ * setting, else `{primary}.<ext>` for Astro collections (whose entries are
+ * just slug-named, with no date-prefix convention), else the Pages CMS
+ * date-prefixed default.
+ */
+export function entryFilenamePattern(entry: ContentEntry, astro: boolean): string {
+  if (entry.filename) return entry.filename;
+  if (astro) return `{primary}.${collectionExtension(entry) ?? "md"}`;
+  return DEFAULT_FILENAME_PATTERN;
+}
+
+/**
+ * Frontmatter field a filename token reads. `{primary}` and its historical
+ * `{slug}` alias resolve to the entry's primary field. Null when either alias
+ * can't resolve because the entry has no primary field.
+ */
+function filenameFieldName(entry: ContentEntry, token: string): string | null {
+  const primary = primaryField(entry)?.name ?? null;
+  if (token === "primary" || token === "slug") return primary;
+  return token;
+}
+
+const FIELD_TEMPLATE_TOKEN = /\{(?:fields\.)?([^}|]+)(\|slug)?\}/g;
+
+/** Expands field tokens shared by filename and media-folder templates.
+ * `{fields.x}` (or `{x}`) inserts the trimmed scalar; `|slug` slugifies it.
+ * Returns null while any referenced field is missing or empty. */
+export function expandFieldTemplate(
+  template: string,
+  values: Record<string, unknown>,
+): string | null {
+  let missing = false;
+  const expanded = template.replace(
+    FIELD_TEMPLATE_TOKEN,
+    (_, name: string, filter?: string) => {
       const value = values[name];
-      return value === undefined || value === null ? "" : slugify(String(value));
+      if (value === undefined || value === null || String(value).trim() === "") {
+        missing = true;
+        return "";
+      }
+      return filter ? slugify(String(value)) : String(value).trim();
+    },
+  );
+  return missing ? null : expanded;
+}
+
+interface FilenameFieldToken {
+  name: string;
+  slugged: boolean;
+}
+
+/** Field dependencies in a filename pattern. Primary/slug aliases retain
+ * their legacy slugified behavior; explicit fields are raw unless `|slug`
+ * is present. */
+function filenameFieldTokens(pattern: string, entry: ContentEntry): FilenameFieldToken[] {
+  const tokens: FilenameFieldToken[] = [];
+  for (const match of pattern.matchAll(FIELD_TEMPLATE_TOKEN)) {
+    const token = match[1];
+    const explicitField = match[0].startsWith("{fields.");
+    if (!explicitField && (DATE_TOKENS as readonly string[]).includes(token)) continue;
+    const name = filenameFieldName(entry, token);
+    if (!name) continue;
+    tokens.push({ name, slugged: Boolean(match[2]) || token === "primary" || token === "slug" });
+  }
+  return tokens;
+}
+
+/**
+ * Expands a Pages CMS filename pattern: `{year}`/`{month}`/`{day}`/`{hour}`/
+ * `{minute}`/`{second}` from the current time (or `dates` overrides), and
+ * `{primary}`/`{slug}`/`{fields.x}`/`{x}` from `values` (resolved via
+ * {@link filenameFieldName}). Explicit fields are inserted raw; adding
+ * `|slug` slugifies them. The primary/slug aliases remain slugified for
+ * backwards compatibility.
+ */
+export function generateFilename(
+  pattern: string,
+  entry: ContentEntry,
+  values: Record<string, unknown>,
+  dates?: Record<string, string>,
+): string {
+  const dateTokens = { ...currentDateTokens(), ...dates };
+  return pattern
+    .replace(/\{(year|month|day|hour|minute|second)\}/g, (_, token: string) => dateTokens[token])
+    .replace(FIELD_TEMPLATE_TOKEN, (_, token: string, filter?: string) => {
+      const name = filenameFieldName(entry, token);
+      if (name === null) return "untitled"; // `{primary}` with no primary field
+      const value = values[name];
+      if (value === undefined || value === null) return "";
+      const slugged = Boolean(filter) || token === "primary" || token === "slug";
+      return slugged ? slugify(String(value)) : String(value).trim();
     });
+}
+
+/**
+ * Frontmatter field names a filename pattern derives from (resolved via
+ * {@link filenameFieldName}). Date tokens are excluded — they come from the
+ * clock, not from content.
+ */
+export function patternFields(pattern: string, entry: ContentEntry): string[] {
+  const names: string[] = [];
+  for (const token of filenameFieldTokens(pattern, entry)) {
+    if (!names.includes(token.name)) names.push(token.name);
+  }
+  return names;
+}
+
+/**
+ * Initial frontmatter values for a new entry: field `default`s (from
+ * `.pages.yml` or the collection's zod schema), today's date for date fields
+ * the filename pattern needs, and "Untitled" for the primary field — so a
+ * new file always has enough to derive a filename from.
+ */
+export function newEntryValues(pattern: string, entry: ContentEntry): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
+  for (const field of entry.fields) {
+    if (field.name === "body") continue;
+    if (field.default !== undefined) values[field.name] = field.default;
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const needed = patternFields(pattern, entry);
+  for (const name of needed) {
+    if (values[name] !== undefined) continue;
+    if (entry.fields.find((f) => f.name === name)?.type === "date") values[name] = today;
+  }
+  const primary = primaryField(entry);
+  if (primary && values[primary.name] === undefined) {
+    values[primary.name] = primary.type === "date" ? today : "Untitled";
+  }
+  return values;
+}
+
+function escapeRegExp(literal: string): string {
+  return literal.replace(/[.*+?^$()|[\]\\{}]/g, "\\$&");
+}
+
+/**
+ * Filename a file should have after its frontmatter changed, per the
+ * pattern. Date/time tokens keep the values baked into the current filename
+ * when it still matches the pattern (a title edit must not move an old
+ * post's date prefix to today); only when it doesn't do they fall back to
+ * now. Returns null when the pattern derives from no fields, a needed field
+ * is empty (mid-edit states shouldn't produce broken names), or the name is
+ * already correct.
+ */
+export function renamedFilename(
+  pattern: string,
+  entry: ContentEntry,
+  values: Record<string, unknown>,
+  currentName: string,
+): string | null {
+  const fields = patternFields(pattern, entry);
+  if (fields.length === 0) return null;
+  for (const token of filenameFieldTokens(pattern, entry)) {
+    const value = values[token.name];
+    if (value === undefined || value === null || String(value).trim() === "") return null;
+    if (token.slugged && slugify(String(value)) === "") return null;
+  }
+  const dates: Record<string, string> = {};
+  const captured: string[] = [];
+  let regex = "^";
+  let last = 0;
+  for (const match of pattern.matchAll(/\{([^}]+)\}/g)) {
+    regex += escapeRegExp(pattern.slice(last, match.index));
+    const token = match[1];
+    if (token === "year") {
+      regex += "(\\d{4})";
+      captured.push(token);
+    } else if ((DATE_TOKENS as readonly string[]).includes(token)) {
+      regex += "(\\d{2})";
+      captured.push(token);
+    } else {
+      regex += "(?:[^/]*?)";
+    }
+    last = match.index + match[0].length;
+  }
+  regex += escapeRegExp(pattern.slice(last)) + "$";
+  const match = currentName.match(new RegExp(regex));
+  if (match) {
+    captured.forEach((token, i) => {
+      dates[token] = match[i + 1];
+    });
+  }
+  const next = generateFilename(pattern, entry, values, dates);
+  if (next === currentName || next === "" || next.includes("/") || next.startsWith(".")) {
+    return null;
+  }
+  return next;
 }
 
 function inferField(name: string, value: unknown): Field {
@@ -395,13 +604,35 @@ export function inferFields(values: Record<string, unknown>): Field[] {
   return Object.entries(values).map(([name, value]) => inferField(name, value));
 }
 
-/** Media source for an image field: `options.media` by name, else the first. */
-export function resolveMedia(config: PagesConfig, field: Field): MediaEntry | null {
+/**
+ * Media source for an image field: `options.media` by name, else the entry's
+ * collection-scoped source (from `.posto` `mediaDir`), else the first global.
+ */
+export function resolveMedia(
+  config: PagesConfig,
+  field: Field,
+  entry?: ContentEntry | null,
+  values?: Record<string, unknown>,
+): MediaEntry | null {
   const name = field.options?.media;
+  let media: MediaEntry | null;
   if (typeof name === "string") {
-    return config.media.find((m) => m.name === name) ?? null;
+    media = config.media.find((m) => m.name === name) ?? null;
+  } else {
+    media = entry?.media ?? config.media[0] ?? null;
   }
-  return config.media[0] ?? null;
+  return media && values ? expandMediaEntry(media, values) : media;
+}
+
+/** Resolves a media source's input and public output paths for one entry.
+ * Null means a field referenced by either template is not populated yet. */
+export function expandMediaEntry(
+  media: MediaEntry,
+  values: Record<string, unknown>,
+): MediaEntry | null {
+  const input = expandFieldTemplate(media.input, values);
+  const output = expandFieldTemplate(media.output, values);
+  return input === null || output === null ? null : { ...media, input, output };
 }
 
 /**

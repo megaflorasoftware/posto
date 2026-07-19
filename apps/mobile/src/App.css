@@ -323,6 +323,35 @@ input {
   background: var(--mantine-color-default-hover);
 }
 
+/* Right-aligned marker on files pinned via collection settings. */
+.mobile-file-pin {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--mantine-color-dimmed);
+}
+
+/* Footer launcher for workspace collection settings, ending the list. */
+.mobile-collections-settings {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  margin-top: 0.75rem;
+  padding: 0.6rem 0.25rem;
+  border: none;
+  border-top: 1px solid var(--mantine-color-default-border);
+  background: none;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+  cursor: pointer;
+}
+
+.mobile-collections-settings:active {
+  color: inherit;
+}
+
 .repo-home-actions {
   grid-area: actions;
   min-width: 0;

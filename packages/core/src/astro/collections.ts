@@ -1,3 +1,4 @@
+import { slug as githubSlug } from "github-slugger";
 import type { ContentEntry, Field, MediaEntry, PagesConfig } from "../pagescms/config";
 
 // Builds a PagesConfig from Astro content collections, used as a fallback
@@ -9,11 +10,14 @@ import type { ContentEntry, Field, MediaEntry, PagesConfig } from "../pagescms/c
 // scanner; when that fails, the conventional `src/content/<name>` is assumed.
 //
 // Known v1 degradations (all validation still applies; only editor UX hints
-// are lost, since zod has no notion of them): `image()` renders as a plain
-// string (its schema is just `{"type":"string"}`), `reference()` renders as a
-// string of the referenced entry id, and there are no labels, media dirs, or
-// select display labels. `file()` loader collections are skipped — posto
-// edits one markdown file per entry, not multi-entry data files.
+// are lost, since zod has no notion of them): there are no labels, media dirs,
+// or select display labels. `image()` and `reference()` are recovered from
+// `content.config.ts`, since their generated schemas discard those identities.
+// `reference()` becomes a reference
+// field when the target collection can be recovered from `content.config.ts`
+// (the generated schema drops it), else a plain string. `file()` loader
+// collections are skipped — posto edits one markdown file per entry, not
+// multi-entry data files.
 
 type JsonSchema = Record<string, unknown>;
 
@@ -29,8 +33,9 @@ function isDateBranch(schema: JsonSchema): boolean {
   return schema.type === "integer" && format === "unix-time";
 }
 
-/** True for `reference()` output: anyOf of a plain string and object shapes
- * whose required keys include "collection". */
+/** True for `reference()` output: anyOf of a plain string, object shapes
+ * whose required keys include "collection", and (zod 4's toJSONSchema only)
+ * a plain number for numeric ids. */
 function isReferenceAnyOf(branches: JsonSchema[]): boolean {
   let hasString = false;
   let hasCollectionObject = false;
@@ -42,7 +47,7 @@ function isReferenceAnyOf(branches: JsonSchema[]): boolean {
       branch.required.includes("collection")
     ) {
       hasCollectionObject = true;
-    } else return false;
+    } else if (branch.type !== "number") return false;
   }
   return hasString && hasCollectionObject;
 }
@@ -69,7 +74,9 @@ function convertSchema(name: string, schema: JsonSchema, required: boolean): Fie
   const anyOf = Array.isArray(schema.anyOf) ? schema.anyOf.map(asSchema) : null;
   if (anyOf && anyOf.every((b): b is JsonSchema => b !== null) && anyOf.length > 0) {
     if (anyOf.every(isDateBranch)) return { ...base, type: "date" };
-    if (isReferenceAnyOf(anyOf)) return { ...base, type: "string" };
+    // Marker only: the schema drops the target collection, so buildAstroConfig
+    // fills it in from the `content.config.ts` scan or downgrades to string.
+    if (isReferenceAnyOf(anyOf)) return { ...base, type: "reference" };
     const nullIdx = anyOf.findIndex((b) => b.type === "null");
     if (nullIdx !== -1 && anyOf.length === 2) {
       return convertSchema(name, { ...anyOf[1 - nullIdx], default: schema.default }, false);
@@ -173,10 +180,20 @@ export function parseCollectionSchema(name: string, source: string): Field[] | n
 }
 
 export interface LoaderInfo {
-  kind: "glob" | "file" | "unknown";
+  kind: "glob" | "file" | "legacy" | "custom" | "unknown";
   base?: string;
   /** glob() accepts a single pattern or an array of them. */
   patterns?: string[];
+  /** `reference()` fields found in the schema, field name → collection. */
+  references?: Record<string, string>;
+  /** Field names whose schema uses Astro's `image()` helper. */
+  images?: string[];
+  /** A glob-loader `generateId` callback cannot be executed by the editor. */
+  customIds?: boolean;
+  /** Repo-root-relative source passed to Astro's file() loader. */
+  filePath?: string;
+  /** file() uses a custom parser; standard-format editing is best-effort. */
+  customParser?: boolean;
 }
 
 /** Slice out the balanced `(...)` argument list starting at `openIndex`. */
@@ -208,6 +225,70 @@ function stringsProp(block: string, key: string): string[] | undefined {
   return items.length > 0 ? items : undefined;
 }
 
+/** Source of a top-level object property in a defineCollection argument.
+ * Returns the identifier itself for object shorthand (`{ loader }`). */
+function topLevelObjectProp(block: string, key: string): string | undefined {
+  let braces = 0;
+  let parens = 0;
+  let brackets = 0;
+  let quote: string | null = null;
+  for (let i = 0; i < block.length; i++) {
+    const ch = block[i];
+    if (quote) {
+      if (ch === "\\") i++;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "{") braces++;
+    else if (ch === "}") braces--;
+    else if (ch === "(") parens++;
+    else if (ch === ")") parens--;
+    else if (ch === "[") brackets++;
+    else if (ch === "]") brackets--;
+    if (braces !== 1 || parens !== 0 || brackets !== 0 || !block.startsWith(key, i)) continue;
+    if (/\w/.test(block[i - 1] ?? "") || /\w/.test(block[i + key.length] ?? "")) continue;
+    let valueStart = i + key.length;
+    while (/\s/.test(block[valueStart] ?? "")) valueStart++;
+    if (block[valueStart] !== ":") {
+      if (block[valueStart] === "," || block[valueStart] === "}") return key;
+      continue;
+    }
+    valueStart++;
+    while (/\s/.test(block[valueStart] ?? "")) valueStart++;
+    const initial = { braces, parens, brackets };
+    quote = null;
+    for (let end = valueStart; end < block.length; end++) {
+      const valueCh = block[end];
+      if (quote) {
+        if (valueCh === "\\") end++;
+        else if (valueCh === quote) quote = null;
+        continue;
+      }
+      if (valueCh === '"' || valueCh === "'" || valueCh === "`") quote = valueCh;
+      else if (valueCh === "{") braces++;
+      else if (valueCh === "}") braces--;
+      else if (valueCh === "(") parens++;
+      else if (valueCh === ")") parens--;
+      else if (valueCh === "[") brackets++;
+      else if (valueCh === "]") brackets--;
+      if (
+        (valueCh === "," || valueCh === "}") &&
+        braces === initial.braces &&
+        parens === initial.parens &&
+        brackets === initial.brackets
+      ) {
+        return block.slice(valueStart, end).trim();
+      }
+    }
+    return block.slice(valueStart).trim();
+  }
+  return undefined;
+}
+
 /**
  * Best-effort scan of `content.config.ts` for each collection's loader.
  * Returns loader info keyed by *exported* collection name (the name the
@@ -220,16 +301,50 @@ export function parseLoaderConfig(source: string): Map<string, LoaderInfo> {
   for (let match = defRegex.exec(source); match; match = defRegex.exec(source)) {
     const body = balancedSlice(source, defRegex.lastIndex - 1);
     if (body === null) continue;
-    let info: LoaderInfo = { kind: "unknown" };
-    const globIdx = body.search(/\bglob\s*\(/);
-    const fileIdx = body.search(/\bfile\s*\(/);
+    let info: LoaderInfo = { kind: "legacy" };
+    const loaderSource = topLevelObjectProp(body, "loader");
+    const globIdx = loaderSource?.search(/\bglob\s*\(/) ?? -1;
+    const fileIdx = loaderSource?.search(/\bfile\s*\(/) ?? -1;
     if (globIdx !== -1) {
-      const args = balancedSlice(body, body.indexOf("(", globIdx));
+      const args = loaderSource
+        ? balancedSlice(loaderSource, loaderSource.indexOf("(", globIdx))
+        : null;
       info = args
-        ? { kind: "glob", base: stringProp(args, "base"), patterns: stringsProp(args, "pattern") }
+        ? {
+            kind: "glob",
+            base: stringProp(args, "base"),
+            patterns: stringsProp(args, "pattern"),
+            customIds: /\bgenerateId\b/.test(args),
+          }
         : { kind: "glob" };
     } else if (fileIdx !== -1) {
-      info = { kind: "file" };
+      const args = loaderSource
+        ? balancedSlice(loaderSource, loaderSource.indexOf("(", fileIdx))
+        : null;
+      const fileName = args?.match(/^\s*(["'`])([^"'`]+)\1/)?.[2];
+      info = {
+        kind: "file",
+        filePath: fileName,
+        customParser: !!args && /\bparser\s*:/.test(args),
+      };
+    } else if (loaderSource !== undefined) {
+      info = { kind: "custom" };
+    }
+    // Schema fields declared as `reference("x")`, possibly wrapped in
+    // `z.array(...)`. Keyed by field name across all nesting levels — the
+    // generated JSON Schema keeps the shape but drops the collection, so this
+    // scan is the only source for it.
+    const refRegex = /(\w+)\s*:\s*(?:z\s*\.\s*array\s*\(\s*)?reference\s*\(\s*(["'`])([^"'`]+)\2/g;
+    for (let ref = refRegex.exec(body); ref; ref = refRegex.exec(body)) {
+      (info.references ??= {})[ref[1]] = ref[3];
+    }
+    // `image()` becomes an indistinguishable string in Astro's generated JSON
+    // Schema. Preserve the hint here for scalar fields, image arrays, nested
+    // objects, and arrays of objects. As with references, names are resolved
+    // recursively against the generated shape below.
+    const imageRegex = /(?:(['"`])([^'"`]+)\1|(\w+))\s*:\s*(?:z\s*\.\s*array\s*\(\s*)?image\s*\(/g;
+    for (let image = imageRegex.exec(body); image; image = imageRegex.exec(body)) {
+      (info.images ??= []).push(image[2] ?? image[3]);
     }
     byVariable.set(match[1], info);
   }
@@ -263,6 +378,59 @@ function patternExtension(pattern: string): string | undefined {
 }
 
 /**
+ * Entry id Astro's glob-loader default `generateId` produces for a file: the
+ * frontmatter `slug` when present, else the base-relative path without
+ * extension, each segment slugified the way Astro does (github-slugger), with
+ * a trailing `/index` dropped. Custom `generateId` functions aren't modeled.
+ */
+export function astroEntryId(relPath: string, slug?: string | null): string {
+  if (slug) return slug;
+  const withoutExt = relPath.replace(/\.[^./]+$/, "");
+  return withoutExt
+    .split("/")
+    .map((segment) => githubSlug(segment))
+    .join("/")
+    .replace(/\/index$/, "");
+}
+
+/** Fills reference markers from the config scan; a reference whose target
+ * collection couldn't be recovered edits as a plain string. */
+function resolveReferences(
+  fields: Field[],
+  references: Record<string, string> | undefined,
+  loaders: Map<string, LoaderInfo>,
+): Field[] {
+  return fields.map((field) => {
+    if (field.type === "reference") {
+      const collection = references?.[field.name];
+      return collection
+        ? loaders.get(collection)?.customIds
+          ? { ...field, type: "string" }
+          : { ...field, options: { collection, astroId: true } }
+        : { ...field, type: "string" };
+    }
+    if (field.fields) {
+      return { ...field, fields: resolveReferences(field.fields, references, loaders) };
+    }
+    return field;
+  });
+}
+
+/** Restores Astro `image()` fields, which are plain strings in generated JSON
+ * Schema. Traversing child fields also covers objects and object-list items. */
+function resolveImages(fields: Field[], images?: string[]): Field[] {
+  const names = new Set(images);
+  return fields.map((field) => {
+    const resolved = names.has(field.name) && (field.type === "string" || field.type === "text")
+      ? { ...field, type: "image" }
+      : field;
+    return resolved.fields
+      ? { ...resolved, fields: resolveImages(resolved.fields, images) }
+      : resolved;
+  });
+}
+
+/**
  * Assembles the fallback config from parsed schemas + loader info. Collections
  * loaded via `file()` are skipped (multi-entry data files aren't editable as
  * one-file-per-entry forms).
@@ -272,14 +440,43 @@ export function buildAstroConfig(
   loaders: Map<string, LoaderInfo>,
 ): PagesConfig {
   const content: ContentEntry[] = [];
+  const astroCollections = collections.map(({ name, fields }) => {
+    const loader = loaders.get(name);
+    return {
+      name,
+      fields: resolveReferences(resolveImages(fields, loader?.images), loader?.references, loaders),
+    };
+  });
   for (const { name, fields } of collections) {
     const loader = loaders.get(name);
-    if (loader?.kind === "file") continue;
+    if (loader?.kind === "file") {
+      const filePath = loader.filePath?.replace(/^\.\//, "").replace(/^\/+/, "");
+      const format = filePath?.match(/\.(json|ya?ml|toml)$/i)?.[1].toLowerCase();
+      if (filePath && format) {
+        content.push({
+          name,
+          label: name.charAt(0).toUpperCase() + name.slice(1),
+          type: "collection",
+          path: filePath,
+          fields: resolveReferences(resolveImages(fields, loader.images), loader.references, loaders),
+          dataFile: {
+            path: filePath,
+            format: format === "yml" ? "yaml" : (format as "json" | "yaml" | "toml"),
+          },
+        });
+      }
+      continue;
+    }
+    if (loader?.kind === "custom") continue;
     const patterns = loader?.kind === "glob" ? (loader.patterns ?? []) : [];
     // A single unambiguous extension across all patterns; mixes (md + mdx)
     // leave it open so any extension is accepted.
     const extensions = new Set(patterns.map(patternExtension));
     const extension = extensions.size === 1 ? [...extensions][0] : undefined;
+    // The current file/form pipeline reads Markdown frontmatter. Keep data and
+    // Markdoc collections in the type registry below without exposing a
+    // sidebar collection that Posto cannot parse or write safely.
+    if (extension && !["md", "mdx", "markdown"].includes(extension)) continue;
     content.push({
       name,
       label: name.charAt(0).toUpperCase() + name.slice(1),
@@ -291,8 +488,13 @@ export function buildAstroConfig(
       subfolders:
         patterns.length > 0 && patterns.every((p) => !p.includes("/")) ? false : undefined,
       extension,
-      fields,
+      fields: resolveReferences(resolveImages(fields, loader?.images), loader?.references, loaders),
+      astroCustomIds: loader?.customIds || undefined,
     });
   }
-  return { media: DEFAULT_ASTRO_MEDIA, content };
+  return {
+    media: DEFAULT_ASTRO_MEDIA,
+    content,
+    astroCollections,
+  };
 }

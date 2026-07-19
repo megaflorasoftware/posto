@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X } from "lucide-react";
+import { Pin, X } from "lucide-react";
 import type { FileEntry } from "@posto/ipc";
 
 /** Hover-revealed delete control for a sidebar file; confirms before deleting. */
@@ -34,24 +34,30 @@ function DeleteFileButton(props: { file: FileEntry; onDelete: (file: FileEntry) 
 
 export function FileList(props: {
   files: FileEntry[];
-  activePath: string | null;
-  onOpen: (path: string) => void;
+  activeKey: string | null;
+  /** Filenames pinned to the top of the group (`.posto` collection settings);
+   * their rows get a pin marker. */
+  pinned?: string[];
+  onOpen: (file: FileEntry) => void;
   onDelete: (file: FileEntry) => void;
 }) {
   return (
     <>
       {props.files.map((file) => (
         <div
-          key={file.path}
-          className={`file-item${props.activePath === file.path ? " active" : ""}`}
+          key={file.key ?? file.path}
+          className={`file-item${props.activeKey === (file.key ?? file.path) ? " active" : ""}`}
         >
           <button
             className="file-item-name"
-            onClick={() => props.onOpen(file.path)}
+            onClick={() => props.onOpen(file)}
             title={file.name}
           >
             {file.title ?? file.name}
           </button>
+          {props.pinned?.includes(file.name) && (
+            <Pin size={12} className="file-pin" aria-label="Pinned" />
+          )}
           <DeleteFileButton file={file} onDelete={props.onDelete} />
         </div>
       ))}

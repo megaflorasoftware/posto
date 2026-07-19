@@ -10,28 +10,37 @@ import {
   Text,
 } from "@mantine/core";
 import {
+  CollectionOrderDialog,
+  CollectionSettingsDialog,
   EditorPane,
-  NewFileModal,
   PublishModal,
+  buildNewFile,
+  createDataDocumentEntry,
+  deleteDataDocumentEntry,
   contentHasFields,
+  renameTargetForContent,
+  orderableCollections,
+  sidebarDisplayGroups,
   useCurrentFile,
   useFileGroups,
   useGitSync,
   useSchemas,
   type EditorTab,
 } from "@posto/editor";
-import { matchEntry } from "@posto/core/pagescms/config";
+import { EMPTY_CONFIG, matchEntry, type ContentEntry } from "@posto/core/pagescms/config";
 import { parseFile } from "@posto/core/pagescms/frontmatter";
 import { invoke } from "@posto/ipc";
-import type { ChangedFile, FileGroup, GitHubRepo } from "@posto/ipc";
+import type { ChangedFile, FileEntry, FileGroup, GitHubRepo } from "@posto/ipc";
 import {
   CloudDownload,
   ChevronDown,
   ChevronLeft,
   GitCommitHorizontal,
   Menu,
+  Pin,
   Plus,
   RefreshCw,
+  SlidersHorizontal,
   Trash2,
   TriangleAlert,
 } from "lucide-react";
@@ -67,7 +76,12 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   const [showEditor, setShowEditor] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [checkingChanges, setCheckingChanges] = useState(false);
-  const [newFileGroup, setNewFileGroup] = useState<FileGroup | null>(null);
+  // `.posto` settings dialogs: one per collection, one for workspace order.
+  const [settingsFor, setSettingsFor] = useState<{
+    collection: ContentEntry;
+    files: FileEntry[];
+  } | null>(null);
+  const [orderOpen, setOrderOpen] = useState(false);
   const [editorTab, setEditorTab] = useState<EditorTab>("fields");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -79,12 +93,22 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   const currentFile = useCurrentFile({
     onAfterSave(path, content) {
       files.updateSidebarTitle(path, content);
+      if (schemas.configRef.current?.content.some((entry) => entry.dataFile && `${root}/${entry.dataFile.path}` === path)) {
+        void files.refreshDataGroups(root, schemas.configRef.current);
+      }
       if (path === root + "/.pages.yml") void schemas.loadPagesConfig(root);
       if (path === root + "/src/content.config.ts" || path === root + "/src/content/config.ts") {
         void schemas.loadAstroConfig(root);
       }
+      // Frontmatter drives template-derived filenames; each (already
+      // debounced) save is the moment to bring the name back in line.
+      void renameForTemplate(path, content);
     },
-    onOpened(path, content) {
+    onOpened(path, content, file) {
+      if (file?.dataEntry) {
+        setEditorTab("fields");
+        return;
+      }
       if (!/\.(md|mdx|markdown)$/i.test(path)) return;
       const entry = schemas.configRef.current
         ? matchEntry(schemas.configRef.current, root, path)
@@ -103,7 +127,10 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   const git = useGitSync(root, {
     onStatus: setStatus,
     beforeSync: () => currentFile.flushPendingSave(),
-    afterPull: (dir) => void files.refreshGroups(dir),
+    afterPull: (dir) => {
+      void files.refreshGroups(dir);
+      void files.refreshDataGroups(dir, schemas.configRef.current);
+    },
     // Publish progress lives on the Publish button; only failures surface.
     onPublishError: setStatus,
   });
@@ -122,6 +149,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
       files.refreshGroups(root),
       schemas.loadPagesConfig(root),
       schemas.loadAstroConfig(root),
+      schemas.loadPostoConfig(root),
     ]);
     void Promise.all([repositoryContent, repositoryCheck]).finally(() => {
       if (active) setLoading(false);
@@ -138,6 +166,18 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     () => files.groups.reduce((total, group) => total + group.files.length, 0),
     [files.groups],
   );
+
+  // Same ordering, labels, and `.posto` collection preferences as the
+  // desktop sidebar.
+  const displayGroups = useMemo(
+    () => sidebarDisplayGroups(files.groups, schemas.config, root),
+    [files.groups, schemas.config, root],
+  );
+
+  useEffect(() => {
+    void files.refreshDataGroups(root, schemas.config);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [root, schemas.config]);
 
   async function openPublish() {
     await currentFile.flushPendingSave();
@@ -160,16 +200,63 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     }
   }
 
-  async function openFile(path: string) {
+  async function openFile(file: string | FileEntry) {
     setConfirmingDelete(false);
-    await currentFile.openFile(path);
+    await currentFile.openFile(file);
+    const path = typeof file === "string" ? file : file.path;
     if (currentFile.filePathRef.current === path) setShowEditor(true);
   }
 
-  async function openCreatedFile(path: string) {
-    setNewFileGroup(null);
+  function schemaSources() {
+    return {
+      config: schemas.configRef.current ?? EMPTY_CONFIG,
+      pagesContent: schemas.pagesConfig?.content ?? [],
+      astroContent: schemas.astroConfig?.content ?? [],
+    };
+  }
+
+  // "New file" creates immediately — an "Untitled" entry with the
+  // collection's defaults — and opens it; no dialog. The filename follows
+  // the title (or whatever fields the template names) as the user edits.
+  async function createNewFile(group: FileGroup) {
+    if (group.dataCollection) {
+      const collection = schemas.configRef.current?.content.find((entry) => entry.name === group.dataCollection);
+      if (!collection) return;
+      try {
+        const id = await createDataDocumentEntry(group, collection);
+        await files.refreshDataGroups(root, schemas.configRef.current);
+        const created = files.groupsRef.current
+          .find((candidate) => candidate.dataCollection === group.dataCollection)
+          ?.files.find((file) => file.dataEntry?.id === id);
+        if (created) await openFile(created);
+      } catch (createError) {
+        setStatus(`Create failed: ${message(createError)}`);
+      }
+      return;
+    }
+    const { path, content } = buildNewFile(root, group, schemaSources());
+    try {
+      await invoke("create_text_file", { path, content });
+    } catch (createError) {
+      setStatus(`Create failed: ${message(createError)}`);
+      return;
+    }
     await files.refreshGroups(root);
     await openFile(path);
+  }
+
+  // Keeps a template-derived filename in step with the frontmatter it's
+  // derived from, riding the (debounced) autosave: rename on disk, retarget
+  // the editor, refresh the file list.
+  async function renameForTemplate(path: string, content: string) {
+    if (currentFile.filePathRef.current !== path) return;
+    const target = renameTargetForContent(root, path, content, schemaSources());
+    if (!target) return;
+    // Another entry already owns the name; keep ours until the fields change.
+    if (files.groupsRef.current.some((g) => g.files.some((f) => f.path === target))) return;
+    if (!(await currentFile.renameOpenFile(path, target))) return;
+    void files.refreshGroups(root);
+    void git.refreshLocalChanges(root);
   }
 
   // The armed "Delete?" confirm disarms on its own after a moment, the touch
@@ -187,7 +274,11 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     // A pending autosave would recreate the file right after the delete.
     currentFile.clearPendingSave();
     try {
-      await invoke("delete_file", { path });
+      const selected = files.groupsRef.current
+        .flatMap((group) => group.files)
+        .find((file) => (file.key ?? file.path) === currentFile.activeKey);
+      if (selected?.dataEntry) await deleteDataDocumentEntry(selected);
+      else await invoke("delete_file", { path });
     } catch (deleteError) {
       // The repo home screen is the only surface that shows status messages.
       setStatus(`Delete failed: ${message(deleteError)}`);
@@ -198,6 +289,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     setShowEditor(false);
     if (path === root + "/.pages.yml") void schemas.loadPagesConfig(root);
     void files.refreshGroups(root);
+    void files.refreshDataGroups(root, schemas.configRef.current);
     void git.refreshLocalChanges(root);
   }
 
@@ -264,11 +356,22 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   const config = schemas.config;
   const entry = useMemo(() => {
     if (!currentFile.filePath || !config) return null;
+    if (currentFile.dataEntry) {
+      return config.content.find((candidate) => candidate.name === currentFile.dataEntry?.collection) ?? null;
+    }
     return matchEntry(config, root, currentFile.filePath);
-  }, [config, currentFile.filePath, root]);
+  }, [config, currentFile.filePath, currentFile.dataEntry, root]);
+  // Matched by name+path because the `.posto` overlay clones entries it
+  // touches; `.pages.yml` wins ties, matching the config's precedence order.
   const entrySource =
-    entry === null ? null : schemas.astroConfig?.content.includes(entry) ? "astro" : "pages";
-  const openFileName = currentFile.filePath?.split("/").pop() ?? "File";
+    entry === null
+      ? null
+      : schemas.pagesConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
+        ? "pages"
+        : schemas.astroConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
+          ? "astro"
+          : "pages";
+  const openFileName = currentFile.dataEntry?.id ?? currentFile.filePath?.split("/").pop() ?? "File";
 
   return (
     <>
@@ -326,6 +429,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
             fileContent={currentFile.fileContent}
             saveState={currentFile.saveState}
             entry={entry}
+            dataEntry={currentFile.dataEntry}
             entrySource={entrySource}
             config={config}
             configError={schemas.configError}
@@ -469,7 +573,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
           </Center>
         ) : (
           <div className="mobile-document-list">
-            {files.groups.map((group) => (
+            {displayGroups.map(({ group, collection, exact }) => (
               group.label ? (
                 <details key={`${group.kind ?? ""}:${group.path}`} open>
                   <summary>
@@ -484,10 +588,26 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
                         onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
-                          setNewFileGroup(group);
+                          void createNewFile(group);
                         }}
                       >
                         <Plus size={16} />
+                      </ActionIcon>
+                    )}
+                    {collection && exact && (
+                      <ActionIcon
+                        className="mobile-group-action"
+                        variant="subtle"
+                        color="gray"
+                        aria-label={`Settings for ${group.label}`}
+                        title="Collection settings"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setSettingsFor({ collection, files: group.files });
+                        }}
+                      >
+                        <SlidersHorizontal size={16} />
                       </ActionIcon>
                     )}
                     <ChevronDown size={14} className="mobile-group-chevron" />
@@ -495,11 +615,14 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
                   {group.files.map((file) => (
                     <button
                       className="mobile-file-item"
-                      key={file.path}
+                      key={file.key ?? file.path}
                       title={file.name}
-                      onClick={() => void openFile(file.path)}
+                      onClick={() => void openFile(file)}
                     >
                       {file.title ?? file.name}
+                      {collection?.pinned?.includes(file.name) && (
+                        <Pin size={13} className="mobile-file-pin" aria-label="Pinned" />
+                      )}
                     </button>
                   ))}
                 </details>
@@ -508,9 +631,9 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
                   {group.files.map((file) => (
                     <button
                       className="mobile-file-item"
-                      key={file.path}
+                      key={file.key ?? file.path}
                       title={file.name}
-                      onClick={() => void openFile(file.path)}
+                      onClick={() => void openFile(file)}
                     >
                       {file.title ?? file.name}
                     </button>
@@ -518,6 +641,16 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
                 </div>
               )
             ))}
+            {orderableCollections(schemas.config).length > 1 && (
+              <button
+                type="button"
+                className="mobile-collections-settings"
+                onClick={() => setOrderOpen(true)}
+              >
+                <SlidersHorizontal size={16} />
+                Collection settings
+              </button>
+            )}
           </div>
         )}
       </ScrollArea>
@@ -542,14 +675,22 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
         </Button>
       </div>
 
-      {newFileGroup && config && (
-        <NewFileModal
+      {settingsFor && (
+        <CollectionSettingsDialog
           root={root}
-          group={newFileGroup}
-          config={config}
-          astroContent={schemas.astroConfig?.content ?? []}
-          onClose={() => setNewFileGroup(null)}
-          onCreated={(path) => void openCreatedFile(path)}
+          collection={settingsFor.collection}
+          files={settingsFor.files}
+          onClose={() => setSettingsFor(null)}
+          onSaved={() => void schemas.loadPostoConfig(root)}
+        />
+      )}
+
+      {orderOpen && (
+        <CollectionOrderDialog
+          root={root}
+          collections={orderableCollections(schemas.config)}
+          onClose={() => setOrderOpen(false)}
+          onSaved={() => void schemas.loadPostoConfig(root)}
         />
       )}
 

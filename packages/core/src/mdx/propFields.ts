@@ -1,4 +1,9 @@
-import type { Field } from "../pagescms/config";
+import type {
+  AstroCollectionSchema,
+  ContentEntry,
+  Field,
+  PagesConfig,
+} from "../pagescms/config";
 import { type AstroPropDef, type MdxProp, parseTypeMembers } from "./mdx";
 
 // Bridges Astro `Props` declarations and MDX prop attributes to the Pages CMS
@@ -47,7 +52,120 @@ function literalValue(member: string): string | null {
   return match ? match[2] : null;
 }
 
-function typeField(name: string, type: string): Field | null {
+export interface AstroPropTypeContext {
+  /** Effective collections, including Astro schemas and any `.pages.yml`
+   * overrides. Collection-aware Astro utility types resolve against these. */
+  collections: AstroCollectionSchema[];
+  /** File-backed collections that can power reference pickers. */
+  editableCollections?: PagesConfig["content"];
+}
+
+function collectionSchema(
+  context: AstroPropTypeContext | undefined,
+  collection: string,
+): AstroCollectionSchema | null {
+  return context?.collections.find((entry) => entry.name === collection) ?? null;
+}
+
+function editableCollection(
+  context: AstroPropTypeContext | undefined,
+  collection: string,
+): ContentEntry | null {
+  return context?.editableCollections?.find(
+    (entry) => entry.type === "collection" && entry.name === collection,
+  ) ?? null;
+}
+
+function cloneField(field: Field, name: string): Field {
+  return {
+    ...field,
+    name,
+    fields: field.fields?.map((child) => cloneField(child, child.name)),
+  };
+}
+
+function collectionDataField(
+  name: string,
+  collection: AstroCollectionSchema,
+  path: string[],
+): Field | null {
+  if (path.length === 0) {
+    return {
+      name,
+      type: "object",
+      fields: collection.fields
+        .filter((field) => field.name !== "body")
+        .map((field) => cloneField(field, field.name)),
+    };
+  }
+  let fields = collection.fields;
+  let selected: Field | undefined;
+  for (const segment of path) {
+    selected = fields.find((field) => field.name === segment);
+    if (!selected) return null;
+    fields = selected.fields ?? [];
+  }
+  return selected ? cloneField(selected, name) : null;
+}
+
+/** Maps Astro's generated content utility types to values the MDX author can
+ * safely serialize. Full CollectionEntry/SchemaContext values remain raw
+ * expressions: they are runtime objects and must not be fabricated as JSON. */
+function astroContentField(
+  name: string,
+  type: string,
+  context: AstroPropTypeContext | undefined,
+): Field | null | undefined {
+  const compact = type.replace(/\s+/g, "");
+  if (compact === "CollectionKey") {
+    const values = (context?.collections ?? []).map((entry) => entry.name);
+    return values.length > 0 ? { name, type: "select", options: { values } } : null;
+  }
+  if (compact === "SchemaContext") return null;
+
+  const entry = /^CollectionEntry<(["'])([^"']+)\1>([\s\S]*)$/.exec(compact);
+  if (!entry) return undefined;
+  const collectionName = entry[2];
+  const collection = collectionSchema(context, collectionName);
+  const editable = editableCollection(context, collectionName);
+  // A complete entry includes compiled/runtime-only properties. It is valid
+  // as a prop type, but can only be authored as an expression such as `{post}`.
+  if (entry[3] === "") return null;
+
+  const path = [...entry[3].matchAll(/\[['"]([^'"]+)['"]\]/g)].map((match) => match[1]);
+  const rebuilt = path.map((segment) => `['${segment}']`).join("");
+  if (rebuilt.length !== entry[3].length || path.length === 0) return null;
+
+  const [property, ...dataPath] = path;
+  switch (property) {
+    case "id":
+      if (!collection) return null;
+      return editable && !editable.astroCustomIds
+        ? { name, type: "reference", options: { collection: collectionName, astroId: true } }
+        : { name, type: "string" };
+    case "filePath":
+      return editable
+        ? { name, type: "reference", options: { collection: collectionName } }
+        : collection ? { name, type: "string" } : null;
+    case "collection":
+      return { name, type: "select", options: { values: [collectionName] } };
+    case "data":
+      return collection ? collectionDataField(name, collection, dataPath) : null;
+    case "body":
+      return dataPath.length === 0 ? { name, type: "text" } : null;
+    case "rendered":
+      // RenderedContent is loader/compiler output, not authorable source data.
+      return null;
+    default:
+      return null;
+  }
+}
+
+function typeField(
+  name: string,
+  type: string,
+  context?: AstroPropTypeContext,
+): Field | null {
   const members = splitUnion(type).filter((m) => m !== "undefined" && m !== "null");
   if (members.length === 0) return null;
   if (members.length > 1) {
@@ -62,10 +180,12 @@ function typeField(name: string, type: string): Field | null {
   if (single === "string") return { name, type: "string" };
   if (single === "number") return { name, type: "number" };
   if (single === "boolean") return { name, type: "boolean" };
+  const contentField = astroContentField(name, single, context);
+  if (contentField !== undefined) return contentField;
   if (single.startsWith("{") && single.endsWith("}")) {
     const children: Field[] = [];
     for (const member of parseTypeMembers(single.slice(1, -1))) {
-      const child = typeField(member.name, member.type);
+      const child = typeField(member.name, member.type, context);
       // Any unmappable member sends the whole prop to raw expression editing;
       // a partial form would drop the members it can't render.
       if (!child) return null;
@@ -83,7 +203,7 @@ function typeField(name: string, type: string): Field | null {
   }
   if (item !== null) {
     if (item.startsWith("(") && item.endsWith(")")) item = item.slice(1, -1).trim();
-    const itemField = typeField(name, item);
+    const itemField = typeField(name, item, context);
     if (!itemField || itemField.list) return null; // nested arrays have no control
     return { ...itemField, list: true };
   }
@@ -92,8 +212,11 @@ function typeField(name: string, type: string): Field | null {
 
 /** Form field for a declared Astro prop, or null when the type has no
  * matching control and the prop should edit as a raw expression. */
-export function astroPropField(def: AstroPropDef): Field | null {
-  const field = typeField(def.name, def.type);
+export function astroPropField(
+  def: AstroPropDef,
+  context?: AstroPropTypeContext,
+): Field | null {
+  const field = typeField(def.name, def.type, context);
   if (!field) return null;
   if (!def.optional) field.required = true;
   return field;
@@ -243,6 +366,7 @@ function scalarFits(field: Field, value: unknown): boolean {
   switch (field.type) {
     case "string":
     case "select":
+    case "reference":
       return typeof value === "string";
     case "number":
       return typeof value === "number";

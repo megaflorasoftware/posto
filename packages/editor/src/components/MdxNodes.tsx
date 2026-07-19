@@ -40,7 +40,7 @@ import {
   splitSlots,
 } from "@posto/core/mdx/mdx";
 import { UNPARSED, astroPropField, jsValueProp, propJsValue, valueFits } from "@posto/core/mdx/propFields";
-import type { Field, PagesConfig } from "@posto/core/pagescms/config";
+import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
 import { validateForm } from "@posto/core/pagescms/validate";
 import type { FileGroup } from "@posto/ipc";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
@@ -53,12 +53,18 @@ export interface MdxFieldEnv {
   config: PagesConfig;
   root: string;
   groups: FileGroup[];
+  /** Collection entry of the file being edited; scopes media resolution. */
+  entry: ContentEntry | null;
+  /** Top-level frontmatter for per-entry media-folder templates. */
+  templateValues: Record<string, unknown>;
 }
 
 export const MdxFieldEnvContext = createContext<MdxFieldEnv>({
   config: { media: [], content: [] },
   root: "",
   groups: [],
+  entry: null,
+  templateValues: {},
 });
 
 /**
@@ -166,7 +172,16 @@ function PropsForm(formProps: {
   }
 
   const existing = parsedProps;
-  const defs: AstroPropDef[] = schemas[name]?.props ?? [];
+  const schema = schemas[name];
+  const defs: AstroPropDef[] = schema?.props ?? [];
+  const typeContext = {
+    collections: env.config.astroCollections ?? env.config.content,
+    editableCollections: env.config.content,
+  };
+  const propsTypeField = schema?.propsType
+    ? astroPropField({ name: "Props", type: schema.propsType, optional: false }, typeContext)
+    : null;
+  const aliasedFields = propsTypeField?.type === "object" ? (propsTypeField.fields ?? []) : [];
   const values: Record<string, unknown> = {};
   for (const prop of existing) {
     if (prop.kind !== "spread") values[prop.name] = propJsValue(prop);
@@ -179,7 +194,7 @@ function PropsForm(formProps: {
   const rows: Row[] = [];
   const fields: Field[] = [];
   for (const def of defs) {
-    const field = astroPropField(def);
+    const field = astroPropField(def, typeContext);
     const value = values[def.name];
     if (field && value !== UNPARSED && valueFits(field, value)) {
       rows.push({ key: def.name, kind: "field", field });
@@ -188,10 +203,21 @@ function PropsForm(formProps: {
       rows.push({ key: def.name, kind: "raw", propName: def.name, def });
     }
   }
+  for (const field of aliasedFields) {
+    if (defs.some((def) => def.name === field.name)) continue;
+    const value = values[field.name];
+    if (value !== UNPARSED && valueFits(field, value)) {
+      rows.push({ key: field.name, kind: "field", field });
+      fields.push(field);
+    } else {
+      rows.push({ key: field.name, kind: "raw", propName: field.name, def: null });
+    }
+  }
+  const declaredNames = new Set([...defs.map((def) => def.name), ...aliasedFields.map((field) => field.name)]);
   existing.forEach((prop, index) => {
     if (prop.kind === "spread") {
       rows.push({ key: `spread-${index}`, kind: "spread", value: prop.value });
-    } else if (!defs.some((def) => def.name === prop.name)) {
+    } else if (!declaredNames.has(prop.name)) {
       rows.push({ key: prop.name, kind: "raw", propName: prop.name, def: null });
     }
   });
@@ -213,7 +239,8 @@ function PropsForm(formProps: {
   /** Writes a JS value back as a prop, keyed to the prop's declared type. */
   function editJs(propName: string, value: unknown) {
     const def = defs.find((d) => d.name === propName);
-    setProp(propName, jsValueProp(propName, value, def ? !def.optional : false));
+    const aliased = aliasedFields.find((field) => field.name === propName);
+    setProp(propName, jsValueProp(propName, value, def ? !def.optional : aliased?.required === true));
   }
 
   /** Copy-on-write set along a path inside a prop's parsed value; numeric
@@ -251,8 +278,12 @@ function PropsForm(formProps: {
   const ctx: FieldContext = {
     config: env.config,
     root: env.root,
+    // Image props picked inside a collection entry's body use the
+    // collection's media source, same as its frontmatter fields.
+    entry: env.entry,
     groups: env.groups,
     errors: () => errors,
+    templateValues: () => env.templateValues,
     value: (path) => {
       let value: unknown = values[String(path[0])];
       if (value === UNPARSED) return undefined;

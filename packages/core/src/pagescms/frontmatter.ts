@@ -59,7 +59,30 @@ function quotedNode(doc: Document, value: unknown) {
   return node;
 }
 
-export function setValue(doc: Document, path: ValuePath, value: unknown): void {
+/** ISO date / date-time shapes that YAML 1.1 parsers (js-yaml, which Astro
+ * and most SSGs read frontmatter with) resolve to real timestamps when left
+ * unquoted. Date-times need seconds — without them YAML keeps a string. */
+const YAML_TIMESTAMP_RE =
+  /^\d{4}-\d{2}-\d{2}(?:[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}(?::?\d{2})?)?)?$/;
+
+/**
+ * Writes a value at `path`. Strings are double-quoted (see {@link quotedNode})
+ * — except when `options.dateField` marks a schema `date` field and the value
+ * is a well-formed timestamp: those stay plain, so date-typed collection
+ * schemas (Astro's zod `z.date()`) receive a real date, not a string.
+ */
+export function setValue(
+  doc: Document,
+  path: ValuePath,
+  value: unknown,
+  options?: { dateField?: boolean },
+): void {
+  if (options?.dateField && typeof value === "string" && YAML_TIMESTAMP_RE.test(value)) {
+    const node = doc.createNode(value) as Scalar;
+    node.type = Scalar.PLAIN;
+    doc.setIn(path, node);
+    return;
+  }
   doc.setIn(path, quotedNode(doc, value));
 }
 
