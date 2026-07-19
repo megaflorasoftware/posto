@@ -7,33 +7,6 @@
 
 # Posto
 
-## Astro image libraries
-
-Posto recognizes a local Astro `glob()` collection as an image library when its metadata uses YAML or JSON and its schema contains exactly one `image()` field. The loader base is both the metadata root and image destination. New assets use colocated files with matching basenames:
-
-```text
-src/data/images/
-├── sunrise.jpg
-├── sunrise.yml
-└── landscapes/
-    ├── mountains.webp
-    └── mountains.yml
-```
-
-The metadata entry owns the image path and global metadata:
-
-```yaml
-image: ./sunrise.jpg
-alt: The sun rising over a misty valley
-credit: Jane Example
-```
-
-Other collections should use Astro `reference("images")` fields, and Astro component props can use `CollectionEntry<"images">["id"]`. Posto stores only the entry ID in those locations. The component can pass that ID to `getEntry("images", id)` and receive the optimized image source together with metadata such as alt text and credit. Imports validate all schema-derived metadata before writing and create the image and metadata as one rollback-safe operation.
-
-Posto honors the collection's include and exclude glob patterns and only enhances collections with default IDs and one scalar `image()` field nested through ordinary objects. Missing images, malformed metadata values, duplicate IDs, shared files, and paths outside the library are shown as diagnostics; Posto never guesses ownership from matching basenames or automatically removes orphan images.
-
-Recognized image-library ID fields use a thumbnail picker rather than a reference dropdown. Rich-text image insertion asks which discovered library to browse unless the edited collection has a media folder configured in Pages CMS; configured folders must be a discovered image-library root or an included subfolder of one.
-
 A fast and simple desktop editor for static, markdown-based personal websites. Posto lives a level up from a traditional IDE or code editor, enabling non-programmers to easily update a site built for them or serving as a more pleasant way for developers to make frequent updates to their static sites.
 
 ![](/screenshot.png)
