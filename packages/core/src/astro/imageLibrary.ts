@@ -21,6 +21,7 @@ export interface ImageLibraryAsset {
   metadataPath: string;
   imagePath: string | null;
   metadata: Record<string, unknown>;
+  metadataSource: string;
   health: ImageLibraryHealth[];
 }
 
@@ -51,6 +52,7 @@ export class MediaPlanError extends Error {
 export interface MediaImportPlan {
   library: AstroImageLibrary;
   libraryRoot: string;
+  repositoryRoot: string;
   sourceImagePath: string;
   destinationImagePath: string;
   destinationMetadataPath: string;
@@ -89,11 +91,13 @@ export interface PlannedContentEdit {
 export interface MediaDeletePlan {
   library: AstroImageLibrary;
   libraryRoot: string;
+  repositoryRoot: string;
   entryId: string;
   metadataPath: string;
   imagePath: string;
   usages: MediaUsage[];
   contentEdits: PlannedContentEdit[];
+  expectedMetadataContent: string;
 }
 
 function slash(path: string): string {
@@ -218,17 +222,17 @@ export function discoverImageLibraryAssets(
     const metadata = parseImageLibraryMetadata(file.content, format);
     const id = astroEntryId(rel);
     if (!metadata) {
-      return [{ libraryId: library.collection, entryId: id, metadataPath: path, imagePath: null, metadata: {}, health: ["malformed-image"] }];
+      return [{ libraryId: library.collection, entryId: id, metadataPath: path, imagePath: null, metadata: {}, metadataSource: file.content, health: ["malformed-image"] }];
     }
     const imageValue = valueAt(metadata, library.imageFieldPath);
     if (typeof imageValue !== "string" || imageValue.trim() === "") {
-      return [{ libraryId: library.collection, entryId: id, metadataPath: path, imagePath: null, metadata, health: ["malformed-image"] }];
+      return [{ libraryId: library.collection, entryId: id, metadataPath: path, imagePath: null, metadata, metadataSource: file.content, health: ["malformed-image"] }];
     }
     const imagePath = isAbsolute(imageValue) ? normalize(imageValue) : join(dirname(path), imageValue);
     const health: ImageLibraryHealth[] = [];
     if (relative(root, imagePath) === null) health.push("external-image");
     else if (!existing.has(imagePath)) health.push("missing-image");
-    return [{ libraryId: library.collection, entryId: id, metadataPath: path, imagePath, metadata, health: health.length ? health : ["valid"] }];
+    return [{ libraryId: library.collection, entryId: id, metadataPath: path, imagePath, metadata, metadataSource: file.content, health: health.length ? health : ["valid"] }];
   });
 
   const ids = new Map<string, ImageLibraryAsset[]>();
@@ -310,6 +314,7 @@ export function planMediaImport(input: PlanMediaImportInput): MediaImportPlan {
   return {
     library: input.library,
     libraryRoot: root,
+    repositoryRoot: normalize(input.repositoryRoot),
     sourceImagePath: normalize(input.sourceImagePath),
     destinationImagePath: imagePath,
     destinationMetadataPath: metadataPath,
@@ -347,10 +352,12 @@ export function planMediaDelete(input: {
   return {
     library: input.library,
     libraryRoot: root,
+    repositoryRoot: normalize(input.repositoryRoot),
     entryId: input.asset.entryId,
     metadataPath: input.asset.metadataPath,
     imagePath: input.asset.imagePath,
     usages: input.usages,
     contentEdits: input.contentEdits ?? [],
+    expectedMetadataContent: input.asset.metadataSource,
   };
 }

@@ -1,5 +1,5 @@
-use serde::Serialize;
-use std::path::Path;
+use serde::{Deserialize, Serialize};
+use std::path::{Component, Path, PathBuf};
 
 // Content formats only — code files (.ts, .js, .css, config files, …) are
 // deliberately excluded from the file chooser.
@@ -297,6 +297,324 @@ pub fn delete_file(path: String) -> Result<(), String> {
     std::fs::remove_file(&path).map_err(|e| format!("Failed to delete {path}: {e}"))
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageLibraryImportPlan {
+    library_root: String,
+    source_image_path: String,
+    destination_image_path: String,
+    destination_metadata_path: String,
+    serialized_metadata: String,
+    entry_id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageLibraryImportResult {
+    entry_id: String,
+    image_path: String,
+    metadata_path: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlannedContentEdit {
+    path: String,
+    original_content: String,
+    content: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageLibraryDeletePlan {
+    repository_root: String,
+    library_root: String,
+    image_path: String,
+    metadata_path: String,
+    expected_metadata_content: String,
+    content_edits: Vec<PlannedContentEdit>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageLibraryDeleteResult {
+    removed: Vec<String>,
+    modified: Vec<String>,
+}
+
+fn canonical_root(path: &str) -> Result<PathBuf, String> {
+    let root =
+        std::fs::canonicalize(path).map_err(|e| format!("Invalid managed root {path}: {e}"))?;
+    if !root.is_dir() {
+        return Err(format!("Managed root is not a directory: {path}"));
+    }
+    Ok(root)
+}
+
+/// Resolve a managed target without allowing `..` or an existing symlink to
+/// escape its root. Missing parent directories may be created one component
+/// at a time after each existing ancestor is canonicalized.
+fn managed_target(root: &Path, requested: &str, create_parents: bool) -> Result<PathBuf, String> {
+    let requested = Path::new(requested);
+    if !requested.is_absolute()
+        || requested
+            .components()
+            .any(|part| matches!(part, Component::ParentDir))
+    {
+        return Err(format!(
+            "Managed path must be absolute and cannot contain traversal: {}",
+            requested.display()
+        ));
+    }
+    let canonical_root =
+        std::fs::canonicalize(root).map_err(|e| format!("Invalid managed root: {e}"))?;
+    let relative = requested
+        .strip_prefix(root)
+        .or_else(|_| requested.strip_prefix(&canonical_root))
+        .map_err(|_| format!("Path is outside managed root: {}", requested.display()))?;
+    let parent = relative
+        .parent()
+        .ok_or_else(|| format!("Invalid managed path: {}", requested.display()))?;
+    let mut current = canonical_root.clone();
+    for component in parent.components() {
+        let Component::Normal(name) = component else {
+            return Err(format!("Invalid managed path: {}", requested.display()));
+        };
+        current.push(name);
+        if current.exists() {
+            current = std::fs::canonicalize(&current)
+                .map_err(|e| format!("Invalid managed path: {e}"))?;
+            if !current.starts_with(&canonical_root) || !current.is_dir() {
+                return Err(format!(
+                    "Managed path escapes its root: {}",
+                    requested.display()
+                ));
+            }
+        } else if create_parents {
+            std::fs::create_dir(&current)
+                .map_err(|e| format!("Failed to create {}: {e}", current.display()))?;
+        } else {
+            return Err(format!(
+                "Managed parent does not exist: {}",
+                current.display()
+            ));
+        }
+    }
+    let name = relative
+        .file_name()
+        .ok_or_else(|| format!("Invalid managed path: {}", requested.display()))?;
+    Ok(current.join(name))
+}
+
+fn transaction_temp(target: &Path, label: &str) -> Result<PathBuf, String> {
+    let name = target
+        .file_name()
+        .ok_or_else(|| format!("Invalid path: {}", target.display()))?
+        .to_string_lossy();
+    Ok(target.with_file_name(format!(".{name}.posto-{label}-{}", std::process::id())))
+}
+
+fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|e| format!("Failed to stage {}: {e}", path.display()))?;
+    file.write_all(bytes)
+        .map_err(|e| format!("Failed to stage {}: {e}", path.display()))
+}
+
+fn atomic_replace(path: &Path, content: &[u8]) -> Result<(), String> {
+    let tmp = transaction_temp(path, "edit")?;
+    let _ = std::fs::remove_file(&tmp);
+    write_new(&tmp, content)?;
+    std::fs::rename(&tmp, path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("Failed to replace {}: {e}", path.display())
+    })
+}
+
+fn execute_image_library_import(
+    plan: ImageLibraryImportPlan,
+    fail_at: Option<&str>,
+) -> Result<ImageLibraryImportResult, String> {
+    canonical_root(&plan.library_root)?;
+    let root = Path::new(&plan.library_root);
+    let image = managed_target(root, &plan.destination_image_path, true)?;
+    let metadata = managed_target(root, &plan.destination_metadata_path, true)?;
+    if image.exists() || metadata.exists() {
+        return Err("An image-library destination already exists".to_string());
+    }
+    let source = std::fs::canonicalize(&plan.source_image_path)
+        .map_err(|e| format!("Invalid source image: {e}"))?;
+    if !source.is_file() {
+        return Err("Source image is not a file".to_string());
+    }
+    let image_tmp = transaction_temp(&image, "import")?;
+    let metadata_tmp = transaction_temp(&metadata, "import")?;
+    let _ = std::fs::remove_file(&image_tmp);
+    let _ = std::fs::remove_file(&metadata_tmp);
+    let cleanup = || {
+        let _ = std::fs::remove_file(&image_tmp);
+        let _ = std::fs::remove_file(&metadata_tmp);
+    };
+    if let Err(error) =
+        std::fs::copy(&source, &image_tmp).map_err(|e| format!("Failed to stage image: {e}"))
+    {
+        cleanup();
+        return Err(error);
+    }
+    if fail_at == Some("after-image-stage") {
+        cleanup();
+        return Err("simulated import failure".into());
+    }
+    if let Err(error) = write_new(&metadata_tmp, plan.serialized_metadata.as_bytes()) {
+        cleanup();
+        return Err(error);
+    }
+    if fail_at == Some("after-metadata-stage") {
+        cleanup();
+        return Err("simulated import failure".into());
+    }
+    if image.exists() || metadata.exists() {
+        cleanup();
+        return Err("An image-library destination appeared during import".into());
+    }
+    if let Err(error) =
+        std::fs::rename(&image_tmp, &image).map_err(|e| format!("Failed to finalize image: {e}"))
+    {
+        cleanup();
+        return Err(error);
+    }
+    if fail_at == Some("after-image-finalize") {
+        let _ = std::fs::remove_file(&image);
+        cleanup();
+        return Err("simulated import failure".into());
+    }
+    if let Err(error) = std::fs::rename(&metadata_tmp, &metadata)
+        .map_err(|e| format!("Failed to finalize metadata: {e}"))
+    {
+        let _ = std::fs::remove_file(&image);
+        cleanup();
+        return Err(error);
+    }
+    Ok(ImageLibraryImportResult {
+        entry_id: plan.entry_id,
+        image_path: image.to_string_lossy().to_string(),
+        metadata_path: metadata.to_string_lossy().to_string(),
+    })
+}
+
+#[tauri::command]
+pub fn import_image_library_asset(
+    plan: ImageLibraryImportPlan,
+) -> Result<ImageLibraryImportResult, String> {
+    execute_image_library_import(plan, None)
+}
+
+fn execute_image_library_delete(
+    plan: ImageLibraryDeletePlan,
+    fail_at: Option<&str>,
+) -> Result<ImageLibraryDeleteResult, String> {
+    let canonical_repo = canonical_root(&plan.repository_root)?;
+    let canonical_library = canonical_root(&plan.library_root)?;
+    if !canonical_library.starts_with(&canonical_repo) {
+        return Err("Image library is outside the repository".into());
+    }
+    let repository = Path::new(&plan.repository_root);
+    let library = Path::new(&plan.library_root);
+    let image = managed_target(library, &plan.image_path, false)?;
+    let metadata = managed_target(library, &plan.metadata_path, false)?;
+    if std::fs::read_to_string(&metadata).map_err(|e| format!("Failed to verify metadata: {e}"))?
+        != plan.expected_metadata_content
+    {
+        return Err("Image metadata changed after deletion was planned".into());
+    }
+    let image_backup = std::fs::read(&image).map_err(|e| format!("Failed to read image: {e}"))?;
+    let metadata_backup =
+        std::fs::read(&metadata).map_err(|e| format!("Failed to read metadata: {e}"))?;
+    let mut edits: Vec<(PathBuf, Vec<u8>, Vec<u8>)> = Vec::new();
+    for edit in &plan.content_edits {
+        let path = managed_target(repository, &edit.path, false)?;
+        let current = std::fs::read(&path)
+            .map_err(|e| format!("Failed to verify {}: {e}", path.display()))?;
+        if current != edit.original_content.as_bytes() {
+            return Err(format!(
+                "Content changed after deletion was planned: {}",
+                path.display()
+            ));
+        }
+        edits.push((path, current, edit.content.as_bytes().to_vec()));
+    }
+    let image_tmp = transaction_temp(&image, "delete")?;
+    let metadata_tmp = transaction_temp(&metadata, "delete")?;
+    let _ = std::fs::remove_file(&image_tmp);
+    let _ = std::fs::remove_file(&metadata_tmp);
+    std::fs::rename(&image, &image_tmp)
+        .map_err(|e| format!("Failed to stage image deletion: {e}"))?;
+    if let Err(error) = std::fs::rename(&metadata, &metadata_tmp)
+        .map_err(|e| format!("Failed to stage metadata deletion: {e}"))
+    {
+        let _ = std::fs::rename(&image_tmp, &image);
+        return Err(error);
+    }
+    let rollback = |applied: usize| {
+        for (path, original, _) in edits.iter().take(applied).rev() {
+            let _ = atomic_replace(path, original);
+        }
+        if !image.exists() {
+            let _ = std::fs::write(&image, &image_backup);
+        }
+        if !metadata.exists() {
+            let _ = std::fs::write(&metadata, &metadata_backup);
+        }
+        let _ = std::fs::remove_file(&image_tmp);
+        let _ = std::fs::remove_file(&metadata_tmp);
+    };
+    let mut applied = 0;
+    for (path, _, content) in &edits {
+        if let Err(error) = atomic_replace(path, content) {
+            rollback(applied);
+            return Err(error);
+        }
+        applied += 1;
+        if fail_at == Some("after-content-edit") {
+            rollback(applied);
+            return Err("simulated deletion failure".into());
+        }
+    }
+    if fail_at == Some("before-finalize") {
+        rollback(applied);
+        return Err("simulated deletion failure".into());
+    }
+    if let Err(error) = std::fs::remove_file(&image_tmp) {
+        rollback(applied);
+        return Err(format!("Failed to finalize image deletion: {error}"));
+    }
+    if let Err(error) = std::fs::remove_file(&metadata_tmp) {
+        rollback(applied);
+        return Err(format!("Failed to finalize metadata deletion: {error}"));
+    }
+    Ok(ImageLibraryDeleteResult {
+        removed: vec![
+            image.to_string_lossy().to_string(),
+            metadata.to_string_lossy().to_string(),
+        ],
+        modified: edits
+            .iter()
+            .map(|(path, _, _)| path.to_string_lossy().to_string())
+            .collect(),
+    })
+}
+
+#[tauri::command]
+pub fn delete_image_library_asset(
+    plan: ImageLibraryDeletePlan,
+) -> Result<ImageLibraryDeleteResult, String> {
+    execute_image_library_delete(plan, None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -331,5 +649,114 @@ mod tests {
         assert!(groups[3].path.ends_with("src/content/blogs"));
 
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn import_plan(dir: &Path) -> ImageLibraryImportPlan {
+        let library = dir.join("src/data/images");
+        std::fs::create_dir_all(&library).unwrap();
+        let source = dir.join("source.jpg");
+        std::fs::write(&source, b"image").unwrap();
+        ImageLibraryImportPlan {
+            library_root: library.to_string_lossy().to_string(),
+            source_image_path: source.to_string_lossy().to_string(),
+            destination_image_path: library
+                .join("nested/photo.jpg")
+                .to_string_lossy()
+                .to_string(),
+            destination_metadata_path: library
+                .join("nested/photo.yml")
+                .to_string_lossy()
+                .to_string(),
+            serialized_metadata: "image: ./photo.jpg\nalt: Photo\n".into(),
+            entry_id: "nested/photo".into(),
+        }
+    }
+
+    #[test]
+    fn paired_import_is_atomic_and_collision_safe() {
+        let temp = tempfile::tempdir().unwrap();
+        let plan = import_plan(temp.path());
+        let image = plan.destination_image_path.clone();
+        let metadata = plan.destination_metadata_path.clone();
+        let result = execute_image_library_import(plan, None).unwrap();
+        assert_eq!(result.entry_id, "nested/photo");
+        assert!(Path::new(&image).exists() && Path::new(&metadata).exists());
+
+        let collision = import_plan(temp.path());
+        assert!(execute_image_library_import(collision, None).is_err());
+        assert_eq!(std::fs::read(&image).unwrap(), b"image");
+    }
+
+    #[test]
+    fn paired_import_rolls_back_each_finalize_stage() {
+        for stage in [
+            "after-image-stage",
+            "after-metadata-stage",
+            "after-image-finalize",
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let plan = import_plan(temp.path());
+            let image = plan.destination_image_path.clone();
+            let metadata = plan.destination_metadata_path.clone();
+            assert!(execute_image_library_import(plan, Some(stage)).is_err());
+            assert!(
+                !Path::new(&image).exists() && !Path::new(&metadata).exists(),
+                "left files after {stage}"
+            );
+        }
+    }
+
+    #[test]
+    fn paired_delete_rolls_back_files_and_content() {
+        let temp = tempfile::tempdir().unwrap();
+        let imported = execute_image_library_import(import_plan(temp.path()), None).unwrap();
+        let post = temp.path().join("post.md");
+        std::fs::write(&post, "hero: nested/photo\n").unwrap();
+        let metadata_source = std::fs::read_to_string(&imported.metadata_path).unwrap();
+        let request = || ImageLibraryDeletePlan {
+            repository_root: temp.path().to_string_lossy().to_string(),
+            library_root: temp
+                .path()
+                .join("src/data/images")
+                .to_string_lossy()
+                .to_string(),
+            image_path: imported.image_path.clone(),
+            metadata_path: imported.metadata_path.clone(),
+            expected_metadata_content: metadata_source.clone(),
+            content_edits: vec![PlannedContentEdit {
+                path: post.to_string_lossy().to_string(),
+                original_content: "hero: nested/photo\n".into(),
+                content: "".into(),
+            }],
+        };
+        assert!(execute_image_library_delete(request(), Some("after-content-edit")).is_err());
+        assert!(
+            Path::new(&imported.image_path).exists() && Path::new(&imported.metadata_path).exists()
+        );
+        assert_eq!(
+            std::fs::read_to_string(&post).unwrap(),
+            "hero: nested/photo\n"
+        );
+
+        let result = execute_image_library_delete(request(), None).unwrap();
+        assert_eq!(result.removed.len(), 2);
+        assert!(
+            !Path::new(&imported.image_path).exists()
+                && !Path::new(&imported.metadata_path).exists()
+        );
+        assert_eq!(std::fs::read_to_string(&post).unwrap(), "");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn managed_paths_reject_symlink_escape() {
+        use std::os::unix::fs::symlink;
+        let temp = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let library = temp.path().join("library");
+        std::fs::create_dir(&library).unwrap();
+        symlink(outside.path(), library.join("escape")).unwrap();
+        let target = library.join("escape/photo.jpg");
+        assert!(managed_target(&library, target.to_str().unwrap(), true).is_err());
     }
 }
