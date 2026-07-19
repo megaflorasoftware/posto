@@ -398,6 +398,33 @@ export function extractImports(markdown: string): string[] {
   return statements;
 }
 
+/**
+ * Splits the leading import block from an MDX body: import statements (and
+ * blank lines between them) up to the first other content. Mid-document
+ * imports stay in the body — restricting to the leading block means fenced
+ * code that happens to contain `import` lines is never touched.
+ */
+export function splitLeadingImports(markdown: string): { imports: string[]; body: string } {
+  const lines = markdown.split("\n");
+  const imports: string[] = [];
+  let consumed = 0;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim() === "") continue;
+    if (!/^import\s/.test(lines[i])) break;
+    let statement = lines[i];
+    while (
+      (statement.match(/\{/g)?.length ?? 0) > (statement.match(/\}/g)?.length ?? 0) &&
+      i + 1 < lines.length
+    ) {
+      statement += "\n" + lines[++i];
+    }
+    imports.push(statement);
+    consumed = i + 1;
+  }
+  if (imports.length === 0) return { imports, body: markdown };
+  return { imports, body: lines.slice(consumed).join("\n").replace(/^\n+/, "") };
+}
+
 /** Resolves `./x` / `../x` against the directory of `filePath`; null for bare
  * or aliased specifiers we can't locate. */
 export function resolveImportPath(filePath: string, spec: string): string | null {

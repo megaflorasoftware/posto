@@ -466,9 +466,25 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       return null;
     case "create_text_file": {
       const path = args?.path as string;
+      if ((path.split("/").pop() ?? "").startsWith(".")) {
+        throw new Error(`Refusing to create a hidden file: ${path}`);
+      }
       if (path in mockFiles) throw new Error(`File already exists: ${path}`);
       mockFiles[path] = args?.content as string;
       mockDeleted.delete(path);
+      return null;
+    }
+    case "rename_file": {
+      const from = args?.from as string;
+      const to = args?.to as string;
+      if ((to.split("/").pop() ?? "").startsWith(".")) {
+        throw new Error(`Refusing to create a hidden file: ${to}`);
+      }
+      if (to in mockFiles) throw new Error(`File already exists: ${to}`);
+      mockFiles[to] = mockFiles[from] ?? "";
+      delete mockFiles[from];
+      mockDeleted.add(from);
+      mockDeleted.delete(to);
       return null;
     }
     case "delete_file": {

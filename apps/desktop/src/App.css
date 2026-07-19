@@ -154,6 +154,13 @@ body,
   white-space: nowrap;
 }
 
+/* Right-aligned marker on files pinned via collection settings. */
+.file-pin {
+  flex-shrink: 0;
+  margin-right: 0.4rem;
+  color: var(--mantine-color-dimmed);
+}
+
 /* The delete control appears only while its row is hovered. */
 .file-delete {
   display: none;

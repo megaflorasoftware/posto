@@ -40,7 +40,7 @@ import {
   splitSlots,
 } from "@posto/core/mdx/mdx";
 import { UNPARSED, astroPropField, jsValueProp, propJsValue, valueFits } from "@posto/core/mdx/propFields";
-import type { Field, PagesConfig } from "@posto/core/pagescms/config";
+import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
 import { validateForm } from "@posto/core/pagescms/validate";
 import type { FileGroup } from "@posto/ipc";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
@@ -53,12 +53,18 @@ export interface MdxFieldEnv {
   config: PagesConfig;
   root: string;
   groups: FileGroup[];
+  /** Collection entry of the file being edited; scopes media resolution. */
+  entry: ContentEntry | null;
+  /** Top-level frontmatter for per-entry media-folder templates. */
+  templateValues: Record<string, unknown>;
 }
 
 export const MdxFieldEnvContext = createContext<MdxFieldEnv>({
   config: { media: [], content: [] },
   root: "",
   groups: [],
+  entry: null,
+  templateValues: {},
 });
 
 /**
@@ -251,10 +257,12 @@ function PropsForm(formProps: {
   const ctx: FieldContext = {
     config: env.config,
     root: env.root,
-    // Component props aren't collection frontmatter; media stays global.
-    entry: null,
+    // Image props picked inside a collection entry's body use the
+    // collection's media source, same as its frontmatter fields.
+    entry: env.entry,
     groups: env.groups,
     errors: () => errors,
+    templateValues: () => env.templateValues,
     value: (path) => {
       let value: unknown = values[String(path[0])];
       if (value === UNPARSED) return undefined;

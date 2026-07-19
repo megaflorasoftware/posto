@@ -323,6 +323,13 @@ input {
   background: var(--mantine-color-default-hover);
 }
 
+/* Right-aligned marker on files pinned via collection settings. */
+.mobile-file-pin {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--mantine-color-dimmed);
+}
+
 /* Footer launcher for workspace collection settings, ending the list. */
 .mobile-collections-settings {
   display: flex;

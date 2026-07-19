@@ -62,6 +62,14 @@ function typeField(name: string, type: string): Field | null {
   if (single === "string") return { name, type: "string" };
   if (single === "number") return { name, type: "number" };
   if (single === "boolean") return { name, type: "boolean" };
+  // Only `filePath` maps to a reference: it's the entry's repo-root-relative
+  // source path, which is exactly what ReferenceField stores. `id`/`slug`
+  // pass through the loader's `generateId`, which can't be reproduced from
+  // the files alone, so those spellings keep the raw expression input.
+  const reference = /^CollectionEntry<\s*(["'])([^"']+)\1\s*>\s*\[\s*(["'])filePath\3\s*\]$/.exec(
+    single,
+  );
+  if (reference) return { name, type: "reference", options: { collection: reference[2] } };
   if (single.startsWith("{") && single.endsWith("}")) {
     const children: Field[] = [];
     for (const member of parseTypeMembers(single.slice(1, -1))) {
@@ -243,6 +251,7 @@ function scalarFits(field: Field, value: unknown): boolean {
   switch (field.type) {
     case "string":
     case "select":
+    case "reference":
       return typeof value === "string";
     case "number":
       return typeof value === "number";

@@ -3,7 +3,7 @@ export * from "./components/CollectionSettingsDialog";
 export * from "./components/Dialog";
 export * from "./components/EditorPane";
 export * from "./components/FileList";
-export * from "./components/NewFileModal";
+export * from "./newFile";
 export * from "./components/PublishModal";
 export * from "./components/Sidebar";
 export * from "./hooks/useCurrentFile";

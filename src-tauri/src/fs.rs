@@ -248,11 +248,22 @@ pub fn write_text_file(path: String, content: String) -> Result<(), String> {
     })
 }
 
+/// The sidebar hides dotfiles, so creating one (e.g. a filename template
+/// expanding to a bare ".mdx") would leave an invisible orphan.
+fn reject_hidden(path: &str) -> Result<(), String> {
+    let name = Path::new(path).file_name().map(|n| n.to_string_lossy());
+    match name {
+        Some(name) if !name.starts_with('.') => Ok(()),
+        _ => Err(format!("Refusing to create a hidden file: {path}")),
+    }
+}
+
 /// Creates a new file, failing if one already exists at `path` — the "new
 /// file" flow must never silently overwrite existing content.
 #[tauri::command]
 pub fn create_text_file(path: String, content: String) -> Result<(), String> {
     use std::io::Write;
+    reject_hidden(&path)?;
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -266,6 +277,19 @@ pub fn create_text_file(path: String, content: String) -> Result<(), String> {
         })?;
     file.write_all(content.as_bytes())
         .map_err(|e| format!("Failed to create {path}: {e}"))
+}
+
+/// Moves a file, failing when the target already exists — the auto-rename
+/// flow (filenames derived from frontmatter) must never clobber another
+/// entry.
+#[tauri::command]
+pub fn rename_file(from: String, to: String) -> Result<(), String> {
+    reject_hidden(&to)?;
+    let target = Path::new(&to);
+    if target.exists() {
+        return Err(format!("File already exists: {to}"));
+    }
+    std::fs::rename(&from, target).map_err(|e| format!("Failed to rename {from}: {e}"))
 }
 
 #[tauri::command]

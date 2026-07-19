@@ -7,10 +7,11 @@ import { EMPTY_CONFIG, matchEntry } from "@posto/core/pagescms/config";
 import { parseFile } from "@posto/core/pagescms/frontmatter";
 import {
   EditorPane,
-  NewFileModal,
   PublishModal,
   Sidebar,
+  buildNewFile,
   contentHasFields,
+  renameTargetForContent,
   useCurrentFile,
   useFileGroups,
   useGitSync,
@@ -37,8 +38,6 @@ function App() {
   // Status-bar message in the header (publish/pull results, errors).
   const [status, setStatus] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
-  // Directory the "new file" dialog is creating into, when open.
-  const [newFileGroup, setNewFileGroup] = useState<FileGroup | null>(null);
   // Bumped after each successful save so the SEO preview refetches the page.
   const [saveTick, setSaveTick] = useState(0);
 
@@ -60,6 +59,9 @@ function App() {
       if (dir && (path === dir + "/src/content.config.ts" || path === dir + "/src/content/config.ts")) {
         void schemas.loadAstroConfig(dir);
       }
+      // Frontmatter drives template-derived filenames; each (already
+      // debounced) save is the moment to bring the name back in line.
+      void renameForTemplate(path, content);
     },
     onOpened(path, content) {
       // On opening a markdown file, keep the last selected tab when it has
@@ -148,16 +150,50 @@ function App() {
     if (typeof dir === "string") void selectRoot(dir);
   }
 
-  async function onFileCreated(path: string) {
-    setNewFileGroup(null);
+  function schemaSources() {
+    return {
+      config: schemas.configRef.current ?? EMPTY_CONFIG,
+      pagesContent: schemas.pagesConfig?.content ?? [],
+      astroContent: schemas.astroConfig?.content ?? [],
+    };
+  }
+
+  // "New file" creates immediately — an "Untitled" entry with the
+  // collection's defaults — and opens it; no dialog. The filename follows
+  // the title (or whatever fields the template names) as the user edits.
+  async function createNewFile(group: FileGroup) {
     const dir = rootRef.current;
-    if (dir) await refreshGroups(dir);
+    if (!dir) return;
+    const { path, content } = buildNewFile(dir, group, schemaSources());
+    try {
+      await invoke("create_text_file", { path, content });
+    } catch (e) {
+      setStatus(String(e));
+      return;
+    }
+    await refreshGroups(dir);
     // A new markdown file with a schema should land on its form, not on
     // whichever tab was last active (an empty file's Body/Raw view is blank).
-    if (/\.(md|mdx)$/i.test(path) && dir && config && matchEntry(config, dir, path) !== null) {
+    const cfg = schemas.configRef.current;
+    if (/\.(md|mdx)$/i.test(path) && cfg && matchEntry(cfg, dir, path) !== null) {
       setEditorTab("fields");
     }
     openFile(path);
+  }
+
+  // Keeps a template-derived filename in step with the frontmatter it's
+  // derived from, riding the (debounced) autosave: rename on disk, retarget
+  // the editor, refresh the sidebar, and move the preview to the new route.
+  async function renameForTemplate(path: string, content: string) {
+    const dir = rootRef.current;
+    if (!dir || currentFile.filePathRef.current !== path) return;
+    const target = renameTargetForContent(dir, path, content, schemaSources());
+    if (!target) return;
+    // Another entry already owns the name; keep ours until the fields change.
+    if (files.groupsRef.current.some((g) => g.files.some((f) => f.path === target))) return;
+    if (!(await currentFile.renameOpenFile(path, target))) return;
+    void refreshGroups(dir);
+    void preview.navigateForFile(target, content);
   }
 
   // Files changed outside the app (other editors, git, `astro sync`, …):
@@ -302,17 +338,6 @@ function App() {
           }}
         />
 
-        {root && newFileGroup && (
-          <NewFileModal
-            root={root}
-            group={newFileGroup}
-            config={config ?? EMPTY_CONFIG}
-            astroContent={schemas.astroConfig?.content ?? []}
-            onClose={() => setNewFileGroup(null)}
-            onCreated={(path) => void onFileCreated(path)}
-          />
-        )}
-
         {!root ? (
           <div className="empty-state">
             <p>Select the folder that holds your site to get started.</p>
@@ -327,7 +352,7 @@ function App() {
               activePath={currentFile.filePath}
               onOpen={(path) => openFile(path)}
               onDelete={(file) => void deleteFile(file)}
-              onNewFile={setNewFileGroup}
+              onNewFile={(group) => void createNewFile(group)}
               onPostoSaved={() => void schemas.loadPostoConfig(root)}
             />
 

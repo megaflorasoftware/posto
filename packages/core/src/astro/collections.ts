@@ -1,3 +1,4 @@
+import { slug as githubSlug } from "github-slugger";
 import type { ContentEntry, Field, MediaEntry, PagesConfig } from "../pagescms/config";
 
 // Builds a PagesConfig from Astro content collections, used as a fallback
@@ -9,11 +10,14 @@ import type { ContentEntry, Field, MediaEntry, PagesConfig } from "../pagescms/c
 // scanner; when that fails, the conventional `src/content/<name>` is assumed.
 //
 // Known v1 degradations (all validation still applies; only editor UX hints
-// are lost, since zod has no notion of them): `image()` renders as a plain
-// string (its schema is just `{"type":"string"}`), `reference()` renders as a
-// string of the referenced entry id, and there are no labels, media dirs, or
-// select display labels. `file()` loader collections are skipped — posto
-// edits one markdown file per entry, not multi-entry data files.
+// are lost, since zod has no notion of them): there are no labels, media dirs,
+// or select display labels. `image()` and `reference()` are recovered from
+// `content.config.ts`, since their generated schemas discard those identities.
+// `reference()` becomes a reference
+// field when the target collection can be recovered from `content.config.ts`
+// (the generated schema drops it), else a plain string. `file()` loader
+// collections are skipped — posto edits one markdown file per entry, not
+// multi-entry data files.
 
 type JsonSchema = Record<string, unknown>;
 
@@ -29,8 +33,9 @@ function isDateBranch(schema: JsonSchema): boolean {
   return schema.type === "integer" && format === "unix-time";
 }
 
-/** True for `reference()` output: anyOf of a plain string and object shapes
- * whose required keys include "collection". */
+/** True for `reference()` output: anyOf of a plain string, object shapes
+ * whose required keys include "collection", and (zod 4's toJSONSchema only)
+ * a plain number for numeric ids. */
 function isReferenceAnyOf(branches: JsonSchema[]): boolean {
   let hasString = false;
   let hasCollectionObject = false;
@@ -42,7 +47,7 @@ function isReferenceAnyOf(branches: JsonSchema[]): boolean {
       branch.required.includes("collection")
     ) {
       hasCollectionObject = true;
-    } else return false;
+    } else if (branch.type !== "number") return false;
   }
   return hasString && hasCollectionObject;
 }
@@ -69,7 +74,9 @@ function convertSchema(name: string, schema: JsonSchema, required: boolean): Fie
   const anyOf = Array.isArray(schema.anyOf) ? schema.anyOf.map(asSchema) : null;
   if (anyOf && anyOf.every((b): b is JsonSchema => b !== null) && anyOf.length > 0) {
     if (anyOf.every(isDateBranch)) return { ...base, type: "date" };
-    if (isReferenceAnyOf(anyOf)) return { ...base, type: "string" };
+    // Marker only: the schema drops the target collection, so buildAstroConfig
+    // fills it in from the `content.config.ts` scan or downgrades to string.
+    if (isReferenceAnyOf(anyOf)) return { ...base, type: "reference" };
     const nullIdx = anyOf.findIndex((b) => b.type === "null");
     if (nullIdx !== -1 && anyOf.length === 2) {
       return convertSchema(name, { ...anyOf[1 - nullIdx], default: schema.default }, false);
@@ -177,6 +184,10 @@ export interface LoaderInfo {
   base?: string;
   /** glob() accepts a single pattern or an array of them. */
   patterns?: string[];
+  /** `reference()` fields found in the schema, field name → collection. */
+  references?: Record<string, string>;
+  /** Field names whose schema uses Astro's `image()` helper. */
+  images?: string[];
 }
 
 /** Slice out the balanced `(...)` argument list starting at `openIndex`. */
@@ -231,6 +242,22 @@ export function parseLoaderConfig(source: string): Map<string, LoaderInfo> {
     } else if (fileIdx !== -1) {
       info = { kind: "file" };
     }
+    // Schema fields declared as `reference("x")`, possibly wrapped in
+    // `z.array(...)`. Keyed by field name across all nesting levels — the
+    // generated JSON Schema keeps the shape but drops the collection, so this
+    // scan is the only source for it.
+    const refRegex = /(\w+)\s*:\s*(?:z\s*\.\s*array\s*\(\s*)?reference\s*\(\s*(["'`])([^"'`]+)\2/g;
+    for (let ref = refRegex.exec(body); ref; ref = refRegex.exec(body)) {
+      (info.references ??= {})[ref[1]] = ref[3];
+    }
+    // `image()` becomes an indistinguishable string in Astro's generated JSON
+    // Schema. Preserve the hint here for scalar fields, image arrays, nested
+    // objects, and arrays of objects. As with references, names are resolved
+    // recursively against the generated shape below.
+    const imageRegex = /(?:(['"`])([^'"`]+)\1|(\w+))\s*:\s*(?:z\s*\.\s*array\s*\(\s*)?image\s*\(/g;
+    for (let image = imageRegex.exec(body); image; image = imageRegex.exec(body)) {
+      (info.images ??= []).push(image[2] ?? image[3]);
+    }
     byVariable.set(match[1], info);
   }
 
@@ -263,6 +290,51 @@ function patternExtension(pattern: string): string | undefined {
 }
 
 /**
+ * Entry id Astro's glob-loader default `generateId` produces for a file: the
+ * frontmatter `slug` when present, else the base-relative path without
+ * extension, each segment slugified the way Astro does (github-slugger), with
+ * a trailing `/index` dropped. Custom `generateId` functions aren't modeled.
+ */
+export function astroEntryId(relPath: string, slug?: string | null): string {
+  if (slug) return slug;
+  const withoutExt = relPath.replace(/\.[^./]+$/, "");
+  return withoutExt
+    .split("/")
+    .map((segment) => githubSlug(segment))
+    .join("/")
+    .replace(/\/index$/, "");
+}
+
+/** Fills reference markers from the config scan; a reference whose target
+ * collection couldn't be recovered edits as a plain string. */
+function resolveReferences(fields: Field[], references?: Record<string, string>): Field[] {
+  return fields.map((field) => {
+    if (field.type === "reference") {
+      const collection = references?.[field.name];
+      return collection
+        ? { ...field, options: { collection, astroId: true } }
+        : { ...field, type: "string" };
+    }
+    if (field.fields) return { ...field, fields: resolveReferences(field.fields, references) };
+    return field;
+  });
+}
+
+/** Restores Astro `image()` fields, which are plain strings in generated JSON
+ * Schema. Traversing child fields also covers objects and object-list items. */
+function resolveImages(fields: Field[], images?: string[]): Field[] {
+  const names = new Set(images);
+  return fields.map((field) => {
+    const resolved = names.has(field.name) && (field.type === "string" || field.type === "text")
+      ? { ...field, type: "image" }
+      : field;
+    return resolved.fields
+      ? { ...resolved, fields: resolveImages(resolved.fields, images) }
+      : resolved;
+  });
+}
+
+/**
  * Assembles the fallback config from parsed schemas + loader info. Collections
  * loaded via `file()` are skipped (multi-entry data files aren't editable as
  * one-file-per-entry forms).
@@ -291,7 +363,7 @@ export function buildAstroConfig(
       subfolders:
         patterns.length > 0 && patterns.every((p) => !p.includes("/")) ? false : undefined,
       extension,
-      fields,
+      fields: resolveReferences(resolveImages(fields, loader?.images), loader?.references),
     });
   }
   return { media: DEFAULT_ASTRO_MEDIA, content };

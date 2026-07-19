@@ -24,7 +24,8 @@ export const POSTO_COLLECTIONS_DIR = `${POSTO_DIR}/collections`;
 export const POSTO_CONFIG_VERSION = 0;
 
 export interface PostoSort {
-  /** Frontmatter field the entries sort by (`fields.date` or plain `date`). */
+  /** Frontmatter field the entries sort by (`fields.date` or plain `date`),
+   * or LABEL_SORT for the composite entry label. */
   by: string;
   direction: "asc" | "desc";
 }
@@ -183,6 +184,9 @@ export function updatePostoCollectionSource(
     if (settings[key] !== undefined) doc[key] = settings[key];
     else delete doc[key];
   }
+  // Removed before release: do not retain slug-template settings written by
+  // intermediate builds of this feature branch.
+  delete doc.slug;
   if (settings.sort) doc.sort = { by: settings.sort.by, direction: settings.sort.direction };
   else delete doc.sort;
   if (settings.pinned && settings.pinned.length > 0) doc.pinned = settings.pinned;
@@ -224,27 +228,35 @@ export function expandEntryName(
   return expanded === "" ? null : expanded;
 }
 
+/** Sort token for the composite entry label (the expanded `entryName`
+ * template, else the frontmatter title / filename) instead of a single
+ * frontmatter field. Bare on purpose — field tokens are written
+ * `fields.<name>`, so the two can't collide. */
+export const LABEL_SORT = "label";
+
 /**
- * Comparator over frontmatter scalars for a collection's sort spec. Numbers
- * compare numerically, everything else lexically (which covers ISO dates);
- * entries missing the field sort after present ones regardless of direction.
+ * Ordered comparison of two sort values: numbers compare numerically,
+ * everything else lexically (which covers ISO dates). Missing or empty
+ * values sort as the empty string — the smallest value, so they land first
+ * ascending and last descending, following the direction like any other
+ * value.
  */
-export function compareBySort(
-  a: Record<string, string> | null | undefined,
-  b: Record<string, string> | null | undefined,
-  sort: PostoSort,
-): number {
-  const name = fieldName(sort.by);
-  const va = a?.[name];
-  const vb = b?.[name];
-  if (va === undefined || vb === undefined) {
-    return (va === undefined ? 1 : 0) - (vb === undefined ? 1 : 0);
-  }
+export function compareSortValues(va: string, vb: string, direction: "asc" | "desc"): number {
   const na = Number(va);
   const nb = Number(vb);
   const cmp =
     va !== "" && vb !== "" && Number.isFinite(na) && Number.isFinite(nb)
       ? na - nb
       : va.localeCompare(vb, undefined, { sensitivity: "base", numeric: true });
-  return sort.direction === "desc" ? -cmp : cmp;
+  return direction === "desc" ? -cmp : cmp;
+}
+
+/** Comparator over frontmatter scalars for a collection's sort spec. */
+export function compareBySort(
+  a: Record<string, string> | null | undefined,
+  b: Record<string, string> | null | undefined,
+  sort: PostoSort,
+): number {
+  const name = fieldName(sort.by);
+  return compareSortValues(a?.[name] ?? "", b?.[name] ?? "", sort.direction);
 }

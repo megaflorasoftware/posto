@@ -38,11 +38,18 @@ export function useCurrentFile(callbacks: Callbacks) {
   function saveNow(path: string, content: string): Promise<void> {
     setSaveState("saving");
     const previous = activeSave.current ?? Promise.resolve();
+    // The target path resolves when the write actually runs, not when it was
+    // scheduled: a rename queued ahead of it may have moved the file, and a
+    // write to the old path would resurrect it.
+    let target = path;
     const task = previous
-      .then(() => invoke("write_text_file", { path, content }))
+      .then(() => {
+        if (filePathRef.current !== null) target = filePathRef.current;
+        return invoke("write_text_file", { path: target, content });
+      })
       .then(() => {
         setSaveState("saved");
-        cb.current.onAfterSave?.(path, content);
+        cb.current.onAfterSave?.(target, content);
       })
       .catch(() => {
         setSaveState("error");
@@ -52,6 +59,32 @@ export function useCurrentFile(callbacks: Callbacks) {
       });
     activeSave.current = task;
     return task;
+  }
+
+  /** Moves the open file on disk, queued behind any in-flight save so the
+   * content lands at `from` before the move. Resolves false when the rename
+   * failed (e.g. the target appeared meanwhile); the file then keeps its
+   * name. */
+  function renameOpenFile(from: string, to: string): Promise<boolean> {
+    const previous = activeSave.current ?? Promise.resolve();
+    let renamed = false;
+    const task = previous
+      .then(() => invoke("rename_file", { from, to }))
+      .then(() => {
+        renamed = true;
+        // Only retarget state still pointing at the old path — the user may
+        // have switched files while the rename was queued.
+        if (filePathRef.current === from) {
+          setFilePath(to);
+          filePathRef.current = to;
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (activeSave.current === task) activeSave.current = null;
+      });
+    activeSave.current = task;
+    return task.then(() => renamed);
   }
 
   async function flushPendingSave() {
@@ -162,6 +195,7 @@ export function useCurrentFile(callbacks: Callbacks) {
     closeFile,
     onEdit,
     onFormEdit,
+    renameOpenFile,
     flushPendingSave,
     clearPendingSave,
     hasPendingSave,

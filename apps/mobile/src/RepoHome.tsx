@@ -13,9 +13,10 @@ import {
   CollectionOrderDialog,
   CollectionSettingsDialog,
   EditorPane,
-  NewFileModal,
   PublishModal,
+  buildNewFile,
   contentHasFields,
+  renameTargetForContent,
   orderableCollections,
   sidebarDisplayGroups,
   useCurrentFile,
@@ -24,7 +25,7 @@ import {
   useSchemas,
   type EditorTab,
 } from "@posto/editor";
-import { matchEntry, type ContentEntry } from "@posto/core/pagescms/config";
+import { EMPTY_CONFIG, matchEntry, type ContentEntry } from "@posto/core/pagescms/config";
 import { parseFile } from "@posto/core/pagescms/frontmatter";
 import { invoke } from "@posto/ipc";
 import type { ChangedFile, FileEntry, FileGroup, GitHubRepo } from "@posto/ipc";
@@ -34,6 +35,7 @@ import {
   ChevronLeft,
   GitCommitHorizontal,
   Menu,
+  Pin,
   Plus,
   RefreshCw,
   SlidersHorizontal,
@@ -72,7 +74,6 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
   const [showEditor, setShowEditor] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [checkingChanges, setCheckingChanges] = useState(false);
-  const [newFileGroup, setNewFileGroup] = useState<FileGroup | null>(null);
   // `.posto` settings dialogs: one per collection, one for workspace order.
   const [settingsFor, setSettingsFor] = useState<{
     collection: ContentEntry;
@@ -94,6 +95,9 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
       if (path === root + "/src/content.config.ts" || path === root + "/src/content/config.ts") {
         void schemas.loadAstroConfig(root);
       }
+      // Frontmatter drives template-derived filenames; each (already
+      // debounced) save is the moment to bring the name back in line.
+      void renameForTemplate(path, content);
     },
     onOpened(path, content) {
       if (!/\.(md|mdx|markdown)$/i.test(path)) return;
@@ -185,10 +189,41 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     if (currentFile.filePathRef.current === path) setShowEditor(true);
   }
 
-  async function openCreatedFile(path: string) {
-    setNewFileGroup(null);
+  function schemaSources() {
+    return {
+      config: schemas.configRef.current ?? EMPTY_CONFIG,
+      pagesContent: schemas.pagesConfig?.content ?? [],
+      astroContent: schemas.astroConfig?.content ?? [],
+    };
+  }
+
+  // "New file" creates immediately — an "Untitled" entry with the
+  // collection's defaults — and opens it; no dialog. The filename follows
+  // the title (or whatever fields the template names) as the user edits.
+  async function createNewFile(group: FileGroup) {
+    const { path, content } = buildNewFile(root, group, schemaSources());
+    try {
+      await invoke("create_text_file", { path, content });
+    } catch (createError) {
+      setStatus(`Create failed: ${message(createError)}`);
+      return;
+    }
     await files.refreshGroups(root);
     await openFile(path);
+  }
+
+  // Keeps a template-derived filename in step with the frontmatter it's
+  // derived from, riding the (debounced) autosave: rename on disk, retarget
+  // the editor, refresh the file list.
+  async function renameForTemplate(path: string, content: string) {
+    if (currentFile.filePathRef.current !== path) return;
+    const target = renameTargetForContent(root, path, content, schemaSources());
+    if (!target) return;
+    // Another entry already owns the name; keep ours until the fields change.
+    if (files.groupsRef.current.some((g) => g.files.some((f) => f.path === target))) return;
+    if (!(await currentFile.renameOpenFile(path, target))) return;
+    void files.refreshGroups(root);
+    void git.refreshLocalChanges(root);
   }
 
   // The armed "Delete?" confirm disarms on its own after a moment, the touch
@@ -511,7 +546,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
                         onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
-                          setNewFileGroup(group);
+                          void createNewFile(group);
                         }}
                       >
                         <Plus size={16} />
@@ -543,6 +578,9 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
                       onClick={() => void openFile(file.path)}
                     >
                       {file.title ?? file.name}
+                      {collection?.pinned?.includes(file.name) && (
+                        <Pin size={13} className="mobile-file-pin" aria-label="Pinned" />
+                      )}
                     </button>
                   ))}
                 </details>
@@ -594,17 +632,6 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
                 : "Up to date"}
         </Button>
       </div>
-
-      {newFileGroup && config && (
-        <NewFileModal
-          root={root}
-          group={newFileGroup}
-          config={config}
-          astroContent={schemas.astroConfig?.content ?? []}
-          onClose={() => setNewFileGroup(null)}
-          onCreated={(path) => void openCreatedFile(path)}
-        />
-      )}
 
       {settingsFor && (
         <CollectionSettingsDialog

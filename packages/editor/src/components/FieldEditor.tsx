@@ -19,7 +19,15 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
-import { collectionExtension, mediaInputPath, resolveMedia } from "@posto/core/pagescms/config";
+import {
+  collectionExtension,
+  matchCollectionForDir,
+  mediaInputPath,
+  resolveMedia,
+} from "@posto/core/pagescms/config";
+import { astroEntryId } from "@posto/core/astro/collections";
+import { expandEntryName } from "@posto/core/posto/config";
+import { applyCollectionPrefs } from "../collectionPrefs";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 import type { Errors } from "@posto/core/pagescms/validate";
 import type { FileEntry, FileGroup } from "@posto/ipc";
@@ -33,6 +41,8 @@ export interface FieldContext {
   entry: ContentEntry | null;
   groups: FileGroup[];
   errors: () => Errors;
+  /** Current top-level frontmatter used to expand per-entry settings. */
+  templateValues: () => Record<string, unknown>;
   /** Current value at a frontmatter path. */
   value: (path: ValuePath) => unknown;
   edit: (path: ValuePath, value: unknown) => void;
@@ -102,7 +112,12 @@ function imagePickable(field: Field): boolean {
  * and writes the picked image's output path as the field's value. */
 function PickImageCta(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
   const [open, setOpen] = useState(false);
-  const media = resolveMedia(props.ctx.config, props.field, props.ctx.entry);
+  const media = resolveMedia(
+    props.ctx.config,
+    props.field,
+    props.ctx.entry,
+    props.ctx.templateValues(),
+  );
   if (!media) return null;
   return (
     <>
@@ -190,7 +205,13 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
             size="xs"
             type={field.options?.time ? "datetime-local" : "date"}
             value={asString(value)}
-            onChange={(e) => editText(e.currentTarget.value)}
+            onChange={(e) => {
+              let raw = e.currentTarget.value;
+              // datetime-local omits seconds, but a YAML timestamp needs
+              // them — and only real timestamps satisfy date-typed schemas.
+              if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw)) raw += ":00";
+              editText(raw);
+            }}
           />
         );
       case "boolean":
@@ -275,6 +296,41 @@ function remapAfterRemove(expanded: Set<number>, removed: number): Set<number> {
   return next;
 }
 
+interface ImageDescendant {
+  field: Field;
+  path: string[];
+}
+
+/** First visible image anywhere in an object item. Astro schemas commonly
+ * wrap the preview image in a nested object, so direct-child lookup is not
+ * sufficient. */
+function imageDescendant(field: Field, path: string[] = []): ImageDescendant | null {
+  for (const child of field.fields ?? []) {
+    if (child.hidden) continue;
+    const childPath = [...path, child.name];
+    if (child.type === "image") return { field: child, path: childPath };
+    const nested = imageDescendant(child, childPath);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+/** Read the first usable string at a descendant path. Image arrays use their
+ * first item; nested object arrays use their first object. */
+function descendantString(value: unknown, path: string[]): string | null {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = descendantString(item, path);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (path.length === 0) return typeof value === "string" && value !== "" ? value : null;
+  if (!value || typeof value !== "object") return null;
+  const [head, ...tail] = path;
+  return descendantString((value as Record<string, unknown>)[head], tail);
+}
+
 /**
  * One list row, draggable by its handle (dnd-kit sortable, the pattern
  * Mantine's DnD examples use). Rows are identified by index: order only
@@ -304,7 +360,7 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
   const limits = typeof props.field.list === "object" ? props.field.list : {};
   const itemField: Field = { ...props.field, list: undefined, label: false, required: false };
   const isObjectList = props.field.type === "object";
-  const imageChild = props.field.fields?.find((f) => f.type === "image" && !f.hidden);
+  const previewImage = imageDescendant(props.field);
 
   // Object-list items collapse to a summary row; existing items start
   // collapsed, newly added ones open for editing.
@@ -357,11 +413,9 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
 
   function itemSummary(index: number): string {
     const record = itemRecord(index);
-    if (imageChild) {
-      const value = record[imageChild.name];
-      if (typeof value === "string" && value !== "") {
-        return value.split("/").pop() ?? value;
-      }
+    if (previewImage) {
+      const value = descendantString(record, previewImage.path);
+      if (value) return value.split("/").pop() ?? value;
     }
     for (const child of props.field.fields ?? []) {
       const value = record[child.name];
@@ -374,10 +428,15 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
   }
 
   function thumbSrc(index: number): string | null {
-    if (!imageChild) return null;
-    const value = itemRecord(index)[imageChild.name];
-    if (typeof value !== "string" || value === "") return null;
-    const media = resolveMedia(props.ctx.config, imageChild, props.ctx.entry);
+    if (!previewImage) return null;
+    const value = descendantString(itemRecord(index), previewImage.path);
+    if (!value) return null;
+    const media = resolveMedia(
+      props.ctx.config,
+      previewImage.field,
+      props.ctx.entry,
+      props.ctx.templateValues(),
+    );
     if (!media) return null;
     const absolute = mediaInputPath(props.ctx.root, media, value);
     return absolute ? assetUrl(absolute) : null;
@@ -404,7 +463,7 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
       </SortableRow>
     ) : (
       <SortableRow key={index} index={index} className="list-item collapsed-item">
-        {imageChild &&
+        {previewImage &&
           (thumb ? (
             <img className="thumb" src={thumb} alt="" />
           ) : (
@@ -484,7 +543,12 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
 
 function ImageField(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
   const [pickerOpen, setPickerOpen] = useState(false);
-  const media = resolveMedia(props.ctx.config, props.field, props.ctx.entry);
+  const media = resolveMedia(
+    props.ctx.config,
+    props.field,
+    props.ctx.entry,
+    props.ctx.templateValues(),
+  );
   const value = asString(props.ctx.value(props.path));
 
   return (
@@ -528,7 +592,13 @@ function referenceLabel(ctx: FieldContext, value: string): string {
   const path = ctx.root + "/" + value;
   for (const group of ctx.groups) {
     const file = group.files.find((f) => f.path === path);
-    if (file) return file.title ?? file.name;
+    if (file) {
+      const collection = matchCollectionForDir(ctx.config, ctx.root, group.path);
+      const label = collection?.entryName
+        ? expandEntryName(collection.entryName, file.frontmatter)
+        : null;
+      return label || file.title || file.name;
+    }
   }
   return value;
 }
@@ -580,27 +650,41 @@ function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContex
     };
   }, [dir, extension]);
 
-  // list_dir_files carries no frontmatter titles; recover them from the
-  // sidebar groups so markdown options keep their human labels.
-  const titles = new Map<string, string>();
+  // list_dir_files carries no frontmatter; recover title and frontmatter from
+  // the sidebar groups, then apply the collection's `.posto` preferences so
+  // the dropdown shows the same entry labels in the same order as the sidebar.
+  const known = new Map<string, FileEntry>();
   for (const group of props.ctx.groups) {
-    for (const file of group.files) {
-      if (file.title) titles.set(file.path, file.title);
-    }
+    for (const file of group.files) known.set(file.path, file);
   }
+  const enriched = listed.map((file) => {
+    const match = known.get(file.path);
+    return match
+      ? { ...file, title: file.title ?? match.title, frontmatter: match.frontmatter }
+      : file;
+  });
+  const ordered = collection ? applyCollectionPrefs(enriched, collection) : enriched;
 
   const valueTemplate =
     typeof props.field.options?.value === "string" ? props.field.options.value : null;
   const labelTemplate =
     typeof props.field.options?.label === "string" ? props.field.options.label : null;
   const seen = new Set<string>();
-  const files = listed
-    .map((file) => ({ ...file, title: file.title ?? titles.get(file.path) ?? null }))
+  // Astro `reference()` frontmatter holds the entry id, not a path; ids come
+  // from the same default-`generateId` rules Astro applies (frontmatter slug
+  // override, slugified base-relative path).
+  const astroBase =
+    props.field.options?.astroId && collection
+      ? props.ctx.root + "/" + collection.path + "/"
+      : null;
+  const files = ordered
     .map((file) => ({
       // Pages CMS stores the repo-root-relative path by default.
-      value: valueTemplate
-        ? referenceTemplate(valueTemplate, props.ctx.root, file)
-        : file.path.slice(props.ctx.root.length + 1),
+      value: astroBase
+        ? astroEntryId(file.path.slice(astroBase.length), file.frontmatter?.slug)
+        : valueTemplate
+          ? referenceTemplate(valueTemplate, props.ctx.root, file)
+          : file.path.slice(props.ctx.root.length + 1),
       label:
         (labelTemplate
           ? referenceTemplate(labelTemplate, props.ctx.root, file)

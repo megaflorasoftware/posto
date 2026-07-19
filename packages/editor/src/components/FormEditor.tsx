@@ -2,7 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { Alert } from "@mantine/core";
 
 import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
-import { frontmatterFields, inferFields } from "@posto/core/pagescms/config";
+import {
+  expandMediaEntry,
+  frontmatterFields,
+  inferFields,
+} from "@posto/core/pagescms/config";
 import {
   type ParsedFile,
   type ValuePath,
@@ -19,6 +23,20 @@ import { type Errors, validateForm } from "@posto/core/pagescms/validate";
 import type { FileGroup } from "@posto/ipc";
 import { BodyEditor } from "./BodyEditor";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
+
+/** Schema field a frontmatter path lands on; numeric list indices stay on
+ * the list's own field definition. Null for paths the schema doesn't know. */
+function fieldAt(fields: Field[], path: ValuePath): Field | null {
+  let scope = fields;
+  let found: Field | null = null;
+  for (const key of path) {
+    if (typeof key === "number") continue;
+    found = scope.find((f) => f.name === key) ?? null;
+    if (!found) return null;
+    scope = found.fields ?? [];
+  }
+  return found;
+}
 
 function plainValues(parsed: ParsedFile): Record<string, unknown> {
   const js = parsed.doc.toJS();
@@ -111,7 +129,11 @@ export function FormEditor(props: {
       const path = [...base, field.name];
       const current = getValue(parsedRef.current.doc, path);
       if (current === undefined) {
-        if (field.default !== undefined) setValue(parsedRef.current.doc, path, field.default);
+        if (field.default !== undefined) {
+          setValue(parsedRef.current.doc, path, field.default, {
+            dateField: field.type === "date",
+          });
+        }
       } else if (field.type === "object" && !field.list && field.fields) {
         materializeDefaults(field.fields, path);
       }
@@ -141,6 +163,7 @@ export function FormEditor(props: {
     entry: props.entry,
     groups: props.groups,
     errors: () => errors,
+    templateValues: () => values,
     value: (path) => {
       let v: unknown = values;
       for (const key of path) {
@@ -154,8 +177,13 @@ export function FormEditor(props: {
       // Without a schema, a cleared control writes "" instead of deleting the
       // key — inferred fields exist only while their key does.
       if (value === undefined && !props.entry) value = "";
-      if (value === undefined) deleteValue(parsedRef.current.doc, path);
-      else setValue(parsedRef.current.doc, path, value);
+      if (value === undefined) {
+        deleteValue(parsedRef.current.doc, path);
+      } else {
+        setValue(parsedRef.current.doc, path, value, {
+          dateField: fieldAt(fields, path)?.type === "date",
+        });
+      }
       emit();
     },
     listAppend: (path, value) => {
@@ -196,6 +224,8 @@ export function FormEditor(props: {
   }
 
   if (props.view === "body") {
+    const configuredMedia = props.entry?.media ?? props.config.media[0] ?? null;
+    const media = configuredMedia ? expandMediaEntry(configuredMedia, values) : null;
     // Rich editing for the markdown family (MDX mode adds import pills,
     // component cards, and raw-JSX preservation); plain text for anything else.
     return /\.(md|mdx|markdown)$/i.test(props.path) ? (
@@ -204,7 +234,9 @@ export function FormEditor(props: {
         path={props.path}
         mdx={/\.mdx$/i.test(props.path)}
         root={props.root}
-        media={props.config.media[0] ?? null}
+        media={media}
+        entry={props.entry}
+        templateValues={values}
         config={props.config}
         groups={props.groups}
         onChange={onBodyEdit}

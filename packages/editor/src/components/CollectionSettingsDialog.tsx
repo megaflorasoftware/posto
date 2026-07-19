@@ -6,16 +6,18 @@ import { invoke } from "@posto/ipc";
 import type { FileEntry } from "@posto/ipc";
 import { DEFAULT_FILENAME_PATTERN, type ContentEntry } from "@posto/core/pagescms/config";
 import {
+  LABEL_SORT,
   POSTO_COLLECTIONS_DIR,
   parsePostoCollection,
   updatePostoCollectionSource,
   type PostoCollectionSettings,
 } from "@posto/core/posto/config";
 
-/** Sort tokens are written as `fields.<name>`; the select works with the
- * bare field name. */
-function bareFieldName(token: string): string {
-  return token.startsWith("fields.") ? token.slice("fields.".length) : token;
+/** The select works with full sort tokens: `fields.<name>` for frontmatter
+ * fields (normalizing hand-written bare names), LABEL_SORT for the entry
+ * label. */
+function sortToken(token: string): string {
+  return token === LABEL_SORT || token.startsWith("fields.") ? token : `fields.${token}`;
 }
 
 /**
@@ -64,7 +66,7 @@ export function CollectionSettingsDialog(props: {
       setEntryName(settings?.entryName ?? "");
       setFilename(settings?.filename ?? "");
       setMediaDir(settings?.mediaDir ?? "");
-      setSortBy(settings?.sort ? bareFieldName(settings.sort.by) : null);
+      setSortBy(settings?.sort ? sortToken(settings.sort.by) : null);
       setSortDirection(settings?.sort?.direction ?? "desc");
       setPinned(settings?.pinned ?? []);
     })();
@@ -75,12 +77,15 @@ export function CollectionSettingsDialog(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path]);
 
-  const sortFields = collection.fields
-    .filter((field) => field.type !== "object" && !field.list)
-    .map((field) => ({
-      value: field.name,
-      label: typeof field.label === "string" ? field.label : field.name,
-    }));
+  const sortFields = [
+    { value: LABEL_SORT, label: "Entry label" },
+    ...collection.fields
+      .filter((field) => field.type !== "object" && !field.list)
+      .map((field) => ({
+        value: `fields.${field.name}`,
+        label: typeof field.label === "string" ? field.label : field.name,
+      })),
+  ];
 
   async function save() {
     const trimmed = (value: string) => (value.trim() === "" ? undefined : value.trim());
@@ -89,7 +94,7 @@ export function CollectionSettingsDialog(props: {
       entryName: trimmed(entryName),
       filename: trimmed(filename),
       mediaDir: trimmed(mediaDir),
-      sort: sortBy ? { by: `fields.${sortBy}`, direction: sortDirection } : undefined,
+      sort: sortBy ? { by: sortBy, direction: sortDirection } : undefined,
       pinned: pinned.length > 0 ? pinned : undefined,
     };
     setSaving(true);
@@ -137,7 +142,7 @@ export function CollectionSettingsDialog(props: {
             size="xs"
             mt="sm"
             label="New file name"
-            description="Template for created files"
+            description="Template for created files: {fields.x} inserts a raw value, {fields.x|slug} its slugified form"
             placeholder={collection.filename ?? DEFAULT_FILENAME_PATTERN}
             value={filename}
             onChange={(e) => setFilename(e.currentTarget.value)}
@@ -146,8 +151,8 @@ export function CollectionSettingsDialog(props: {
             size="xs"
             mt="sm"
             label="Media folder"
-            description="Where this collection's images are picked from"
-            placeholder="public/images"
+            description="Per-entry image folder: {fields.x} inserts a raw value, {fields.x|slug} its slugified form"
+            placeholder="public/images/{fields.year}/{fields.title|slug}"
             value={mediaDir}
             onChange={(e) => setMediaDir(e.currentTarget.value)}
           />
@@ -167,8 +172,8 @@ export function CollectionSettingsDialog(props: {
               label="Direction"
               allowDeselect={false}
               data={[
-                { value: "desc", label: "Descending (newest first)" },
-                { value: "asc", label: "Ascending (oldest first)" },
+                { value: "desc", label: "Descending" },
+                { value: "asc", label: "Ascending" },
               ]}
               value={sortDirection}
               onChange={(value) => setSortDirection(value === "asc" ? "asc" : "desc")}

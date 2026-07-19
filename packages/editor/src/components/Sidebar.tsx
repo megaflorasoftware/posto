@@ -6,35 +6,10 @@ import {
   type ContentEntry,
   type PagesConfig,
 } from "@posto/core/pagescms/config";
-import { compareBySort, expandEntryName } from "@posto/core/posto/config";
+import { applyCollectionPrefs } from "../collectionPrefs";
 import { CollectionOrderDialog } from "./CollectionOrderDialog";
 import { CollectionSettingsDialog } from "./CollectionSettingsDialog";
 import { FileList } from "./FileList";
-
-/** Applies the collection's `.posto` preferences to a group's files:
- * templated entry labels, frontmatter sort, then pinned entries on top
- * (stable sorts keep the frontmatter order among unpinned files). */
-function applyCollectionPrefs(files: FileEntry[], collection: ContentEntry): FileEntry[] {
-  const { entryName, sort, pinned } = collection;
-  if (!entryName && !sort && !pinned?.length) return files;
-  let result = files;
-  if (entryName) {
-    result = result.map((file) => {
-      const label = expandEntryName(entryName, file.frontmatter);
-      return label ? { ...file, title: label } : file;
-    });
-  }
-  if (sort) {
-    result = [...result].sort((a, b) => compareBySort(a.frontmatter, b.frontmatter, sort));
-  }
-  if (pinned?.length) {
-    const rank = new Map(pinned.map((name, i) => [name, i]));
-    result = [...result].sort(
-      (a, b) => (rank.get(a.name) ?? Infinity) - (rank.get(b.name) ?? Infinity),
-    );
-  }
-  return result;
-}
 
 export interface DisplayGroup {
   group: FileGroup;
@@ -216,6 +191,7 @@ export function Sidebar(props: {
               <FileList
                 files={group.files}
                 activePath={props.activePath}
+                pinned={collection?.pinned}
                 onOpen={props.onOpen}
                 onDelete={props.onDelete}
               />
