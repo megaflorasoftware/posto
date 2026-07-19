@@ -39,6 +39,7 @@ export function EditorPane(props: {
   onTabChange: (tab: EditorTab) => void;
   onEdit: (content: string) => void;
   onFormEdit: (content: string, valid: boolean) => void;
+  beforeMediaOperation?: () => void | Promise<void>;
 }) {
   const { filePath, fileContent, entry, editorTab, dataEntry } = props;
 
@@ -114,6 +115,11 @@ export function EditorPane(props: {
             : `Form editing disabled: .pages.yml is invalid — ${props.configError}`}
         </Alert>
       )}
+      {(props.config?.imageLibraryDiagnostics?.length ?? 0) > 0 && (
+        <Alert color="yellow" className="config-error">
+          {props.config!.imageLibraryDiagnostics!.map((diagnostic) => diagnostic.message).join(" ")}
+        </Alert>
+      )}
       {!showForm ? (
         rawEditor
       ) : (
@@ -139,6 +145,7 @@ export function EditorPane(props: {
               root={props.root}
               groups={props.groups}
               onChange={props.onFormEdit}
+              beforeMediaOperation={props.beforeMediaOperation}
             />
           ) : (
             // One FormEditor spans the Fields and Body tabs so the
@@ -153,6 +160,7 @@ export function EditorPane(props: {
               root={props.root}
               groups={props.groups}
               onChange={props.onFormEdit}
+              beforeMediaOperation={props.beforeMediaOperation}
             />
           )}
         </Tabs>

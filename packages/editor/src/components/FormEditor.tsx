@@ -64,6 +64,7 @@ export function FormEditor(props: {
   root: string;
   groups: FileGroup[];
   onChange: (content: string, valid: boolean) => void;
+  beforeMediaOperation?: () => void | Promise<void>;
 }) {
   const parsedRef = useRef<ParsedFile>(null as unknown as ParsedFile);
   // Content emitted by this component; used to ignore the echo when it comes
@@ -162,6 +163,7 @@ export function FormEditor(props: {
     root: props.root,
     entry: props.entry,
     groups: props.groups,
+    beforeMediaOperation: props.beforeMediaOperation,
     errors: () => errors,
     templateValues: () => values,
     value: (path) => {

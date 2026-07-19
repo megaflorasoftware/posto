@@ -50,6 +50,8 @@ export interface FieldContext {
   listAppend: (path: ValuePath, value: unknown) => void;
   listRemove: (path: ValuePath, index: number) => void;
   listMove: (path: ValuePath, from: number, to: number) => void;
+  /** Flush pending editor state before scanning references or mutating files. */
+  beforeMediaOperation?: () => void | Promise<void>;
 }
 
 function asString(value: unknown): string {

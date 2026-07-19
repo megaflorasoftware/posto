@@ -700,3 +700,12 @@
 .image-library-metadata-fields {
   margin-top: 0.75rem;
 }
+
+.image-library-asset-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}

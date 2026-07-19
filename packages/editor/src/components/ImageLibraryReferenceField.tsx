@@ -2,13 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import { Alert, Button, Select, TextInput } from "@mantine/core";
 import {
   discoverImageLibraryAssets,
+  planMediaDelete,
   type ImageLibraryAsset,
+  type MediaUsage,
 } from "@posto/core/astro/imageLibrary";
 import type { AstroImageLibrary, Field } from "@posto/core/pagescms/config";
 import { validateForm } from "@posto/core/pagescms/validate";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
-import { invoke, onFileDrop, type FileEntry } from "@posto/ipc";
+import { deleteImageLibraryAsset, invoke, onFileDrop, type FileEntry } from "@posto/ipc";
 import { useImageLibraryImport } from "../hooks/useImageLibraryImport";
+import { buildOptionalReferenceEdits, scanMediaReferences, type ScannedMediaReferences } from "../mediaLibraryDeletion";
 import { Dialog } from "./Dialog";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
 
@@ -222,6 +225,7 @@ export function ImageLibraryReferenceField(props: {
   const [assets, setAssets] = useState<ImageLibraryAsset[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const root = `${props.ctx.root}/${props.library.base}`;
   useEffect(() => {
@@ -261,6 +265,7 @@ export function ImageLibraryReferenceField(props: {
           onChange={(next) => props.ctx.edit(props.path, next || undefined)}
         />
         <Button size="xs" variant="default" onClick={() => setImportOpen(true)}>Import…</Button>
+        <Button size="xs" variant="subtle" onClick={() => setManageOpen(true)}>Manage…</Button>
       </div>
       {importOpen && (
         <ImageLibraryImportDialog
@@ -274,6 +279,118 @@ export function ImageLibraryReferenceField(props: {
           }}
         />
       )}
+      {manageOpen && (
+        <ImageLibraryManagerDialog
+          library={props.library}
+          assets={assets}
+          ctx={props.ctx}
+          onClose={() => setManageOpen(false)}
+          onDeleted={(entryId) => {
+            if (selected === entryId) props.ctx.edit(props.path, undefined);
+            setRefresh((value) => value + 1);
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function ImageLibraryManagerDialog(props: {
+  library: AstroImageLibrary;
+  assets: ImageLibraryAsset[];
+  ctx: FieldContext;
+  onClose: () => void;
+  onDeleted: (entryId: string) => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [approval, setApproval] = useState<{
+    asset: ImageLibraryAsset;
+    usages: MediaUsage[];
+    scan: ScannedMediaReferences;
+  } | null>(null);
+
+  async function execute(asset: ImageLibraryAsset, usages: MediaUsage[], scan: ScannedMediaReferences) {
+    const optional = usages.filter((usage) => !usage.required);
+    const contentEdits = buildOptionalReferenceEdits(optional, scan.sources);
+    const operation = planMediaDelete({
+      library: props.library,
+      repositoryRoot: props.ctx.root,
+      asset,
+      usages,
+      coverageComplete: scan.complete,
+      approvedOptionalUsages: optional,
+      contentEdits,
+    });
+    await deleteImageLibraryAsset({
+      repositoryRoot: operation.repositoryRoot,
+      libraryRoot: operation.libraryRoot,
+      imagePath: operation.imagePath,
+      metadataPath: operation.metadataPath,
+      expectedMetadataContent: operation.expectedMetadataContent,
+      contentEdits: operation.contentEdits,
+    });
+    props.onDeleted(asset.entryId);
+    setApproval(null);
+  }
+
+  async function requestDelete(asset: ImageLibraryAsset) {
+    setDeleting(asset.entryId);
+    setError(null);
+    try {
+      await props.ctx.beforeMediaOperation?.();
+      const scan = await scanMediaReferences(props.ctx.root, props.ctx.config, props.ctx.groups);
+      const usages = scan.usages.filter(
+        (usage) => usage.targetCollection === props.library.collection && usage.entryId === asset.entryId,
+      );
+      if (!scan.complete) throw new Error(scan.errors[0]?.message ?? "Reference coverage is incomplete.");
+      const required = usages.find((usage) => usage.required);
+      if (required) throw new Error(`Required reference remains in ${required.sourcePath}.`);
+      if (usages.length > 0) setApproval({ asset, usages, scan });
+      else await execute(asset, usages, scan);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setDeleting(null);
+    }
+  }
+
+  return (
+    <Dialog opened onClose={props.onClose} title={props.library.collection} size="lg">
+      {error && <Alert color="red" mb="sm">{error}</Alert>}
+      {approval && (
+        <Alert color="yellow" mb="sm">
+          This asset has {approval.usages.length} optional reference{approval.usages.length === 1 ? "" : "s"}.
+          <Button
+            size="xs"
+            color="red"
+            ml="sm"
+            onClick={() => void execute(approval.asset, approval.usages, approval.scan).catch((caught) => setError(String(caught)))}
+          >
+            Remove references and delete
+          </Button>
+        </Alert>
+      )}
+      <div className="image-library-assets">
+        {props.assets.length === 0 && <div>No metadata entries found.</div>}
+        {props.assets.map((asset) => (
+          <div key={`${asset.entryId}:${asset.metadataPath}`} className="image-library-asset-row">
+            <div>
+              <strong>{asset.entryId}</strong>
+              <div className="field-description">{asset.health.join(", ")}</div>
+            </div>
+            <Button
+              size="xs"
+              variant="light"
+              color="red"
+              loading={deleting === asset.entryId}
+              onClick={() => void requestDelete(asset)}
+            >
+              Delete
+            </Button>
+          </div>
+        ))}
+      </div>
+    </Dialog>
   );
 }

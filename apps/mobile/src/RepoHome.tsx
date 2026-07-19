@@ -439,6 +439,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
             onTabChange={setEditorTab}
             onEdit={currentFile.onEdit}
             onFormEdit={currentFile.onFormEdit}
+            beforeMediaOperation={currentFile.flushPendingSave}
           />
         </main>
       ) : showSettings ? (

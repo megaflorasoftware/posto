@@ -7,6 +7,31 @@
 
 # Posto
 
+## Astro image libraries
+
+Posto recognizes a local Astro `glob()` collection as an image library when its metadata uses YAML or JSON and its schema contains exactly one `image()` field. The loader base is both the metadata root and image destination. New assets use colocated files with matching basenames:
+
+```text
+src/data/images/
+├── sunrise.jpg
+├── sunrise.yml
+└── landscapes/
+    ├── mountains.webp
+    └── mountains.yml
+```
+
+The metadata entry owns the image path and global metadata:
+
+```yaml
+image: ./sunrise.jpg
+alt: The sun rising over a misty valley
+credit: Jane Example
+```
+
+Other collections should use Astro `reference("images")` fields, and Astro component props can use `CollectionEntry<"images">["id"]`. Posto stores only the entry ID in those locations. Imports validate all schema-derived metadata before writing and create the image and metadata as one rollback-safe operation.
+
+Managed deletion resolves the image path from metadata, scans supported frontmatter and MDX component references, and blocks deletion when a required reference, shared image, external path, or incomplete scan remains. Optional references must be explicitly approved for removal. Missing images, malformed metadata values, duplicate IDs, shared files, and paths outside the library are shown as diagnostics; Posto never guesses ownership from matching basenames or automatically removes orphan images.
+
 A fast and simple desktop editor for static, markdown-based personal websites. Posto lives a level up from a traditional IDE or code editor, enabling non-programmers to easily update a site built for them or serving as a more pleasant way for developers to make frequent updates to their static sites.
 
 ![](/screenshot.png)
