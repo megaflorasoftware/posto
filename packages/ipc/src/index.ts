@@ -1,5 +1,6 @@
 import { convertFileSrc, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as tauriOpen } from "@tauri-apps/plugin-dialog";
 import { openPath as tauriOpenPath, openUrl as tauriOpenUrl } from "@tauri-apps/plugin-opener";
 
@@ -756,6 +757,25 @@ export function deleteImageLibraryAsset(
 export const openDirectory: () => Promise<string | null> = inTauri
   ? () => tauriOpen({ directory: true })
   : async () => "/mock/site";
+
+export const openImageFile: () => Promise<string | null> = inTauri
+  ? async () => {
+      const selected = await tauriOpen({
+        multiple: false,
+        filters: [{ name: "Images", extensions: ["avif", "gif", "jpeg", "jpg", "png", "svg", "tif", "tiff", "webp"] }],
+      });
+      return typeof selected === "string" ? selected : null;
+    }
+  : async () => "/mock/uploads/photo.jpg";
+
+/** Routes native desktop file drops through one shared integration point. */
+export function onFileDrop(handler: (paths: string[]) => void): () => void {
+  if (!inTauri) return () => {};
+  const unlisten = getCurrentWebview().onDragDropEvent((event) => {
+    if (event.payload.type === "drop") handler(event.payload.paths);
+  });
+  return () => { void unlisten.then((stop) => stop()); };
+}
 
 /** URL that loads a local file in the webview, or null outside Tauri. */
 export function assetUrl(absolutePath: string): string | null {

@@ -685,3 +685,18 @@
 .sidebar-footer-action:hover {
   color: inherit;
 }
+.image-library-reference,
+.image-library-import-source {
+  display: flex;
+  align-items: end;
+  gap: 0.5rem;
+}
+
+.image-library-reference > :first-child,
+.image-library-import-source > :first-child {
+  flex: 1;
+}
+
+.image-library-metadata-fields {
+  margin-top: 0.75rem;
+}

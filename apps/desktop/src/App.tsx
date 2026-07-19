@@ -7,6 +7,7 @@ import { EMPTY_CONFIG, matchEntry } from "@posto/core/pagescms/config";
 import { parseFile } from "@posto/core/pagescms/frontmatter";
 import {
   EditorPane,
+  ImageLibraryDropImport,
   PublishModal,
   Sidebar,
   buildNewFile,
@@ -374,6 +375,16 @@ function App() {
             void git.publish(message);
           }}
         />
+
+        {root && config && (
+          <ImageLibraryDropImport
+            root={root}
+            config={config}
+            groups={files.groups}
+            onImported={() => void refreshGroups(root)}
+            onError={setStatus}
+          />
+        )}
 
         {!root ? (
           <div className="empty-state">

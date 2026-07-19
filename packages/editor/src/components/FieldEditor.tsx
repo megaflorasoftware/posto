@@ -33,6 +33,7 @@ import type { Errors } from "@posto/core/pagescms/validate";
 import type { FileEntry, FileGroup } from "@posto/ipc";
 import { assetUrl, invoke } from "@posto/ipc";
 import { ImagePicker } from "./ImagePicker";
+import { ImageLibraryReferenceField } from "./ImageLibraryReferenceField";
 
 export interface FieldContext {
   config: PagesConfig;
@@ -624,6 +625,12 @@ function referenceTemplate(template: string, root: string, file: FileEntry): str
 }
 
 function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
+  const imageLibrary = props.ctx.config.imageLibraries?.find(
+    (library) => library.collection === props.field.options?.collection,
+  );
+  if (props.field.options?.imageLibrary === true && imageLibrary) {
+    return <ImageLibraryReferenceField {...props} library={imageLibrary} />;
+  }
   const collection = props.ctx.config.content.find(
     (entry) => entry.type === "collection" && entry.name === props.field.options?.collection,
   );
