@@ -14,9 +14,7 @@
       {
         "title": "Posto",
         "width": 2400,
-        "height": 1350,
-        "maxWidth": 2400,
-        "maxHeight": 1350
+        "height": 1350
       }
     ],
     "security": {
