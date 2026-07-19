@@ -58,6 +58,8 @@ export interface AstroPropTypeContext {
   collections: AstroCollectionSchema[];
   /** File-backed collections that can power reference pickers. */
   editableCollections?: PagesConfig["content"];
+  /** Collections discovered as managed image libraries. */
+  imageLibraries?: PagesConfig["imageLibraries"];
 }
 
 function collectionSchema(
@@ -141,7 +143,17 @@ function astroContentField(
     case "id":
       if (!collection) return null;
       return editable && !editable.astroCustomIds
-        ? { name, type: "reference", options: { collection: collectionName, astroId: true } }
+        ? {
+            name,
+            type: "reference",
+            options: {
+              collection: collectionName,
+              astroId: true,
+              imageLibrary: context?.imageLibraries?.some(
+                (library) => library.collection === collectionName,
+              ) || undefined,
+            },
+          }
         : { name, type: "string" };
     case "filePath":
       return editable

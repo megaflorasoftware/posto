@@ -19,6 +19,28 @@ export interface Field {
   fields?: Field[];
 }
 
+export type ImageLibraryMetadataExtension = "yaml" | "yml" | "json";
+
+/** A local Astro glob collection that Posto can manage as paired image and
+ * metadata files. Paths are repository-root-relative. */
+export interface AstroImageLibrary {
+  collection: string;
+  base: string;
+  patterns: string[];
+  metadataExtensions: ImageLibraryMetadataExtension[];
+  imageFieldPath: string[];
+  fields: Field[];
+}
+
+export interface AstroImageLibraryDiagnostic {
+  collection: string;
+  code:
+    | "multiple-image-fields"
+    | "missing-loader-base"
+    | "unsupported-metadata-format";
+  message: string;
+}
+
 export interface MediaEntry {
   name: string;
   label?: string;
@@ -74,6 +96,8 @@ export interface PagesConfig {
   media: MediaEntry[];
   content: ContentEntry[];
   astroCollections?: AstroCollectionSchema[];
+  imageLibraries?: AstroImageLibrary[];
+  imageLibraryDiagnostics?: AstroImageLibraryDiagnostic[];
 }
 
 // Field types the form knows how to render; anything else falls back to a

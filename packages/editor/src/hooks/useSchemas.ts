@@ -131,6 +131,8 @@ export function useSchemas() {
           : (astroConfig?.media.length ? astroConfig.media : DEFAULT_ASTRO_MEDIA),
         content: [...(pagesConfig?.content ?? []), ...(astroConfig?.content ?? [])],
         astroCollections: astroConfig?.astroCollections,
+        imageLibraries: astroConfig?.imageLibraries,
+        imageLibraryDiagnostics: astroConfig?.imageLibraryDiagnostics,
       },
       postoConfig,
     );
