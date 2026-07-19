@@ -503,6 +503,8 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
         { name: "logo.png", path: `${dir}/nested/logo.png` },
       ];
     }
+    case "image_thumbnail":
+      return args?.path as string;
     case "list_directories": {
       const dir = args?.dir as string;
       const directories = new Set<string>([`${dir}/nested`]);
@@ -788,6 +790,33 @@ export function onFileDrop(handler: FileDropHandler): () => void {
 /** URL that loads a local file in the webview, or null outside Tauri. */
 export function assetUrl(absolutePath: string): string | null {
   return inTauri ? convertFileSrc(absolutePath) : null;
+}
+
+const thumbnailRequests = new Map<string, Promise<string | null>>();
+
+/** Returns a cached, bounded preview URL and falls back to the source when its
+ * format cannot be decoded by the native thumbnailer. Requests are only
+ * deduplicated while in flight so filesystem edits get a fresh cache key. */
+export function thumbnailUrl(
+  absolutePath: string,
+  maxWidth = 320,
+  maxHeight = 240,
+): Promise<string | null> {
+  const original = assetUrl(absolutePath);
+  if (!original) return Promise.resolve(null);
+  const key = `${absolutePath}:${maxWidth}:${maxHeight}`;
+  const pending = thumbnailRequests.get(key);
+  if (pending) return pending;
+  const request = invoke<string>("image_thumbnail", {
+    path: absolutePath,
+    maxWidth,
+    maxHeight,
+  })
+    .then((path) => assetUrl(path) ?? original)
+    .catch(() => original)
+    .finally(() => thumbnailRequests.delete(key));
+  thumbnailRequests.set(key, request);
+  return request;
 }
 
 /** Open a path in the OS file manager; no-op outside Tauri. */

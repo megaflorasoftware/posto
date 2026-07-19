@@ -66,6 +66,7 @@ pub fn run() {
     let builder = builder.invoke_handler(tauri::generate_handler![
         fs::list_files,
         fs::list_dir_files,
+        fs::image_thumbnail,
         fs::list_directories,
         fs::read_text_file,
         fs::write_text_file,
@@ -107,6 +108,7 @@ pub fn run() {
                 browser::close_in_app_browser,
                 fs::list_files,
                 fs::list_dir_files,
+                fs::image_thumbnail,
                 fs::list_directories,
                 fs::read_text_file,
                 fs::write_text_file,

@@ -1,6 +1,6 @@
 import { Folder, FolderUp } from "lucide-react";
 import type { ImageLibraryAsset } from "@posto/core/astro/imageLibrary";
-import { assetUrl } from "@posto/ipc";
+import { CachedImage } from "./CachedImage";
 
 function normalize(path: string): string {
   return path.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -20,6 +20,18 @@ function dirname(path: string): string {
 
 function parent(path: string): string {
   return path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+}
+
+function directoryPreviewImages(directory: string, assets: ImageLibraryAsset[]): string[] {
+  const folder = normalize(directory);
+  return assets
+    .flatMap((asset) => {
+      if (!asset.imagePath) return [];
+      const assetDirectory = normalize(dirname(asset.metadataPath));
+      if (assetDirectory !== folder && !assetDirectory.startsWith(`${folder}/`)) return [];
+      return asset.imagePath;
+    })
+    .slice(0, 4);
 }
 
 export function ImageLibraryBrowser(props: {
@@ -58,28 +70,44 @@ export function ImageLibraryBrowser(props: {
             <span className="picker-item-path">Go up a directory</span>
           </button>
         )}
-        {folders.map((folder) => (
-          <button
-            type="button"
-            className="picker-card picker-directory"
-            key={folder.path}
-            onClick={() => props.onDirectoryChange(
-              props.currentDirectory ? `${props.currentDirectory}/${folder.name}` : folder.name,
-            )}
-          >
-            <span className="picker-card-preview"><Folder size={36} /></span>
-            <span className="picker-item-name">{folder.name}</span>
-            <span className="picker-item-path">Directory</span>
-          </button>
-        ))}
+        {folders.map((folder) => {
+          const previews = directoryPreviewImages(folder.path, props.assets);
+          return (
+            <button
+              type="button"
+              className="picker-card picker-directory"
+              key={folder.path}
+              onClick={() => props.onDirectoryChange(
+                props.currentDirectory ? `${props.currentDirectory}/${folder.name}` : folder.name,
+              )}
+            >
+              {previews.length > 0 ? (
+                <span className="picker-card-preview picker-directory-preview-grid" data-image-count={previews.length}>
+                  {previews.map((path, index) => (
+                    <CachedImage key={`${path}:${index}`} path={path} alt="" loading="lazy" />
+                  ))}
+                  <span className="picker-directory-preview-badge"><Folder size={16} /></span>
+                </span>
+              ) : (
+                <span className="picker-card-preview"><Folder size={36} /></span>
+              )}
+              <span className="picker-item-name">{folder.name}</span>
+              <span className="picker-item-path">Directory</span>
+            </button>
+          );
+        })}
         {assets.map((asset) => {
           const valid = asset.health.includes("valid");
-          const src = asset.imagePath ? assetUrl(asset.imagePath) : null;
           const alt = typeof asset.metadata.alt === "string" ? asset.metadata.alt : asset.entryId;
           const content = (
             <>
               <span className="picker-card-preview">
-                {src ? <img src={src} alt={alt} loading="lazy" /> : <span className="picker-card-noimg">No preview</span>}
+                <CachedImage
+                  path={asset.imagePath}
+                  alt={alt}
+                  loading="lazy"
+                  fallback={<span className="picker-card-noimg">No preview</span>}
+                />
               </span>
               <span className="picker-item-name">{asset.entryId.split("/").pop()}</span>
               <span className="picker-item-path">{valid ? alt : asset.health.join(", ")}</span>

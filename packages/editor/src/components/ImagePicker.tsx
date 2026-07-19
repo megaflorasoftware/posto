@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { Button } from "@mantine/core";
 import { Dialog } from "./Dialog";
 
-import { assetUrl, invoke, openPath } from "@posto/ipc";
+import { invoke, openPath } from "@posto/ipc";
 import type { FileEntry } from "@posto/ipc";
 import type { MediaEntry } from "@posto/core/pagescms/config";
 import { mediaOutputPath } from "@posto/core/pagescms/config";
+import { CachedImage } from "./CachedImage";
 
 const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "ico"];
 
@@ -49,7 +50,6 @@ export function ImagePicker(props: {
           <div className="picker-grid">
             {files.map((file) => {
               const output = mediaOutputPath(props.root, props.media, file.path);
-              const src = assetUrl(file.path);
               return (
                 <button
                   key={file.path}
@@ -58,11 +58,12 @@ export function ImagePicker(props: {
                   onClick={() => output !== null && props.onPick(output)}
                 >
                   <span className="picker-card-preview">
-                    {src !== null ? (
-                      <img src={src} alt={file.name} loading="lazy" />
-                    ) : (
-                      <span className="picker-card-noimg">No preview</span>
-                    )}
+                    <CachedImage
+                      path={file.path}
+                      alt={file.name}
+                      loading="lazy"
+                      fallback={<span className="picker-card-noimg">No preview</span>}
+                    />
                   </span>
                   <span className="picker-item-name">{file.name}</span>
                   <span className="picker-item-path">{output ?? file.path}</span>

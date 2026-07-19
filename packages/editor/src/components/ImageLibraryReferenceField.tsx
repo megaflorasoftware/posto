@@ -5,7 +5,7 @@ import { serializeImageLibraryMetadata } from "@posto/core/astro/imageLibrary";
 import type { AstroImageLibrary, Field } from "@posto/core/pagescms/config";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 import { validateForm } from "@posto/core/pagescms/validate";
-import { assetUrl, invoke } from "@posto/ipc";
+import { invoke } from "@posto/ipc";
 import { AUTOSAVE_DELAY_MS } from "../autosave";
 import { useImageLibraryAssets } from "../hooks/useImageLibraryAssets";
 import {
@@ -16,6 +16,7 @@ import {
 } from "../imageLibraryMetadata";
 import { ImageLibraryImportDialog } from "./ImageLibraryImportDialog";
 import { ImageLibraryPickerDialog } from "./ImageLibraryPickerDialog";
+import { CachedImage } from "./CachedImage";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
 
 export function ImageLibraryReferenceField(props: {
@@ -38,7 +39,6 @@ export function ImageLibraryReferenceField(props: {
   const selected = typeof value === "string" ? value : null;
   const selectedAsset = libraryState.assets.find((asset) => asset.entryId === selected);
   const missing = selected && !libraryState.loading && !selectedAsset;
-  const thumbnail = selectedAsset?.imagePath ? assetUrl(selectedAsset.imagePath) : null;
   const metadataFields = useMemo(() => imageLibraryMetadataFields(props.library), [props.library]);
   const metadataErrors = validateForm(metadataFields, metadata);
 
@@ -157,7 +157,13 @@ export function ImageLibraryReferenceField(props: {
           onClick={() => setPickerOpen(true)}
         >
           <span className="image-library-reference-preview">
-            {thumbnail ? <img src={thumbnail} alt="" /> : <ImageIcon size={20} />}
+            <CachedImage
+              path={selectedAsset?.imagePath}
+              alt=""
+              thumbnailWidth={160}
+              thumbnailHeight={160}
+              fallback={<ImageIcon size={20} />}
+            />
           </span>
           <span className="image-library-reference-edit"><Pencil size={20} /></span>
         </button>

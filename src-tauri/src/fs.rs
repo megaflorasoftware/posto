@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Component, Path, PathBuf};
+use std::time::UNIX_EPOCH;
+use tauri::Manager;
 
 // Content formats only — code files (.ts, .js, .css, config files, …) are
 // deliberately excluded from the file chooser.
@@ -7,6 +10,10 @@ const TEXT_EXTENSIONS: &[&str] = &[
     "md", "mdx", "markdown", "txt", "html", "htm", "njk", "liquid", "hbs", "mustache", "ejs",
     "pug", "rst", "csv",
 ];
+#[cfg(mobile)]
+const MAX_THUMBNAIL_CACHE_BYTES: u64 = 48 * 1024 * 1024;
+#[cfg(not(mobile))]
+const MAX_THUMBNAIL_CACHE_BYTES: u64 = 96 * 1024 * 1024;
 
 pub(crate) const SKIP_DIRS: &[&str] = &["node_modules", "_site", "dist", "build", "out", "target"];
 
@@ -217,6 +224,126 @@ pub fn list_dir_files(dir: String, extensions: Vec<String>) -> Result<Vec<FileEn
     collect_dir_files(path, &extensions, &mut files);
     files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(files)
+}
+
+fn cached_image_thumbnail(
+    cache_root: &Path,
+    source: &Path,
+    max_width: u32,
+    max_height: u32,
+) -> Result<PathBuf, String> {
+    let max_width = max_width.clamp(1, 2048);
+    let max_height = max_height.clamp(1, 2048);
+    let metadata = source
+        .metadata()
+        .map_err(|error| format!("Could not inspect {}: {error}", source.display()))?;
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let mut hasher = DefaultHasher::new();
+    source.hash(&mut hasher);
+    max_width.hash(&mut hasher);
+    max_height.hash(&mut hasher);
+    let source_key = format!("{:016x}", hasher.finish());
+    let mut revision_hasher = DefaultHasher::new();
+    metadata.len().hash(&mut revision_hasher);
+    modified.hash(&mut revision_hasher);
+    let revision = revision_hasher.finish();
+    let cache_directory = cache_root.join("image-thumbnails");
+    let destination = cache_directory.join(format!("{source_key}-{revision:016x}.png"));
+    if destination.is_file() {
+        return Ok(destination);
+    }
+
+    std::fs::create_dir_all(&cache_directory)
+        .map_err(|error| format!("Could not create thumbnail cache: {error}"))?;
+    let image = image::ImageReader::open(source)
+        .map_err(|error| format!("Could not open {}: {error}", source.display()))?
+        .with_guessed_format()
+        .map_err(|error| format!("Could not identify {}: {error}", source.display()))?
+        .decode()
+        .map_err(|error| format!("Could not decode {}: {error}", source.display()))?;
+    image
+        .thumbnail(max_width, max_height)
+        .save_with_format(&destination, image::ImageFormat::Png)
+        .map_err(|error| {
+            format!(
+                "Could not cache thumbnail for {}: {error}",
+                source.display()
+            )
+        })?;
+    if let Ok(entries) = std::fs::read_dir(&cache_directory) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let is_previous_revision = path != destination
+                && path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with(&source_key));
+            if is_previous_revision {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+    prune_thumbnail_cache(&cache_directory);
+    Ok(destination)
+}
+
+fn prune_thumbnail_cache(directory: &Path) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    let mut files = entries
+        .flatten()
+        .filter_map(|entry| {
+            let metadata = entry.metadata().ok()?;
+            metadata.is_file().then(|| {
+                (
+                    entry.path(),
+                    metadata.len(),
+                    metadata.modified().unwrap_or(UNIX_EPOCH),
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut total = files.iter().map(|(_, length, _)| length).sum::<u64>();
+    if total <= MAX_THUMBNAIL_CACHE_BYTES {
+        return;
+    }
+    files.sort_by_key(|(_, _, modified)| *modified);
+    for (path, length, _) in files {
+        if total <= MAX_THUMBNAIL_CACHE_BYTES {
+            break;
+        }
+        if std::fs::remove_file(path).is_ok() {
+            total = total.saturating_sub(length);
+        }
+    }
+}
+
+/// Generates a bounded image preview once and returns its cache path. The
+/// source size and modification timestamp form part of the key, so edits
+/// naturally produce a fresh URL without loading stale webview cache data.
+#[tauri::command]
+pub async fn image_thumbnail(
+    app: tauri::AppHandle,
+    path: String,
+    max_width: u32,
+    max_height: u32,
+) -> Result<String, String> {
+    let cache_root = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("Could not locate app cache: {error}"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        cached_image_thumbnail(&cache_root, Path::new(&path), max_width, max_height)
+            .map(|path| path.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|error| format!("Thumbnail task failed: {error}"))?
 }
 
 fn collect_directories(dir: &Path, out: &mut Vec<String>) {
@@ -507,6 +634,29 @@ pub fn import_image_library_asset(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn image_thumbnails_are_bounded_cached_and_revisioned() {
+        let source_dir = tempfile::tempdir().unwrap();
+        let cache_dir = tempfile::tempdir().unwrap();
+        let source = source_dir.path().join("large.png");
+        image::RgbaImage::from_pixel(800, 600, image::Rgba([25, 100, 200, 255]))
+            .save(&source)
+            .unwrap();
+
+        let first = cached_image_thumbnail(cache_dir.path(), &source, 320, 240).unwrap();
+        let cached = cached_image_thumbnail(cache_dir.path(), &source, 320, 240).unwrap();
+        assert_eq!(first, cached);
+        assert_eq!(image::image_dimensions(&first).unwrap(), (320, 240));
+
+        image::RgbaImage::from_pixel(400, 800, image::Rgba([200, 50, 25, 255]))
+            .save(&source)
+            .unwrap();
+        let revised = cached_image_thumbnail(cache_dir.path(), &source, 320, 240).unwrap();
+        assert_ne!(first, revised);
+        assert_eq!(image::image_dimensions(&revised).unwrap(), (120, 240));
+        assert!(!first.exists(), "superseded revisions should be removed");
+    }
 
     #[test]
     fn directories_flatten_to_top_level_groups() {

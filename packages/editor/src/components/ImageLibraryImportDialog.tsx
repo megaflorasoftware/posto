@@ -6,7 +6,6 @@ import type { AstroImageLibrary, PagesConfig } from "@posto/core/pagescms/config
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 import { validateForm } from "@posto/core/pagescms/validate";
 import {
-  assetUrl,
   onFileDrop,
   type FileGroup,
   type ImageLibraryImportResult,
@@ -15,6 +14,7 @@ import { useImageLibraryAssets } from "../hooks/useImageLibraryAssets";
 import { useImageLibraryImport } from "../hooks/useImageLibraryImport";
 import { editValueAtPath, imageLibraryMetadataFields, valueAtPath } from "../imageLibraryMetadata";
 import { Dialog } from "./Dialog";
+import { CachedImage } from "./CachedImage";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
 import { ImageLibraryBrowser } from "./ImageLibraryBrowser";
 
@@ -165,9 +165,11 @@ export function ImageLibraryImportDialog(props: {
       {step === "details" && (
         <div className="image-library-import-details">
           <div className="image-library-import-preview">
-            {importer.draft.sourceImagePath && assetUrl(importer.draft.sourceImagePath)
-              ? <img src={assetUrl(importer.draft.sourceImagePath) ?? undefined} alt="" />
-              : <ImageIcon size={28} />}
+            <CachedImage
+              path={importer.draft.sourceImagePath}
+              alt=""
+              fallback={<ImageIcon size={28} />}
+            />
           </div>
           <div className="image-library-import-form">
             <TextInput

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Alert, Button } from "@mantine/core";
 
-import { assetUrl, invoke } from "@posto/ipc";
+import { CachedImage } from "@posto/editor";
+import { invoke } from "@posto/ipc";
 import { mediaInputPath, type MediaEntry } from "@posto/core/pagescms/config";
 
 // Search/social previews built from the *rendered* page's <head> — fetched
@@ -56,50 +57,51 @@ function truncate(text: string, max: number): string {
 /**
  * Resolves a page-relative or absolute asset URL to something the webview can
  * load. Meta tags usually carry production URLs, so only the path matters.
- * Files are loaded from disk the same way body/field image previews do —
- * media source first, then the site's `public` folder — because the webview
- * refuses http://localhost subresources. The dev-server URL remains as the
- * non-Tauri (mock) fallback.
+ * Files resolve from the media source first, then the site's `public` folder,
+ * and are displayed through the shared thumbnail cache. The dev-server URL
+ * remains as the non-Tauri (mock) fallback.
  */
+interface LocalAsset {
+  path: string | null;
+  fallbackSrc: string | null;
+}
+
 function localAsset(
   src: string | null,
   root: string,
   media: MediaEntry | null,
   port: number,
-): string | null {
-  if (!src) return null;
+): LocalAsset {
+  if (!src) return { path: null, fallbackSrc: null };
   let pathname: string;
   try {
     pathname = new URL(src, `http://localhost:${port}`).pathname;
   } catch {
-    return null;
+    return { path: null, fallbackSrc: null };
   }
   const absolute = media ? mediaInputPath(root, media, pathname) : null;
-  return (
-    (absolute && assetUrl(absolute)) ||
-    assetUrl(root + "/public" + pathname) ||
-    `http://localhost:${port}${pathname}`
-  );
+  return {
+    path: absolute || root + "/public" + pathname,
+    fallbackSrc: `http://localhost:${port}${pathname}`,
+  };
 }
 
-function CardImage(props: { src: string | null; modifier: string }) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    setFailed(false);
-  }, [props.src]);
-  if (!props.src || failed) {
-    return (
-      <div className={`seo-card-image seo-card-image-empty ${props.modifier}`}>
-        {props.src ? "Image failed to load" : "No image"}
-      </div>
-    );
-  }
+function CardImage(props: { source: LocalAsset; modifier: string }) {
+  const hasSource = !!(props.source.path || props.source.fallbackSrc);
+  const fallback = (
+    <div className={`seo-card-image seo-card-image-empty ${props.modifier}`}>
+      {hasSource ? null : "No image"}
+    </div>
+  );
   return (
-    <img
+    <CachedImage
       className={`seo-card-image ${props.modifier}`}
-      src={props.src}
+      path={props.source.path}
+      fallbackSrc={props.source.fallbackSrc}
+      fallback={fallback}
+      thumbnailWidth={640}
+      thumbnailHeight={360}
       alt=""
-      onError={() => setFailed(true)}
     />
   );
 }
@@ -172,7 +174,7 @@ export function SeoPreview(props: {
 
   const missing = (what: string) => <span className="seo-missing">Missing {what}</span>;
 
-  const cardImageArea = (modifier: string) => <CardImage src={cardImage} modifier={modifier} />;
+  const cardImageArea = (modifier: string) => <CardImage source={cardImage} modifier={modifier} />;
 
   return (
     <div className="seo-preview">
@@ -198,7 +200,16 @@ export function SeoPreview(props: {
             <h3 className="seo-heading">Google</h3>
             <div className="seo-google">
               <div className="seo-google-site">
-                {favicon && <img className="seo-google-favicon" src={favicon} alt="" />}
+                {(favicon.path || favicon.fallbackSrc) && (
+                  <CachedImage
+                    className="seo-google-favicon"
+                    path={favicon.path}
+                    fallbackSrc={favicon.fallbackSrc}
+                    thumbnailWidth={64}
+                    thumbnailHeight={64}
+                    alt=""
+                  />
+                )}
                 <div className="seo-google-source">
                   <div className="seo-google-name">{seo.ogSiteName ?? displayUrl.host}</div>
                   <div className="seo-google-url">{displayUrl.breadcrumb}</div>

@@ -32,7 +32,8 @@ import { applyCollectionPrefs } from "../collectionPrefs";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 import type { Errors } from "@posto/core/pagescms/validate";
 import type { FileEntry, FileGroup } from "@posto/ipc";
-import { assetUrl, invoke } from "@posto/ipc";
+import { invoke } from "@posto/ipc";
+import { CachedImage } from "./CachedImage";
 import { ImagePicker } from "./ImagePicker";
 import { ImageLibraryReferenceField } from "./ImageLibraryReferenceField";
 
@@ -434,7 +435,7 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
     return `Item ${index + 1}`;
   }
 
-  function thumbSrc(index: number): string | null {
+  function thumbPath(index: number): string | null {
     if (!previewImage) return null;
     const value = descendantString(itemRecord(index), previewImage.path);
     if (!value) return null;
@@ -446,11 +447,11 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
     );
     if (!media) return null;
     const absolute = mediaInputPath(props.ctx.root, media, value);
-    return absolute ? assetUrl(absolute) : null;
+    return absolute;
   }
 
   const objectRow = (index: number) => {
-    const thumb = thumbSrc(index);
+    const thumb = thumbPath(index);
     return expanded.has(index) ? (
       <SortableRow key={index} index={index} className="list-item expanded-item">
         <div className="list-item-body">
@@ -472,7 +473,18 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
       <SortableRow key={index} index={index} className="list-item collapsed-item">
         {previewImage &&
           (thumb ? (
-            <img className="thumb" src={thumb} alt="" />
+            <CachedImage
+              className="thumb"
+              path={thumb}
+              alt=""
+              thumbnailWidth={64}
+              thumbnailHeight={64}
+              fallback={
+                <span className="thumb thumb-placeholder">
+                  <Image size={16} />
+                </span>
+              }
+            />
           ) : (
             <span className="thumb thumb-placeholder">
               <Image size={16} />
