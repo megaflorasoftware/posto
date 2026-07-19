@@ -103,26 +103,6 @@ export interface ImageLibraryImportResult {
   metadataPath: string;
 }
 
-export interface ImageLibraryContentEdit {
-  path: string;
-  originalContent: string;
-  content: string;
-}
-
-export interface ImageLibraryDeleteRequest {
-  repositoryRoot: string;
-  libraryRoot: string;
-  imagePath: string;
-  metadataPath: string;
-  expectedMetadataContent: string;
-  contentEdits: ImageLibraryContentEdit[];
-}
-
-export interface ImageLibraryDeleteResult {
-  removed: string[];
-  modified: string[];
-}
-
 // Browser-only mock so the UI can be developed and tested outside the Tauri
 // shell (invoke/dialog are unavailable there).
 const mockFiles: Record<string, string> = {
@@ -551,23 +531,6 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       mockDeleted.delete(plan.destinationMetadataPath);
       return { entryId: plan.entryId, imagePath: plan.destinationImagePath, metadataPath: plan.destinationMetadataPath };
     }
-    case "delete_image_library_asset": {
-      const plan = args?.plan as ImageLibraryDeleteRequest;
-      if (mockFiles[plan.metadataPath] !== plan.expectedMetadataContent) {
-        throw new Error("Image metadata changed after deletion was planned");
-      }
-      for (const edit of plan.contentEdits) {
-        if (mockFiles[edit.path] !== edit.originalContent) {
-          throw new Error(`Content changed after deletion was planned: ${edit.path}`);
-        }
-      }
-      delete mockFiles[plan.imagePath];
-      delete mockFiles[plan.metadataPath];
-      mockDeleted.add(plan.imagePath);
-      mockDeleted.add(plan.metadataPath);
-      for (const edit of plan.contentEdits) mockFiles[edit.path] = edit.content;
-      return { removed: [plan.imagePath, plan.metadataPath], modified: plan.contentEdits.map((edit) => edit.path) };
-    }
     case "revert_file":
       return null;
     case "open_in_app_browser":
@@ -746,12 +709,6 @@ export function importImageLibraryAsset(
   plan: ImageLibraryImportRequest,
 ): Promise<ImageLibraryImportResult> {
   return invoke("import_image_library_asset", { plan });
-}
-
-export function deleteImageLibraryAsset(
-  plan: ImageLibraryDeleteRequest,
-): Promise<ImageLibraryDeleteResult> {
-  return invoke("delete_image_library_asset", { plan });
 }
 
 export const openDirectory: () => Promise<string | null> = inTauri

@@ -1,220 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
-import { Alert, Button, Select, TextInput } from "@mantine/core";
-import {
-  discoverImageLibraryAssets,
-  planMediaDelete,
-  type ImageLibraryAsset,
-  type MediaUsage,
-} from "@posto/core/astro/imageLibrary";
+import { useState } from "react";
+import { ActionIcon, Alert, Button, TextInput } from "@mantine/core";
+import { Image as ImageIcon, X } from "lucide-react";
 import type { AstroImageLibrary, Field } from "@posto/core/pagescms/config";
-import { validateForm } from "@posto/core/pagescms/validate";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
-import { assetUrl, deleteImageLibraryAsset, invoke, onFileDrop, onFsChanged, type FileEntry } from "@posto/ipc";
-import { useImageLibraryImport } from "../hooks/useImageLibraryImport";
-import { buildOptionalReferenceEdits, scanMediaReferences, type ScannedMediaReferences } from "../mediaLibraryDeletion";
-import { Dialog } from "./Dialog";
-import { FieldEditor, type FieldContext } from "./FieldEditor";
-
-function withoutImageField(fields: Field[], imagePath: string[], prefix: string[] = []): Field[] {
-  return fields.flatMap((field) => {
-    const path = [...prefix, field.name];
-    if (path.length === imagePath.length && path.every((part, index) => part === imagePath[index])) return [];
-    return [{ ...field, fields: field.fields ? withoutImageField(field.fields, imagePath, path) : undefined }];
-  });
-}
-
-function valueAt(root: unknown, path: ValuePath): unknown {
-  let value = root;
-  for (const key of path) {
-    if (!value || typeof value !== "object") return undefined;
-    value = (value as Record<string | number, unknown>)[key];
-  }
-  return value;
-}
-
-function editValue(root: Record<string, unknown>, path: ValuePath, value: unknown): Record<string, unknown> {
-  const next = structuredClone(root);
-  let target: Record<string | number, unknown> = next;
-  path.forEach((key, index) => {
-    if (index === path.length - 1) {
-      if (value === undefined) delete target[key];
-      else target[key] = value;
-      return;
-    }
-    const nextKey = path[index + 1];
-    if (!target[key] || typeof target[key] !== "object") target[key] = typeof nextKey === "number" ? [] : {};
-    target = target[key] as Record<string | number, unknown>;
-  });
-  return next;
-}
-
-export function ImageLibraryImportDialog(props: {
-  root: string;
-  library: AstroImageLibrary;
-  ctx: FieldContext;
-  sourcePath?: string;
-  onClose: () => void;
-  onImported: (entryId: string) => void;
-}) {
-  const metadataFields = useMemo(
-    () => withoutImageField(props.library.fields, props.library.imageFieldPath),
-    [props.library],
-  );
-  const importer = useImageLibraryImport({
-    root: props.root,
-    library: props.library,
-    onImported: (result) => props.onImported(result.entryId),
-  });
-  useEffect(() => {
-    if (props.sourcePath) importer.setSource(props.sourcePath);
-  }, [props.sourcePath]);
-  const errors = validateForm(metadataFields, importer.draft.metadata);
-  const update = (path: ValuePath, value: unknown) => {
-    importer.setDraft((draft) => ({ ...draft, metadata: editValue(draft.metadata, path, value) }));
-  };
-  const fieldCtx: FieldContext = {
-    ...props.ctx,
-    entry: null,
-    errors: () => errors,
-    templateValues: () => importer.draft.metadata,
-    value: (path) => valueAt(importer.draft.metadata, path),
-    edit: update,
-    listAppend: (path, value) => {
-      const list = valueAt(importer.draft.metadata, path);
-      update(path, [...(Array.isArray(list) ? list : []), value]);
-    },
-    listRemove: (path, index) => {
-      const list = valueAt(importer.draft.metadata, path);
-      if (Array.isArray(list)) update(path, list.filter((_item, itemIndex) => itemIndex !== index));
-    },
-    listMove: (path, from, to) => {
-      const list = valueAt(importer.draft.metadata, path);
-      if (!Array.isArray(list)) return;
-      const moved = [...list];
-      const [item] = moved.splice(from, 1);
-      moved.splice(to, 0, item);
-      update(path, moved);
-    },
-  };
-
-  return (
-    <Dialog opened onClose={props.onClose} title={`Import into ${props.library.collection}`} size="lg">
-      {importer.error && <Alert color="red" mb="sm">{importer.error}</Alert>}
-      <div className="image-library-import-source">
-        <TextInput
-          size="xs"
-          readOnly
-          label="Image"
-          placeholder="Choose an image"
-          value={importer.draft.sourceImagePath ?? ""}
-        />
-        <Button size="xs" variant="default" onClick={() => void importer.chooseSource()}>Choose…</Button>
-      </div>
-      <TextInput
-        size="xs"
-        label="Destination folder"
-        description="Optional path inside the library"
-        value={importer.draft.folder}
-        onChange={(event) => importer.setDraft((draft) => ({ ...draft, folder: event.currentTarget.value }))}
-      />
-      <TextInput
-        size="xs"
-        label="Filename"
-        value={importer.draft.filename}
-        onChange={(event) => importer.setDraft((draft) => ({ ...draft, filename: event.currentTarget.value }))}
-      />
-      {props.library.metadataExtensions.length > 1 && (
-        <Select
-          size="xs"
-          label="Metadata format"
-          data={props.library.metadataExtensions}
-          value={importer.draft.metadataExtension ?? null}
-          onChange={(value) => importer.setDraft((draft) => ({ ...draft, metadataExtension: value as typeof draft.metadataExtension }))}
-        />
-      )}
-      <div className="form-fields image-library-metadata-fields">
-        {metadataFields.map((field) => <FieldEditor key={field.name} field={field} path={[field.name]} ctx={fieldCtx} />)}
-      </div>
-      <Button
-        fullWidth
-        mt="md"
-        loading={importer.pending}
-        disabled={!importer.draft.sourceImagePath || errors.size > 0}
-        onClick={() => void importer.execute().then((result) => { if (result) props.onClose(); })}
-      >
-        Import image
-      </Button>
-    </Dialog>
-  );
-}
-
-const DROPPED_IMAGE = /\.(?:avif|gif|jpe?g|png|svg|tiff?|webp)$/i;
-
-/** Desktop-level drop integration. Contextual and global imports both render
- * the same schema-driven dialog and execute through the same controller. */
-export function ImageLibraryDropImport(props: {
-  root: string;
-  config: FieldContext["config"];
-  groups: FieldContext["groups"];
-  onImported: () => void;
-  onError?: (message: string) => void;
-}) {
-  const [source, setSource] = useState<string | null>(null);
-  const [collection, setCollection] = useState<string | null>(null);
-  const libraries = props.config.imageLibraries ?? [];
-  useEffect(() => onFileDrop((paths) => {
-    const images = paths.filter((path) => DROPPED_IMAGE.test(path));
-    if (images.length === 0) return;
-    if (images.length > 1) {
-      props.onError?.("Image libraries currently import one image at a time.");
-      return;
-    }
-    if (libraries.length === 0) {
-      props.onError?.("This project has no editable Astro image library.");
-      return;
-    }
-    setSource(images[0]);
-    setCollection(libraries.length === 1 ? libraries[0].collection : null);
-  }), [libraries, props.onError]);
-  const library = libraries.find((candidate) => candidate.collection === collection) ?? null;
-  const close = () => { setSource(null); setCollection(null); };
-  const ctx: FieldContext = {
-    config: props.config,
-    root: props.root,
-    entry: null,
-    groups: props.groups,
-    errors: () => new Map(),
-    templateValues: () => ({}),
-    value: () => undefined,
-    edit: () => {},
-    listAppend: () => {},
-    listRemove: () => {},
-    listMove: () => {},
-  };
-  if (!source) return null;
-  if (!library) {
-    return (
-      <Dialog opened onClose={close} title="Choose image library" size="sm">
-        <Select
-          label="Library"
-          data={libraries.map((candidate) => ({ value: candidate.collection, label: candidate.collection }))}
-          value={collection}
-          onChange={setCollection}
-        />
-      </Dialog>
-    );
-  }
-  return (
-    <ImageLibraryImportDialog
-      root={props.root}
-      library={library}
-      ctx={ctx}
-      sourcePath={source}
-      onClose={close}
-      onImported={() => { props.onImported(); close(); }}
-    />
-  );
-}
+import { assetUrl } from "@posto/ipc";
+import { useImageLibraryAssets } from "../hooks/useImageLibraryAssets";
+import { ImageLibraryImportDialog } from "./ImageLibraryImportDialog";
+import { ImageLibraryPickerDialog } from "./ImageLibraryPickerDialog";
+import type { FieldContext } from "./FieldEditor";
 
 export function ImageLibraryReferenceField(props: {
   field: Field;
@@ -222,190 +15,58 @@ export function ImageLibraryReferenceField(props: {
   ctx: FieldContext;
   library: AstroImageLibrary;
 }) {
-  const [assets, setAssets] = useState<ImageLibraryAsset[]>([]);
-  const [error, setError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [manageOpen, setManageOpen] = useState(false);
-  const [refresh, setRefresh] = useState(0);
-  const root = `${props.ctx.root}/${props.library.base}`;
-  useEffect(() => {
-    let cancelled = false;
-    invoke<FileEntry[]>("list_dir_files", { dir: root, extensions: [] })
-      .then(async (files) => {
-        const metadata = files.filter((file) => props.library.metadataExtensions.includes(file.name.split(".").pop()?.toLowerCase() as never));
-        const documents = await Promise.all(metadata.map(async (file) => ({ path: file.path, content: await invoke<string>("read_text_file", { path: file.path }) })));
-        if (!cancelled) {
-          setAssets(discoverImageLibraryAssets(props.library, props.ctx.root, documents, files.map((file) => file.path)));
-          setError(null);
-        }
-      })
-      .catch((caught) => { if (!cancelled) setError(String(caught)); });
-    return () => { cancelled = true; };
-  }, [root, props.library, refresh]);
-  useEffect(
-    () => onFsChanged((paths) => {
-      if (paths.some((path) => path === root || path.startsWith(`${root}/`))) {
-        setRefresh((value) => value + 1);
-      }
-    }),
-    [root],
-  );
-  const value = valueAt(props.ctx.templateValues(), props.path);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const libraryState = useImageLibraryAssets(props.ctx.root, props.library);
+  const value = props.ctx.value(props.path);
   const selected = typeof value === "string" ? value : null;
-  const options = assets.map((asset) => ({
-    value: asset.entryId,
-    label: asset.health.includes("valid") ? asset.entryId : `${asset.entryId} (${asset.health.join(", ")})`,
-    disabled: !asset.health.includes("valid"),
-  }));
-  if (selected && !options.some((option) => option.value === selected)) {
-    options.unshift({ value: selected, label: `${selected} (missing)`, disabled: false });
-  }
+  const selectedAsset = libraryState.assets.find((asset) => asset.entryId === selected);
+  const missing = selected && !libraryState.loading && !selectedAsset;
+  const thumbnail = selectedAsset?.imagePath ? assetUrl(selectedAsset.imagePath) : null;
+
   return (
     <>
-      {error && <Alert color="yellow" mb="xs">Could not read image library: {error}</Alert>}
+      {libraryState.error && <Alert color="yellow" mb="xs">Could not read image library: {libraryState.error}</Alert>}
       <div className="image-library-reference">
-        <Select
-          size="xs"
-          clearable={!props.field.required}
-          searchable
-          data={options}
-          value={selected}
-          onChange={(next) => props.ctx.edit(props.path, next || undefined)}
-        />
-        <Button size="xs" variant="default" onClick={() => setImportOpen(true)}>Import…</Button>
-        <Button size="xs" variant="subtle" onClick={() => setManageOpen(true)}>Manage…</Button>
+        <span className="image-library-reference-thumbnail">
+          {thumbnail ? <img src={thumbnail} alt="" /> : <ImageIcon size={20} />}
+        </span>
+        <div className="image-library-reference-controls">
+          <TextInput size="xs" readOnly value={selected ?? ""} placeholder="No image selected" error={missing ? "Missing image entry" : undefined} />
+          <Button size="xs" variant="default" onClick={() => setPickerOpen(true)}>Choose…</Button>
+          <Button size="xs" variant="default" onClick={() => setImportOpen(true)}>Import…</Button>
+          {selected && !props.field.required && (
+            <ActionIcon variant="subtle" color="gray" size="sm" title="Clear" onClick={() => props.ctx.edit(props.path, undefined)}>
+              <X size={14} />
+            </ActionIcon>
+          )}
+        </div>
       </div>
+      {pickerOpen && (
+        <ImageLibraryPickerDialog
+          root={props.ctx.root}
+          library={props.library}
+          assets={libraryState.assets}
+          onClose={() => setPickerOpen(false)}
+          onPick={(asset) => {
+            props.ctx.edit(props.path, asset.entryId);
+            setPickerOpen(false);
+          }}
+        />
+      )}
       {importOpen && (
         <ImageLibraryImportDialog
           root={props.ctx.root}
           library={props.library}
-          ctx={props.ctx}
+          config={props.ctx.config}
+          groups={props.ctx.groups}
           onClose={() => setImportOpen(false)}
           onImported={(entryId) => {
             props.ctx.edit(props.path, entryId);
-            setRefresh((value) => value + 1);
-          }}
-        />
-      )}
-      {manageOpen && (
-        <ImageLibraryManagerDialog
-          library={props.library}
-          assets={assets}
-          ctx={props.ctx}
-          onClose={() => setManageOpen(false)}
-          onDeleted={(entryId) => {
-            if (selected === entryId) props.ctx.edit(props.path, undefined);
-            setRefresh((value) => value + 1);
+            void libraryState.refresh();
           }}
         />
       )}
     </>
-  );
-}
-
-function ImageLibraryManagerDialog(props: {
-  library: AstroImageLibrary;
-  assets: ImageLibraryAsset[];
-  ctx: FieldContext;
-  onClose: () => void;
-  onDeleted: (entryId: string) => void;
-}) {
-  const [error, setError] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
-  const [approval, setApproval] = useState<{
-    asset: ImageLibraryAsset;
-    usages: MediaUsage[];
-    scan: ScannedMediaReferences;
-  } | null>(null);
-
-  async function execute(asset: ImageLibraryAsset, usages: MediaUsage[], scan: ScannedMediaReferences) {
-    const optional = usages.filter((usage) => !usage.required);
-    const contentEdits = buildOptionalReferenceEdits(optional, scan.sources);
-    const operation = planMediaDelete({
-      library: props.library,
-      repositoryRoot: props.ctx.root,
-      asset,
-      usages,
-      coverageComplete: scan.complete,
-      approvedOptionalUsages: optional,
-      contentEdits,
-    });
-    await deleteImageLibraryAsset({
-      repositoryRoot: operation.repositoryRoot,
-      libraryRoot: operation.libraryRoot,
-      imagePath: operation.imagePath,
-      metadataPath: operation.metadataPath,
-      expectedMetadataContent: operation.expectedMetadataContent,
-      contentEdits: operation.contentEdits,
-    });
-    props.onDeleted(asset.entryId);
-    setApproval(null);
-  }
-
-  async function requestDelete(asset: ImageLibraryAsset) {
-    setDeleting(asset.entryId);
-    setError(null);
-    try {
-      await props.ctx.beforeMediaOperation?.();
-      const scan = await scanMediaReferences(props.ctx.root, props.ctx.config, props.ctx.groups);
-      const usages = scan.usages.filter(
-        (usage) => usage.targetCollection === props.library.collection && usage.entryId === asset.entryId,
-      );
-      if (!scan.complete) throw new Error(scan.errors[0]?.message ?? "Reference coverage is incomplete.");
-      const required = usages.find((usage) => usage.required);
-      if (required) throw new Error(`Required reference remains in ${required.sourcePath}.`);
-      if (usages.length > 0) setApproval({ asset, usages, scan });
-      else await execute(asset, usages, scan);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setDeleting(null);
-    }
-  }
-
-  return (
-    <Dialog opened onClose={props.onClose} title={props.library.collection} size="lg">
-      {error && <Alert color="red" mb="sm">{error}</Alert>}
-      {approval && (
-        <Alert color="yellow" mb="sm">
-          This asset has {approval.usages.length} optional reference{approval.usages.length === 1 ? "" : "s"}.
-          <Button
-            size="xs"
-            color="red"
-            ml="sm"
-            onClick={() => void execute(approval.asset, approval.usages, approval.scan).catch((caught) => setError(String(caught)))}
-          >
-            Remove references and delete
-          </Button>
-        </Alert>
-      )}
-      <div className="image-library-assets">
-        {props.assets.length === 0 && <div>No metadata entries found.</div>}
-        {props.assets.map((asset) => (
-          <div key={`${asset.entryId}:${asset.metadataPath}`} className="image-library-asset-row">
-            {asset.imagePath && assetUrl(asset.imagePath) && (
-              <img
-                className="image-library-asset-preview"
-                src={assetUrl(asset.imagePath)!}
-                alt={typeof asset.metadata.alt === "string" ? asset.metadata.alt : asset.entryId}
-              />
-            )}
-            <div>
-              <strong>{asset.entryId}</strong>
-              <div className="field-description">{asset.health.join(", ")}</div>
-            </div>
-            <Button
-              size="xs"
-              variant="light"
-              color="red"
-              loading={deleting === asset.entryId}
-              onClick={() => void requestDelete(asset)}
-            >
-              Delete
-            </Button>
-          </div>
-        ))}
-      </div>
-    </Dialog>
   );
 }

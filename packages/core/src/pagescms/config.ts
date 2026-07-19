@@ -35,8 +35,10 @@ export interface AstroImageLibrary {
 export interface AstroImageLibraryDiagnostic {
   collection: string;
   code:
+    | "custom-entry-ids"
     | "multiple-image-fields"
     | "missing-loader-base"
+    | "unsupported-image-shape"
     | "unsupported-metadata-format";
   message: string;
 }

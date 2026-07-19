@@ -422,7 +422,6 @@ function App() {
                   onTabChange={setEditorTab}
                   onEdit={currentFile.onEdit}
                   onFormEdit={currentFile.onFormEdit}
-                  beforeMediaOperation={currentFile.flushPendingSave}
                 />
               </div>
 

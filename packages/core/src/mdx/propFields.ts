@@ -142,16 +142,14 @@ function astroContentField(
   switch (property) {
     case "id":
       if (!collection) return null;
-      return editable && !editable.astroCustomIds
+      return context?.imageLibraries?.some((library) => library.collection === collectionName) ||
+        (editable && !editable.astroCustomIds)
         ? {
             name,
             type: "reference",
             options: {
               collection: collectionName,
               astroId: true,
-              imageLibrary: context?.imageLibraries?.some(
-                (library) => library.collection === collectionName,
-              ) || undefined,
             },
           }
         : { name, type: "string" };

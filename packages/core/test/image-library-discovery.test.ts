@@ -1,4 +1,4 @@
-import { buildAstroConfig, markImageLibraryReferences, parseLoaderConfig } from "../src/astro/collections";
+import { buildAstroConfig, parseLoaderConfig } from "../src/astro/collections";
 import type { Field } from "../src/pagescms/config";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -10,7 +10,7 @@ export const imageSchema = ({ image }) => z.object({
   asset: z.object({ source: image(), alt: z.string() }),
 });
 const images = defineCollection({
-  loader: glob({ pattern: "**/*.{yml,yaml}", base: "./src/data/images" }),
+  loader: glob({ pattern: ["**/*.{yml,yaml}", "!videos/**/*.{yml,yaml}"], base: "./src/data/images" }),
   schema: imageSchema,
 });
 const jsonImages = defineCollection({
@@ -21,15 +21,24 @@ const gallery = defineCollection({
   loader: glob({ pattern: "**/*.yml", base: "./src/data/gallery" }),
   schema: z.object({ before: image(), after: image() }),
 });
+const imageList = defineCollection({
+  loader: glob({ pattern: "**/*.yml", base: "./src/data/image-list" }),
+  schema: z.object({ images: z.array(image()) }),
+});
+const generatedImages = defineCollection({
+  loader: glob({ pattern: "**/*.yml", base: "./src/data/generated", generateId: ({ data }) => data.key }),
+  schema: z.object({ image: image() }),
+});
 const blog = defineCollection({
   loader: glob({ pattern: "**/*.md", base: "./src/blog" }),
   schema: z.object({ hero: reference("images"), cards: z.array(z.object({ art: reference("images") })) }),
 });
-export const collections = { images, jsonImages, gallery, blog };
+export const collections = { images, jsonImages, gallery, imageList, generatedImages, blog };
 `);
 
-assert(loaders.get("images")?.images?.[0]?.join(".") === "asset.source", "external nested image schema path");
+assert(loaders.get("images")?.images?.[0]?.path.join(".") === "asset.source", "external nested image schema path");
 assert(loaders.get("gallery")?.images?.length === 2, "multiple images retained");
+assert(loaders.get("imageList")?.images?.[0]?.writable === false, "image arrays are not writable libraries");
 
 const nested: Field = {
   name: "asset",
@@ -44,6 +53,8 @@ const config = buildAstroConfig(
     { name: "images", fields: [nested] },
     { name: "jsonImages", fields: [{ name: "image", type: "string" }, { name: "caption", type: "string" }] },
     { name: "gallery", fields: [{ name: "before", type: "string" }, { name: "after", type: "string" }] },
+    { name: "imageList", fields: [{ name: "images", type: "string", list: true }] },
+    { name: "generatedImages", fields: [{ name: "image", type: "string" }] },
     { name: "blog", fields: [{ name: "hero", type: "reference" }, { name: "cards", type: "object", list: true, fields: [{ name: "art", type: "reference" }] }] },
   ],
   loaders,
@@ -52,15 +63,11 @@ const config = buildAstroConfig(
 assert(config.imageLibraries?.length === 2, "yaml and json libraries discovered");
 assert(config.imageLibraries[0].imageFieldPath.join(".") === "asset.source", "path preserved");
 assert(config.imageLibraries[0].fields[0].fields?.[0].type === "image", "only nested field upgraded");
-assert(config.imageLibraryDiagnostics?.[0]?.code === "multiple-image-fields", "ambiguity diagnosed");
+assert(config.imageLibraryDiagnostics?.some((item) => item.code === "multiple-image-fields"), "ambiguity diagnosed");
+assert(config.imageLibraryDiagnostics?.some((item) => item.code === "unsupported-image-shape"), "image arrays diagnosed");
+assert(config.imageLibraryDiagnostics?.some((item) => item.code === "custom-entry-ids"), "custom IDs diagnosed");
 const blog = config.content.find((entry) => entry.name === "blog");
-assert(blog?.fields[0].options?.imageLibrary === true, "top-level reference marked");
-assert(blog?.fields[1].fields?.[0].options?.imageLibrary === true, "nested reference marked");
-const pagesOverride = markImageLibraryReferences(
-  [{ name: "hero", type: "reference", options: { collection: "images", label: "{primary}" } }],
-  config.imageLibraries ?? [],
-);
-assert(pagesOverride[0].options?.imageLibrary === true, ".pages reference marked");
-assert(pagesOverride[0].options?.label === "{primary}", ".pages options preserved");
+assert(blog?.fields[0].options?.astroId === true, "top-level reference keeps Astro ID semantics");
+assert(blog?.fields[1].fields?.[0].options?.astroId === true, "nested reference keeps Astro ID semantics");
 
 console.log("image library discovery tests passed");

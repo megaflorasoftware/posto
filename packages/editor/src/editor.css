@@ -688,35 +688,56 @@
 .image-library-reference,
 .image-library-import-source {
   display: flex;
-  align-items: end;
+  align-items: center;
   gap: 0.5rem;
 }
 
-.image-library-reference > :first-child,
 .image-library-import-source > :first-child {
   flex: 1;
 }
 
-.image-library-metadata-fields {
-  margin-top: 0.75rem;
+.image-library-reference {
+  width: 100%;
 }
 
-.image-library-asset-row {
+.image-library-reference-controls {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.6rem 0;
-  border-bottom: 1px solid var(--mantine-color-default-border);
+  gap: 0.35rem;
 }
 
-.image-library-asset-row > div {
+.image-library-reference-controls .mantine-TextInput-root {
   flex: 1;
+  min-width: 0;
 }
 
-.image-library-asset-preview {
+.image-library-reference-thumbnail {
   width: 3rem;
   height: 3rem;
-  object-fit: cover;
+  flex: 0 0 3rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid var(--mantine-color-default-border);
   border-radius: var(--mantine-radius-sm);
+  color: var(--mantine-color-dimmed);
+  background: var(--mantine-color-default-hover);
+}
+
+.image-library-reference-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.form-field:has(.image-library-reference) {
+  width: 100%;
+  grid-column: 1 / -1;
+}
+
+.image-library-metadata-fields {
+  margin-top: 0.75rem;
 }

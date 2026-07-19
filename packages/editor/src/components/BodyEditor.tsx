@@ -9,6 +9,7 @@ import { Blocks, CodeXml, Image as ImageIcon } from "lucide-react";
 import { assetUrl, invoke } from "@posto/ipc";
 import type { FileEntry, FileGroup } from "@posto/ipc";
 import {
+  expandMediaEntry,
   mediaInputPath,
   type ContentEntry,
   type MediaEntry,
@@ -27,7 +28,7 @@ import {
 } from "@posto/core/mdx/mdx";
 import { ComponentPicker } from "./ComponentPicker";
 import { htmlNodes } from "./HtmlNodes";
-import { ImagePicker } from "./ImagePicker";
+import { RichTextImagePickerDialog } from "./RichTextImagePickerDialog";
 import { MdxFieldEnvContext, MdxSchemaContext, componentSchemas, mdxNodes } from "./MdxNodes";
 
 /** An import statement managed outside the document, with its bindings. */
@@ -75,9 +76,9 @@ export function BodyEditor(props: {
    * auto-managed imports. */
   mdx: boolean;
   root: string;
-  /** Media source for the toolbar's image insertion and inline display: the
-   * collection's (`.posto` mediaDir), else the first global one. */
-  media: MediaEntry | null;
+  /** Expanded collection-scoped `.posto`/Pages media directory. It must map
+   * to a discovered Astro image library or one of its included subfolders. */
+  configuredMedia: MediaEntry | null;
   /** Collection entry of the edited file; scopes media resolution for image
    * props inside component cards. */
   entry?: ContentEntry | null;
@@ -91,6 +92,9 @@ export function BodyEditor(props: {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [componentPickerOpen, setComponentPickerOpen] = useState(false);
   const [schemas, setSchemas] = useState<Record<string, AstroComponentSchema>>({});
+  const configuredMedia = props.configuredMedia
+    ? expandMediaEntry(props.configuredMedia, props.templateValues)
+    : null;
   // Markdown emitted by this editor; used to ignore the echo when it comes
   // back through props so only genuinely external changes reset the document.
   const lastEmitted = useRef<string | null>(null);
@@ -124,10 +128,19 @@ export function BodyEditor(props: {
   }
 
   // The display resolver is read through a ref so the Image extension (created
-  // once) always sees the current root/media.
+  // once) always sees the current root/media libraries.
   const resolveSrc = (src: string): string => {
     if (!src.startsWith("/")) return src;
-    const absolute = props.media ? mediaInputPath(props.root, props.media, src) : null;
+    const libraryMedia = (props.config.imageLibraries ?? []).map((library) => {
+      const input = library.base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
+      return { name: `astro:${library.collection}`, input, output: `/${input}` };
+    });
+    const candidates = [configuredMedia, ...libraryMedia].filter(
+      (media): media is MediaEntry => media !== null,
+    );
+    const absolute = candidates
+      .map((media) => mediaInputPath(props.root, media, src))
+      .find((path): path is string => path !== null);
     // Site-root paths outside the media source usually live in the site's
     // `public` folder, which is served from `/` — try there before giving up.
     return (absolute && assetUrl(absolute)) || assetUrl(props.root + "/public" + src) || src;
@@ -337,7 +350,6 @@ export function BodyEditor(props: {
           <RichTextEditor.Control
             title="Insert image"
             aria-label="Insert image"
-            disabled={!props.media}
             onClick={() => setPickerOpen(true)}
           >
             <ImageIcon size={16} />
@@ -367,10 +379,12 @@ export function BodyEditor(props: {
       <div className="body-rich-scroll">
         <RichTextEditor.Content />
       </div>
-      {pickerOpen && props.media && (
-        <ImagePicker
+      {pickerOpen && (
+        <RichTextImagePickerDialog
           root={props.root}
-          media={props.media}
+          config={props.config}
+          configuredMedia={props.configuredMedia}
+          templateValues={props.templateValues}
           onClose={() => setPickerOpen(false)}
           onPick={(outputPath) => {
             setPickerOpen(false);

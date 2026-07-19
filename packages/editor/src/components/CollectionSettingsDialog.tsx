@@ -4,7 +4,8 @@ import { Dialog } from "./Dialog";
 
 import { invoke } from "@posto/ipc";
 import type { FileEntry } from "@posto/ipc";
-import { DEFAULT_FILENAME_PATTERN, type ContentEntry } from "@posto/core/pagescms/config";
+import { resolveImageLibraryLocation } from "@posto/core/astro/imageLibrary";
+import { DEFAULT_FILENAME_PATTERN, type ContentEntry, type PagesConfig } from "@posto/core/pagescms/config";
 import {
   LABEL_SORT,
   POSTO_COLLECTIONS_DIR,
@@ -29,6 +30,7 @@ function sortToken(token: string): string {
 export function CollectionSettingsDialog(props: {
   root: string;
   collection: ContentEntry;
+  config: PagesConfig;
   /** The collection's current files; suggestions for pinning. */
   files: FileEntry[];
   onClose: () => void;
@@ -97,6 +99,13 @@ export function CollectionSettingsDialog(props: {
       sort: sortBy ? { by: sortBy, direction: sortDirection } : undefined,
       pinned: pinned.length > 0 ? pinned : undefined,
     };
+    if (
+      settings.mediaDir &&
+      !resolveImageLibraryLocation(props.config.imageLibraries ?? [], settings.mediaDir)
+    ) {
+      setError("The media folder must be a recognized Astro image library or an included subfolder of one.");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -151,8 +160,8 @@ export function CollectionSettingsDialog(props: {
             size="xs"
             mt="sm"
             label="Media folder"
-            description="Per-entry image folder: {fields.x} inserts a raw value, {fields.x|slug} its slugified form"
-            placeholder="public/images/{fields.year}/{fields.title|slug}"
+            description="An Astro image library or included subfolder; {fields.x} templates are supported"
+            placeholder={props.config.imageLibraries?.[0]?.base ?? "src/media"}
             value={mediaDir}
             onChange={(e) => setMediaDir(e.currentTarget.value)}
           />

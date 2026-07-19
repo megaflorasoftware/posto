@@ -1,4 +1,5 @@
 import YAML from "yaml";
+import picomatch from "picomatch";
 import type { AstroImageLibrary, Field, ImageLibraryMetadataExtension } from "../pagescms/config";
 import { validateForm } from "../pagescms/validate";
 import { astroEntryId } from "./collections";
@@ -34,6 +35,7 @@ export interface MediaPlanIssue {
   code:
     | "ambiguous-metadata-format"
     | "collision"
+    | "excluded-by-pattern"
     | "external-path"
     | "invalid-filename"
     | "unsupported-image"
@@ -71,33 +73,6 @@ export interface PlanMediaImportInput {
   metadataExtension?: ImageLibraryMetadataExtension;
   existingPaths?: Iterable<string>;
   existingEntryIds?: Iterable<string>;
-}
-
-export interface MediaUsage {
-  sourcePath: string;
-  valuePath?: (string | number)[];
-  component?: { name: string; prop: string; offset?: number };
-  targetCollection: string;
-  entryId: string;
-  required: boolean;
-}
-
-export interface PlannedContentEdit {
-  path: string;
-  originalContent: string;
-  content: string;
-}
-
-export interface MediaDeletePlan {
-  library: AstroImageLibrary;
-  libraryRoot: string;
-  repositoryRoot: string;
-  entryId: string;
-  metadataPath: string;
-  imagePath: string;
-  usages: MediaUsage[];
-  contentEdits: PlannedContentEdit[];
-  expectedMetadataContent: string;
 }
 
 function slash(path: string): string {
@@ -152,6 +127,64 @@ function relative(from: string, to: string): string | null {
 
 function libraryRoot(library: AstroImageLibrary, repositoryRoot: string): string {
   return join(repositoryRoot, library.base);
+}
+
+/** Applies Astro glob-loader include/exclude patterns to a base-relative path.
+ * A managed import must create metadata that the collection will actually load. */
+export function matchesImageLibraryPath(library: AstroImageLibrary, relativePath: string): boolean {
+  const path = slash(relativePath).replace(/^\/+/, "");
+  const includes = library.patterns.filter((pattern) => !pattern.startsWith("!"));
+  const excludes = library.patterns
+    .filter((pattern) => pattern.startsWith("!"))
+    .map((pattern) => pattern.slice(1));
+  return includes.some((pattern) => picomatch(pattern, { dot: false })(path))
+    && !excludes.some((pattern) => picomatch(pattern, { dot: false })(path));
+}
+
+export interface ImageLibraryLocation {
+  library: AstroImageLibrary;
+  /** Base-relative folder limiting the picker; empty means the whole library. */
+  subset: string;
+}
+
+function normalizedRelativePath(path: string): string {
+  return slash(path).replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
+}
+
+/** Resolves a configured media directory to a discovered library or one of
+ * its included subfolders. Paths excluded by the Astro glob are rejected. */
+export function resolveImageLibraryLocation(
+  libraries: AstroImageLibrary[],
+  mediaDirectory: string,
+): ImageLibraryLocation | null {
+  const input = normalizedRelativePath(mediaDirectory);
+  const candidates = libraries
+    .map((library) => ({ library, base: normalizedRelativePath(library.base) }))
+    .filter(({ base }) => input === base || input.startsWith(`${base}/`))
+    .sort((left, right) => right.base.length - left.base.length);
+  for (const { library, base } of candidates) {
+    const subset = input === base ? "" : input.slice(base.length + 1);
+    if (subset === "") return { library, subset };
+    const extension = library.metadataExtensions[0];
+    const probeFolder = subset.replace(/\{[^}]+\}/g, "posto");
+    if (matchesImageLibraryPath(library, `${probeFolder}/__posto__.${extension}`)) {
+      return { library, subset };
+    }
+  }
+  return null;
+}
+
+export function imageLibraryContainsAsset(
+  library: AstroImageLibrary,
+  repositoryRoot: string,
+  asset: ImageLibraryAsset,
+  subset: string,
+): boolean {
+  if (subset === "") return true;
+  const root = libraryRoot(library, repositoryRoot);
+  const metadata = relative(root, asset.metadataPath);
+  const folder = normalizedRelativePath(subset);
+  return metadata !== null && (metadata === folder || metadata.startsWith(`${folder}/`));
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -218,7 +251,12 @@ export function discoverImageLibraryAssets(
     const path = normalize(file.path);
     const rel = relative(root, path);
     const format = metadataFormat(path);
-    if (rel === null || !format || !library.metadataExtensions.includes(format)) return [];
+    if (
+      rel === null ||
+      !format ||
+      !library.metadataExtensions.includes(format) ||
+      !matchesImageLibraryPath(library, rel)
+    ) return [];
     const metadata = parseImageLibraryMetadata(file.content, format);
     const id = astroEntryId(rel);
     if (!metadata) {
@@ -297,11 +335,19 @@ export function planMediaImport(input: PlanMediaImportInput): MediaImportPlan {
   if (relative(root, imagePath) === null || relative(root, metadataPath) === null) {
     throw new MediaPlanError([{ code: "external-path", message: "Planned files must stay inside the image library." }]);
   }
+  const relativeMetadataPath = relative(root, metadataPath)!;
+  if (!matchesImageLibraryPath(input.library, relativeMetadataPath)) {
+    issues.push({
+      code: "excluded-by-pattern",
+      message: `The destination is not included by the ${input.library.collection} collection's glob patterns.`,
+      path: relativeMetadataPath,
+    });
+  }
   const existingPaths = new Set([...(input.existingPaths ?? [])].map(normalize));
   for (const path of [imagePath, metadataPath]) if (existingPaths.has(path)) {
     issues.push({ code: "collision", message: `File already exists: ${path}`, path });
   }
-  const entryId = astroEntryId(relative(root, metadataPath)!);
+  const entryId = astroEntryId(relativeMetadataPath);
   if (new Set(input.existingEntryIds ?? []).has(entryId)) {
     issues.push({ code: "collision", message: `Astro entry ID already exists: ${entryId}` });
   }
@@ -321,43 +367,5 @@ export function planMediaImport(input: PlanMediaImportInput): MediaImportPlan {
     entryId,
     metadata,
     serializedMetadata: serializeImageLibraryMetadata(metadata, format),
-  };
-}
-
-/** Validates a safe deletion outcome without mutating content or files. */
-export function planMediaDelete(input: {
-  library: AstroImageLibrary;
-  repositoryRoot: string;
-  asset: ImageLibraryAsset;
-  usages: MediaUsage[];
-  coverageComplete: boolean;
-  approvedOptionalUsages?: MediaUsage[];
-  contentEdits?: PlannedContentEdit[];
-}): MediaDeletePlan {
-  const issues: MediaPlanIssue[] = [];
-  const root = libraryRoot(input.library, input.repositoryRoot);
-  if (!input.asset.imagePath || relative(root, input.asset.metadataPath) === null || relative(root, input.asset.imagePath) === null) {
-    issues.push({ code: "external-path", message: "Both managed files must resolve inside the image library." });
-  }
-  if (!input.coverageComplete) issues.push({ code: "validation", message: "Reference coverage is incomplete." });
-  if (input.asset.health.includes("shared-image")) issues.push({ code: "validation", message: "The image file is shared by another metadata entry." });
-  for (const usage of input.usages) if (usage.required) {
-    issues.push({ code: "validation", message: `Required reference remains in ${usage.sourcePath}.` });
-  }
-  const approved = new Set(input.approvedOptionalUsages ?? []);
-  for (const usage of input.usages) if (!usage.required && !approved.has(usage)) {
-    issues.push({ code: "validation", message: `Optional reference in ${usage.sourcePath} was not approved for removal.` });
-  }
-  if (issues.length || !input.asset.imagePath) throw new MediaPlanError(issues);
-  return {
-    library: input.library,
-    libraryRoot: root,
-    repositoryRoot: normalize(input.repositoryRoot),
-    entryId: input.asset.entryId,
-    metadataPath: input.asset.metadataPath,
-    imagePath: input.asset.imagePath,
-    usages: input.usages,
-    contentEdits: input.contentEdits ?? [],
-    expectedMetadataContent: input.asset.metadataSource,
   };
 }

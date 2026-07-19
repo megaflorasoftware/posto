@@ -154,4 +154,21 @@ const customIdField = astroPropField(customIdDef, {
 });
 assert(customIdField?.type === "string", "custom generated entry ids do not use a wrong picker");
 
+const mediaIdField = astroPropField(
+  { name: "media", type: "CollectionEntry<'media'>['id']", optional: false },
+  {
+    collections: [{ name: "media", fields: [{ name: "image", type: "image" }] }],
+    editableCollections: [],
+    imageLibraries: [{
+      collection: "media",
+      base: "src/media",
+      patterns: ["**/*.{yml,yaml}", "!videos/**/*.{yml,yaml}"],
+      metadataExtensions: ["yml", "yaml"],
+      imageFieldPath: ["image"],
+      fields: [{ name: "image", type: "image" }, { name: "alt", type: "string" }],
+    }],
+  },
+);
+assert(mediaIdField?.type === "reference" && mediaIdField.options?.astroId === true, "image-library IDs use the picker without entering sidebar content");
+
 console.log("astro-content component prop tests passed");

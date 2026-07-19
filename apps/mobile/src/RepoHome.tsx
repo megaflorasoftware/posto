@@ -439,7 +439,6 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
             onTabChange={setEditorTab}
             onEdit={currentFile.onEdit}
             onFormEdit={currentFile.onFormEdit}
-            beforeMediaOperation={currentFile.flushPendingSave}
           />
         </main>
       ) : showSettings ? (
@@ -680,6 +679,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
         <CollectionSettingsDialog
           root={root}
           collection={settingsFor.collection}
+          config={schemas.config ?? { media: [], content: [] }}
           files={settingsFor.files}
           onClose={() => setSettingsFor(null)}
           onSaved={() => void schemas.loadPostoConfig(root)}

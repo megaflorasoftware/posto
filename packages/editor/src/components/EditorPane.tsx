@@ -39,7 +39,6 @@ export function EditorPane(props: {
   onTabChange: (tab: EditorTab) => void;
   onEdit: (content: string) => void;
   onFormEdit: (content: string, valid: boolean) => void;
-  beforeMediaOperation?: () => void | Promise<void>;
 }) {
   const { filePath, fileContent, entry, editorTab, dataEntry } = props;
 
@@ -145,7 +144,6 @@ export function EditorPane(props: {
               root={props.root}
               groups={props.groups}
               onChange={props.onFormEdit}
-              beforeMediaOperation={props.beforeMediaOperation}
             />
           ) : (
             // One FormEditor spans the Fields and Body tabs so the
@@ -160,7 +158,6 @@ export function EditorPane(props: {
               root={props.root}
               groups={props.groups}
               onChange={props.onFormEdit}
-              beforeMediaOperation={props.beforeMediaOperation}
             />
           )}
         </Tabs>

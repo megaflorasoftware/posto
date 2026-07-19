@@ -51,8 +51,6 @@ export interface FieldContext {
   listAppend: (path: ValuePath, value: unknown) => void;
   listRemove: (path: ValuePath, index: number) => void;
   listMove: (path: ValuePath, from: number, to: number) => void;
-  /** Flush pending editor state before scanning references or mutating files. */
-  beforeMediaOperation?: () => void | Promise<void>;
 }
 
 function asString(value: unknown): string {
@@ -636,7 +634,7 @@ function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContex
   const imageLibrary = props.ctx.config.imageLibraries?.find(
     (library) => library.collection === props.field.options?.collection,
   );
-  if (props.field.options?.imageLibrary === true && imageLibrary) {
+  if (props.field.options?.astroId === true && imageLibrary) {
     return <ImageLibraryReferenceField {...props} library={imageLibrary} />;
   }
   const collection = props.ctx.config.content.find(

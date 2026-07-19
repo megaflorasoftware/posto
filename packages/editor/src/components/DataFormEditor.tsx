@@ -38,7 +38,6 @@ export function DataFormEditor(props: {
   root: string;
   groups: FileGroup[];
   onChange: (content: string, valid: boolean) => void;
-  beforeMediaOperation?: () => void | Promise<void>;
 }) {
   const parsedRef = useRef<ParsedDataDocument>(null as unknown as ParsedDataDocument);
   const locatorRef = useRef<DataEntryLocator>({ id: props.dataEntry.id, path: props.dataEntry.path });
@@ -121,7 +120,6 @@ export function DataFormEditor(props: {
     root: props.root,
     entry: props.entry,
     groups: props.groups,
-    beforeMediaOperation: props.beforeMediaOperation,
     errors: () => errors,
     templateValues: () => values,
     value: (path) => {

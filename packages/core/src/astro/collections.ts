@@ -8,6 +8,7 @@ import type {
   MediaEntry,
   PagesConfig,
 } from "../pagescms/config";
+import { schemaImageFields, type SchemaImageField } from "./schemaAnalysis";
 
 // Builds a PagesConfig from Astro content collections, used as a fallback
 // schema source when `.pages.yml` doesn't cover a folder. Astro generates a
@@ -194,112 +195,15 @@ export interface LoaderInfo {
   patterns?: string[];
   /** `reference()` fields found in the schema, field name → collection. */
   references?: Record<string, string>;
-  /** Full field paths whose schema uses Astro's `image()` helper. */
-  images?: string[][];
+  /** Image fields recovered from the schema source. Only scalar fields nested
+   * through non-list objects can back a managed image library. */
+  images?: SchemaImageField[];
   /** A glob-loader `generateId` callback cannot be executed by the editor. */
   customIds?: boolean;
   /** Repo-root-relative source passed to Astro's file() loader. */
   filePath?: string;
   /** file() uses a custom parser; standard-format editing is best-effort. */
   customParser?: boolean;
-}
-
-/** Find property paths ending in a scalar image() call. This intentionally
- * follows object literals rather than trying to execute arbitrary schemas;
- * z.object(), plain nested objects, and z.array() wrappers all retain their
- * property nesting. */
-function imageFieldPaths(source: string): string[][] {
-  const paths: string[][] = [];
-  const walk = (block: string, prefix: string[]) => {
-    const property = /(?:(['"`])([^'"`]+)\1|([A-Za-z_$][\w$]*))\s*:/g;
-    for (let match = property.exec(block); match; match = property.exec(block)) {
-      const name = match[2] ?? match[3];
-      let start = property.lastIndex;
-      while (/\s/.test(block[start] ?? "")) start++;
-      let end = start;
-      let braces = 0, parens = 0, brackets = 0;
-      let quote: string | null = null;
-      for (; end < block.length; end++) {
-        const ch = block[end];
-        if (quote) {
-          if (ch === "\\") end++;
-          else if (ch === quote) quote = null;
-          continue;
-        }
-        if (ch === '"' || ch === "'" || ch === "`") quote = ch;
-        else if (ch === "{") braces++;
-        else if (ch === "}") { if (braces === 0 && parens === 0 && brackets === 0) break; braces--; }
-        else if (ch === "(") parens++;
-        else if (ch === ")") parens--;
-        else if (ch === "[") brackets++;
-        else if (ch === "]") brackets--;
-        else if (ch === "," && braces === 0 && parens === 0 && brackets === 0) break;
-      }
-      const value = block.slice(start, end).trim();
-      if (/^(?:(?:z\s*\.\s*)?array\s*\(\s*)*(?:image|\w+\s*\.\s*image)\s*\(/.test(value)) {
-        paths.push([...prefix, name]);
-      } else {
-        const object = value.match(/(?:z\s*\.\s*)?object\s*\(\s*\{/);
-        const plain = !object && value.startsWith("{") ? 0 : -1;
-        const open = object ? value.indexOf("{", object.index) : plain;
-        if (open >= 0) {
-          let depth = 0;
-          let close = -1;
-          for (let i = open; i < value.length; i++) {
-            if (value[i] === "{") depth++;
-            else if (value[i] === "}" && --depth === 0) { close = i; break; }
-          }
-          if (close > open) {
-            // `schema` is the defineCollection wrapper, not an entry field.
-            walk(value.slice(open + 1, close), name === "schema" ? prefix : [...prefix, name]);
-          }
-        }
-      }
-      property.lastIndex = Math.max(property.lastIndex, end + 1);
-    }
-  };
-  walk(source, []);
-  return paths;
-}
-
-/** Source for a top-level schema function/constant referenced by identifier. */
-function declaredSchemaSource(source: string, identifier: string): string | null {
-  const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const constant = new RegExp(`(?:export\\s+)?const\\s+${escaped}\\s*=`).exec(source);
-  if (constant) {
-    let parens = 0, braces = 0, brackets = 0;
-    let quote: string | null = null;
-    for (let index = constant.index; index < source.length; index++) {
-      const ch = source[index];
-      if (quote) {
-        if (ch === "\\") index++;
-        else if (ch === quote) quote = null;
-        continue;
-      }
-      if (ch === '"' || ch === "'" || ch === "`") quote = ch;
-      else if (ch === "(") parens++;
-      else if (ch === ")") parens--;
-      else if (ch === "{") braces++;
-      else if (ch === "}") braces--;
-      else if (ch === "[") brackets++;
-      else if (ch === "]") brackets--;
-      else if (ch === ";" && parens === 0 && braces === 0 && brackets === 0) {
-        return source.slice(constant.index, index + 1);
-      }
-    }
-  }
-  const fn = new RegExp(`(?:export\\s+)?function\\s+${escaped}\\s*\\(`).exec(source);
-  if (fn) {
-    const open = source.indexOf("{", fn.index);
-    if (open >= 0) {
-      let depth = 0;
-      for (let index = open; index < source.length; index++) {
-        if (source[index] === "{") depth++;
-        else if (source[index] === "}" && --depth === 0) return source.slice(fn.index, index + 1);
-      }
-    }
-  }
-  return null;
 }
 
 /** Slice out the balanced `(...)` argument list starting at `openIndex`. */
@@ -448,14 +352,7 @@ export function parseLoaderConfig(source: string): Map<string, LoaderInfo> {
     // Schema. Preserve the hint here for scalar fields, image arrays, nested
     // objects, and arrays of objects. As with references, names are resolved
     // recursively against the generated shape below.
-    info.images = imageFieldPaths(body);
-    if (info.images.length === 0) {
-      const schemaSource = topLevelObjectProp(body, "schema");
-      if (schemaSource && /^[A-Za-z_$][\w$]*$/.test(schemaSource)) {
-        const declaration = declaredSchemaSource(source, schemaSource);
-        if (declaration) info.images = imageFieldPaths(declaration);
-      }
-    }
+    info.images = schemaImageFields(source, body, topLevelObjectProp(body, "schema"));
     if (info.images.length === 0) delete info.images;
     byVariable.set(match[1], info);
   }
@@ -510,7 +407,6 @@ function resolveReferences(
   fields: Field[],
   references: Record<string, string> | undefined,
   loaders: Map<string, LoaderInfo>,
-  imageLibraries: Set<string> = new Set(),
 ): Field[] {
   return fields.map((field) => {
     if (field.type === "reference") {
@@ -518,11 +414,11 @@ function resolveReferences(
       return collection
         ? loaders.get(collection)?.customIds
           ? { ...field, type: "string" }
-          : { ...field, options: { collection, astroId: true, imageLibrary: imageLibraries.has(collection) || undefined } }
+          : { ...field, options: { collection, astroId: true } }
         : { ...field, type: "string" };
     }
     if (field.fields) {
-      return { ...field, fields: resolveReferences(field.fields, references, loaders, imageLibraries) };
+      return { ...field, fields: resolveReferences(field.fields, references, loaders) };
     }
     return field;
   });
@@ -530,35 +426,16 @@ function resolveReferences(
 
 /** Restores Astro `image()` fields, which are plain strings in generated JSON
  * Schema. Traversing child fields also covers objects and object-list items. */
-function resolveImages(fields: Field[], images: string[][] = [], prefix: string[] = []): Field[] {
+function resolveImages(fields: Field[], images: NonNullable<LoaderInfo["images"]> = [], prefix: string[] = []): Field[] {
   return fields.map((field) => {
     const path = [...prefix, field.name];
-    const resolved = images.some((candidate) => candidate.length === path.length && candidate.every((part, index) => part === path[index])) && (field.type === "string" || field.type === "text")
+    const resolved = images.some((candidate) => candidate.path.length === path.length && candidate.path.every((part, index) => part === path[index])) && (field.type === "string" || field.type === "text")
       ? { ...field, type: "image" }
       : field;
     return resolved.fields
       ? { ...resolved, fields: resolveImages(resolved.fields, images, path) }
       : resolved;
   });
-}
-
-/** Adds the media-reference hint without changing any Pages CMS field
- * behavior or ordering. Used when `.pages.yml` wins schema precedence. */
-export function markImageLibraryReferences(
-  fields: Field[],
-  libraries: Pick<AstroImageLibrary, "collection">[],
-): Field[] {
-  const names = new Set(libraries.map((library) => library.collection));
-  return fields.map((field) => ({
-    ...field,
-    options:
-      field.type === "reference" &&
-      typeof field.options?.collection === "string" &&
-      names.has(field.options.collection)
-        ? { ...field.options, imageLibrary: true }
-        : field.options,
-    fields: field.fields ? markImageLibraryReferences(field.fields, libraries) : undefined,
-  }));
 }
 
 function metadataExtensions(patterns: string[]): ImageLibraryMetadataExtension[] {
@@ -592,6 +469,14 @@ function discoverImageLibraries(
       diagnostics.push({ collection: collection.name, code: "missing-loader-base", message: `Collection ${collection.name} has no static glob loader base.` });
       continue;
     }
+    if (loader.customIds) {
+      diagnostics.push({ collection: collection.name, code: "custom-entry-ids", message: `Collection ${collection.name} uses a custom generateId function, so Posto cannot manage its image entry IDs.` });
+      continue;
+    }
+    if (images.some((image) => !image.writable)) {
+      diagnostics.push({ collection: collection.name, code: "unsupported-image-shape", message: `Collection ${collection.name} has an image field inside a list. Posto image libraries require one scalar image field nested only through objects.` });
+      continue;
+    }
     const extensions = metadataExtensions(loader.patterns ?? []);
     if (extensions.length === 0) {
       diagnostics.push({ collection: collection.name, code: "unsupported-metadata-format", message: `Collection ${collection.name} does not use YAML or JSON metadata.` });
@@ -602,7 +487,7 @@ function discoverImageLibraries(
       base: normalizePath(loader.base),
       patterns: loader.patterns ?? [],
       metadataExtensions: extensions,
-      imageFieldPath: images[0],
+      imageFieldPath: images[0].path,
       fields: resolveImages(collection.fields, images),
     });
   }
@@ -620,12 +505,11 @@ export function buildAstroConfig(
 ): PagesConfig {
   const content: ContentEntry[] = [];
   const discovered = discoverImageLibraries(collections, loaders);
-  const libraryNames = new Set(discovered.libraries.map((library) => library.collection));
   const astroCollections = collections.map(({ name, fields }) => {
     const loader = loaders.get(name);
     return {
       name,
-      fields: resolveReferences(resolveImages(fields, loader?.images), loader?.references, loaders, libraryNames),
+      fields: resolveReferences(resolveImages(fields, loader?.images), loader?.references, loaders),
     };
   });
   for (const { name, fields } of collections) {
@@ -639,7 +523,7 @@ export function buildAstroConfig(
           label: name.charAt(0).toUpperCase() + name.slice(1),
           type: "collection",
           path: filePath,
-          fields: resolveReferences(resolveImages(fields, loader.images), loader.references, loaders, libraryNames),
+          fields: resolveReferences(resolveImages(fields, loader.images), loader.references, loaders),
           dataFile: {
             path: filePath,
             format: format === "yml" ? "yaml" : (format as "json" | "yaml" | "toml"),
@@ -669,7 +553,7 @@ export function buildAstroConfig(
       subfolders:
         patterns.length > 0 && patterns.every((p) => !p.includes("/")) ? false : undefined,
       extension,
-      fields: resolveReferences(resolveImages(fields, loader?.images), loader?.references, loaders, libraryNames),
+      fields: resolveReferences(resolveImages(fields, loader?.images), loader?.references, loaders),
       astroCustomIds: loader?.customIds || undefined,
     });
   }

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { astroEntryId } from "@posto/core/astro/collections";
 import {
   MediaPlanError,
+  matchesImageLibraryPath,
   planMediaImport,
   type MediaImportPlan,
 } from "@posto/core/astro/imageLibrary";
@@ -25,12 +26,13 @@ export interface ImageLibraryImportDraft {
 export function useImageLibraryImport(input: {
   root: string;
   library: AstroImageLibrary;
+  initialSourcePath?: string;
   onImported?: (result: ImageLibraryImportResult) => void;
 }) {
   const [draft, setDraft] = useState<ImageLibraryImportDraft>({
-    sourceImagePath: null,
+    sourceImagePath: input.initialSourcePath ?? null,
     folder: "",
-    filename: "",
+    filename: input.initialSourcePath?.split(/[\\/]/).pop() ?? "",
     metadata: {},
     metadataExtension: input.library.metadataExtensions.length === 1
       ? input.library.metadataExtensions[0]
@@ -77,7 +79,10 @@ export function useImageLibraryImport(input: {
       metadataExtension: draft.metadataExtension,
       existingPaths: files.map((file) => file.path),
       existingEntryIds: files
-        .filter((file) => metadataExts.has(file.name.split(".").pop()?.toLowerCase() as ImageLibraryMetadataExtension))
+        .filter((file) =>
+          metadataExts.has(file.name.split(".").pop()?.toLowerCase() as ImageLibraryMetadataExtension)
+          && matchesImageLibraryPath(input.library, file.path.slice(prefix.length)),
+        )
         .map((file) => astroEntryId(file.path.slice(prefix.length))),
     });
   }

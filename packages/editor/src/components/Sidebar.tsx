@@ -132,6 +132,7 @@ export function Sidebar(props: {
         <CollectionSettingsDialog
           root={root}
           collection={settingsFor.collection}
+          config={config ?? { media: [], content: [] }}
           files={settingsFor.files}
           onClose={() => setSettingsFor(null)}
           onSaved={props.onPostoSaved}

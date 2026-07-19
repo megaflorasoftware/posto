@@ -1,8 +1,8 @@
 import {
   MediaPlanError,
   discoverImageLibraryAssets,
-  planMediaDelete,
   planMediaImport,
+  resolveImageLibraryLocation,
 } from "../src/astro/imageLibrary";
 import type { AstroImageLibrary } from "../src/pagescms/config";
 
@@ -13,7 +13,7 @@ function assert(condition: unknown, message: string): asserts condition {
 const library: AstroImageLibrary = {
   collection: "images",
   base: "src/data/images",
-  patterns: ["**/*.{yml,yaml}"],
+  patterns: ["**/*.{yml,yaml}", "!videos/**/*.{yml,yaml}"],
   metadataExtensions: ["yml", "yaml"],
   imageFieldPath: ["asset", "image"],
   fields: [
@@ -30,6 +30,12 @@ const library: AstroImageLibrary = {
   ],
 };
 
+assert(resolveImageLibraryLocation([library], "src/data/images")?.subset === "", "library root resolves");
+assert(resolveImageLibraryLocation([library], "src/data/images/blog")?.subset === "blog", "library subset resolves");
+assert(resolveImageLibraryLocation([library], "src/data/images/{fields.section}")?.library === library, "templated subset resolves");
+assert(resolveImageLibraryLocation([library], "src/data/images/videos") === null, "excluded subset is rejected");
+assert(resolveImageLibraryLocation([library], "public/images") === null, "unrelated media folder is rejected");
+
 const discovered = discoverImageLibraryAssets(
   library,
   "/site",
@@ -38,6 +44,7 @@ const discovered = discoverImageLibraryAssets(
     { path: "/site/src/data/images/nested/missing.yaml", content: "asset:\n  image: ./missing.webp\n  alt: Missing\n" },
     { path: "/site/src/data/images/external.yml", content: "asset:\n  image: ../../../secret.png\n  alt: No\n" },
     { path: "/site/src/data/images/shared.yml", content: "asset:\n  image: ./sunrise.jpg\n  alt: Shared\n" },
+    { path: "/site/src/data/images/videos/clip.yml", content: "video: ./clip.mp4\n" },
   ],
   ["/site/src/data/images/sunrise.jpg"],
 );
@@ -45,6 +52,7 @@ assert(discovered[0].entryId === "sunrise", "entry id derived from metadata path
 assert(discovered[0].health.includes("shared-image"), "shared image detected");
 assert(discovered[1].health.includes("missing-image"), "missing image detected");
 assert(discovered[2].health.includes("external-image"), "external image detected");
+assert(discovered.every((asset) => !asset.metadataPath.includes("/videos/")), "negative glob excludes other collections");
 
 const plan = planMediaImport({
   library,
@@ -65,6 +73,7 @@ assert(plan.serializedMetadata.includes("alt: Pines"), "metadata serialized");
 for (const input of [
   { folder: "../outside", metadataExtension: "yml" as const },
   { folder: "ok", metadataExtension: "yml" as const, existingPaths: ["/site/src/data/images/ok/photo.jpg"] },
+  { folder: "videos", metadataExtension: "yml" as const },
 ]) {
   let blocked = false;
   try {
@@ -80,26 +89,5 @@ for (const input of [
   }
   assert(blocked, "unsafe import rejected");
 }
-
-const validAsset = discoverImageLibraryAssets(
-  library,
-  "/site",
-  [{ path: "/site/src/data/images/free.yml", content: "asset:\n  image: ./free.jpg\n  alt: Free\n" }],
-  ["/site/src/data/images/free.jpg"],
-)[0];
-assert(planMediaDelete({ library, repositoryRoot: "/site", asset: validAsset, usages: [], coverageComplete: true }).entryId === "free", "unreferenced deletion planned");
-let requiredBlocked = false;
-try {
-  planMediaDelete({
-    library,
-    repositoryRoot: "/site",
-    asset: validAsset,
-    coverageComplete: true,
-    usages: [{ sourcePath: "/site/src/blog/post.md", valuePath: ["hero"], targetCollection: "images", entryId: "free", required: true }],
-  });
-} catch (error) {
-  requiredBlocked = error instanceof MediaPlanError;
-}
-assert(requiredBlocked, "required usage blocks deletion");
 
 console.log("image library domain tests passed");

@@ -3,7 +3,6 @@ import { Alert } from "@mantine/core";
 
 import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
 import {
-  expandMediaEntry,
   frontmatterFields,
   inferFields,
 } from "@posto/core/pagescms/config";
@@ -64,7 +63,6 @@ export function FormEditor(props: {
   root: string;
   groups: FileGroup[];
   onChange: (content: string, valid: boolean) => void;
-  beforeMediaOperation?: () => void | Promise<void>;
 }) {
   const parsedRef = useRef<ParsedFile>(null as unknown as ParsedFile);
   // Content emitted by this component; used to ignore the echo when it comes
@@ -163,7 +161,6 @@ export function FormEditor(props: {
     root: props.root,
     entry: props.entry,
     groups: props.groups,
-    beforeMediaOperation: props.beforeMediaOperation,
     errors: () => errors,
     templateValues: () => values,
     value: (path) => {
@@ -226,8 +223,7 @@ export function FormEditor(props: {
   }
 
   if (props.view === "body") {
-    const configuredMedia = props.entry?.media ?? props.config.media[0] ?? null;
-    const media = configuredMedia ? expandMediaEntry(configuredMedia, values) : null;
+    const media = props.entry?.media ?? null;
     // Rich editing for the markdown family (MDX mode adds import pills,
     // component cards, and raw-JSX preservation); plain text for anything else.
     return /\.(md|mdx|markdown)$/i.test(props.path) ? (
@@ -236,7 +232,7 @@ export function FormEditor(props: {
         path={props.path}
         mdx={/\.mdx$/i.test(props.path)}
         root={props.root}
-        media={media}
+        configuredMedia={media}
         entry={props.entry}
         templateValues={values}
         config={props.config}
