@@ -5,6 +5,10 @@ type DialogVariant = "modal" | "drawer";
 
 const DialogVariantContext = createContext<DialogVariant>("modal");
 
+export function useDialogVariant(): DialogVariant {
+  return useContext(DialogVariantContext);
+}
+
 /** Shells choose how shared dialogs present: desktop keeps centered modals,
  * mobile wraps its tree so they open as bottom drawers. */
 export function DialogVariantProvider(props: { variant: DialogVariant; children: ReactNode }) {
@@ -25,7 +29,7 @@ type Props = {
 
 /** Centered modal or bottom drawer, per the shell's DialogVariantProvider. */
 export function Dialog(props: Props) {
-  const variant = useContext(DialogVariantContext);
+  const variant = useDialogVariant();
   if (variant === "drawer") {
     return (
       <Drawer
@@ -40,7 +44,7 @@ export function Dialog(props: Props) {
           // capped so tall content scrolls inside the body.
           content: {
             height: "auto",
-            maxHeight: "calc(100dvh - 16px)",
+            maxHeight: "calc(var(--mobile-viewport-height, 100dvh) - 16px)",
             display: "flex",
             flexDirection: "column",
           },

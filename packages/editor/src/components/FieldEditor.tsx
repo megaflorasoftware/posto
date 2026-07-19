@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ActionIcon, Button, NumberInput, Select, Switch, Textarea, TextInput } from "@mantine/core";
+import { ActionIcon, Button, NumberInput, Switch, Textarea, TextInput } from "@mantine/core";
 import { Check, GripVertical, Image, Pencil, RefreshCw, X } from "lucide-react";
 import {
   closestCenter,
@@ -38,6 +38,7 @@ import { CachedImage } from "./CachedImage";
 import { ImagePicker } from "./ImagePicker";
 import { ImageLibraryReferenceField } from "./ImageLibraryReferenceField";
 import { FieldRowsAction, FieldTemplateActions } from "./FieldTemplateActions";
+import { AdaptiveSelect } from "./AdaptiveSelect";
 
 export interface FieldContext {
   config: PagesConfig;
@@ -299,8 +300,9 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
         );
       case "select":
         return (
-          <Select
+          <AdaptiveSelect
             size="xs"
+            aria-label={fieldLabel}
             clearable={!field.required}
             searchable
             // Large option sets (e.g. icon-name enums) would render thousands
@@ -803,8 +805,9 @@ function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContex
   const missing = value !== "" && !files.some((f) => f.value === value);
 
   return (
-    <Select
+    <AdaptiveSelect
       size="xs"
+      aria-label={typeof props.field.label === "string" ? props.field.label : props.field.name}
       clearable={!props.field.required}
       searchable
       placeholder={collection ? undefined : "Unknown collection"}

@@ -32,7 +32,12 @@ export function ImageLibraryPickerDialog(props: {
         onPick={props.onPick}
       />
       <div className="image-library-picker-actions">
-        <Button fullWidth variant="outline" onClick={() => void openPath(openDirectory)}>
+        <Button
+          className="image-library-open-directory"
+          fullWidth
+          variant="outline"
+          onClick={() => void openPath(openDirectory)}
+        >
           Open Media Library
         </Button>
         <Button fullWidth onClick={props.onImport}>Import image</Button>

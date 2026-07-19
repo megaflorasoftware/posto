@@ -11,6 +11,29 @@ import { FieldTemplateActions } from "./FieldTemplateActions";
 
 export type EditorTab = "fields" | "body" | "raw";
 
+export function editorTabsForFile(input: {
+  filePath: string | null;
+  fileContent: string;
+  entry: ContentEntry | null;
+  dataEntry?: FileEntry["dataEntry"];
+}): EditorTab[] {
+  if (!input.filePath) return [];
+  const showForm = input.entry !== null || /\.(md|mdx|markdown)$/i.test(input.filePath);
+  if (!showForm) return ["raw"];
+  const hasFields = input.entry !== null || contentHasFields(null, parseFile(input.fileContent));
+  return [
+    ...(hasFields ? ["fields" as const] : []),
+    ...(!input.dataEntry ? ["body" as const] : []),
+    "raw",
+  ];
+}
+
+export function resolveEditorTab(tabs: EditorTab[], requested: EditorTab): EditorTab {
+  if (tabs.includes(requested)) return requested;
+  if (tabs.includes("fields")) return "fields";
+  return tabs[0] ?? "raw";
+}
+
 // Whether the Fields tab would have anything to show: a matched schema entry,
 // or existing frontmatter to infer fields from. A broken frontmatter block
 // still counts — FormEditor's YAML-error alert explains it.
@@ -44,6 +67,8 @@ export function EditorPane(props: {
   onRenameFile: (filename: string) => Promise<boolean>;
   onRefreshFilename: (template: string) => void;
   onPostoSaved: () => void;
+  hideTabList?: boolean;
+  filenamePlacement?: "header" | "fields";
 }) {
   const { filePath, fileContent, entry, editorTab, dataEntry } = props;
 
@@ -64,23 +89,12 @@ export function EditorPane(props: {
     if (!(await props.onRenameFile(next))) setFilenameDraft(fileName);
   }
 
-  // Markdown files always get a Form tab: schema-driven when a content entry
-  // matches, otherwise with fields inferred from the frontmatter's shape.
-  const showForm = entry !== null || /\.(md|mdx|markdown)$/i.test(filePath ?? "");
-
-  // Whether the Fields tab has anything to show. README-style files (no
-  // schema, no frontmatter) hide the tab and land on Body instead.
-  const hasFields = useMemo(() => {
-    if (entry !== null) return true;
-    if (!showForm) return false;
-    return contentHasFields(null, parseFile(fileContent));
-  }, [entry, showForm, fileContent]);
-
-  // The sticky tab choice, remapped while Fields is hidden; the state keeps
-  // "fields" so schema-backed files still open on their form.
-  const activeTab = dataEntry && editorTab === "body"
-    ? "fields"
-    : !hasFields && editorTab === "fields" ? "body" : editorTab;
+  const tabs = useMemo(
+    () => editorTabsForFile({ filePath, fileContent, entry, dataEntry }),
+    [filePath, fileContent, entry, dataEntry],
+  );
+  const showForm = tabs.length > 1;
+  const activeTab = resolveEditorTab(tabs, editorTab);
 
   if (!filePath) {
     return <div className="pane-placeholder">Select a file to edit</div>;
@@ -95,53 +109,73 @@ export function EditorPane(props: {
     />
   );
 
+  const filenameReadOnly = !!dataEntry || !!(
+    filenameSchema?.template && filenameSchema.editBehavior === "controlled"
+  );
+  const filenameInput = (
+    <TextInput
+      className="pane-filename-input"
+      size="xs"
+      aria-label="Filename"
+      value={filenameDraft}
+      readOnly={filenameReadOnly}
+      rightSection={!filenameReadOnly && filenameSchema?.template && filenameSchema.editBehavior === "manual" ? (
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          size="sm"
+          title="Regenerate Filename from its template"
+          aria-label="Regenerate Filename from its template"
+          onClick={() => props.onRefreshFilename(filenameSchema.template!)}
+        >
+          <RefreshCw size={15} />
+        </ActionIcon>
+      ) : undefined}
+      rightSectionPointerEvents="all"
+      onChange={(event) => setFilenameDraft(event.currentTarget.value)}
+      onBlur={() => void commitFilename()}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+        if (event.key === "Escape") {
+          setFilenameDraft(fileName);
+          event.currentTarget.blur();
+        }
+      }}
+    />
+  );
+  const filenameActions = entry && !dataEntry ? (
+    <FieldTemplateActions
+      root={props.root}
+      collection={entry}
+      fieldName="filename"
+      label="Filename"
+      schema={filenameSchema}
+      onPostoSaved={props.onPostoSaved}
+      onGenerate={props.onRefreshFilename}
+    />
+  ) : null;
+  const filenameField = (
+    <div className="form-field pane-filename-field">
+      <div className="field-label-row">
+        <span className="field-label">Filename</span>
+        {filenameActions}
+      </div>
+      {filenameInput}
+    </div>
+  );
+
   return (
     <>
-      <div className="pane-header">
-        {dataEntry || (filenameSchema?.template && filenameSchema.editBehavior === "controlled") ? (
-          <div className="pane-filename-text">{fileName}</div>
-        ) : (
-          <TextInput
-            className="pane-filename-input"
-            size="xs"
-            aria-label="Filename"
-            value={filenameDraft}
-            rightSection={filenameSchema?.template && filenameSchema.editBehavior === "manual" ? (
-              <ActionIcon
-                variant="subtle"
-                color="gray"
-                size="sm"
-                title="Regenerate Filename from its template"
-                aria-label="Regenerate Filename from its template"
-                onClick={() => props.onRefreshFilename(filenameSchema.template!)}
-              >
-                <RefreshCw size={15} />
-              </ActionIcon>
-            ) : undefined}
-            rightSectionPointerEvents="all"
-            onChange={(event) => setFilenameDraft(event.currentTarget.value)}
-            onBlur={() => void commitFilename()}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") event.currentTarget.blur();
-              if (event.key === "Escape") {
-                setFilenameDraft(fileName);
-                event.currentTarget.blur();
-              }
-            }}
-          />
-        )}
-        {entry && !dataEntry && (
-          <FieldTemplateActions
-            root={props.root}
-            collection={entry}
-            fieldName="filename"
-            label="Filename"
-            schema={filenameSchema}
-            onPostoSaved={props.onPostoSaved}
-            onGenerate={props.onRefreshFilename}
-          />
-        )}
-      </div>
+      {(props.filenamePlacement ?? "header") === "header" && (
+        <div className="pane-header">
+          {filenameReadOnly ? (
+            <div className="pane-filename-text">{fileName}</div>
+          ) : (
+            filenameInput
+          )}
+          {filenameActions}
+        </div>
+      )}
       {props.configError && (
         <Alert color="yellow" className="config-error">
           {props.hasAstroFallback
@@ -162,11 +196,13 @@ export function EditorPane(props: {
           value={activeTab}
           onChange={(value) => props.onTabChange(value as EditorTab)}
         >
-          <Tabs.List>
-            {hasFields && <Tabs.Tab value="fields">Fields</Tabs.Tab>}
-            {!dataEntry && <Tabs.Tab value="body">Body</Tabs.Tab>}
-            <Tabs.Tab value="raw">Raw</Tabs.Tab>
-          </Tabs.List>
+          {!props.hideTabList && (
+            <Tabs.List>
+              {tabs.map((tab) => (
+                <Tabs.Tab key={tab} value={tab} tt="capitalize">{tab}</Tabs.Tab>
+              ))}
+            </Tabs.List>
+          )}
           {activeTab === "raw" ? (
             rawEditor
           ) : dataEntry && entry ? (
@@ -178,6 +214,7 @@ export function EditorPane(props: {
               config={props.config ?? EMPTY_CONFIG}
               root={props.root}
               groups={props.groups}
+              fieldsHeader={(props.filenamePlacement ?? "header") === "fields" ? filenameField : undefined}
               onChange={props.onFormEdit}
               onPostoSaved={props.onPostoSaved}
             />
@@ -193,6 +230,7 @@ export function EditorPane(props: {
               config={props.config ?? EMPTY_CONFIG}
               root={props.root}
               groups={props.groups}
+              fieldsHeader={(props.filenamePlacement ?? "header") === "fields" ? filenameField : undefined}
               onChange={props.onFormEdit}
               onPostoSaved={props.onPostoSaved}
             />

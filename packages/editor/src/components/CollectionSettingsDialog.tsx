@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Alert, Button, Select, TagsInput, TextInput } from "@mantine/core";
+import { Alert, Button, TextInput } from "@mantine/core";
 import { Dialog } from "./Dialog";
+import { AdaptiveSelect, AdaptiveTagsInput } from "./AdaptiveSelect";
 
 import { invoke } from "@posto/ipc";
 import type { FileEntry } from "@posto/ipc";
@@ -120,7 +121,7 @@ export function CollectionSettingsDialog(props: {
             value={displayName}
             onChange={(e) => setDisplayName(e.currentTarget.value)}
           />
-          <Select
+          <AdaptiveSelect
             size="xs"
             mt="sm"
             label="Sort entries by"
@@ -130,7 +131,7 @@ export function CollectionSettingsDialog(props: {
             onChange={setSortBy}
           />
           {sortBy !== null && (
-            <Select
+            <AdaptiveSelect
               size="xs"
               mt="sm"
               label="Direction"
@@ -143,7 +144,7 @@ export function CollectionSettingsDialog(props: {
               onChange={(value) => setSortDirection(value === "asc" ? "asc" : "desc")}
             />
           )}
-          <TagsInput
+          <AdaptiveTagsInput
             size="xs"
             mt="sm"
             label="Pinned files"

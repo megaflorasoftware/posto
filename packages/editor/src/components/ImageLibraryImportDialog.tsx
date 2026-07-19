@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Button, Group, Select, Text, TextInput } from "@mantine/core";
+import { Alert, Button, Group, Text, TextInput } from "@mantine/core";
 import { Dropzone, IMAGE_MIME_TYPE } from "@mantine/dropzone";
 import { Image as ImageIcon, Upload } from "lucide-react";
 import type { AstroImageLibrary, PagesConfig } from "@posto/core/pagescms/config";
@@ -17,6 +17,7 @@ import { Dialog } from "./Dialog";
 import { CachedImage } from "./CachedImage";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
 import { ImageLibraryBrowser } from "./ImageLibraryBrowser";
+import { AdaptiveSelect } from "./AdaptiveSelect";
 
 type ImportStep = "source" | "location" | "details";
 
@@ -136,8 +137,15 @@ export function ImageLibraryImportDialog(props: {
           <Group justify="center" gap="xl" mih={180}>
             <Upload size={42} />
             <div>
-              <Text size="lg" fw={600}>Drop an image here</Text>
-              <Text size="sm" c="dimmed" mb="md">or choose one from your device</Text>
+              <Text className="image-library-import-desktop-copy" size="lg" fw={600}>
+                Drop an image here
+              </Text>
+              <Text className="image-library-import-mobile-copy" size="lg" fw={600}>
+                Choose an image from your device
+              </Text>
+              <Text className="image-library-import-desktop-copy" size="sm" c="dimmed" mb="md">
+                or choose one from your device
+              </Text>
               <Button onClick={(event) => { event.stopPropagation(); void chooseSource(); }}>
                 Choose image
               </Button>
@@ -182,7 +190,7 @@ export function ImageLibraryImportDialog(props: {
               onChange={(event) => importer.setDraft((draft) => ({ ...draft, filename: event.currentTarget.value }))}
             />
             {props.library.metadataExtensions.length > 1 && (
-              <Select
+              <AdaptiveSelect
                 size="xs"
                 label="Metadata format"
                 data={props.library.metadataExtensions.map((extension) => ({

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Alert } from "@mantine/core";
 
 import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
@@ -63,6 +63,7 @@ export function FormEditor(props: {
   config: PagesConfig;
   root: string;
   groups: FileGroup[];
+  fieldsHeader?: ReactNode;
   onChange: (content: string, valid: boolean) => void;
   onPostoSaved?: () => void;
 }) {
@@ -281,6 +282,7 @@ export function FormEditor(props: {
   return (
     <div className="form-editor">
       <div className="form-fields">
+        {props.fieldsHeader}
         {fields.map((field) => (
           <FieldEditor key={field.name} field={field} path={[field.name]} ctx={ctx} />
         ))}
