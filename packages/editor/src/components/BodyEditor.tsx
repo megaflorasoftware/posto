@@ -385,6 +385,7 @@ export function BodyEditor(props: {
           config={props.config}
           configuredMedia={props.configuredMedia}
           templateValues={props.templateValues}
+          groups={props.groups}
           onClose={() => setPickerOpen(false)}
           onPick={(outputPath) => {
             setPickerOpen(false);

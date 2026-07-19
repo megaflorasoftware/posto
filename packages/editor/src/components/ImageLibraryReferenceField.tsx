@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { ActionIcon, Alert, Button, TextInput } from "@mantine/core";
-import { Image as ImageIcon, X } from "lucide-react";
+import { Alert } from "@mantine/core";
+import { Image as ImageIcon, Pencil } from "lucide-react";
 import type { AstroImageLibrary, Field } from "@posto/core/pagescms/config";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 import { assetUrl } from "@posto/ipc";
@@ -27,27 +27,28 @@ export function ImageLibraryReferenceField(props: {
   return (
     <>
       {libraryState.error && <Alert color="yellow" mb="xs">Could not read image library: {libraryState.error}</Alert>}
-      <div className="image-library-reference">
-        <span className="image-library-reference-thumbnail">
+      {missing && <Alert color="yellow" mb="xs">The selected image entry is missing.</Alert>}
+      <button
+        type="button"
+        className="image-library-reference"
+        aria-label={selected ? "Change image" : "Choose image"}
+        onClick={() => setPickerOpen(true)}
+      >
+        <span className="image-library-reference-preview">
           {thumbnail ? <img src={thumbnail} alt="" /> : <ImageIcon size={20} />}
         </span>
-        <div className="image-library-reference-controls">
-          <TextInput size="xs" readOnly value={selected ?? ""} placeholder="No image selected" error={missing ? "Missing image entry" : undefined} />
-          <Button size="xs" variant="default" onClick={() => setPickerOpen(true)}>Choose…</Button>
-          <Button size="xs" variant="default" onClick={() => setImportOpen(true)}>Import…</Button>
-          {selected && !props.field.required && (
-            <ActionIcon variant="subtle" color="gray" size="sm" title="Clear" onClick={() => props.ctx.edit(props.path, undefined)}>
-              <X size={14} />
-            </ActionIcon>
-          )}
-        </div>
-      </div>
+        <span className="image-library-reference-edit"><Pencil size={20} /></span>
+      </button>
       {pickerOpen && (
         <ImageLibraryPickerDialog
           root={props.ctx.root}
           library={props.library}
           assets={libraryState.assets}
           onClose={() => setPickerOpen(false)}
+          onImport={() => {
+            setPickerOpen(false);
+            setImportOpen(true);
+          }}
           onPick={(asset) => {
             props.ctx.edit(props.path, asset.entryId);
             setPickerOpen(false);
@@ -61,8 +62,8 @@ export function ImageLibraryReferenceField(props: {
           config={props.ctx.config}
           groups={props.ctx.groups}
           onClose={() => setImportOpen(false)}
-          onImported={(entryId) => {
-            props.ctx.edit(props.path, entryId);
+          onImported={(result) => {
+            props.ctx.edit(props.path, result.entryId);
             void libraryState.refresh();
           }}
         />

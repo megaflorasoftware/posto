@@ -11,8 +11,10 @@ import {
   type MediaEntry,
   type PagesConfig,
 } from "@posto/core/pagescms/config";
+import type { FileGroup } from "@posto/ipc";
 import { useImageLibraryAssets } from "../hooks/useImageLibraryAssets";
 import { Dialog } from "./Dialog";
+import { ImageLibraryImportDialog } from "./ImageLibraryImportDialog";
 import { ImageLibraryPickerDialog } from "./ImageLibraryPickerDialog";
 
 function defaultMedia(library: AstroImageLibrary): MediaEntry {
@@ -25,15 +27,31 @@ function LibraryGrid(props: {
   library: AstroImageLibrary;
   subset: string;
   media: MediaEntry;
+  config: PagesConfig;
+  groups: FileGroup[];
   onClose: () => void;
   onPick: (outputPath: string) => void;
 }) {
+  const [importOpen, setImportOpen] = useState(false);
   const state = useImageLibraryAssets(props.root, props.library);
   const assets = state.assets.filter((asset) =>
     imageLibraryContainsAsset(props.library, props.root, asset, props.subset),
   );
   const directory = `${props.root}/${props.library.base}${props.subset ? `/${props.subset}` : ""}`;
-  return (
+  return importOpen ? (
+    <ImageLibraryImportDialog
+      root={props.root}
+      library={props.library}
+      config={props.config}
+      groups={props.groups}
+      onClose={() => setImportOpen(false)}
+      onImported={(result) => {
+        void state.refresh();
+        const output = mediaOutputPath(props.root, props.media, result.imagePath);
+        if (output) props.onPick(output);
+      }}
+    />
+  ) : (
     <ImageLibraryPickerDialog
       root={props.root}
       library={props.library}
@@ -41,6 +59,7 @@ function LibraryGrid(props: {
       directory={directory}
       error={state.error}
       onClose={props.onClose}
+      onImport={() => setImportOpen(true)}
       onPick={(asset) => {
         const output = asset.imagePath
           ? mediaOutputPath(props.root, props.media, asset.imagePath)
@@ -58,6 +77,7 @@ export function RichTextImagePickerDialog(props: {
   config: PagesConfig;
   configuredMedia: MediaEntry | null;
   templateValues: Record<string, unknown>;
+  groups: FileGroup[];
   onClose: () => void;
   onPick: (outputPath: string) => void;
 }) {
@@ -97,6 +117,8 @@ export function RichTextImagePickerDialog(props: {
         library={configured.library}
         subset={configured.subset}
         media={expandedMedia}
+        config={props.config}
+        groups={props.groups}
         onClose={props.onClose}
         onPick={props.onPick}
       />
@@ -111,6 +133,8 @@ export function RichTextImagePickerDialog(props: {
         library={selected}
         subset=""
         media={defaultMedia(selected)}
+        config={props.config}
+        groups={props.groups}
         onClose={props.onClose}
         onPick={props.onPick}
       />

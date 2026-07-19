@@ -12,6 +12,7 @@ export function ImageLibraryPickerDialog(props: {
   error?: string | null;
   onClose: () => void;
   onPick: (asset: ImageLibraryAsset) => void;
+  onImport: () => void;
 }) {
   const directory = props.directory ?? `${props.root}/${props.library.base}`;
   return (
@@ -42,9 +43,12 @@ export function ImageLibraryPickerDialog(props: {
           })}
         </div>
       )}
-      <Button fullWidth variant="light" mt="sm" onClick={() => void openPath(directory)}>
-        Open Media Folder
-      </Button>
+      <div className="image-library-picker-actions">
+        <Button variant="outline" onClick={() => void openPath(directory)}>
+          Open Media Library
+        </Button>
+        <Button onClick={props.onImport}>Import image</Button>
+      </div>
     </Dialog>
   );
 }

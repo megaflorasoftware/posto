@@ -4,6 +4,7 @@ import type { AstroImageLibrary, Field, PagesConfig } from "@posto/core/pagescms
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 import { validateForm } from "@posto/core/pagescms/validate";
 import type { FileGroup } from "@posto/ipc";
+import type { ImageLibraryImportResult } from "@posto/ipc";
 import { useImageLibraryImport } from "../hooks/useImageLibraryImport";
 import { Dialog } from "./Dialog";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
@@ -48,7 +49,7 @@ export function ImageLibraryImportDialog(props: {
   groups: FileGroup[];
   sourcePath?: string;
   onClose: () => void;
-  onImported: (entryId: string) => void;
+  onImported: (result: ImageLibraryImportResult) => void;
 }) {
   const metadataFields = useMemo(
     () => withoutImageField(props.library.fields, props.library.imageFieldPath),
@@ -58,7 +59,7 @@ export function ImageLibraryImportDialog(props: {
     root: props.root,
     library: props.library,
     initialSourcePath: props.sourcePath,
-    onImported: (result) => props.onImported(result.entryId),
+    onImported: props.onImported,
   });
   const errors = validateForm(metadataFields, importer.draft.metadata);
   const update = (path: ValuePath, value: unknown) => {
