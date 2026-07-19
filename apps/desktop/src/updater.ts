@@ -11,7 +11,9 @@ const inTauri = "__TAURI_INTERNALS__" in window;
  * being unreachable (offline, private repo, deleted release) is normal.
  */
 export async function checkForAppUpdate(): Promise<void> {
-  if (!inTauri) return;
+  // `tauri dev` serves the app from vite's dev server; a release check there
+  // would offer to "update" the local build to the latest release.
+  if (!inTauri || import.meta.env.DEV) return;
   try {
     const update = await check();
     if (!update) return;
