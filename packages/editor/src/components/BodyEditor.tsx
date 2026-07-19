@@ -19,6 +19,7 @@ import {
   componentNameFromFile,
   importInfo,
   parseAstroProps,
+  parseAstroPropsType,
   parseAstroSlots,
   relativeImportPath,
   resolveImportPath,
@@ -200,11 +201,17 @@ export function BodyEditor(props: {
         try {
           const source = await invoke<string>("read_text_file", { path: file });
           const defs = parseAstroProps(source);
+          const propsType = parseAstroPropsType(source) ?? undefined;
           const slots = parseAstroSlots(source);
           // Register even prop-less, slot-less components: a loaded schema
           // with no slots is what tells the card to render no sections.
           for (const name of names) {
-            loaded[name] = { props: defs, slots: slots.named, hasDefaultSlot: slots.hasDefault };
+            loaded[name] = {
+              props: defs,
+              propsType,
+              slots: slots.named,
+              hasDefaultSlot: slots.hasDefault,
+            };
           }
         } catch {
           // Unresolvable import — the card just shows the props already set.

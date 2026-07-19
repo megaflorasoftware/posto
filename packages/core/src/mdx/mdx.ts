@@ -468,6 +468,9 @@ export interface AstroPropDef {
 /** Prop and slot declarations read from an Astro component's source. */
 export interface AstroComponentSchema {
   props: AstroPropDef[];
+  /** A non-object-literal `type Props = …` resolved to canonical Astro type
+   * names. The editor can expand collection `data` aliases using its schemas. */
+  propsType?: string;
   /** Named slots (`<slot name="…">`) declared in the template, in order. */
   slots: string[];
   /** Whether the template declares a default (unnamed) `<slot>`. */
@@ -506,7 +509,7 @@ export function parseTypeMembers(body: string): AstroPropDef[] {
   let member = "";
   const flush = () => {
     const m = /^\s*(?:readonly\s+)?([A-Za-z_]\w*)(\?)?\s*:\s*([\s\S]+?)[;,]?\s*$/.exec(member);
-    if (m && !m[3].includes("(")) {
+    if (m) {
       defs.push({ name: m[1], optional: m[2] === "?", type: m[3].trim() });
     }
     member = "";
@@ -527,6 +530,92 @@ export function parseTypeMembers(body: string): AstroPropDef[] {
   return defs;
 }
 
+const ASTRO_CONTENT_TYPES = new Set(["CollectionEntry", "CollectionKey", "SchemaContext"]);
+
+/** Canonical names for `astro:content` type imports, including aliases and a
+ * namespace import. This lets the field resolver operate on one spelling. */
+function astroContentTypeAliases(script: string): {
+  aliases: Map<string, string>;
+  namespaces: string[];
+} {
+  const aliases = new Map<string, string>();
+  const namespaces: string[] = [];
+  const named = /import\s+(?:type\s+)?\{([\s\S]*?)\}\s+from\s+["']astro:content["']/g;
+  for (const statement of script.matchAll(named)) {
+    for (const raw of statement[1].split(",")) {
+      const part = raw.trim().replace(/^type\s+/, "");
+      const match = /^(\w+)(?:\s+as\s+(\w+))?$/.exec(part);
+      if (!match || !ASTRO_CONTENT_TYPES.has(match[1])) continue;
+      aliases.set(match[2] ?? match[1], match[1]);
+    }
+  }
+  const namespace = /import\s+(?:type\s+)?\*\s+as\s+(\w+)\s+from\s+["']astro:content["']/g;
+  for (const statement of script.matchAll(namespace)) namespaces.push(statement[1]);
+  return { aliases, namespaces };
+}
+
+function replaceTypeName(source: string, from: string, to: string): string {
+  return source.replace(new RegExp(`\\b${from}\\b`, "g"), to);
+}
+
+function canonicalAstroContentType(
+  type: string,
+  aliases: Map<string, string>,
+  namespaces: string[],
+): string {
+  let resolved = type.replace(
+    /import\s*\(\s*["']astro:content["']\s*\)\s*\.\s*(CollectionEntry|CollectionKey|SchemaContext)/g,
+    "$1",
+  );
+  for (const namespace of namespaces) {
+    resolved = resolved.replace(
+      new RegExp(`\\b${namespace}\\s*\\.\\s*(CollectionEntry|CollectionKey|SchemaContext)\\b`, "g"),
+      "$1",
+    );
+  }
+  // Local aliases may point at an imported alias, so repeat to a fixed point.
+  for (let pass = 0; pass < aliases.size + 1; pass++) {
+    const before = resolved;
+    for (const [from, to] of aliases) resolved = replaceTypeName(resolved, from, to);
+    if (resolved === before) break;
+  }
+  return resolved;
+}
+
+/** Non-generic local aliases such as
+ * `type PostData = CollectionEntry<'posts'>['data']`. */
+function localTypeAliases(
+  script: string,
+  aliases: Map<string, string>,
+  namespaces: string[],
+): void {
+  const declaration = /(?:export\s+)?type\s+(\w+)\s*=\s*/g;
+  for (let match = declaration.exec(script); match; match = declaration.exec(script)) {
+    let depth = 0;
+    let quote: string | null = null;
+    let end = match.index + match[0].length;
+    for (; end < script.length; end++) {
+      const ch = script[end];
+      if (quote) {
+        if (ch === "\\") end++;
+        else if (ch === quote) quote = null;
+      } else if (ch === '"' || ch === "'" || ch === "`") {
+        quote = ch;
+      } else if ("<([{".includes(ch)) {
+        depth++;
+      } else if (">)]}".includes(ch)) {
+        depth--;
+      } else if (ch === ";" && depth === 0) {
+        break;
+      }
+    }
+    if (end >= script.length) continue;
+    const value = script.slice(match.index + match[0].length, end).trim();
+    if (value !== "") aliases.set(match[1], canonicalAstroContentType(value, aliases, namespaces));
+    declaration.lastIndex = end + 1;
+  }
+}
+
 /**
  * Extracts the `Props` interface (or `type Props = {…}`) from an Astro
  * component's frontmatter script. Only top-level members are read as
@@ -535,6 +624,8 @@ export function parseTypeMembers(body: string): AstroPropDef[] {
 export function parseAstroProps(source: string): AstroPropDef[] {
   const fence = source.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   const script = fence ? fence[1] : source;
+  const { aliases, namespaces } = astroContentTypeAliases(script);
+  localTypeAliases(script, aliases, namespaces);
   const head = /(?:export\s+)?(?:interface\s+Props(?:\s+extends\s+[^{]+)?\s*|type\s+Props\s*=\s*)\{/.exec(
     script,
   );
@@ -542,5 +633,21 @@ export function parseAstroProps(source: string): AstroPropDef[] {
   const bodyStart = head.index + head[0].length;
   const end = scanBraces(script, head.index + head[0].length - 1);
   if (end === -1) return [];
-  return parseTypeMembers(script.slice(bodyStart, end - 1));
+  return parseTypeMembers(script.slice(bodyStart, end - 1)).map((def) => ({
+    ...def,
+    type: canonicalAstroContentType(def.type, aliases, namespaces),
+  }));
+}
+
+/** Returns a non-object-literal `type Props = …` expression. This covers the
+ * common `type Props = CollectionEntry<'posts'>['data']` shape, whose members
+ * can only be expanded once generated collection schemas are available. */
+export function parseAstroPropsType(source: string): string | null {
+  const fence = source.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const script = fence ? fence[1] : source;
+  const { aliases, namespaces } = astroContentTypeAliases(script);
+  localTypeAliases(script, aliases, namespaces);
+  const alias = aliases.get("Props");
+  if (!alias || alias.trim().startsWith("{")) return null;
+  return canonicalAstroContentType(alias, aliases, namespaces);
 }

@@ -51,11 +51,23 @@ export interface ContentEntry {
   pinned?: string[];
   /** Collection-scoped media source, preferred over the global list. */
   media?: MediaEntry;
+  /** The glob loader has a custom `generateId`; Posto cannot derive ids from
+   * file paths and must not offer an id-valued reference picker. */
+  astroCustomIds?: boolean;
+}
+
+/** A generated Astro collection schema used for component-prop typing. Unlike
+ * ContentEntry, this also includes collections whose source Posto cannot edit
+ * (`file()`, custom loaders, and non-Markdown data formats). */
+export interface AstroCollectionSchema {
+  name: string;
+  fields: Field[];
 }
 
 export interface PagesConfig {
   media: MediaEntry[];
   content: ContentEntry[];
+  astroCollections?: AstroCollectionSchema[];
 }
 
 // Field types the form knows how to render; anything else falls back to a

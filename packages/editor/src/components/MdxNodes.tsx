@@ -172,7 +172,16 @@ function PropsForm(formProps: {
   }
 
   const existing = parsedProps;
-  const defs: AstroPropDef[] = schemas[name]?.props ?? [];
+  const schema = schemas[name];
+  const defs: AstroPropDef[] = schema?.props ?? [];
+  const typeContext = {
+    collections: env.config.astroCollections ?? env.config.content,
+    editableCollections: env.config.content,
+  };
+  const propsTypeField = schema?.propsType
+    ? astroPropField({ name: "Props", type: schema.propsType, optional: false }, typeContext)
+    : null;
+  const aliasedFields = propsTypeField?.type === "object" ? (propsTypeField.fields ?? []) : [];
   const values: Record<string, unknown> = {};
   for (const prop of existing) {
     if (prop.kind !== "spread") values[prop.name] = propJsValue(prop);
@@ -185,7 +194,7 @@ function PropsForm(formProps: {
   const rows: Row[] = [];
   const fields: Field[] = [];
   for (const def of defs) {
-    const field = astroPropField(def);
+    const field = astroPropField(def, typeContext);
     const value = values[def.name];
     if (field && value !== UNPARSED && valueFits(field, value)) {
       rows.push({ key: def.name, kind: "field", field });
@@ -194,10 +203,21 @@ function PropsForm(formProps: {
       rows.push({ key: def.name, kind: "raw", propName: def.name, def });
     }
   }
+  for (const field of aliasedFields) {
+    if (defs.some((def) => def.name === field.name)) continue;
+    const value = values[field.name];
+    if (value !== UNPARSED && valueFits(field, value)) {
+      rows.push({ key: field.name, kind: "field", field });
+      fields.push(field);
+    } else {
+      rows.push({ key: field.name, kind: "raw", propName: field.name, def: null });
+    }
+  }
+  const declaredNames = new Set([...defs.map((def) => def.name), ...aliasedFields.map((field) => field.name)]);
   existing.forEach((prop, index) => {
     if (prop.kind === "spread") {
       rows.push({ key: `spread-${index}`, kind: "spread", value: prop.value });
-    } else if (!defs.some((def) => def.name === prop.name)) {
+    } else if (!declaredNames.has(prop.name)) {
       rows.push({ key: prop.name, kind: "raw", propName: prop.name, def: null });
     }
   });
@@ -219,7 +239,8 @@ function PropsForm(formProps: {
   /** Writes a JS value back as a prop, keyed to the prop's declared type. */
   function editJs(propName: string, value: unknown) {
     const def = defs.find((d) => d.name === propName);
-    setProp(propName, jsValueProp(propName, value, def ? !def.optional : false));
+    const aliased = aliasedFields.find((field) => field.name === propName);
+    setProp(propName, jsValueProp(propName, value, def ? !def.optional : aliased?.required === true));
   }
 
   /** Copy-on-write set along a path inside a prop's parsed value; numeric

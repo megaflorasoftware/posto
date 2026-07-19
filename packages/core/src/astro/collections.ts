@@ -180,7 +180,7 @@ export function parseCollectionSchema(name: string, source: string): Field[] | n
 }
 
 export interface LoaderInfo {
-  kind: "glob" | "file" | "unknown";
+  kind: "glob" | "file" | "legacy" | "custom" | "unknown";
   base?: string;
   /** glob() accepts a single pattern or an array of them. */
   patterns?: string[];
@@ -188,6 +188,8 @@ export interface LoaderInfo {
   references?: Record<string, string>;
   /** Field names whose schema uses Astro's `image()` helper. */
   images?: string[];
+  /** A glob-loader `generateId` callback cannot be executed by the editor. */
+  customIds?: boolean;
 }
 
 /** Slice out the balanced `(...)` argument list starting at `openIndex`. */
@@ -219,6 +221,70 @@ function stringsProp(block: string, key: string): string[] | undefined {
   return items.length > 0 ? items : undefined;
 }
 
+/** Source of a top-level object property in a defineCollection argument.
+ * Returns the identifier itself for object shorthand (`{ loader }`). */
+function topLevelObjectProp(block: string, key: string): string | undefined {
+  let braces = 0;
+  let parens = 0;
+  let brackets = 0;
+  let quote: string | null = null;
+  for (let i = 0; i < block.length; i++) {
+    const ch = block[i];
+    if (quote) {
+      if (ch === "\\") i++;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "{") braces++;
+    else if (ch === "}") braces--;
+    else if (ch === "(") parens++;
+    else if (ch === ")") parens--;
+    else if (ch === "[") brackets++;
+    else if (ch === "]") brackets--;
+    if (braces !== 1 || parens !== 0 || brackets !== 0 || !block.startsWith(key, i)) continue;
+    if (/\w/.test(block[i - 1] ?? "") || /\w/.test(block[i + key.length] ?? "")) continue;
+    let valueStart = i + key.length;
+    while (/\s/.test(block[valueStart] ?? "")) valueStart++;
+    if (block[valueStart] !== ":") {
+      if (block[valueStart] === "," || block[valueStart] === "}") return key;
+      continue;
+    }
+    valueStart++;
+    while (/\s/.test(block[valueStart] ?? "")) valueStart++;
+    const initial = { braces, parens, brackets };
+    quote = null;
+    for (let end = valueStart; end < block.length; end++) {
+      const valueCh = block[end];
+      if (quote) {
+        if (valueCh === "\\") end++;
+        else if (valueCh === quote) quote = null;
+        continue;
+      }
+      if (valueCh === '"' || valueCh === "'" || valueCh === "`") quote = valueCh;
+      else if (valueCh === "{") braces++;
+      else if (valueCh === "}") braces--;
+      else if (valueCh === "(") parens++;
+      else if (valueCh === ")") parens--;
+      else if (valueCh === "[") brackets++;
+      else if (valueCh === "]") brackets--;
+      if (
+        (valueCh === "," || valueCh === "}") &&
+        braces === initial.braces &&
+        parens === initial.parens &&
+        brackets === initial.brackets
+      ) {
+        return block.slice(valueStart, end).trim();
+      }
+    }
+    return block.slice(valueStart).trim();
+  }
+  return undefined;
+}
+
 /**
  * Best-effort scan of `content.config.ts` for each collection's loader.
  * Returns loader info keyed by *exported* collection name (the name the
@@ -231,16 +297,26 @@ export function parseLoaderConfig(source: string): Map<string, LoaderInfo> {
   for (let match = defRegex.exec(source); match; match = defRegex.exec(source)) {
     const body = balancedSlice(source, defRegex.lastIndex - 1);
     if (body === null) continue;
-    let info: LoaderInfo = { kind: "unknown" };
-    const globIdx = body.search(/\bglob\s*\(/);
-    const fileIdx = body.search(/\bfile\s*\(/);
+    let info: LoaderInfo = { kind: "legacy" };
+    const loaderSource = topLevelObjectProp(body, "loader");
+    const globIdx = loaderSource?.search(/\bglob\s*\(/) ?? -1;
+    const fileIdx = loaderSource?.search(/\bfile\s*\(/) ?? -1;
     if (globIdx !== -1) {
-      const args = balancedSlice(body, body.indexOf("(", globIdx));
+      const args = loaderSource
+        ? balancedSlice(loaderSource, loaderSource.indexOf("(", globIdx))
+        : null;
       info = args
-        ? { kind: "glob", base: stringProp(args, "base"), patterns: stringsProp(args, "pattern") }
+        ? {
+            kind: "glob",
+            base: stringProp(args, "base"),
+            patterns: stringsProp(args, "pattern"),
+            customIds: /\bgenerateId\b/.test(args),
+          }
         : { kind: "glob" };
     } else if (fileIdx !== -1) {
       info = { kind: "file" };
+    } else if (loaderSource !== undefined) {
+      info = { kind: "custom" };
     }
     // Schema fields declared as `reference("x")`, possibly wrapped in
     // `z.array(...)`. Keyed by field name across all nesting levels — the
@@ -307,15 +383,23 @@ export function astroEntryId(relPath: string, slug?: string | null): string {
 
 /** Fills reference markers from the config scan; a reference whose target
  * collection couldn't be recovered edits as a plain string. */
-function resolveReferences(fields: Field[], references?: Record<string, string>): Field[] {
+function resolveReferences(
+  fields: Field[],
+  references: Record<string, string> | undefined,
+  loaders: Map<string, LoaderInfo>,
+): Field[] {
   return fields.map((field) => {
     if (field.type === "reference") {
       const collection = references?.[field.name];
       return collection
-        ? { ...field, options: { collection, astroId: true } }
+        ? loaders.get(collection)?.customIds
+          ? { ...field, type: "string" }
+          : { ...field, options: { collection, astroId: true } }
         : { ...field, type: "string" };
     }
-    if (field.fields) return { ...field, fields: resolveReferences(field.fields, references) };
+    if (field.fields) {
+      return { ...field, fields: resolveReferences(field.fields, references, loaders) };
+    }
     return field;
   });
 }
@@ -344,14 +428,25 @@ export function buildAstroConfig(
   loaders: Map<string, LoaderInfo>,
 ): PagesConfig {
   const content: ContentEntry[] = [];
+  const astroCollections = collections.map(({ name, fields }) => {
+    const loader = loaders.get(name);
+    return {
+      name,
+      fields: resolveReferences(resolveImages(fields, loader?.images), loader?.references, loaders),
+    };
+  });
   for (const { name, fields } of collections) {
     const loader = loaders.get(name);
-    if (loader?.kind === "file") continue;
+    if (loader?.kind === "file" || loader?.kind === "custom") continue;
     const patterns = loader?.kind === "glob" ? (loader.patterns ?? []) : [];
     // A single unambiguous extension across all patterns; mixes (md + mdx)
     // leave it open so any extension is accepted.
     const extensions = new Set(patterns.map(patternExtension));
     const extension = extensions.size === 1 ? [...extensions][0] : undefined;
+    // The current file/form pipeline reads Markdown frontmatter. Keep data and
+    // Markdoc collections in the type registry below without exposing a
+    // sidebar collection that Posto cannot parse or write safely.
+    if (extension && !["md", "mdx", "markdown"].includes(extension)) continue;
     content.push({
       name,
       label: name.charAt(0).toUpperCase() + name.slice(1),
@@ -363,8 +458,13 @@ export function buildAstroConfig(
       subfolders:
         patterns.length > 0 && patterns.every((p) => !p.includes("/")) ? false : undefined,
       extension,
-      fields: resolveReferences(resolveImages(fields, loader?.images), loader?.references),
+      fields: resolveReferences(resolveImages(fields, loader?.images), loader?.references, loaders),
+      astroCustomIds: loader?.customIds || undefined,
     });
   }
-  return { media: DEFAULT_ASTRO_MEDIA, content };
+  return {
+    media: DEFAULT_ASTRO_MEDIA,
+    content,
+    astroCollections,
+  };
 }
