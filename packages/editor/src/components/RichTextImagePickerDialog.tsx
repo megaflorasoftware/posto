@@ -73,7 +73,7 @@ function LibraryGrid(props: {
   );
 }
 
-/** Image insertion for Markdown/MDX bodies. An explicit collection mediaDir
+/** Image insertion for Markdown/MDX bodies. An explicit collection media source
  * selects a library (or subset); otherwise authors choose a discovered one. */
 export function RichTextImagePickerDialog(props: {
   root: string;

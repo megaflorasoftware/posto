@@ -4,8 +4,7 @@ import { Dialog } from "./Dialog";
 
 import { invoke } from "@posto/ipc";
 import type { FileEntry } from "@posto/ipc";
-import { resolveImageLibraryLocation } from "@posto/core/astro/imageLibrary";
-import { DEFAULT_FILENAME_PATTERN, type ContentEntry, type PagesConfig } from "@posto/core/pagescms/config";
+import { DEFAULT_FILENAME_PATTERN, type ContentEntry } from "@posto/core/pagescms/config";
 import {
   LABEL_SORT,
   POSTO_COLLECTIONS_DIR,
@@ -23,14 +22,13 @@ function sortToken(token: string): string {
 
 /**
  * Per-collection `.posto` settings: display name, entry-label template,
- * filename template, media directory, sort, and pinned files. Every field is
+ * filename template, sort, and pinned files. Every field is
  * optional — cleared fields fall back to the derived config — and saving
  * rewrites only the keys this form owns, so hand-added settings survive.
  */
 export function CollectionSettingsDialog(props: {
   root: string;
   collection: ContentEntry;
-  config: PagesConfig;
   /** The collection's current files; suggestions for pinning. */
   files: FileEntry[];
   onClose: () => void;
@@ -45,7 +43,6 @@ export function CollectionSettingsDialog(props: {
   const [displayName, setDisplayName] = useState("");
   const [entryName, setEntryName] = useState("");
   const [filename, setFilename] = useState("");
-  const [mediaDir, setMediaDir] = useState("");
   const [sortBy, setSortBy] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [pinned, setPinned] = useState<string[]>([]);
@@ -67,7 +64,6 @@ export function CollectionSettingsDialog(props: {
       setDisplayName(settings?.displayName ?? "");
       setEntryName(settings?.entryName ?? "");
       setFilename(settings?.filename ?? "");
-      setMediaDir(settings?.mediaDir ?? "");
       setSortBy(settings?.sort ? sortToken(settings.sort.by) : null);
       setSortDirection(settings?.sort?.direction ?? "desc");
       setPinned(settings?.pinned ?? []);
@@ -95,17 +91,9 @@ export function CollectionSettingsDialog(props: {
       displayName: trimmed(displayName),
       entryName: trimmed(entryName),
       filename: trimmed(filename),
-      mediaDir: trimmed(mediaDir),
       sort: sortBy ? { by: sortBy, direction: sortDirection } : undefined,
       pinned: pinned.length > 0 ? pinned : undefined,
     };
-    if (
-      settings.mediaDir &&
-      !resolveImageLibraryLocation(props.config.imageLibraries ?? [], settings.mediaDir)
-    ) {
-      setError("The media folder must be a recognized Astro image library or an included subfolder of one.");
-      return;
-    }
     setSaving(true);
     setError(null);
     try {
@@ -155,15 +143,6 @@ export function CollectionSettingsDialog(props: {
             placeholder={collection.filename ?? DEFAULT_FILENAME_PATTERN}
             value={filename}
             onChange={(e) => setFilename(e.currentTarget.value)}
-          />
-          <TextInput
-            size="xs"
-            mt="sm"
-            label="Media folder"
-            description="An Astro image library or included subfolder; {fields.x} templates are supported"
-            placeholder={props.config.imageLibraries?.[0]?.base ?? "src/media"}
-            value={mediaDir}
-            onChange={(e) => setMediaDir(e.currentTarget.value)}
           />
           <Select
             size="xs"

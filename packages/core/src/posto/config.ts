@@ -1,4 +1,4 @@
-import type { ContentEntry, MediaEntry, PagesConfig } from "../pagescms/config";
+import type { ContentEntry, PagesConfig } from "../pagescms/config";
 
 // Types and helpers for posto's own `.posto/` config directory: user
 // preferences layered on top of the derived schema config (`.pages.yml` /
@@ -37,8 +37,6 @@ export interface PostoCollectionSettings {
   entryName?: string;
   /** New-entry filename template (Pages CMS token syntax). */
   filename?: string;
-  /** Media directory for this collection's image fields, relative to root. */
-  mediaDir?: string;
   sort?: PostoSort;
   /** Entry filenames pinned to the top of the collection, in order. */
   pinned?: string[];
@@ -104,22 +102,10 @@ export function parsePostoCollection(source: string): PostoCollectionSettings | 
     displayName: optionalString(doc.displayName),
     entryName: optionalString(doc.entryName),
     filename: optionalString(doc.filename),
-    mediaDir: optionalString(doc.mediaDir),
     sort: parseSort(doc.sort),
     pinned: stringArray(doc.pinned),
   };
   return Object.values(settings).some((v) => v !== undefined) ? settings : null;
-}
-
-/**
- * Media entry for a collection's `mediaDir`, mirroring Pages CMS output
- * defaulting: `public` serves from the site root, so a leading `public`
- * segment is stripped from the stored output path.
- */
-function mediaEntryForDir(collection: string, dir: string): MediaEntry {
-  const input = dir.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
-  const served = input === "public" ? "" : input.replace(/^public\//, "");
-  return { name: `posto:${collection}`, input, output: "/" + served };
 }
 
 /**
@@ -147,7 +133,6 @@ export function mergePostoConfig(config: PagesConfig, posto: PostoConfig | null)
       if (settings.entryName) merged.entryName = settings.entryName;
       if (settings.sort) merged.sort = settings.sort;
       if (settings.pinned) merged.pinned = settings.pinned;
-      if (settings.mediaDir) merged.media = mediaEntryForDir(entry.name, settings.mediaDir);
       return merged;
     }),
   };
@@ -179,14 +164,15 @@ export function updatePostoCollectionSource(
   settings: PostoCollectionSettings,
 ): string {
   const doc = parseSourceObject(source);
-  const scalars = ["displayName", "entryName", "filename", "mediaDir"] as const;
+  const scalars = ["displayName", "entryName", "filename"] as const;
   for (const key of scalars) {
     if (settings[key] !== undefined) doc[key] = settings[key];
     else delete doc[key];
   }
-  // Removed before release: do not retain slug-template settings written by
-  // intermediate builds of this feature branch.
+  // Removed before release: do not retain settings written by intermediate
+  // builds of these features.
   delete doc.slug;
+  delete doc.mediaDir;
   if (settings.sort) doc.sort = { by: settings.sort.by, direction: settings.sort.direction };
   else delete doc.sort;
   if (settings.pinned && settings.pinned.length > 0) doc.pinned = settings.pinned;

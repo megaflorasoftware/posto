@@ -175,7 +175,6 @@ const mockFiles: Record<string, string> = {
       displayName: "Writing",
       entryName: "{fields.title}",
       filename: "{fields.title}.mdx",
-      mediaDir: "public",
       sort: { by: "fields.publish_date", direction: "desc" },
     },
     null,

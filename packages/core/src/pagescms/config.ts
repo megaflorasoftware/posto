@@ -632,7 +632,7 @@ export function inferFields(values: Record<string, unknown>): Field[] {
 
 /**
  * Media source for an image field: `options.media` by name, else the entry's
- * collection-scoped source (from `.posto` `mediaDir`), else the first global.
+ * collection-scoped source (from Pages CMS configuration), else the first global.
  */
 export function resolveMedia(
   config: PagesConfig,

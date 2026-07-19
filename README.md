@@ -32,7 +32,7 @@ Other collections should use Astro `reference("images")` fields, and Astro compo
 
 Posto honors the collection's include and exclude glob patterns and only enhances collections with default IDs and one scalar `image()` field nested through ordinary objects. Missing images, malformed metadata values, duplicate IDs, shared files, and paths outside the library are shown as diagnostics; Posto never guesses ownership from matching basenames or automatically removes orphan images.
 
-Recognized image-library ID fields use a thumbnail picker rather than a reference dropdown. Rich-text image insertion asks which discovered library to browse unless the edited collection has a `.posto` media folder configured; configured folders must be a discovered image-library root or an included subfolder of one.
+Recognized image-library ID fields use a thumbnail picker rather than a reference dropdown. Rich-text image insertion asks which discovered library to browse unless the edited collection has a media folder configured in Pages CMS; configured folders must be a discovered image-library root or an included subfolder of one.
 
 A fast and simple desktop editor for static, markdown-based personal websites. Posto lives a level up from a traditional IDE or code editor, enabling non-programmers to easily update a site built for them or serving as a more pleasant way for developers to make frequent updates to their static sites.
 
