@@ -184,15 +184,20 @@ const mockFiles: Record<string, string> = {
   // Astro content-collection fixtures: `posts` has no `.pages.yml` entry, so
   // its form schema comes from the generated JSON Schema (fallback path).
   "/mock/site/src/content.config.ts": [
-    'import { defineCollection, z } from "astro:content";',
+    'import { defineCollection, reference, z } from "astro:content";',
     'import { glob } from "astro/loaders";',
     "",
     "const posts = defineCollection({",
     '  loader: glob({ pattern: "**/*.md", base: "./posts" }),',
-    "  schema: z.object({}),",
+    '  schema: z.object({ hero: reference("media") }),',
     "});",
     "",
-    "export const collections = { posts };",
+    "const media = defineCollection({",
+    '  loader: glob({ pattern: "**/*.{yaml,yml,json}", base: "./media" }),',
+    "  schema: ({ image }) => z.object({ image: image(), alt: z.string() }),",
+    "});",
+    "",
+    "export const collections = { posts, media };",
     "",
   ].join("\n"),
   "/mock/site/.astro/collections/posts.schema.json": JSON.stringify({
@@ -202,6 +207,16 @@ const mockFiles: Record<string, string> = {
         type: "object",
         properties: {
           title: { type: "string", minLength: 3 },
+          hero: {
+            anyOf: [
+              { type: "string" },
+              {
+                type: "object",
+                properties: { id: { type: "string" }, collection: { type: "string" } },
+                required: ["id", "collection"],
+              },
+            ],
+          },
           published: { type: "boolean", default: false },
           count: { type: "number", minimum: 0, maximum: 10 },
           tags: { type: "array", items: { type: "string" }, minItems: 1 },
@@ -257,12 +272,22 @@ const mockFiles: Record<string, string> = {
     },
     $schema: "http://json-schema.org/draft-07/schema#",
   }),
+  "/mock/site/.astro/collections/media.schema.json": JSON.stringify({
+    type: "object",
+    properties: {
+      image: { type: "string" },
+      alt: { type: "string" },
+    },
+    required: ["image", "alt"],
+  }),
+  "/mock/site/media/portraits/person.yaml": "image: ./person.jpg\nalt: Portrait\n",
+  "/mock/site/media/portraits/person.jpg": "[mock image]",
   "/mock/site/src/layouts/BaseLayout.astro": "<html><slot /></html>",
   "/mock/site/src/layouts/PostLayout.astro": "<article><slot /></article>",
   "/mock/site/src/layouts/notes.txt": "not a layout",
   "/mock/site/index.md": "# Home\n\nWelcome.\n",
   "/mock/site/posts/first.md":
-    "---\ntitle: First post\npublished: true\ncount: 3\ntags:\n  - alpha\n  - beta\nauthor:\n  name: Henry\n  email: h@example.com\nlinks:\n  - label: Home\n    url: /\n  - label: About\n    url: /about\n---\n\nHello world.\n",
+    "---\ntitle: First post\nhero: portraits/person\npublished: true\ncount: 3\ntags:\n  - alpha\n  - beta\nauthor:\n  name: Henry\n  email: h@example.com\nlinks:\n  - label: Home\n    url: /\n  - label: About\n    url: /about\n---\n\nHello world.\n",
   "/mock/site/notes.txt": "Some notes.\n",
   "/mock/site/src/styles/global.css": "body {\n  margin: 0;\n}\n",
   "/mock/site/public/theme.css": ":root {\n  --accent: rebeccapurple;\n}\n",
@@ -478,6 +503,19 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
         { name: "photo.jpg", path: `${dir}/photo.jpg` },
         { name: "logo.png", path: `${dir}/nested/logo.png` },
       ];
+    }
+    case "list_directories": {
+      const dir = args?.dir as string;
+      const directories = new Set<string>([`${dir}/nested`]);
+      for (const path of Object.keys(mockFiles)) {
+        if (!path.startsWith(`${dir}/`) || mockDeleted.has(path)) continue;
+        let parent = path.slice(0, path.lastIndexOf("/"));
+        while (parent.startsWith(`${dir}/`)) {
+          directories.add(parent);
+          parent = parent.slice(0, parent.lastIndexOf("/"));
+        }
+      }
+      return [...directories].sort();
     }
     case "read_text_file": {
       const path = args?.path as string;
@@ -725,13 +763,27 @@ export const openImageFile: () => Promise<string | null> = inTauri
     }
   : async () => "/mock/uploads/photo.jpg";
 
-/** Routes native desktop file drops through one shared integration point. */
-export function onFileDrop(handler: (paths: string[]) => void): () => void {
-  if (!inTauri) return () => {};
-  const unlisten = getCurrentWebview().onDragDropEvent((event) => {
-    if (event.payload.type === "drop") handler(event.payload.paths);
-  });
-  return () => { void unlisten.then((stop) => stop()); };
+type FileDropHandler = (paths: string[]) => void;
+const fileDropHandlers: FileDropHandler[] = [];
+let fileDropListenerStarted = false;
+
+/** Routes native desktop file drops through one shared integration point.
+ * The newest mounted surface owns the event, so a modal dropzone takes
+ * precedence over the app-wide drop importer behind it. */
+export function onFileDrop(handler: FileDropHandler): () => void {
+  fileDropHandlers.push(handler);
+  if (inTauri && !fileDropListenerStarted) {
+    fileDropListenerStarted = true;
+    void getCurrentWebview().onDragDropEvent((event) => {
+      if (event.payload.type === "drop") {
+        fileDropHandlers[fileDropHandlers.length - 1]?.(event.payload.paths);
+      }
+    });
+  }
+  return () => {
+    const index = fileDropHandlers.lastIndexOf(handler);
+    if (index >= 0) fileDropHandlers.splice(index, 1);
+  };
 }
 
 /** URL that loads a local file in the webview, or null outside Tauri. */

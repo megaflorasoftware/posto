@@ -23,6 +23,16 @@ export interface ImageLibraryImportDraft {
   metadataExtension?: ImageLibraryMetadataExtension;
 }
 
+function sourceStem(path: string): string {
+  const name = path.split(/[\\/]/).pop() ?? "";
+  return name.includes(".") ? name.slice(0, name.lastIndexOf(".")) : name;
+}
+
+function sourceExtension(path: string): string {
+  const name = path.split(/[\\/]/).pop() ?? "";
+  return name.includes(".") ? name.slice(name.lastIndexOf(".") + 1) : "";
+}
+
 export function useImageLibraryImport(input: {
   root: string;
   library: AstroImageLibrary;
@@ -32,11 +42,13 @@ export function useImageLibraryImport(input: {
   const [draft, setDraft] = useState<ImageLibraryImportDraft>({
     sourceImagePath: input.initialSourcePath ?? null,
     folder: "",
-    filename: input.initialSourcePath?.split(/[\\/]/).pop() ?? "",
+    filename: input.initialSourcePath ? sourceStem(input.initialSourcePath) : "",
     metadata: {},
     metadataExtension: input.library.metadataExtensions.length === 1
       ? input.library.metadataExtensions[0]
-      : undefined,
+      : input.library.metadataExtensions.includes("yaml")
+        ? "yaml"
+        : undefined,
   });
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,14 +57,15 @@ export function useImageLibraryImport(input: {
     setDraft((current) => ({
       ...current,
       sourceImagePath,
-      filename: current.filename || sourceImagePath.split(/[\\/]/).pop() || "",
+      filename: current.filename || sourceStem(sourceImagePath),
     }));
     setError(null);
   }
 
-  async function chooseSource() {
+  async function chooseSource(): Promise<string | null> {
     const path = await openImageFile();
     if (path) setSource(path);
+    return path;
   }
 
   async function plan(): Promise<MediaImportPlan> {
@@ -74,7 +87,9 @@ export function useImageLibraryImport(input: {
       repositoryRoot: input.root,
       sourceImagePath: draft.sourceImagePath,
       folder: draft.folder,
-      filename: draft.filename || undefined,
+      filename: draft.filename
+        ? `${draft.filename}.${sourceExtension(draft.sourceImagePath)}`
+        : undefined,
       metadata: draft.metadata,
       metadataExtension: draft.metadataExtension,
       existingPaths: files.map((file) => file.path),
@@ -110,5 +125,5 @@ export function useImageLibraryImport(input: {
     }
   }
 
-  return { draft, setDraft, setSource, chooseSource, plan, execute, pending, error };
+  return { draft, setDraft, setSource, chooseSource, plan, execute, pending, error, setError };
 }

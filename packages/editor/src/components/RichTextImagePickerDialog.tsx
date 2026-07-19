@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Select } from "@mantine/core";
+import { Alert } from "@mantine/core";
 import {
   imageLibraryContainsAsset,
   resolveImageLibraryLocation,
@@ -15,6 +15,7 @@ import type { FileGroup } from "@posto/ipc";
 import { useImageLibraryAssets } from "../hooks/useImageLibraryAssets";
 import { Dialog } from "./Dialog";
 import { ImageLibraryImportDialog } from "./ImageLibraryImportDialog";
+import { ImageLibraryList } from "./ImageLibraryList";
 import { ImageLibraryPickerDialog } from "./ImageLibraryPickerDialog";
 
 function defaultMedia(library: AstroImageLibrary): MediaEntry {
@@ -44,6 +45,7 @@ function LibraryGrid(props: {
       library={props.library}
       config={props.config}
       groups={props.groups}
+      initialFolder={props.subset}
       onClose={() => setImportOpen(false)}
       onImported={(result) => {
         void state.refresh();
@@ -56,6 +58,7 @@ function LibraryGrid(props: {
       root={props.root}
       library={props.library}
       assets={assets}
+      directories={state.directories}
       directory={directory}
       error={state.error}
       onClose={props.onClose}
@@ -146,12 +149,9 @@ export function RichTextImagePickerDialog(props: {
       {libraries.length === 0 ? (
         <Alert color="red">This project has no recognized Astro image libraries.</Alert>
       ) : (
-        <Select
-          label="Image library"
-          placeholder="Choose a library"
-          data={libraries.map((library) => ({ value: library.collection, label: library.collection }))}
-          value={selectedCollection}
-          onChange={setSelectedCollection}
+        <ImageLibraryList
+          libraries={libraries}
+          onChoose={(library) => setSelectedCollection(library.collection)}
         />
       )}
     </Dialog>

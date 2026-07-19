@@ -9,6 +9,7 @@ import { invoke, onFsChanged, type FileEntry } from "@posto/ipc";
 
 interface LibrarySnapshot {
   assets: ImageLibraryAsset[];
+  directories: string[];
   error: string | null;
   loading: boolean;
 }
@@ -44,7 +45,7 @@ function getStore(root: string, library: AstroImageLibrary): LibraryStore {
       root,
       libraryRoot: `${root}/${library.base}`,
       library,
-      snapshot: { assets: [], error: null, loading: false },
+      snapshot: { assets: [], directories: [], error: null, loading: false },
       listeners: new Set(),
       loading: null,
       stopWatching: null,
@@ -64,10 +65,10 @@ async function loadStore(store: LibraryStore): Promise<void> {
   publish(store, { loading: true });
   store.loading = (async () => {
     try {
-      const files = await invoke<FileEntry[]>("list_dir_files", {
-        dir: store.libraryRoot,
-        extensions: [],
-      });
+      const [files, directories] = await Promise.all([
+        invoke<FileEntry[]>("list_dir_files", { dir: store.libraryRoot, extensions: [] }),
+        invoke<string[]>("list_directories", { dir: store.libraryRoot }),
+      ]);
       const metadata = files.filter((file) => {
         const extension = file.name.split(".").pop()?.toLowerCase() as ImageLibraryMetadataExtension;
         const relativePath = file.path.slice(store.libraryRoot.length + 1);
@@ -87,6 +88,7 @@ async function loadStore(store: LibraryStore): Promise<void> {
           documents,
           files.map((file) => file.path),
         ),
+        directories,
         error: null,
       });
     } catch (error) {

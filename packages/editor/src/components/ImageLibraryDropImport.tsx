@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { Select } from "@mantine/core";
 import type { FieldContext } from "./FieldEditor";
 import { onFileDrop } from "@posto/ipc";
 import { Dialog } from "./Dialog";
 import { ImageLibraryImportDialog } from "./ImageLibraryImportDialog";
+import { ImageLibraryList } from "./ImageLibraryList";
 
 const DROPPED_IMAGE = /\.(?:avif|gif|jpe?g|png|svg|tiff?|webp)$/i;
 
@@ -37,11 +37,9 @@ export function ImageLibraryDropImport(props: {
   if (!library) {
     return (
       <Dialog opened onClose={close} title="Choose image library" size="sm">
-        <Select
-          label="Library"
-          data={libraries.map((candidate) => ({ value: candidate.collection, label: candidate.collection }))}
-          value={collection}
-          onChange={setCollection}
+        <ImageLibraryList
+          libraries={libraries}
+          onChoose={(candidate) => setCollection(candidate.collection)}
         />
       </Dialog>
     );

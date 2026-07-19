@@ -177,6 +177,7 @@ export function ImageLibraryReferenceField(props: {
           root={props.ctx.root}
           library={props.library}
           assets={libraryState.assets}
+          directories={libraryState.directories}
           onClose={() => setPickerOpen(false)}
           onImport={() => {
             setPickerOpen(false);

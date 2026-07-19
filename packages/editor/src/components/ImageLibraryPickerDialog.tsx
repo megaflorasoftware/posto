@@ -1,13 +1,16 @@
+import { useState } from "react";
 import { Alert, Button } from "@mantine/core";
 import type { ImageLibraryAsset } from "@posto/core/astro/imageLibrary";
 import type { AstroImageLibrary } from "@posto/core/pagescms/config";
-import { assetUrl, openPath } from "@posto/ipc";
+import { openPath } from "@posto/ipc";
 import { Dialog } from "./Dialog";
+import { ImageLibraryBrowser } from "./ImageLibraryBrowser";
 
 export function ImageLibraryPickerDialog(props: {
   root: string;
   library: AstroImageLibrary;
   assets: ImageLibraryAsset[];
+  directories: string[];
   directory?: string;
   error?: string | null;
   onClose: () => void;
@@ -15,39 +18,24 @@ export function ImageLibraryPickerDialog(props: {
   onImport: () => void;
 }) {
   const directory = props.directory ?? `${props.root}/${props.library.base}`;
+  const [currentDirectory, setCurrentDirectory] = useState("");
+  const openDirectory = currentDirectory ? `${directory}/${currentDirectory}` : directory;
   return (
     <Dialog opened onClose={props.onClose} title={`Choose from ${props.library.collection}`} size="xl">
       {props.error && <Alert color="red" mb="sm">{props.error}</Alert>}
-      {props.assets.length === 0 ? (
-        <div className="picker-empty">No image entries in {props.library.collection}</div>
-      ) : (
-        <div className="picker-grid">
-          {props.assets.map((asset) => {
-            const valid = asset.health.includes("valid");
-            const src = asset.imagePath ? assetUrl(asset.imagePath) : null;
-            const alt = typeof asset.metadata.alt === "string" ? asset.metadata.alt : asset.entryId;
-            return (
-              <button
-                key={`${asset.entryId}:${asset.metadataPath}`}
-                className="picker-card"
-                disabled={!valid}
-                onClick={() => valid && props.onPick(asset)}
-              >
-                <span className="picker-card-preview">
-                  {src ? <img src={src} alt={alt} loading="lazy" /> : <span className="picker-card-noimg">No preview</span>}
-                </span>
-                <span className="picker-item-name">{asset.entryId}</span>
-                <span className="picker-item-path">{valid ? alt : asset.health.join(", ")}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
+      <ImageLibraryBrowser
+        rootDirectory={directory}
+        currentDirectory={currentDirectory}
+        directories={props.directories}
+        assets={props.assets}
+        onDirectoryChange={setCurrentDirectory}
+        onPick={props.onPick}
+      />
       <div className="image-library-picker-actions">
-        <Button variant="outline" onClick={() => void openPath(directory)}>
+        <Button fullWidth variant="outline" onClick={() => void openPath(openDirectory)}>
           Open Media Library
         </Button>
-        <Button onClick={props.onImport}>Import image</Button>
+        <Button fullWidth onClick={props.onImport}>Import image</Button>
       </div>
     </Dialog>
   );

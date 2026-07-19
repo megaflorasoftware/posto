@@ -1,14 +1,28 @@
-import { useMemo } from "react";
-import { Alert, Button, Select, TextInput } from "@mantine/core";
+import { useEffect, useMemo, useState } from "react";
+import { Alert, Button, Group, Select, Text, TextInput } from "@mantine/core";
+import { Dropzone, IMAGE_MIME_TYPE } from "@mantine/dropzone";
+import { Image as ImageIcon, Upload } from "lucide-react";
 import type { AstroImageLibrary, PagesConfig } from "@posto/core/pagescms/config";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 import { validateForm } from "@posto/core/pagescms/validate";
-import type { FileGroup } from "@posto/ipc";
-import type { ImageLibraryImportResult } from "@posto/ipc";
+import {
+  assetUrl,
+  onFileDrop,
+  type FileGroup,
+  type ImageLibraryImportResult,
+} from "@posto/ipc";
+import { useImageLibraryAssets } from "../hooks/useImageLibraryAssets";
 import { useImageLibraryImport } from "../hooks/useImageLibraryImport";
 import { editValueAtPath, imageLibraryMetadataFields, valueAtPath } from "../imageLibraryMetadata";
 import { Dialog } from "./Dialog";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
+import { ImageLibraryBrowser } from "./ImageLibraryBrowser";
+
+type ImportStep = "source" | "location" | "details";
+
+function normalizeFolder(folder: string | undefined): string {
+  return (folder ?? "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+}
 
 export function ImageLibraryImportDialog(props: {
   root: string;
@@ -16,13 +30,20 @@ export function ImageLibraryImportDialog(props: {
   config: PagesConfig;
   groups: FileGroup[];
   sourcePath?: string;
+  initialFolder?: string;
   onClose: () => void;
   onImported: (result: ImageLibraryImportResult) => void;
 }) {
+  const rootFolder = normalizeFolder(props.initialFolder);
+  const libraryRoot = `${props.root}/${props.library.base}`;
+  const browserRoot = rootFolder ? `${libraryRoot}/${rootFolder}` : libraryRoot;
+  const [step, setStep] = useState<ImportStep>(props.sourcePath ? "location" : "source");
+  const [currentDirectory, setCurrentDirectory] = useState("");
   const metadataFields = useMemo(
     () => imageLibraryMetadataFields(props.library),
     [props.library],
   );
+  const libraryState = useImageLibraryAssets(props.root, props.library);
   const importer = useImageLibraryImport({
     root: props.root,
     library: props.library,
@@ -30,8 +51,37 @@ export function ImageLibraryImportDialog(props: {
     onImported: props.onImported,
   });
   const errors = validateForm(metadataFields, importer.draft.metadata);
+  const sourceExtension = importer.draft.sourceImagePath?.split(".").pop()?.toLowerCase() ?? "";
+
+  const selectSource = (path: string) => {
+    importer.setSource(path);
+    setStep("location");
+  };
+
+  useEffect(() => {
+    if (step !== "source") return;
+    return onFileDrop((paths) => {
+      const path = paths[0];
+      if (path) selectSource(path);
+    });
+  }, [step]);
+
+  const chooseSource = async () => {
+    const path = await importer.chooseSource();
+    if (path) setStep("location");
+  };
+
+  const chooseLocation = () => {
+    const folder = [rootFolder, currentDirectory].filter(Boolean).join("/");
+    importer.setDraft((draft) => ({ ...draft, folder }));
+    setStep("details");
+  };
+
   const update = (path: ValuePath, value: unknown) => {
-    importer.setDraft((draft) => ({ ...draft, metadata: editValueAtPath(draft.metadata, path, value) }));
+    importer.setDraft((draft) => ({
+      ...draft,
+      metadata: editValueAtPath(draft.metadata, path, value),
+    }));
   };
   const fieldCtx: FieldContext = {
     config: props.config,
@@ -60,47 +110,107 @@ export function ImageLibraryImportDialog(props: {
     },
   };
 
+  const title = step === "source"
+    ? "Choose image to import"
+    : step === "location"
+      ? `Choose a location in ${props.library.collection}`
+      : `Import into ${props.library.collection}`;
+
   return (
-    <Dialog opened onClose={props.onClose} title={`Import into ${props.library.collection}`} size="lg">
+    <Dialog opened onClose={props.onClose} title={title} size="xl">
       {importer.error && <Alert color="red" mb="sm">{importer.error}</Alert>}
-      <div className="image-library-import-source">
-        <TextInput size="xs" readOnly label="Image" placeholder="Choose an image" value={importer.draft.sourceImagePath ?? ""} />
-        <Button size="xs" variant="default" onClick={() => void importer.chooseSource()}>Choose…</Button>
-      </div>
-      <TextInput
-        size="xs"
-        label="Destination folder"
-        description="Optional path inside the library"
-        value={importer.draft.folder}
-        onChange={(event) => importer.setDraft((draft) => ({ ...draft, folder: event.currentTarget.value }))}
-      />
-      <TextInput
-        size="xs"
-        label="Filename"
-        value={importer.draft.filename}
-        onChange={(event) => importer.setDraft((draft) => ({ ...draft, filename: event.currentTarget.value }))}
-      />
-      {props.library.metadataExtensions.length > 1 && (
-        <Select
-          size="xs"
-          label="Metadata format"
-          data={props.library.metadataExtensions}
-          value={importer.draft.metadataExtension ?? null}
-          onChange={(value) => importer.setDraft((draft) => ({ ...draft, metadataExtension: value as typeof draft.metadataExtension }))}
-        />
+
+      {step === "source" && (
+        <Dropzone
+          className="image-library-import-dropzone"
+          accept={IMAGE_MIME_TYPE}
+          multiple={false}
+          activateOnClick={false}
+          onDrop={(files) => {
+            const path = (files[0] as File & { path?: string } | undefined)?.path;
+            if (path) selectSource(path);
+            else importer.setError("Could not read the dropped file path. Use Choose image instead.");
+          }}
+          onReject={() => importer.setError("Choose a supported image file.")}
+        >
+          <Group justify="center" gap="xl" mih={180}>
+            <Upload size={42} />
+            <div>
+              <Text size="lg" fw={600}>Drop an image here</Text>
+              <Text size="sm" c="dimmed" mb="md">or choose one from your device</Text>
+              <Button onClick={(event) => { event.stopPropagation(); void chooseSource(); }}>
+                Choose image
+              </Button>
+            </div>
+          </Group>
+        </Dropzone>
       )}
-      <div className="form-fields image-library-metadata-fields">
-        {metadataFields.map((field) => <FieldEditor key={field.name} field={field} path={[field.name]} ctx={fieldCtx} />)}
-      </div>
-      <Button
-        fullWidth
-        mt="md"
-        loading={importer.pending}
-        disabled={!importer.draft.sourceImagePath || errors.size > 0}
-        onClick={() => void importer.execute().then((result) => { if (result) props.onClose(); })}
-      >
-        Import image
-      </Button>
+
+      {step === "location" && (
+        <>
+          {libraryState.error && (
+            <Alert color="red" mb="sm">Could not read image library: {libraryState.error}</Alert>
+          )}
+          <ImageLibraryBrowser
+            rootDirectory={browserRoot}
+            currentDirectory={currentDirectory}
+            directories={libraryState.directories}
+            assets={libraryState.assets}
+            onDirectoryChange={setCurrentDirectory}
+          />
+          <Button fullWidth mt="md" onClick={chooseLocation}>Choose location</Button>
+        </>
+      )}
+
+      {step === "details" && (
+        <div className="image-library-import-details">
+          <div className="image-library-import-preview">
+            {importer.draft.sourceImagePath && assetUrl(importer.draft.sourceImagePath)
+              ? <img src={assetUrl(importer.draft.sourceImagePath) ?? undefined} alt="" />
+              : <ImageIcon size={28} />}
+          </div>
+          <div className="image-library-import-form">
+            <TextInput
+              size="xs"
+              label="Filename (Astro ID)"
+              description={importer.draft.folder ? `Importing into ${importer.draft.folder}` : "Importing at the library root"}
+              value={importer.draft.filename}
+              rightSection={<Text size="xs" c="dimmed">.{sourceExtension}</Text>}
+              rightSectionWidth={`${Math.max(3, sourceExtension.length + 1)}ch`}
+              onChange={(event) => importer.setDraft((draft) => ({ ...draft, filename: event.currentTarget.value }))}
+            />
+            {props.library.metadataExtensions.length > 1 && (
+              <Select
+                size="xs"
+                label="Metadata format"
+                data={props.library.metadataExtensions.map((extension) => ({
+                  value: extension,
+                  label: `.${extension}`,
+                }))}
+                value={importer.draft.metadataExtension ?? null}
+                onChange={(value) => importer.setDraft((draft) => ({
+                  ...draft,
+                  metadataExtension: value as typeof draft.metadataExtension,
+                }))}
+              />
+            )}
+            <div className="form-fields image-library-metadata-fields">
+              {metadataFields.map((field) => (
+                <FieldEditor key={field.name} field={field} path={[field.name]} ctx={fieldCtx} />
+              ))}
+            </div>
+            <Button
+              fullWidth
+              mt="md"
+              loading={importer.pending}
+              disabled={!importer.draft.sourceImagePath || !importer.draft.filename || errors.size > 0}
+              onClick={() => void importer.execute().then((result) => { if (result) props.onClose(); })}
+            >
+              Import image
+            </Button>
+          </div>
+        </div>
+      )}
     </Dialog>
   );
 }

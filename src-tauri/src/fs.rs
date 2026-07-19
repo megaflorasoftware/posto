@@ -219,6 +219,33 @@ pub fn list_dir_files(dir: String, extensions: Vec<String>) -> Result<Vec<FileEn
     Ok(files)
 }
 
+fn collect_directories(dir: &Path, out: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if path.is_dir() && !name.starts_with('.') && !SKIP_DIRS.contains(&name.as_str()) {
+            out.push(path.to_string_lossy().to_string());
+            collect_directories(&path, out);
+        }
+    }
+}
+
+/// Lists visible directories under `dir` recursively, including empty ones.
+#[tauri::command]
+pub fn list_directories(dir: String) -> Result<Vec<String>, String> {
+    let path = Path::new(&dir);
+    if !path.is_dir() {
+        return Err(format!("Not a directory: {dir}"));
+    }
+    let mut directories = Vec::new();
+    collect_directories(path, &mut directories);
+    directories.sort();
+    Ok(directories)
+}
+
 #[tauri::command]
 pub fn read_text_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| format!("Failed to read {path}: {e}"))
