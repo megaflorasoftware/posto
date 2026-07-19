@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { ActionIcon, Button, NumberInput, Select, Switch, Textarea, TextInput } from "@mantine/core";
-import { Check, GripVertical, Image, Pencil, X } from "lucide-react";
+import { Check, GripVertical, Image, Pencil, RefreshCw, X } from "lucide-react";
 import {
   closestCenter,
   DndContext,
@@ -21,6 +21,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
 import {
   collectionExtension,
+  expandFieldTemplate,
   matchCollectionForDir,
   mediaInputPath,
   resolveMedia,
@@ -36,6 +37,7 @@ import { invoke } from "@posto/ipc";
 import { CachedImage } from "./CachedImage";
 import { ImagePicker } from "./ImagePicker";
 import { ImageLibraryReferenceField } from "./ImageLibraryReferenceField";
+import { FieldRowsAction, FieldTemplateActions } from "./FieldTemplateActions";
 
 export interface FieldContext {
   config: PagesConfig;
@@ -52,6 +54,8 @@ export interface FieldContext {
   listAppend: (path: ValuePath, value: unknown) => void;
   listRemove: (path: ValuePath, index: number) => void;
   listMove: (path: ValuePath, from: number, to: number) => void;
+  /** Reloads the effective collection config after an item-level template edit. */
+  onPostoSaved?: () => void;
 }
 
 function asString(value: unknown): string {
@@ -153,6 +157,7 @@ function FieldShell(props: {
   path: ValuePath;
   ctx: FieldContext;
   children: ReactNode;
+  actions?: ReactNode;
 }) {
   const error = props.ctx.errors().get(props.path.join("."));
   return (
@@ -166,6 +171,7 @@ function FieldShell(props: {
           {imagePickable(props.field) && (
             <PickImageCta field={props.field} path={props.path} ctx={props.ctx} />
           )}
+          {props.actions}
         </div>
       )}
       {props.children}
@@ -180,18 +186,79 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
   // Cleared text-like inputs delete the key so optional fields don't leave
   // `key: ""` litter behind in the frontmatter.
   const editText = (raw: string) => props.ctx.edit(props.path, raw === "" ? undefined : raw);
+  const schemaName = props.path.filter((part): part is string => typeof part === "string").join(".");
+  const templateSchema = props.ctx.entry?.fieldSchemas?.[schemaName];
+  const fieldLabel = typeof props.field.label === "string" ? props.field.label : props.field.name;
+  const templatable = !props.path.some((part) => typeof part === "number");
+  const generate = (template: string) => {
+    const expanded = expandFieldTemplate(template, props.ctx.templateValues());
+    if (expanded !== null) props.ctx.edit(props.path, expanded);
+  };
+  const templateActions = templatable && props.ctx.entry && props.ctx.onPostoSaved
+    ? (
+        <span className="field-template-actions">
+          <FieldTemplateActions
+            root={props.ctx.root}
+            collection={props.ctx.entry}
+            fieldName={schemaName}
+            label={fieldLabel}
+            onPostoSaved={props.ctx.onPostoSaved}
+            onGenerate={generate}
+          />
+          <FieldRowsAction
+            root={props.ctx.root}
+            collection={props.ctx.entry}
+            fieldName={schemaName}
+            label={fieldLabel}
+            onPostoSaved={props.ctx.onPostoSaved}
+          />
+        </span>
+      )
+    : null;
 
   const control = () => {
     const field = props.field;
     switch (field.type) {
       case "string":
-        return (
-          <TextInput
-            size="xs"
-            value={asString(value)}
-            onChange={(e) => editText(e.currentTarget.value)}
-          />
-        );
+        {
+          const rows = templateSchema?.rows ?? 1;
+          const regenerate = templateSchema?.template && templateSchema.editBehavior === "manual"
+            ? (
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size="sm"
+                  title={`Regenerate ${fieldLabel} from its template`}
+                  aria-label={`Regenerate ${fieldLabel} from its template`}
+                  onClick={() => generate(templateSchema.template!)}
+                >
+                  <RefreshCw size={15} />
+                </ActionIcon>
+              )
+            : undefined;
+          return rows > 1 ? (
+            <Textarea
+              className="templated-control"
+              size="xs"
+              rows={rows}
+              disabled={templateSchema?.editBehavior === "controlled"}
+              value={asString(value)}
+              rightSection={regenerate}
+              rightSectionPointerEvents="all"
+              onChange={(e) => editText(e.currentTarget.value)}
+            />
+          ) : (
+            <TextInput
+              className="templated-control"
+              size="xs"
+              disabled={templateSchema?.editBehavior === "controlled"}
+              value={asString(value)}
+              rightSection={regenerate}
+              rightSectionPointerEvents="all"
+              onChange={(e) => editText(e.currentTarget.value)}
+            />
+          );
+        }
       case "number":
         return (
           <NumberInput
@@ -277,7 +344,12 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
   };
 
   return (
-    <FieldShell field={props.field} path={props.path} ctx={props.ctx}>
+    <FieldShell
+      field={props.field}
+      path={props.path}
+      ctx={props.ctx}
+      actions={props.field.type === "string" ? templateActions : undefined}
+    >
       {control()}
     </FieldShell>
   );

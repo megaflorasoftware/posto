@@ -1,4 +1,9 @@
-import type { ContentEntry, PagesConfig } from "../pagescms/config";
+import type {
+  ContentEntry,
+  FieldTemplateSchema,
+  PagesConfig,
+  TemplateEditBehavior,
+} from "../pagescms/config";
 
 // Types and helpers for posto's own `.posto/` config directory: user
 // preferences layered on top of the derived schema config (`.pages.yml` /
@@ -40,6 +45,8 @@ export interface PostoCollectionSettings {
   sort?: PostoSort;
   /** Entry filenames pinned to the top of the collection, in order. */
   pinned?: string[];
+  /** Templates shown beside item fields, but shared by the collection. */
+  fields?: Record<string, FieldTemplateSchema | null>;
 }
 
 export interface PostoConfig {
@@ -88,6 +95,40 @@ function parseSort(value: unknown): PostoSort | undefined {
   return { by, direction: sort.direction === "asc" ? "asc" : "desc" };
 }
 
+function templateBehavior(value: unknown, fieldName: string): TemplateEditBehavior {
+  if (value === "manual") return "manual";
+  if (value === "controlled" || value === "disabled") return "controlled";
+  // The pre-mode filename behavior was controlled automatically. New
+  // arbitrary field templates are manual unless explicitly opted in.
+  return fieldName === "filename" ? "controlled" : "manual";
+}
+
+function parseFields(value: unknown): Record<string, FieldTemplateSchema | null> | undefined {
+  const fields = asObject(value);
+  if (!fields) return undefined;
+  const parsed: Record<string, FieldTemplateSchema | null> = {};
+  for (const [name, value] of Object.entries(fields)) {
+    if (value === null) {
+      parsed[name] = null;
+      continue;
+    }
+    const field = asObject(value);
+    const template = field && optionalString(field.template);
+    const rows = field && typeof field.rows === "number" && Number.isFinite(field.rows) && field.rows >= 1
+      ? Math.floor(field.rows)
+      : undefined;
+    // An empty filename object is an explicit override that removes a
+    // filename template inherited from Pages CMS or Astro.
+    if (!template && rows === undefined && name !== "filename") continue;
+    parsed[name] = {
+      ...(template ? { template } : {}),
+      editBehavior: templateBehavior(field?.editBehavior, name),
+      ...(rows !== undefined ? { rows } : {}),
+    };
+  }
+  return Object.keys(parsed).length > 0 ? parsed : undefined;
+}
+
 /** Parses one `.posto/collections/<name>.json`; malformed input yields null. */
 export function parsePostoCollection(source: string): PostoCollectionSettings | null {
   let parsed: unknown;
@@ -104,6 +145,7 @@ export function parsePostoCollection(source: string): PostoCollectionSettings | 
     filename: optionalString(doc.filename),
     sort: parseSort(doc.sort),
     pinned: stringArray(doc.pinned),
+    fields: parseFields(doc.fields),
   };
   return Object.values(settings).some((v) => v !== undefined) ? settings : null;
 }
@@ -133,6 +175,19 @@ export function mergePostoConfig(config: PagesConfig, posto: PostoConfig | null)
       if (settings.entryName) merged.entryName = settings.entryName;
       if (settings.sort) merged.sort = settings.sort;
       if (settings.pinned) merged.pinned = settings.pinned;
+      if (settings.fields) {
+        const active = Object.fromEntries(
+          Object.entries(settings.fields).filter(
+            (field): field is [string, FieldTemplateSchema] => field[1] !== null,
+          ),
+        );
+        if (Object.keys(active).length > 0) merged.fieldSchemas = active;
+        // Filename participates in the same arbitrary field-schema map while
+        // the existing creation/rename pipeline continues to consume the
+        // effective ContentEntry filename template.
+        if (settings.fields.filename?.template) merged.filename = settings.fields.filename.template;
+        else if (settings.fields.filename !== undefined) delete merged.filename;
+      }
       return merged;
     }),
   };
@@ -164,7 +219,10 @@ export function updatePostoCollectionSource(
   settings: PostoCollectionSettings,
 ): string {
   const doc = parseSourceObject(source);
-  const scalars = ["displayName", "entryName", "filename"] as const;
+  // Templates are edited by updatePostoFieldTemplateSource; this sidebar
+  // settings writer deliberately leaves both new and legacy template keys
+  // untouched.
+  const scalars = ["displayName"] as const;
   for (const key of scalars) {
     if (settings[key] !== undefined) doc[key] = settings[key];
     else delete doc[key];
@@ -177,6 +235,32 @@ export function updatePostoCollectionSource(
   else delete doc.sort;
   if (settings.pinned && settings.pinned.length > 0) doc.pinned = settings.pinned;
   else delete doc.pinned;
+  return serialize(doc);
+}
+
+/** Updates one item-visible field template without disturbing collection
+ * settings or templates owned by other fields. Passing null removes it. */
+export function updatePostoFieldTemplateSource(
+  source: string | null,
+  fieldName: string,
+  schema: FieldTemplateSchema | null,
+): string {
+  const doc = parseSourceObject(source);
+  const fields = asObject(doc.fields) ?? {};
+  if (schema) {
+    fields[fieldName] = {
+      ...(schema.template ? { template: schema.template } : {}),
+      editBehavior: schema.editBehavior,
+      ...(schema.rows !== undefined ? { rows: schema.rows } : {}),
+    };
+  } else {
+    fields[fieldName] = null;
+  }
+  doc.fields = fields;
+  // Migrate the old filename-template location when the new filename schema
+  // is touched. Entry-name remains readable for older hand-authored config,
+  // but is no longer exposed by the collection dialog.
+  if (fieldName === "filename") delete doc.filename;
   return serialize(doc);
 }
 

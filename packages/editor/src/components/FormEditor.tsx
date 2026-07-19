@@ -3,6 +3,7 @@ import { Alert } from "@mantine/core";
 
 import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
 import {
+  expandFieldTemplate,
   frontmatterFields,
   inferFields,
 } from "@posto/core/pagescms/config";
@@ -63,6 +64,7 @@ export function FormEditor(props: {
   root: string;
   groups: FileGroup[];
   onChange: (content: string, valid: boolean) => void;
+  onPostoSaved?: () => void;
 }) {
   const parsedRef = useRef<ParsedFile>(null as unknown as ParsedFile);
   // Content emitted by this component; used to ignore the echo when it comes
@@ -149,6 +151,31 @@ export function FormEditor(props: {
     props.onChange(content, errs.size === 0);
   }
 
+  /** Recompute every controlled field after an item edit. Unrelated
+   * templates resolve to their existing value, while repeated passes let
+   * controlled fields feed one another without relying on fragile path-key
+   * comparisons for nested schemas. */
+  function applyControlledTemplates() {
+    const schemas = props.entry?.fieldSchemas;
+    if (!schemas) return;
+    const controlled = Object.entries(schemas).filter(
+      ([name, schema]) => name !== "filename" && schema.template && schema.editBehavior === "controlled",
+    );
+    for (let pass = 0; pass <= controlled.length; pass++) {
+      let changed = false;
+      for (const [name, schema] of Object.entries(schemas)) {
+        if (name === "filename" || !schema.template || schema.editBehavior !== "controlled") continue;
+        const values = plainValues(parsedRef.current);
+        const expanded = expandFieldTemplate(schema.template, values);
+        const path = name.split(".");
+        if (expanded === null || getValue(parsedRef.current.doc, path) === expanded) continue;
+        setValue(parsedRef.current.doc, path, expanded);
+        changed = true;
+      }
+      if (!changed) break;
+    }
+  }
+
   function beforeEdit() {
     if (!defaultsApplied.current) {
       defaultsApplied.current = true;
@@ -183,6 +210,7 @@ export function FormEditor(props: {
           dateField: fieldAt(fields, path)?.type === "date",
         });
       }
+      applyControlledTemplates();
       emit();
     },
     listAppend: (path, value) => {
@@ -200,6 +228,7 @@ export function FormEditor(props: {
       moveListItem(parsedRef.current.doc, path, from, to);
       emit();
     },
+    onPostoSaved: props.onPostoSaved,
   };
 
   function onBodyEdit(text: string) {

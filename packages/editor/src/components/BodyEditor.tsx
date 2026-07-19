@@ -20,6 +20,7 @@ import {
   componentNameFromFile,
   importInfo,
   parseAstroProps,
+  parseAstroExportedType,
   parseAstroPropsType,
   parseAstroSlots,
   relativeImportPath,
@@ -206,6 +207,33 @@ export function BodyEditor(props: {
     let cancelled = false;
     void (async () => {
       const loaded: Record<string, AstroComponentSchema> = {};
+      const importedTypesFor = async (source: string, ownerPath: string) => {
+        const resolved: Record<string, string> = {};
+        const imports = /import\s+(type\s+)?\{([\s\S]*?)\}\s+from\s+["']([^"']+)["']/g;
+        for (const statement of source.matchAll(imports)) {
+          const typeOnly = statement[1] !== undefined;
+          const spec = statement[3];
+          if (!spec.startsWith(".") || !/\.(?:astro|tsx?|jsx?)$/.test(spec)) continue;
+          const importedPath = resolveImportPath(ownerPath, spec);
+          if (!importedPath) continue;
+          let importedSource: string;
+          try {
+            importedSource = await invoke<string>("read_text_file", { path: importedPath });
+          } catch {
+            continue;
+          }
+          for (const raw of statement[2].split(",")) {
+            const member = raw.trim();
+            const explicitlyType = member.startsWith("type ");
+            if (!typeOnly && !explicitlyType) continue;
+            const match = /^(?:type\s+)?(\w+)(?:\s+as\s+(\w+))?$/.exec(member);
+            if (!match) continue;
+            const type = parseAstroExportedType(importedSource, match[1]);
+            if (type) resolved[match[2] ?? match[1]] = type;
+          }
+        }
+        return resolved;
+      };
       for (const statement of importsKey === "" ? [] : importsKey.split("\u0000")) {
         const { names, spec } = importInfo(statement);
         if (!spec || !spec.endsWith(".astro") || names.length === 0) continue;
@@ -213,8 +241,9 @@ export function BodyEditor(props: {
         if (!file) continue;
         try {
           const source = await invoke<string>("read_text_file", { path: file });
-          const defs = parseAstroProps(source);
-          const propsType = parseAstroPropsType(source) ?? undefined;
+          const importedTypes = await importedTypesFor(source, file);
+          const defs = parseAstroProps(source, importedTypes);
+          const propsType = parseAstroPropsType(source, importedTypes) ?? undefined;
           const slots = parseAstroSlots(source);
           // Register even prop-less, slot-less components: a loaded schema
           // with no slots is what tells the card to render no sections.

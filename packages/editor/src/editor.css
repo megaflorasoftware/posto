@@ -16,6 +16,24 @@
   margin-right: auto;
 }
 
+.pane-filename-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.pane-filename-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-filename-input input {
+  font-weight: 600;
+}
+
 .save-state {
   color: var(--mantine-color-dimmed);
 }
@@ -91,6 +109,30 @@
 
 .form-unavailable {
   padding: 0.75rem;
+}
+
+.templated-control {
+  width: 100%;
+  min-width: 0;
+}
+
+.field-template-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.template-behavior-card {
+  width: 100%;
+  padding: var(--mantine-spacing-sm);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+}
+
+.template-behavior-card[data-checked] {
+  border-color: var(--mantine-primary-color-filled);
+  background: var(--mantine-primary-color-light);
 }
 
 /* Rich-text body editor fills the pane; the toolbar stays put and the

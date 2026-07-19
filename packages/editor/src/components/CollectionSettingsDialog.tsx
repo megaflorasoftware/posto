@@ -4,7 +4,7 @@ import { Dialog } from "./Dialog";
 
 import { invoke } from "@posto/ipc";
 import type { FileEntry } from "@posto/ipc";
-import { DEFAULT_FILENAME_PATTERN, type ContentEntry } from "@posto/core/pagescms/config";
+import type { ContentEntry } from "@posto/core/pagescms/config";
 import {
   LABEL_SORT,
   POSTO_COLLECTIONS_DIR,
@@ -21,8 +21,8 @@ function sortToken(token: string): string {
 }
 
 /**
- * Per-collection `.posto` settings: display name, entry-label template,
- * filename template, sort, and pinned files. Every field is
+ * Per-collection `.posto` settings: display name, sort, and pinned files.
+ * Item templates are intentionally configured beside each item field. Every field is
  * optional — cleared fields fall back to the derived config — and saving
  * rewrites only the keys this form owns, so hand-added settings survive.
  */
@@ -41,8 +41,6 @@ export function CollectionSettingsDialog(props: {
   // must survive a save from this form. Undefined while loading.
   const [source, setSource] = useState<string | null | undefined>(undefined);
   const [displayName, setDisplayName] = useState("");
-  const [entryName, setEntryName] = useState("");
-  const [filename, setFilename] = useState("");
   const [sortBy, setSortBy] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [pinned, setPinned] = useState<string[]>([]);
@@ -62,8 +60,6 @@ export function CollectionSettingsDialog(props: {
       const settings = raw !== null ? parsePostoCollection(raw) : null;
       setSource(raw);
       setDisplayName(settings?.displayName ?? "");
-      setEntryName(settings?.entryName ?? "");
-      setFilename(settings?.filename ?? "");
       setSortBy(settings?.sort ? sortToken(settings.sort.by) : null);
       setSortDirection(settings?.sort?.direction ?? "desc");
       setPinned(settings?.pinned ?? []);
@@ -89,8 +85,6 @@ export function CollectionSettingsDialog(props: {
     const trimmed = (value: string) => (value.trim() === "" ? undefined : value.trim());
     const settings: PostoCollectionSettings = {
       displayName: trimmed(displayName),
-      entryName: trimmed(entryName),
-      filename: trimmed(filename),
       sort: sortBy ? { by: sortBy, direction: sortDirection } : undefined,
       pinned: pinned.length > 0 ? pinned : undefined,
     };
@@ -125,24 +119,6 @@ export function CollectionSettingsDialog(props: {
             placeholder={collection.name}
             value={displayName}
             onChange={(e) => setDisplayName(e.currentTarget.value)}
-          />
-          <TextInput
-            size="xs"
-            mt="sm"
-            label="Entry label"
-            description="Template over frontmatter for each entry's label"
-            placeholder="{fields.title}"
-            value={entryName}
-            onChange={(e) => setEntryName(e.currentTarget.value)}
-          />
-          <TextInput
-            size="xs"
-            mt="sm"
-            label="New file name"
-            description="Template for created files: {fields.x} inserts a raw value, {fields.x|slug} its slugified form"
-            placeholder={collection.filename ?? DEFAULT_FILENAME_PATTERN}
-            value={filename}
-            onChange={(e) => setFilename(e.currentTarget.value)}
           />
           <Select
             size="xs"

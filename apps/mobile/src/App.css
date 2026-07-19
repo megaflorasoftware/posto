@@ -426,7 +426,7 @@ input {
 }
 
 .mobile-editor-screen > .pane-header {
-  display: none;
+  display: flex;
 }
 
 .mobile-editor-screen > .pane-tabs,
@@ -448,6 +448,11 @@ input {
 
 .mobile-editor-screen .mantine-Input-input {
   min-height: 44px;
+}
+
+.mobile-editor-screen .field-template-actions .mantine-ActionIcon-root {
+  width: 44px;
+  height: 44px;
 }
 
 .mobile-editor-screen .pane-tabs .mantine-Tabs-tab {

@@ -1,11 +1,13 @@
-import { useMemo } from "react";
-import { Alert, Badge, Tabs } from "@mantine/core";
+import { useEffect, useMemo, useState } from "react";
+import { ActionIcon, Alert, Tabs, TextInput } from "@mantine/core";
+import { RefreshCw } from "lucide-react";
 import type { FileEntry, FileGroup } from "@posto/ipc";
 import { EMPTY_CONFIG, type ContentEntry, type PagesConfig } from "@posto/core/pagescms/config";
 import { parseFile, type ParsedFile } from "@posto/core/pagescms/frontmatter";
 import { FormEditor } from "./FormEditor";
 import { DataFormEditor } from "./DataFormEditor";
 import type { SaveState } from "../hooks/useCurrentFile";
+import { FieldTemplateActions } from "./FieldTemplateActions";
 
 export type EditorTab = "fields" | "body" | "raw";
 
@@ -39,10 +41,28 @@ export function EditorPane(props: {
   onTabChange: (tab: EditorTab) => void;
   onEdit: (content: string) => void;
   onFormEdit: (content: string, valid: boolean) => void;
+  onRenameFile: (filename: string) => Promise<boolean>;
+  onRefreshFilename: (template: string) => void;
+  onPostoSaved: () => void;
 }) {
   const { filePath, fileContent, entry, editorTab, dataEntry } = props;
 
   const fileName = dataEntry?.id ?? filePath?.split("/").pop() ?? "";
+  const filenameSchema = entry?.fieldSchemas?.filename ?? (entry?.filename
+    ? { template: entry.filename, editBehavior: "controlled" as const }
+    : undefined);
+  const [filenameDraft, setFilenameDraft] = useState(fileName);
+  useEffect(() => setFilenameDraft(fileName), [fileName]);
+
+  async function commitFilename() {
+    const next = filenameDraft.trim();
+    if (next === fileName) return;
+    if (next === "" || next.includes("/") || next === "." || next === "..") {
+      setFilenameDraft(fileName);
+      return;
+    }
+    if (!(await props.onRenameFile(next))) setFilenameDraft(fileName);
+  }
 
   // Markdown files always get a Form tab: schema-driven when a content entry
   // matches, otherwise with fields inferred from the frontmatter's shape.
@@ -78,33 +98,48 @@ export function EditorPane(props: {
   return (
     <>
       <div className="pane-header">
-        <span className="pane-title">{fileName}</span>
-        <span
-          className={`save-state${
-            props.saveState === "error" || props.saveState === "invalid" ? " error" : ""
-          }`}
-        >
-          {props.saveState === "saved"
-            ? "Saved"
-            : props.saveState === "saving"
-              ? "Saving…"
-              : props.saveState === "invalid"
-                ? "Not saved — fix errors"
-                : "Save failed"}
-        </span>
-        {entry && (
-          <Badge
-            size="sm"
-            variant="light"
-            color={props.entrySource === "astro" ? "grape" : "blue"}
-            title={
-              props.entrySource === "astro"
-                ? "Schema from Astro content collections"
-                : "Schema from .pages.yml"
-            }
-          >
-            {props.entrySource === "astro" ? "Astro" : ".pages.yml"}
-          </Badge>
+        {dataEntry || (filenameSchema?.template && filenameSchema.editBehavior === "controlled") ? (
+          <div className="pane-filename-text">{fileName}</div>
+        ) : (
+          <TextInput
+            className="pane-filename-input"
+            size="xs"
+            aria-label="Filename"
+            value={filenameDraft}
+            rightSection={filenameSchema?.template && filenameSchema.editBehavior === "manual" ? (
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                size="sm"
+                title="Regenerate Filename from its template"
+                aria-label="Regenerate Filename from its template"
+                onClick={() => props.onRefreshFilename(filenameSchema.template!)}
+              >
+                <RefreshCw size={15} />
+              </ActionIcon>
+            ) : undefined}
+            rightSectionPointerEvents="all"
+            onChange={(event) => setFilenameDraft(event.currentTarget.value)}
+            onBlur={() => void commitFilename()}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") event.currentTarget.blur();
+              if (event.key === "Escape") {
+                setFilenameDraft(fileName);
+                event.currentTarget.blur();
+              }
+            }}
+          />
+        )}
+        {entry && !dataEntry && (
+          <FieldTemplateActions
+            root={props.root}
+            collection={entry}
+            fieldName="filename"
+            label="Filename"
+            schema={filenameSchema}
+            onPostoSaved={props.onPostoSaved}
+            onGenerate={props.onRefreshFilename}
+          />
         )}
       </div>
       {props.configError && (
@@ -144,6 +179,7 @@ export function EditorPane(props: {
               root={props.root}
               groups={props.groups}
               onChange={props.onFormEdit}
+              onPostoSaved={props.onPostoSaved}
             />
           ) : (
             // One FormEditor spans the Fields and Body tabs so the
@@ -158,6 +194,7 @@ export function EditorPane(props: {
               root={props.root}
               groups={props.groups}
               onChange={props.onFormEdit}
+              onPostoSaved={props.onPostoSaved}
             />
           )}
         </Tabs>

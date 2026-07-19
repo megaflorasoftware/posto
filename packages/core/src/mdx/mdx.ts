@@ -621,10 +621,14 @@ function localTypeAliases(
  * component's frontmatter script. Only top-level members are read as
  * definitions; inline object types stay in the member's type text.
  */
-export function parseAstroProps(source: string): AstroPropDef[] {
+export function parseAstroProps(
+  source: string,
+  importedTypes: Record<string, string> = {},
+): AstroPropDef[] {
   const fence = source.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   const script = fence ? fence[1] : source;
   const { aliases, namespaces } = astroContentTypeAliases(script);
+  for (const [name, type] of Object.entries(importedTypes)) aliases.set(name, type);
   localTypeAliases(script, aliases, namespaces);
   const head = /(?:export\s+)?(?:interface\s+Props(?:\s+extends\s+[^{]+)?\s*|type\s+Props\s*=\s*)\{/.exec(
     script,
@@ -642,12 +646,39 @@ export function parseAstroProps(source: string): AstroPropDef[] {
 /** Returns a non-object-literal `type Props = …` expression. This covers the
  * common `type Props = CollectionEntry<'posts'>['data']` shape, whose members
  * can only be expanded once generated collection schemas are available. */
-export function parseAstroPropsType(source: string): string | null {
+export function parseAstroPropsType(
+  source: string,
+  importedTypes: Record<string, string> = {},
+): string | null {
   const fence = source.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   const script = fence ? fence[1] : source;
   const { aliases, namespaces } = astroContentTypeAliases(script);
+  for (const [name, type] of Object.entries(importedTypes)) aliases.set(name, type);
   localTypeAliases(script, aliases, namespaces);
   const alias = aliases.get("Props");
   if (!alias || alias.trim().startsWith("{")) return null;
   return canonicalAstroContentType(alias, aliases, namespaces);
+}
+
+/** Resolves one exported interface/type from an Astro frontmatter script.
+ * Used by component schema loading to follow relative `import type` aliases. */
+export function parseAstroExportedType(source: string, name: string): string | null {
+  const fence = source.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const script = fence ? fence[1] : source;
+  const { aliases, namespaces } = astroContentTypeAliases(script);
+  localTypeAliases(script, aliases, namespaces);
+
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const interfaceHead = new RegExp(`export\\s+interface\\s+${escaped}(?:\\s+extends\\s+[^\\{]+)?\\s*\\{`).exec(script);
+  if (interfaceHead) {
+    const open = interfaceHead.index + interfaceHead[0].lastIndexOf("{");
+    const end = scanBraces(script, open);
+    if (end !== -1) {
+      return canonicalAstroContentType(script.slice(open, end), aliases, namespaces);
+    }
+  }
+
+  const exportedType = new RegExp(`export\\s+type\\s+${escaped}\\s*=`).test(script);
+  const alias = exportedType ? aliases.get(name) : null;
+  return alias ? canonicalAstroContentType(alias, aliases, namespaces) : null;
 }

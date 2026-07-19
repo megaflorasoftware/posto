@@ -27,7 +27,7 @@ import {
   useSchemas,
   type EditorTab,
 } from "@posto/editor";
-import { EMPTY_CONFIG, matchEntry, type ContentEntry } from "@posto/core/pagescms/config";
+import { EMPTY_CONFIG, matchEntry, renamedFilename, type ContentEntry } from "@posto/core/pagescms/config";
 import { parseFile } from "@posto/core/pagescms/frontmatter";
 import { invoke } from "@posto/ipc";
 import type { ChangedFile, FileEntry, FileGroup, GitHubRepo } from "@posto/ipc";
@@ -259,6 +259,35 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     void git.refreshLocalChanges(root);
   }
 
+  async function renameOpenFilename(filename: string): Promise<boolean> {
+    const from = currentFile.filePathRef.current;
+    if (!from || filename.includes("/")) return false;
+    const target = from.slice(0, from.lastIndexOf("/") + 1) + filename;
+    if (target === from) return true;
+    if (files.groupsRef.current.some((group) => group.files.some((file) => file.path === target))) {
+      setStatus(`A file named ${filename} already exists.`);
+      return false;
+    }
+    if (!(await currentFile.renameOpenFile(from, target))) {
+      setStatus(`Could not rename the file to ${filename}.`);
+      return false;
+    }
+    void files.refreshGroups(root);
+    void git.refreshLocalChanges(root);
+    return true;
+  }
+
+  function refreshFilenameTemplate(template: string) {
+    const path = currentFile.filePathRef.current;
+    if (!path || !entry) return;
+    const parsed = parseFile(currentFile.fileContentRef.current);
+    const raw = parsed.doc.toJSON() as unknown;
+    if (parsed.error || !raw || typeof raw !== "object" || Array.isArray(raw)) return;
+    const currentName = path.slice(path.lastIndexOf("/") + 1);
+    const next = renamedFilename(template, entry, raw as Record<string, unknown>, currentName);
+    if (next) void renameOpenFilename(next);
+  }
+
   // The armed "Delete?" confirm disarms on its own after a moment, the touch
   // equivalent of desktop's cancel-on-mouse-leave.
   useEffect(() => {
@@ -439,6 +468,9 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
             onTabChange={setEditorTab}
             onEdit={currentFile.onEdit}
             onFormEdit={currentFile.onFormEdit}
+            onRenameFile={renameOpenFilename}
+            onRefreshFilename={refreshFilenameTemplate}
+            onPostoSaved={() => void schemas.loadPostoConfig(root)}
           />
         </main>
       ) : showSettings ? (
