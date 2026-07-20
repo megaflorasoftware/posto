@@ -201,6 +201,16 @@ input {
   min-width: 0;
 }
 
+/* Matches the footprint of the "lg" ThemeIcon it replaces. */
+.repo-favicon {
+  width: 2.125rem;
+  height: 2.125rem;
+  border-radius: var(--mantine-radius-sm);
+  object-fit: cover;
+  display: block;
+  background: var(--mantine-color-default);
+}
+
 .empty-state,
 .repo-files-state {
   min-height: 160px;

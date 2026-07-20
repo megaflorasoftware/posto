@@ -14,6 +14,7 @@ import {
   ThemeIcon,
   Title,
 } from "@mantine/core";
+import { assetUrl } from "@posto/ipc";
 import type {
   CloneProgress,
   DeviceAuthorization,
@@ -34,8 +35,13 @@ import {
   Search,
   Smartphone,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import RepoHome from "./RepoHome";
+
+// A downloaded site's favicon usually lives at one of these `public/` paths;
+// the first that loads wins, otherwise the row falls back to the lock/folder
+// icon. SVG comes first because it is the Astro default.
+const FAVICON_CANDIDATES = ["favicon.svg", "favicon.ico", "favicon.png"];
 
 type Stage =
   | "loading"
@@ -53,6 +59,8 @@ type Props = {
   device: DeviceAuthorization | null;
   repos: GitHubRepo[];
   downloaded: Set<string>;
+  /** Local checkout root per downloaded repo, keyed by `owner/name`. */
+  roots: Map<string, string>;
   selectedRepo: GitHubRepo | null;
   readyRoot: string | null;
   progress: CloneProgress;
@@ -162,7 +170,33 @@ function Authorizing({ device, onOpenVerification }: Pick<Props, "device" | "onO
   );
 }
 
-function RepoPicker({ repos, downloaded, error, onChooseRepo, onRetryRepos }: Props) {
+// Shows the downloaded site's favicon when one is present, cascading through
+// the candidate paths on load errors. Repos without a local checkout (or with
+// no favicon) render the original private/public icon instead.
+function RepoRowIcon({ root, isPrivate }: { root: string | undefined; isPrivate: boolean }) {
+  const [candidate, setCandidate] = useState(0);
+  useEffect(() => setCandidate(0), [root]);
+
+  const fallbackIcon = (
+    <ThemeIcon variant="light" color={isPrivate ? undefined : "gray"} radius="sm">
+      {isPrivate ? <LockKeyhole size={17} /> : <FolderGit2 size={17} />}
+    </ThemeIcon>
+  );
+
+  if (!root || candidate >= FAVICON_CANDIDATES.length) return fallbackIcon;
+  const src = assetUrl(`${root}/public/${FAVICON_CANDIDATES[candidate]}`);
+  if (!src) return fallbackIcon;
+  return (
+    <img
+      className="repo-favicon"
+      src={src}
+      alt=""
+      onError={() => setCandidate((index) => index + 1)}
+    />
+  );
+}
+
+function RepoPicker({ repos, downloaded, roots, error, onChooseRepo, onRetryRepos }: Props) {
   const [query, setQuery] = useState("");
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -206,9 +240,7 @@ function RepoPicker({ repos, downloaded, error, onChooseRepo, onRetryRepos }: Pr
               const isDownloaded = downloaded.has(repo.full_name);
               return (
                 <button className="repo-row" key={repo.id} onClick={() => onChooseRepo(repo)}>
-                  <ThemeIcon variant="light" color={repo.private ? undefined : "gray"} radius="sm">
-                    {repo.private ? <LockKeyhole size={17} /> : <FolderGit2 size={17} />}
-                  </ThemeIcon>
+                  <RepoRowIcon root={roots.get(repo.full_name)} isPrivate={repo.private} />
                   <div className="repo-info">
                     <Group gap="xs" wrap="nowrap">
                       <Text fw={650} truncate>{repo.name}</Text>

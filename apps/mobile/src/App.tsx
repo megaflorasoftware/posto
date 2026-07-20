@@ -257,6 +257,11 @@ export default function App() {
     [managed],
   );
 
+  const roots = useMemo(
+    () => new Map(managed.map((repo) => [`${repo.owner}/${repo.name}`, repo.root] as const)),
+    [managed],
+  );
+
   return (
     <MantineProvider defaultColorScheme="auto" theme={mobileTheme}>
       <DialogVariantProvider variant="drawer">
@@ -266,6 +271,7 @@ export default function App() {
         device={device}
         repos={repos}
         downloaded={downloaded}
+        roots={roots}
         selectedRepo={selectedRepo}
         readyRoot={readyRoot}
         progress={progress}
