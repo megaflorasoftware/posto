@@ -62,12 +62,13 @@ export function usePreview(options: Options) {
     previewFrame.current.src = `http://localhost:${server.port}${previewRoute}`;
   }, [server, previewRoute]);
 
-  // Collection markdown doesn't necessarily have its own page (e.g. works
-  // rendered only inside gallery pages), so a derived route is just a guess —
-  // confirm the dev server actually serves it before pointing the preview at
-  // it. Unverifiable (server not up yet) counts as servable.
-  async function routeIsServable(route: string): Promise<boolean> {
-    if (opts.current.serverRef.current.state !== "running") return true;
+  // Whether the dev server actually serves a route. `assumeWhenDown` decides
+  // the answer while the server isn't up yet: certain (src/pages file-based)
+  // routes are assumed servable so the preview can point at them before the
+  // server boots, while uncertain collection guesses are not — an unverified
+  // guess must never move the preview.
+  async function routeServes(route: string, assumeWhenDown: boolean): Promise<boolean> {
+    if (opts.current.serverRef.current.state !== "running") return assumeWhenDown;
     try {
       await invoke("fetch_page", { route });
       return true;
@@ -77,13 +78,16 @@ export function usePreview(options: Options) {
   }
 
   /** Forward navigation: point the preview at the route the opened file
-   * implies, when there is one and the server serves it. */
+   * implies, but only when we're sure it exists. A content entry's guessed
+   * route (e.g. /weeks/2026-29 for a file the site renders at /2026/29) is
+   * only trusted once the running dev server confirms it serves; a wrong
+   * guess 404s and the preview is left where it is. */
   async function navigateForFile(path: string, content: string) {
-    const route = routeForFile(path, content);
-    if (route && route !== previewRouteRef.current && (await routeIsServable(route))) {
-      // Bail if the user already opened another file during the check.
-      if (opts.current.filePathRef.current === path) setPreviewRoute(route);
-    }
+    const match = routeForFile(path, content);
+    if (!match || match.route === previewRouteRef.current) return;
+    if (!(await routeServes(match.route, match.certain))) return;
+    // Bail if the user already opened another file during the check.
+    if (opts.current.filePathRef.current === path) setPreviewRoute(match.route);
   }
 
   // Reverse routing: the iframe is cross-origin, so its URL is unreadable —
@@ -95,7 +99,7 @@ export function usePreview(options: Options) {
   function fileForRoute(route: string): string | null {
     for (const group of opts.current.groupsRef.current) {
       for (const file of group.files) {
-        if (routeForFile(file.path, "") === route) return file.path;
+        if (routeForFile(file.path, "")?.route === route) return file.path;
       }
     }
     return null;
@@ -132,9 +136,28 @@ export function usePreview(options: Options) {
     setSplit(Math.min(85, Math.max(15, pct)));
   }
 
+  /** Point the preview at a route imperatively. Navigates the iframe directly
+   * (rather than relying on the previewRoute effect) so it works even when the
+   * route hasn't changed — e.g. the user clicked into a sub-page inside the
+   * preview, which only moved servedRoute. */
+  function navigateTo(route: string) {
+    if (server.state === "running" && previewFrame.current) {
+      lastNavigatedRoute.current = route;
+      previewFrame.current.src = `http://localhost:${server.port}${route}`;
+    }
+    lastServedRoute.current = route;
+    setServedRoute(route);
+    setPreviewRoute(route);
+  }
+
   /** Back to "/" when a different site is opened. */
   function resetRoute() {
     setPreviewRoute("/");
+  }
+
+  /** Manually return the preview to the site root. */
+  function goHome() {
+    navigateTo("/");
   }
 
   return {
@@ -148,5 +171,6 @@ export function usePreview(options: Options) {
     onDividerPointerMove,
     navigateForFile,
     resetRoute,
+    goHome,
   };
 }

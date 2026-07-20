@@ -479,6 +479,7 @@ function App() {
                 onRestart={() => void devServer.restartServer(root)}
                 onRetry={() => void devServer.startServer(root)}
                 onInstall={(steps) => void devServer.runSetup(root, steps)}
+                onHome={preview.goHome}
               />
             </div>
           </div>

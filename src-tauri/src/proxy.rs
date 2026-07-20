@@ -51,10 +51,18 @@ fn parse_request_head(head: &str) -> Option<RequestInfo> {
 /// Proxy-local endpoint the reporter script calls; never forwarded upstream.
 const REPORT_PATH: &str = "/__posto_route";
 
-/// Spliced into every served HTML page. Reports the document's real location
-/// to the proxy on load, on history changes (client-side routers), and on
-/// Astro's post-swap event. Prefetched documents are downloaded but never
-/// executed, so prefetches can't produce reports.
+/// Spliced into every served HTML page. Does two jobs:
+///
+/// 1. Reports the document's real location to the proxy on load, on history
+///    changes (client-side routers), and on Astro's post-swap event.
+///    Prefetched documents are downloaded but never executed, so prefetches
+///    can't produce reports.
+/// 2. Persists scroll position across dev-server full reloads. Astro (and
+///    other SSGs) can't hot-swap page HTML, so editing content triggers a
+///    full `location.reload()`. A normal browser restores scroll for that via
+///    `history.scrollRestoration`, but WKWebView drops it for the preview
+///    iframe — so we save the position in sessionStorage (same origin as the
+///    page) and restore it after reload when the path is unchanged.
 const REPORTER: &str = concat!(
     "<script>(()=>{",
     "const r=()=>{fetch('/__posto_route?p='+encodeURIComponent(location.pathname))",
@@ -64,6 +72,17 @@ const REPORTER: &str = concat!(
     "history[f]=(...a)=>{const v=o(...a);setTimeout(r,0);return v};}",
     "addEventListener('popstate',r);",
     "addEventListener('astro:page-load',r);",
+    // Scroll persistence. Keyed on pathname so only a same-page reload
+    // restores; a real navigation (new path) falls through to scroll-to-top.
+    "const K='__posto_scroll';",
+    "let q=0;const save=()=>{if(q)return;q=1;requestAnimationFrame(()=>{q=0;",
+    "try{sessionStorage.setItem(K,JSON.stringify({p:location.pathname,x:scrollX,y:scrollY}))}catch(e){}})};",
+    "addEventListener('scroll',save,{passive:true});",
+    "addEventListener('pagehide',()=>{q=1;",
+    "try{sessionStorage.setItem(K,JSON.stringify({p:location.pathname,x:scrollX,y:scrollY}))}catch(e){}});",
+    "try{const s=JSON.parse(sessionStorage.getItem(K)||'null');",
+    "if(s&&s.p===location.pathname){const go=()=>scrollTo(s.x,s.y);",
+    "addEventListener('DOMContentLoaded',go);addEventListener('load',go);}}catch(e){}",
     "r()})()</script>"
 );
 
