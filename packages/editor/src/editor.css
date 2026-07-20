@@ -842,6 +842,7 @@
 }
 
 .image-library-import-preview {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -858,6 +859,53 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+.image-library-import-pager-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  color: white;
+  background: rgb(0 0 0 / 45%);
+  cursor: pointer;
+  transition: background 120ms ease, opacity 120ms ease;
+}
+
+.image-library-import-pager-btn:hover {
+  background: rgb(0 0 0 / 65%);
+}
+
+.image-library-import-pager-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.image-library-import-pager-btn.is-prev {
+  left: 0.35rem;
+}
+
+.image-library-import-pager-btn.is-next {
+  right: 0.35rem;
+}
+
+.image-library-import-pager-count {
+  position: absolute;
+  bottom: 0.35rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  font-size: var(--mantine-font-size-xs);
+  color: white;
+  background: rgb(0 0 0 / 55%);
 }
 
 .image-library-import-form {

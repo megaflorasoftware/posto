@@ -754,15 +754,23 @@ export const openDirectory: () => Promise<string | null> = inTauri
   ? () => tauriOpen({ directory: true })
   : async () => "/mock/site";
 
+const IMAGE_FILE_FILTERS = [
+  { name: "Images", extensions: ["avif", "gif", "jpeg", "jpg", "png", "svg", "tif", "tiff", "webp"] },
+];
+
 export const openImageFile: () => Promise<string | null> = inTauri
   ? async () => {
-      const selected = await tauriOpen({
-        multiple: false,
-        filters: [{ name: "Images", extensions: ["avif", "gif", "jpeg", "jpg", "png", "svg", "tif", "tiff", "webp"] }],
-      });
+      const selected = await tauriOpen({ multiple: false, filters: IMAGE_FILE_FILTERS });
       return typeof selected === "string" ? selected : null;
     }
   : async () => "/mock/uploads/photo.jpg";
+
+export const openImageFiles: () => Promise<string[]> = inTauri
+  ? async () => {
+      const selected = await tauriOpen({ multiple: true, filters: IMAGE_FILE_FILTERS });
+      return Array.isArray(selected) ? selected : selected ? [selected] : [];
+    }
+  : async () => ["/mock/uploads/photo.jpg"];
 
 type FileDropHandler = (paths: string[]) => void;
 const fileDropHandlers: FileDropHandler[] = [];

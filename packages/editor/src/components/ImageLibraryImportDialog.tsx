@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Button, Group, Text, TextInput } from "@mantine/core";
 import { Dropzone, IMAGE_MIME_TYPE } from "@mantine/dropzone";
-import { Image as ImageIcon, Upload } from "lucide-react";
+import { ChevronLeft, ChevronRight, Image as ImageIcon, Upload } from "lucide-react";
 import type { AstroImageLibrary, PagesConfig } from "@posto/core/pagescms/config";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 import { validateForm } from "@posto/core/pagescms/validate";
@@ -25,20 +25,30 @@ function normalizeFolder(folder: string | undefined): string {
   return (folder ?? "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
 }
 
+/** Imports one or more images into a library. A drag or a "Choose images"
+ * pick can supply several source paths at once; the user then picks a single
+ * destination for the whole batch and pages through the uploads with the
+ * preview arrows, setting each one's filename and metadata before importing. */
 export function ImageLibraryImportDialog(props: {
   root: string;
   library: AstroImageLibrary;
   config: PagesConfig;
   groups: FileGroup[];
   sourcePath?: string;
+  sourcePaths?: string[];
   initialFolder?: string;
   onClose: () => void;
   onImported: (result: ImageLibraryImportResult) => void;
 }) {
+  const initialSources = props.sourcePaths?.length
+    ? props.sourcePaths
+    : props.sourcePath
+      ? [props.sourcePath]
+      : [];
   const rootFolder = normalizeFolder(props.initialFolder);
   const libraryRoot = `${props.root}/${props.library.base}`;
   const browserRoot = rootFolder ? `${libraryRoot}/${rootFolder}` : libraryRoot;
-  const [step, setStep] = useState<ImportStep>(props.sourcePath ? "location" : "source");
+  const [step, setStep] = useState<ImportStep>(initialSources.length ? "location" : "source");
   const [currentDirectory, setCurrentDirectory] = useState("");
   const metadataFields = useMemo(
     () => imageLibraryMetadataFields(props.library),
@@ -48,40 +58,44 @@ export function ImageLibraryImportDialog(props: {
   const importer = useImageLibraryImport({
     root: props.root,
     library: props.library,
-    initialSourcePath: props.sourcePath,
+    initialSources,
     onImported: props.onImported,
   });
-  const errors = validateForm(metadataFields, importer.draft.metadata);
-  const sourceExtension = importer.draft.sourceImagePath?.split(".").pop()?.toLowerCase() ?? "";
 
-  const selectSource = (path: string) => {
-    importer.setSource(path);
+  const { drafts, index } = importer;
+  const draft = drafts[index];
+  const errors = validateForm(metadataFields, draft?.metadata ?? {});
+  const sourceExtension = draft?.sourceImagePath.split(".").pop()?.toLowerCase() ?? "";
+  const draftValid = (candidate: (typeof drafts)[number]) =>
+    !!candidate.filename && validateForm(metadataFields, candidate.metadata).size === 0;
+  const allValid = drafts.length > 0 && drafts.every(draftValid);
+
+  const selectSources = (paths: string[]) => {
+    if (paths.length === 0) return;
+    importer.setSources(paths);
     setStep("location");
   };
 
   useEffect(() => {
     if (step !== "source") return;
-    return onFileDrop((paths) => {
-      const path = paths[0];
-      if (path) selectSource(path);
-    });
+    return onFileDrop((paths) => selectSources(paths));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
   const chooseSource = async () => {
-    const path = await importer.chooseSource();
-    if (path) setStep("location");
+    selectSources(await importer.chooseSources());
   };
 
   const chooseLocation = () => {
     const folder = [rootFolder, currentDirectory].filter(Boolean).join("/");
-    importer.setDraft((draft) => ({ ...draft, folder }));
+    importer.setFolder(folder);
     setStep("details");
   };
 
   const update = (path: ValuePath, value: unknown) => {
-    importer.setDraft((draft) => ({
-      ...draft,
-      metadata: editValueAtPath(draft.metadata, path, value),
+    importer.updateDraft(index, (current) => ({
+      ...current,
+      metadata: editValueAtPath(current.metadata, path, value),
     }));
   };
   const fieldCtx: FieldContext = {
@@ -90,19 +104,19 @@ export function ImageLibraryImportDialog(props: {
     entry: null,
     groups: props.groups,
     errors: () => errors,
-    templateValues: () => importer.draft.metadata,
-    value: (path) => valueAtPath(importer.draft.metadata, path),
+    templateValues: () => draft?.metadata ?? {},
+    value: (path) => valueAtPath(draft?.metadata ?? {}, path),
     edit: update,
     listAppend: (path, value) => {
-      const list = valueAtPath(importer.draft.metadata, path);
+      const list = valueAtPath(draft?.metadata ?? {}, path);
       update(path, [...(Array.isArray(list) ? list : []), value]);
     },
-    listRemove: (path, index) => {
-      const list = valueAtPath(importer.draft.metadata, path);
-      if (Array.isArray(list)) update(path, list.filter((_item, itemIndex) => itemIndex !== index));
+    listRemove: (path, itemIndex) => {
+      const list = valueAtPath(draft?.metadata ?? {}, path);
+      if (Array.isArray(list)) update(path, list.filter((_item, i) => i !== itemIndex));
     },
     listMove: (path, from, to) => {
-      const list = valueAtPath(importer.draft.metadata, path);
+      const list = valueAtPath(draft?.metadata ?? {}, path);
       if (!Array.isArray(list)) return;
       const moved = [...list];
       const [item] = moved.splice(from, 1);
@@ -111,11 +125,16 @@ export function ImageLibraryImportDialog(props: {
     },
   };
 
+  const importAll = async () => {
+    if (await importer.execute()) props.onClose();
+  };
+
+  const countSuffix = drafts.length > 1 ? ` (${drafts.length} images)` : "";
   const title = step === "source"
-    ? "Choose image to import"
+    ? "Choose images to import"
     : step === "location"
-      ? `Choose a location in ${props.library.collection}`
-      : `Import into ${props.library.collection}`;
+      ? `Choose a location in ${props.library.collection}${countSuffix}`
+      : `Import into ${props.library.collection}${countSuffix}`;
 
   return (
     <Dialog opened onClose={props.onClose} title={title} size="xl">
@@ -125,29 +144,31 @@ export function ImageLibraryImportDialog(props: {
         <Dropzone
           className="image-library-import-dropzone"
           accept={IMAGE_MIME_TYPE}
-          multiple={false}
+          multiple
           activateOnClick={false}
           onDrop={(files) => {
-            const path = (files[0] as File & { path?: string } | undefined)?.path;
-            if (path) selectSource(path);
-            else importer.setError("Could not read the dropped file path. Use Choose image instead.");
+            const paths = files
+              .map((file) => (file as File & { path?: string }).path)
+              .filter((path): path is string => !!path);
+            if (paths.length > 0) selectSources(paths);
+            else importer.setError("Could not read the dropped file paths. Use Choose images instead.");
           }}
-          onReject={() => importer.setError("Choose a supported image file.")}
+          onReject={() => importer.setError("Choose supported image files.")}
         >
           <Group justify="center" gap="xl" mih={180}>
             <Upload size={42} />
             <div>
               <Text className="image-library-import-desktop-copy" size="lg" fw={600}>
-                Drop an image here
+                Drop images here
               </Text>
               <Text className="image-library-import-mobile-copy" size="lg" fw={600}>
-                Choose an image from your device
+                Choose images from your device
               </Text>
               <Text className="image-library-import-desktop-copy" size="sm" c="dimmed" mb="md">
-                or choose one from your device
+                or choose them from your device
               </Text>
               <Button onClick={(event) => { event.stopPropagation(); void chooseSource(); }}>
-                Choose image
+                Choose images
               </Button>
             </div>
           </Group>
@@ -170,24 +191,53 @@ export function ImageLibraryImportDialog(props: {
         </>
       )}
 
-      {step === "details" && (
+      {step === "details" && draft && (
         <div className="image-library-import-details">
           <div className="image-library-import-preview">
             <CachedImage
-              path={importer.draft.sourceImagePath}
+              path={draft.sourceImagePath}
               alt=""
               fallback={<ImageIcon size={28} />}
             />
+            {drafts.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  className="image-library-import-pager-btn is-prev"
+                  aria-label="Previous image"
+                  disabled={index === 0}
+                  onClick={() => importer.setIndex(index - 1)}
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <button
+                  type="button"
+                  className="image-library-import-pager-btn is-next"
+                  aria-label="Next image"
+                  disabled={index === drafts.length - 1}
+                  onClick={() => importer.setIndex(index + 1)}
+                >
+                  <ChevronRight size={18} />
+                </button>
+                <span className="image-library-import-pager-count">
+                  {index + 1} / {drafts.length}
+                </span>
+              </>
+            )}
           </div>
           <div className="image-library-import-form">
             <TextInput
               size="xs"
               label="Filename (Astro ID)"
-              description={importer.draft.folder ? `Importing into ${importer.draft.folder}` : "Importing at the library root"}
-              value={importer.draft.filename}
+              description={importer.folder ? `Importing into ${importer.folder}` : "Importing at the library root"}
+              value={draft.filename}
+              error={!draft.filename ? "Required" : undefined}
               rightSection={<Text size="xs" c="dimmed">.{sourceExtension}</Text>}
               rightSectionWidth={`${Math.max(3, sourceExtension.length + 1)}ch`}
-              onChange={(event) => importer.setDraft((draft) => ({ ...draft, filename: event.currentTarget.value }))}
+              onChange={(event) => {
+                const filename = event.currentTarget.value;
+                importer.updateDraft(index, (current) => ({ ...current, filename }));
+              }}
             />
             {props.library.metadataExtensions.length > 1 && (
               <AdaptiveSelect
@@ -197,10 +247,10 @@ export function ImageLibraryImportDialog(props: {
                   value: extension,
                   label: `.${extension}`,
                 }))}
-                value={importer.draft.metadataExtension ?? null}
-                onChange={(value) => importer.setDraft((draft) => ({
-                  ...draft,
-                  metadataExtension: value as typeof draft.metadataExtension,
+                value={draft.metadataExtension ?? null}
+                onChange={(value) => importer.updateDraft(index, (current) => ({
+                  ...current,
+                  metadataExtension: value as typeof current.metadataExtension,
                 }))}
               />
             )}
@@ -213,10 +263,10 @@ export function ImageLibraryImportDialog(props: {
               fullWidth
               mt="md"
               loading={importer.pending}
-              disabled={!importer.draft.sourceImagePath || !importer.draft.filename || errors.size > 0}
-              onClick={() => void importer.execute().then((result) => { if (result) props.onClose(); })}
+              disabled={!allValid}
+              onClick={() => void importAll()}
             >
-              Import image
+              {drafts.length > 1 ? `Import ${drafts.length} images` : "Import image"}
             </Button>
           </div>
         </div>

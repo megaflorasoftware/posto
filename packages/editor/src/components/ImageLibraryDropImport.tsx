@@ -14,26 +14,22 @@ export function ImageLibraryDropImport(props: {
   onImported: () => void;
   onError?: (message: string) => void;
 }) {
-  const [source, setSource] = useState<string | null>(null);
+  const [sources, setSources] = useState<string[] | null>(null);
   const [collection, setCollection] = useState<string | null>(null);
   const libraries = props.config.imageLibraries ?? [];
   useEffect(() => onFileDrop((paths) => {
     const images = paths.filter((path) => DROPPED_IMAGE.test(path));
     if (images.length === 0) return;
-    if (images.length > 1) {
-      props.onError?.("Image libraries currently import one image at a time.");
-      return;
-    }
     if (libraries.length === 0) {
       props.onError?.("This project has no editable Astro image library.");
       return;
     }
-    setSource(images[0]);
+    setSources(images);
     setCollection(libraries.length === 1 ? libraries[0].collection : null);
   }), [libraries, props.onError]);
   const library = libraries.find((candidate) => candidate.collection === collection) ?? null;
-  const close = () => { setSource(null); setCollection(null); };
-  if (!source) return null;
+  const close = () => { setSources(null); setCollection(null); };
+  if (!sources) return null;
   if (!library) {
     return (
       <Dialog opened onClose={close} title="Choose image library" size="sm">
@@ -50,9 +46,9 @@ export function ImageLibraryDropImport(props: {
       library={library}
       config={props.config}
       groups={props.groups}
-      sourcePath={source}
+      sourcePaths={sources}
       onClose={close}
-      onImported={() => { props.onImported(); close(); }}
+      onImported={() => { props.onImported(); }}
     />
   );
 }
