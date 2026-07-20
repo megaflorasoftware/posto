@@ -222,7 +222,7 @@ export function updatePostoCollectionSource(
   // Templates are edited by updatePostoFieldTemplateSource; this sidebar
   // settings writer deliberately leaves both new and legacy template keys
   // untouched.
-  const scalars = ["displayName"] as const;
+  const scalars = ["displayName", "entryName"] as const;
   for (const key of scalars) {
     if (settings[key] !== undefined) doc[key] = settings[key];
     else delete doc[key];

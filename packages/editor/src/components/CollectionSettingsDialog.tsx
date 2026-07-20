@@ -22,10 +22,11 @@ function sortToken(token: string): string {
 }
 
 /**
- * Per-collection `.posto` settings: display name, sort, and pinned files.
- * Item templates are intentionally configured beside each item field. Every field is
- * optional — cleared fields fall back to the derived config — and saving
- * rewrites only the keys this form owns, so hand-added settings survive.
+ * Per-collection `.posto` settings: display name, entry-label template,
+ * sort, and pinned files. Item field templates are configured beside each
+ * item field. Every field is optional — cleared fields fall back to the
+ * derived config — and saving rewrites only the keys this form owns, so
+ * hand-added settings survive.
  */
 export function CollectionSettingsDialog(props: {
   root: string;
@@ -42,6 +43,7 @@ export function CollectionSettingsDialog(props: {
   // must survive a save from this form. Undefined while loading.
   const [source, setSource] = useState<string | null | undefined>(undefined);
   const [displayName, setDisplayName] = useState("");
+  const [entryName, setEntryName] = useState("");
   const [sortBy, setSortBy] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [pinned, setPinned] = useState<string[]>([]);
@@ -61,6 +63,7 @@ export function CollectionSettingsDialog(props: {
       const settings = raw !== null ? parsePostoCollection(raw) : null;
       setSource(raw);
       setDisplayName(settings?.displayName ?? "");
+      setEntryName(settings?.entryName ?? "");
       setSortBy(settings?.sort ? sortToken(settings.sort.by) : null);
       setSortDirection(settings?.sort?.direction ?? "desc");
       setPinned(settings?.pinned ?? []);
@@ -86,6 +89,7 @@ export function CollectionSettingsDialog(props: {
     const trimmed = (value: string) => (value.trim() === "" ? undefined : value.trim());
     const settings: PostoCollectionSettings = {
       displayName: trimmed(displayName),
+      entryName: trimmed(entryName),
       sort: sortBy ? { by: sortBy, direction: sortDirection } : undefined,
       pinned: pinned.length > 0 ? pinned : undefined,
     };
@@ -120,6 +124,15 @@ export function CollectionSettingsDialog(props: {
             placeholder={collection.name}
             value={displayName}
             onChange={(e) => setDisplayName(e.currentTarget.value)}
+          />
+          <TextInput
+            size="xs"
+            mt="sm"
+            label="Entry label"
+            description="Template over frontmatter for each entry's label"
+            placeholder="{fields.title}"
+            value={entryName}
+            onChange={(e) => setEntryName(e.currentTarget.value)}
           />
           <AdaptiveSelect
             size="xs"
