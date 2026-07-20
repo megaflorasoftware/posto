@@ -136,9 +136,28 @@ export function usePreview(options: Options) {
     setSplit(Math.min(85, Math.max(15, pct)));
   }
 
+  /** Point the preview at a route imperatively. Navigates the iframe directly
+   * (rather than relying on the previewRoute effect) so it works even when the
+   * route hasn't changed — e.g. the user clicked into a sub-page inside the
+   * preview, which only moved servedRoute. */
+  function navigateTo(route: string) {
+    if (server.state === "running" && previewFrame.current) {
+      lastNavigatedRoute.current = route;
+      previewFrame.current.src = `http://localhost:${server.port}${route}`;
+    }
+    lastServedRoute.current = route;
+    setServedRoute(route);
+    setPreviewRoute(route);
+  }
+
   /** Back to "/" when a different site is opened. */
   function resetRoute() {
     setPreviewRoute("/");
+  }
+
+  /** Manually return the preview to the site root. */
+  function goHome() {
+    navigateTo("/");
   }
 
   return {
@@ -152,5 +171,6 @@ export function usePreview(options: Options) {
     onDividerPointerMove,
     navigateForFile,
     resetRoute,
+    goHome,
   };
 }

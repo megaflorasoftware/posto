@@ -1,7 +1,7 @@
 import { ActionIcon, Alert, Button, Tabs } from "@mantine/core";
 import type { MediaEntry } from "@posto/core/pagescms/config";
 import { openUrl } from "@posto/ipc";
-import { SquareArrowOutUpRight } from "lucide-react";
+import { House, SquareArrowOutUpRight } from "lucide-react";
 import type { ServerStatus, SetupStep } from "../hooks/useDevServer";
 import { SetupFlow } from "./SetupFlow";
 import { SeoPreview } from "./SeoPreview";
@@ -22,11 +22,22 @@ export function PreviewPane(props: {
   onRestart: () => void;
   onRetry: () => void;
   onInstall: (steps: SetupStep[]) => void;
+  onHome: () => void;
 }) {
   const { server } = props;
   return (
     <div className="pane preview-pane">
       <div className="pane-header">
+        <ActionIcon
+          size={30}
+          variant="default"
+          disabled={server.state !== "running"}
+          title="Return to site root"
+          aria-label="Return to site root"
+          onClick={props.onHome}
+        >
+          <House size={14} />
+        </ActionIcon>
         <span className="pane-title">{props.servedRoute ?? props.previewRoute}</span>
         <ActionIcon
           size={30}

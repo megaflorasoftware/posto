@@ -113,10 +113,18 @@ export const HtmlBlock = Node.create({
     },
     tokenize: (src: string) => {
       const el = scanHtmlElement(src);
-      // Inline-level elements opening a line (`<kbd>Ctrl</kbd> + C`) belong
-      // to the paragraph; only true block elements are claimed here.
-      if (!el || !BLOCK_HTML_TAGS.has(el.name)) return undefined;
-      return { type: "htmlBlock", raw: el.raw };
+      if (!el) return undefined;
+      // Known block elements are always claimed. Any other element (`<kbd>`,
+      // `<abbr>`, a deprecated `<marquee>`, …) is only a block when it stands
+      // alone on its line — nothing but whitespace follows it before the line
+      // ends. An inline element opening a line with trailing text
+      // (`<kbd>Ctrl</kbd> + C`) stays in the paragraph for the inline
+      // tokenizer; a bare `<marquee>…</marquee>` block is preserved as raw
+      // HTML instead of being escaped to `&lt;marquee&gt;` on save.
+      if (BLOCK_HTML_TAGS.has(el.name) || /^[ \t\r]*(\n|$)/.test(src.slice(el.raw.length))) {
+        return { type: "htmlBlock", raw: el.raw };
+      }
+      return undefined;
     },
   },
   parseMarkdown: (token, helpers) =>
