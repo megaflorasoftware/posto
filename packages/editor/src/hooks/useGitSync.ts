@@ -4,6 +4,10 @@ import type { ChangedFile } from "@posto/ipc";
 
 const FETCH_INTERVAL_MS = 30_000;
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 type Callbacks = {
   /** Status-bar message updates ("Publishing…", results, errors). */
   onStatus: (message: string | null) => void;
@@ -97,7 +101,7 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
       cb.current.onStatus(await invoke<string>("pull_upstream", { root: dir }));
       setBehindUpstream(false);
     } catch (e) {
-      cb.current.onStatus(`Fetch failed: ${e}`);
+      cb.current.onStatus(`Fetch failed: ${errorMessage(e)}`);
     } finally {
       await cb.current.afterPull?.(dir);
       setPulling(false);
@@ -153,8 +157,8 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
       const result = await invoke<string>("publish", { root: dir, message });
       if (!quiet) cb.current.onStatus(result);
     } catch (e) {
-      if (quiet) cb.current.onPublishError?.(`Publish failed: ${e}`);
-      else cb.current.onStatus(`Publish failed: ${e}`);
+      if (quiet) cb.current.onPublishError?.(`Publish failed: ${errorMessage(e)}`);
+      else cb.current.onStatus(`Publish failed: ${errorMessage(e)}`);
     }
     // Committing doesn't touch watched files, so refresh the flag directly —
     // and before clearing `publishing`, so the button lands on "Up to date"
