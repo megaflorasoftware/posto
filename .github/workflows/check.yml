@@ -45,6 +45,9 @@ jobs:
   rust:
     name: Rust
     runs-on: ubuntu-22.04
+    env:
+      # No debuginfo in CI — cuts compile time and shrinks the cached target dir.
+      CARGO_PROFILE_DEV_DEBUG: 0
     defaults:
       run:
         working-directory: src-tauri
@@ -56,13 +59,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      # Version + components come from src-tauri/rust-toolchain.toml (single
+      # source of truth, shared with local dev). Installed before the cache so
+      # rust-cache keys on the pinned rustc version.
+      - name: Install Rust toolchain
+        run: rustup show
 
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          # Keep the compiled dependency cache even when clippy/tests fail, so a
+          # red run doesn't force the next one to recompile everything.
+          cache-on-failure: true
 
       - name: Format check
         run: cargo fmt --check
