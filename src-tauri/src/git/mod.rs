@@ -18,8 +18,36 @@ pub struct ChangedFile {
     pub path: String,
 }
 
+/// `owner/name` parsed from a repository's GitHub remote.
+#[derive(Debug, PartialEq, Serialize)]
+pub struct GitHubSlug {
+    pub owner: String,
+    pub name: String,
+}
+
 fn err_str(e: git2::Error) -> String {
     e.message().to_string()
+}
+
+/// Extracts `owner/name` from a GitHub remote URL, handling both HTTPS
+/// (`https://github.com/owner/name.git`) and SSH (`git@github.com:owner/name`)
+/// forms. Returns `None` for non-GitHub remotes.
+fn parse_github_slug(url: &str) -> Option<GitHubSlug> {
+    let rest = url
+        .strip_prefix("https://github.com/")
+        .or_else(|| url.strip_prefix("http://github.com/"))
+        .or_else(|| url.strip_prefix("git@github.com:"))
+        .or_else(|| url.strip_prefix("ssh://git@github.com/"))?;
+    let rest = rest.strip_suffix('/').unwrap_or(rest);
+    let rest = rest.strip_suffix(".git").unwrap_or(rest);
+    let (owner, name) = rest.split_once('/')?;
+    if owner.is_empty() || name.is_empty() || name.contains('/') {
+        return None;
+    }
+    Some(GitHubSlug {
+        owner: owner.to_string(),
+        name: name.to_string(),
+    })
 }
 
 /// All git operations behind one libgit2-backed client. Works against any
@@ -133,6 +161,13 @@ impl Client {
             out.push(ChangedFile { status: code, path });
         }
         Ok(out)
+    }
+
+    /// The `owner/name` of the `origin` remote when it points at GitHub.
+    /// `None` when there is no origin or it isn't a GitHub remote.
+    pub fn github_remote(&self) -> Option<GitHubSlug> {
+        let remote = self.repo.find_remote("origin").ok()?;
+        parse_github_slug(remote.url().ok()?)
     }
 
     fn is_dirty(&self) -> Result<bool, String> {
@@ -448,6 +483,18 @@ pub async fn changed_files(root: String) -> Result<Vec<ChangedFile>, String> {
         .map_err(|e| e.to_string())?
 }
 
+/// The GitHub `owner/name` of the repository containing `root`, or `None` when
+/// the directory isn't a git repo or its origin isn't a GitHub remote. Never
+/// errors — a missing remote is a normal "no deployment info" case.
+#[tauri::command]
+pub async fn github_remote(root: String) -> Result<Option<GitHubSlug>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(Client::open(&root).ok().and_then(|client| client.github_remote()))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Reverts one changed file to its committed state. `path` is repo-relative
 /// (as reported by `changed_files`). Untracked files have no committed state,
 /// so revert means deleting them.
@@ -487,4 +534,44 @@ pub async fn publish(root: String, message: Option<String>) -> Result<String, St
         .filter(|m| !m.is_empty())
         .unwrap_or_else(|| "Site updates".to_string());
     Client::open(&root)?.publish(&message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_github_slug, GitHubSlug};
+
+    fn slug(owner: &str, name: &str) -> Option<GitHubSlug> {
+        Some(GitHubSlug {
+            owner: owner.to_string(),
+            name: name.to_string(),
+        })
+    }
+
+    #[test]
+    fn parses_https_and_ssh_github_remotes() {
+        assert_eq!(
+            parse_github_slug("https://github.com/megaflorasoftware/posto.git"),
+            slug("megaflorasoftware", "posto"),
+        );
+        assert_eq!(
+            parse_github_slug("https://github.com/megaflorasoftware/posto"),
+            slug("megaflorasoftware", "posto"),
+        );
+        assert_eq!(
+            parse_github_slug("git@github.com:megaflorasoftware/posto.git"),
+            slug("megaflorasoftware", "posto"),
+        );
+        assert_eq!(
+            parse_github_slug("ssh://git@github.com/megaflorasoftware/posto.git"),
+            slug("megaflorasoftware", "posto"),
+        );
+    }
+
+    #[test]
+    fn rejects_non_github_and_malformed_remotes() {
+        assert_eq!(parse_github_slug("https://gitlab.com/owner/name.git"), None);
+        assert_eq!(parse_github_slug("https://github.com/owner"), None);
+        assert_eq!(parse_github_slug("https://github.com/owner/"), None);
+        assert_eq!(parse_github_slug("https://github.com/owner/a/b"), None);
+    }
 }

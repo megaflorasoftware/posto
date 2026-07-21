@@ -88,6 +88,28 @@ export interface GitHubRepo {
   updated_at: string;
 }
 
+/** `owner/name` parsed from a local repository's GitHub remote. */
+export interface GitHubSlug {
+  owner: string;
+  name: string;
+}
+
+/** A GitHub Actions run, trimmed to what the deployment ring needs. */
+export interface WorkflowRun {
+  id: number;
+  name: string;
+  /** Groups runs "of that type" for duration averaging. */
+  workflow_id: number;
+  /** "queued" | "in_progress" | "completed" (other values pass through). */
+  status: string;
+  /** "success" | "failure" | "cancelled" | …; null while still running. */
+  conclusion: string | null;
+  run_started_at: string | null;
+  updated_at: string;
+  created_at: string;
+  html_url: string;
+}
+
 export interface ImageLibraryImportRequest {
   libraryRoot: string;
   sourceImagePath: string;
@@ -389,6 +411,41 @@ const mockGitHubRepos: GitHubRepo[] = [
   },
 ];
 
+// Deployment-ring fixtures: a run still in progress, preceded by three
+// completed runs of the same workflow (~90s each) so the browser dev build
+// shows a filling ring that averages to a realistic estimate.
+function mockWorkflowRuns(): WorkflowRun[] {
+  const now = Date.now();
+  const iso = (msAgo: number) => new Date(now - msAgo).toISOString();
+  const completed = (id: number, startedAgo: number, durationMs: number): WorkflowRun => ({
+    id,
+    name: "Deploy",
+    workflow_id: 42,
+    status: "completed",
+    conclusion: "success",
+    run_started_at: iso(startedAgo),
+    updated_at: iso(startedAgo - durationMs),
+    created_at: iso(startedAgo),
+    html_url: "https://github.com/megaflorasoftware/posto/actions/runs/1000",
+  });
+  return [
+    {
+      id: 1004,
+      name: "Deploy",
+      workflow_id: 42,
+      status: "in_progress",
+      conclusion: null,
+      run_started_at: iso(40_000),
+      updated_at: iso(0),
+      created_at: iso(42_000),
+      html_url: "https://github.com/megaflorasoftware/posto/actions/runs/1004",
+    },
+    completed(1003, 600_000, 92_000),
+    completed(1002, 1_200_000, 88_000),
+    completed(1001, 1_800_000, 96_000),
+  ];
+}
+
 function mockFrontmatter(path: string): Record<string, string> | null {
   if (!/\.(md|mdx|markdown)$/i.test(path)) return null;
   const content = mockFiles[path];
@@ -643,6 +700,26 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     }
     case "list_repos":
       return mockRepos.map((repo) => ({ ...repo }));
+    case "github_remote": {
+      // The desktop deployment ring resolves the open folder to a slug; the
+      // mock site maps to the sample repo, anything else to "no repo".
+      const root = args?.root as string;
+      if (new URLSearchParams(window.location.search).has("mockNoRepo")) return null;
+      return root.includes("/mock/")
+        ? { owner: "megaflorasoftware", name: "posto" }
+        : null;
+    }
+    case "list_workflow_runs": {
+      if (!mockSignedIn) throw new Error("Not signed in to GitHub");
+      const params = new URLSearchParams(window.location.search);
+      if (params.has("mockNoRuns")) return [];
+      const runs = mockWorkflowRuns();
+      // `?mockDeployed` finishes the latest run, for checking the done/check UI.
+      if (params.has("mockDeployed")) {
+        runs[0] = { ...runs[0], status: "completed", conclusion: "success" };
+      }
+      return runs;
+    }
     case "doctor_repo":
       if (new URLSearchParams(window.location.search).has("mockRepoBroken")) {
         throw new Error("The local Git repository could not be opened: repository data is incomplete");

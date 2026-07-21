@@ -23,7 +23,10 @@ import {
 } from "@posto/editor";
 import { useDevServer } from "./hooks/useDevServer";
 import { usePreview } from "./hooks/usePreview";
+import { useDeployment } from "./hooks/useDeployment";
+import { useSiteUrl } from "./hooks/useSiteUrl";
 import { AppHeader } from "./components/AppHeader";
+import { DeploymentDrawer } from "./components/DeploymentDrawer";
 import { PreviewPane } from "./components/PreviewPane";
 
 import "@mantine/core/styles.css";
@@ -51,6 +54,8 @@ function App() {
   const schemas = useSchemas();
   const files = useFileGroups((message) => setStatus(message));
   const devServer = useDevServer();
+  const deployment = useDeployment(root);
+  const siteUrl = useSiteUrl(root);
 
   const currentFile = useCurrentFile({
     onAfterSave(path, content) {
@@ -390,9 +395,13 @@ function App() {
           hasLocalChanges={git.hasLocalChanges}
           onChooseDirectory={() => void chooseDirectory()}
           onSelectRoot={(dir) => void selectRoot(dir)}
+          deployment={deployment}
+          siteUrl={siteUrl}
           onFetchChanges={() => void git.fetchChanges()}
           onOpenPublish={() => void openPublishModal()}
         />
+
+        <DeploymentDrawer deployment={deployment} />
 
         <PublishModal
           opened={publishOpen}
@@ -402,7 +411,12 @@ function App() {
           onRevert={(file) => void revertChange(file)}
           onPublish={(message) => {
             setPublishOpen(false);
-            void git.publish(message);
+            // A publish pushes to the default branch, which usually kicks off a
+            // deploy action; check for it shortly after so the ring picks up the
+            // new run without waiting for the next poll.
+            void git.publish(message).then(() => {
+              window.setTimeout(() => deployment.refresh(), 3000);
+            });
           }}
         />
 

@@ -1,8 +1,11 @@
-import { Button, Menu } from "@mantine/core";
-import { ChevronDown } from "lucide-react";
+import { ActionIcon, Button, Menu, Tooltip } from "@mantine/core";
+import { ChevronDown, Globe } from "lucide-react";
+import { openUrl } from "@posto/ipc";
+import { DeploymentControl } from "./DeploymentControl";
+import type { Deployment } from "../hooks/useDeployment";
 
-/** The top bar: site chooser with recents, status message, and the
- * Publish / Fetch Changes action. */
+/** The top bar: site chooser with recents, status message, deployment status,
+ * an open-live-site shortcut, and the Publish / Fetch Changes action. */
 export function AppHeader(props: {
   root: string | null;
   recentRoots: string[];
@@ -10,6 +13,8 @@ export function AppHeader(props: {
   behindUpstream: boolean;
   pulling: boolean;
   hasLocalChanges: boolean;
+  deployment: Deployment;
+  siteUrl: string | null;
   onChooseDirectory: () => void;
   onSelectRoot: (dir: string) => void;
   onFetchChanges: () => void;
@@ -48,6 +53,24 @@ export function AppHeader(props: {
         </Menu>
       </Button.Group>
       <span className="navbar-status">{props.status}</span>
+      {props.root && (
+        <Tooltip
+          label={props.siteUrl ? "Open live site" : "No live site URL found"}
+          openDelay={400}
+        >
+          <ActionIcon
+            size={30}
+            variant="subtle"
+            color="gray"
+            aria-label="Open live site"
+            disabled={!props.siteUrl}
+            onClick={() => props.siteUrl && void openUrl(props.siteUrl)}
+          >
+            <Globe size={18} />
+          </ActionIcon>
+        </Tooltip>
+      )}
+      {props.root && <DeploymentControl deployment={props.deployment} />}
       {props.behindUpstream ? (
         <Button size="xs" color="teal" loading={props.pulling} onClick={props.onFetchChanges}>
           Fetch Changes

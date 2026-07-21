@@ -28,14 +28,18 @@ reqwest = { version = "0.13.4", default-features = false, features = ["form", "j
 tokio = { version = "1", features = ["time"] }
 image = { version = "0.25", default-features = false, features = ["gif", "ico", "jpeg", "png", "tiff", "webp"] }
 
-# Desktop-only: file watching, PATH fixup, updater, process restart. Mobile
-# builds (iOS/Android) exclude them along with the modules that use them.
+# Desktop-only: file watching, PATH fixup, updater, process restart, and the
+# OS keychain for the stored GitHub session. Mobile builds (iOS/Android)
+# exclude them along with the modules that use them.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 notify = "8"
 notify-debouncer-mini = "0.6"
 fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs", version = "0.0.0" }
 tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
+# Default features cover Windows and Linux (Secret Service); apple-native adds
+# the macOS/Keychain backend.
+keyring = { version = "4", features = ["apple-native-keyring-store"] }
 
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 keyring-core = "1.0.0"
