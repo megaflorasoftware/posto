@@ -11,7 +11,12 @@
     "ios:device": "tauri ios build --export-method debugging && node scripts/install-ios-device.mjs",
     "serve": "pnpm --filter desktop serve",
     "tauri": "tauri",
-    "build:ios": "scripts/build-ios.sh"
+    "build:ios": "scripts/build-ios.sh",
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "check": "vp check",
+    "lint": "vp lint",
+    "format": "vp fmt"
   },
   "license": "MIT",
   "devDependencies": {

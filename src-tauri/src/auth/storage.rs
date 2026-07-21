@@ -113,6 +113,9 @@ mod desktop_keychain {
 pub use desktop_keychain::{delete_session, load_session, save_session};
 
 #[cfg(test)]
+pub use test_store::{delete_session, load_session, save_session};
+
+#[cfg(test)]
 mod test_store {
     use super::StoredSession;
     use std::sync::Mutex;
@@ -133,6 +136,3 @@ mod test_store {
         Ok(())
     }
 }
-
-#[cfg(test)]
-pub use test_store::{delete_session, load_session, save_session};

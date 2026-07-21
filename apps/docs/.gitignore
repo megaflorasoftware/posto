@@ -2,6 +2,8 @@
 dist/
 # generated types
 .astro/
+# Posto-generated collection metadata
+.posto/
 
 # dependencies
 node_modules/

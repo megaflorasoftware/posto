@@ -266,7 +266,11 @@ impl GitHubClient {
             .json::<ApiRunsResponse>()
             .await
             .map_err(err_str)?;
-        Ok(response.workflow_runs.into_iter().map(workflow_run).collect())
+        Ok(response
+            .workflow_runs
+            .into_iter()
+            .map(workflow_run)
+            .collect())
     }
 
     async fn api_get(&self, url: &str, token: &str) -> Result<reqwest::Response, String> {

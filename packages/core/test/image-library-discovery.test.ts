@@ -1,3 +1,4 @@
+import { test } from "vitest";
 import { buildAstroConfig, parseLoaderConfig } from "../src/astro/collections";
 import type { Field } from "../src/pagescms/config";
 
@@ -36,9 +37,11 @@ const blog = defineCollection({
 export const collections = { images, jsonImages, gallery, imageList, generatedImages, blog };
 `);
 
-assert(loaders.get("images")?.images?.[0]?.path.join(".") === "asset.source", "external nested image schema path");
-assert(loaders.get("gallery")?.images?.length === 2, "multiple images retained");
-assert(loaders.get("imageList")?.images?.[0]?.writable === false, "image arrays are not writable libraries");
+test("parses image schema paths from loader config", () => {
+  assert(loaders.get("images")?.images?.[0]?.path.join(".") === "asset.source", "external nested image schema path");
+  assert(loaders.get("gallery")?.images?.length === 2, "multiple images retained");
+  assert(loaders.get("imageList")?.images?.[0]?.writable === false, "image arrays are not writable libraries");
+});
 
 const nested: Field = {
   name: "asset",
@@ -60,14 +63,14 @@ const config = buildAstroConfig(
   loaders,
 );
 
-assert(config.imageLibraries?.length === 2, "yaml and json libraries discovered");
-assert(config.imageLibraries[0].imageFieldPath.join(".") === "asset.source", "path preserved");
-assert(config.imageLibraries[0].fields[0].fields?.[0].type === "image", "only nested field upgraded");
-assert(config.imageLibraryDiagnostics?.some((item) => item.code === "multiple-image-fields"), "ambiguity diagnosed");
-assert(config.imageLibraryDiagnostics?.some((item) => item.code === "unsupported-image-shape"), "image arrays diagnosed");
-assert(config.imageLibraryDiagnostics?.some((item) => item.code === "custom-entry-ids"), "custom IDs diagnosed");
-const blog = config.content.find((entry) => entry.name === "blog");
-assert(blog?.fields[0].options?.astroId === true, "top-level reference keeps Astro ID semantics");
-assert(blog?.fields[1].fields?.[0].options?.astroId === true, "nested reference keeps Astro ID semantics");
-
-console.log("image library discovery tests passed");
+test("discovers image libraries and their diagnostics", () => {
+  assert(config.imageLibraries?.length === 2, "yaml and json libraries discovered");
+  assert(config.imageLibraries[0].imageFieldPath.join(".") === "asset.source", "path preserved");
+  assert(config.imageLibraries[0].fields[0].fields?.[0].type === "image", "only nested field upgraded");
+  assert(config.imageLibraryDiagnostics?.some((item) => item.code === "multiple-image-fields"), "ambiguity diagnosed");
+  assert(config.imageLibraryDiagnostics?.some((item) => item.code === "unsupported-image-shape"), "image arrays diagnosed");
+  assert(config.imageLibraryDiagnostics?.some((item) => item.code === "custom-entry-ids"), "custom IDs diagnosed");
+  const blog = config.content.find((entry) => entry.name === "blog");
+  assert(blog?.fields[0].options?.astroId === true, "top-level reference keeps Astro ID semantics");
+  assert(blog?.fields[1].fields?.[0].options?.astroId === true, "nested reference keeps Astro ID semantics");
+});

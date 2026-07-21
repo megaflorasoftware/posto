@@ -106,7 +106,12 @@ fn fixture() -> Fixture {
     let other = dir.path().join("other");
     clone(&origin, &local, "local");
     clone(&origin, &other, "other");
-    Fixture { dir, local, other, origin }
+    Fixture {
+        dir,
+        local,
+        other,
+        origin,
+    }
 }
 
 /// Publishes a change from the "other" clone, so `local` is behind.
@@ -120,15 +125,24 @@ fn server_change(f: &Fixture, rel: &str, content: &str, message: &str) {
 fn behind_detection_and_pull() {
     let f = fixture();
     let client = Client::open(f.local.to_str().unwrap()).unwrap();
-    assert!(!client.fetch_and_check_behind().unwrap(), "fresh clone is current");
+    assert!(
+        !client.fetch_and_check_behind().unwrap(),
+        "fresh clone is current"
+    );
 
     server_change(&f, "posts/first.md", "first, updated\n", "server edit");
-    assert!(client.fetch_and_check_behind().unwrap(), "server pushed — behind");
+    assert!(
+        client.fetch_and_check_behind().unwrap(),
+        "server pushed — behind"
+    );
 
     let mut client = Client::open(f.local.to_str().unwrap()).unwrap();
     assert_eq!(client.pull().unwrap(), "Updated from server.");
     assert_eq!(read(&f.local, "posts/first.md"), "first, updated\n");
-    assert!(!client.fetch_and_check_behind().unwrap(), "caught up after pull");
+    assert!(
+        !client.fetch_and_check_behind().unwrap(),
+        "caught up after pull"
+    );
 }
 
 #[test]
@@ -140,8 +154,16 @@ fn dirty_tree_pull_keeps_non_conflicting_local_edits() {
 
     let mut client = Client::open(f.local.to_str().unwrap()).unwrap();
     assert_eq!(client.pull().unwrap(), "Updated from server.");
-    assert_eq!(read(&f.local, "posts/first.md"), "server version\n", "server change applied");
-    assert_eq!(read(&f.local, "index.md"), "# home, local draft\n", "local edit survives");
+    assert_eq!(
+        read(&f.local, "posts/first.md"),
+        "server version\n",
+        "server change applied"
+    );
+    assert_eq!(
+        read(&f.local, "index.md"),
+        "# home, local draft\n",
+        "local edit survives"
+    );
     // The local edit is back as an ordinary uncommitted change.
     let changed = client.changed_files().unwrap();
     assert_eq!(changed.len(), 1);
@@ -160,7 +182,11 @@ fn conflicting_uncommitted_edits_lose_to_server() {
 
     let mut client = Client::open(f.local.to_str().unwrap()).unwrap();
     assert_eq!(client.pull().unwrap(), "Updated from server.");
-    assert_eq!(read(&f.local, "posts/first.md"), "server version\n", "server wins");
+    assert_eq!(
+        read(&f.local, "posts/first.md"),
+        "server version\n",
+        "server wins"
+    );
     let repo = git2::Repository::open(&f.local).unwrap();
     assert_eq!(stash_count(repo), 0, "stash dropped, not left behind");
 }
@@ -176,7 +202,11 @@ fn conflicting_committed_edits_lose_to_server() {
 
     let mut client = Client::open(f.local.to_str().unwrap()).unwrap();
     assert_eq!(client.pull().unwrap(), "Updated from server.");
-    assert_eq!(read(&f.local, "posts/first.md"), "server version\n", "server wins");
+    assert_eq!(
+        read(&f.local, "posts/first.md"),
+        "server version\n",
+        "server wins"
+    );
     assert!(!client.fetch_and_check_behind().unwrap());
 }
 
@@ -191,8 +221,16 @@ fn untracked_files_survive_the_stash_round_trip() {
 
     let mut client = Client::open(f.local.to_str().unwrap()).unwrap();
     assert_eq!(client.pull().unwrap(), "Updated from server.");
-    assert_eq!(read(&f.local, "index.md"), "# home, server\n", "server wins the conflict");
-    assert_eq!(read(&f.local, "posts/draft.md"), "untracked draft\n", "untracked file survives");
+    assert_eq!(
+        read(&f.local, "index.md"),
+        "# home, server\n",
+        "server wins the conflict"
+    );
+    assert_eq!(
+        read(&f.local, "posts/draft.md"),
+        "untracked draft\n",
+        "untracked file survives"
+    );
     let changed = client.changed_files().unwrap();
     assert_eq!(changed.len(), 1);
     assert_eq!(changed[0].path, "posts/draft.md");
@@ -228,8 +266,14 @@ fn publish_commits_and_pushes() {
         .unwrap();
     assert_eq!(head.message().unwrap(), "publish from test");
     let tree = head.tree().unwrap();
-    assert!(tree.get_path(Path::new("posts/new.md")).is_ok(), "addition pushed");
-    assert!(tree.get_path(Path::new("posts/first.md")).is_err(), "deletion pushed");
+    assert!(
+        tree.get_path(Path::new("posts/new.md")).is_ok(),
+        "addition pushed"
+    );
+    assert!(
+        tree.get_path(Path::new("posts/first.md")).is_err(),
+        "deletion pushed"
+    );
     // And the local tree is clean.
     assert!(client.changed_files().unwrap().is_empty());
     assert_eq!(

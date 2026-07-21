@@ -80,13 +80,15 @@ impl Client {
         if status.is_conflicted() {
             return Some("UU".to_string());
         }
-        if status.is_wt_new() && !status.intersects(
-            Status::INDEX_NEW
-                | Status::INDEX_MODIFIED
-                | Status::INDEX_DELETED
-                | Status::INDEX_RENAMED
-                | Status::INDEX_TYPECHANGE,
-        ) {
+        if status.is_wt_new()
+            && !status.intersects(
+                Status::INDEX_NEW
+                    | Status::INDEX_MODIFIED
+                    | Status::INDEX_DELETED
+                    | Status::INDEX_RENAMED
+                    | Status::INDEX_TYPECHANGE,
+            )
+        {
             return Some("??".to_string());
         }
         let x = if status.is_index_new() {
@@ -264,7 +266,10 @@ impl Client {
             .get()
             .target()
             .ok_or("Upstream branch has no commits")?;
-        let (_, behind) = self.repo.graph_ahead_behind(local, upstream).map_err(err_str)?;
+        let (_, behind) = self
+            .repo
+            .graph_ahead_behind(local, upstream)
+            .map_err(err_str)?;
         Ok(behind > 0)
     }
 
@@ -279,7 +284,10 @@ impl Client {
             .get()
             .target()
             .ok_or("Upstream branch has no commits")?;
-        let annotated = self.repo.find_annotated_commit(upstream_oid).map_err(err_str)?;
+        let annotated = self
+            .repo
+            .find_annotated_commit(upstream_oid)
+            .map_err(err_str)?;
         let (analysis, _) = self.repo.merge_analysis(&[&annotated]).map_err(err_str)?;
         if analysis.is_up_to_date() {
             return Ok(());
@@ -325,7 +333,12 @@ impl Client {
         index.read_tree(&tree).map_err(err_str)?;
         index.write().map_err(err_str)?;
         let sig = self.signature()?;
-        let upstream_name = upstream.name().ok().flatten().unwrap_or("upstream").to_string();
+        let upstream_name = upstream
+            .name()
+            .ok()
+            .flatten()
+            .unwrap_or("upstream")
+            .to_string();
         self.repo
             .commit(
                 Some("HEAD"),
@@ -432,11 +445,7 @@ impl Client {
         index.update_all(["*"].iter(), None).map_err(err_str)?;
         index.write().map_err(err_str)?;
         let tree_oid = index.write_tree().map_err(err_str)?;
-        let head_commit = self
-            .repo
-            .head()
-            .ok()
-            .and_then(|h| h.peel_to_commit().ok());
+        let head_commit = self.repo.head().ok().and_then(|h| h.peel_to_commit().ok());
         if let Some(head_commit) = &head_commit {
             if head_commit.tree_id() == tree_oid {
                 return Ok("Nothing to publish — no local changes.".to_string());
@@ -489,7 +498,9 @@ pub async fn changed_files(root: String) -> Result<Vec<ChangedFile>, String> {
 #[tauri::command]
 pub async fn github_remote(root: String) -> Result<Option<GitHubSlug>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        Ok(Client::open(&root).ok().and_then(|client| client.github_remote()))
+        Ok(Client::open(&root)
+            .ok()
+            .and_then(|client| client.github_remote()))
     })
     .await
     .map_err(|e| e.to_string())?
