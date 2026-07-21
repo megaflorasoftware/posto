@@ -98,4 +98,10 @@ warnings. Until then the Vite+ step in CI is informational (non-blocking).
 - **TypeScript** — `pnpm typecheck` and `pnpm test`
 - **Rust** — `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo test`
 
+The Rust checks only run when files under `src-tauri/` (or the workflow itself)
+change, so a docs- or frontend-only pull request skips the Rust compile while
+the check still reports as passing. The Rust version and components are pinned in
+`src-tauri/rust-toolchain.toml`, which both CI and local `cargo` pick up
+automatically.
+
 A separate `release.yml` builds and publishes the app on tagged releases.
