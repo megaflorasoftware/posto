@@ -35,10 +35,21 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          # extra targets are only needed for the macOS cross-arch builds
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      # Version + components come from src-tauri/rust-toolchain.toml (single
+      # source of truth, shared with local dev and the Check workflow).
+      # `rustup show` installs that pinned toolchain.
+      - name: Install Rust toolchain
+        working-directory: src-tauri
+        run: rustup show
+
+      # `tauri build` runs inside src-tauri and rustup auto-overrides to the
+      # pinned toolchain, so the macOS cross-compile targets must be added to
+      # *that* toolchain — adding them to `stable` (the previous approach) left
+      # the pinned toolchain without x86_64-apple-darwin and broke the build.
+      - name: Add macOS cross-compile targets
+        if: matrix.platform == 'macos-latest'
+        working-directory: src-tauri
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - uses: swatinem/rust-cache@v2
         with:
