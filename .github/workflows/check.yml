@@ -54,7 +54,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The job always runs (so the "Rust" check always reports a result), but
+      # the expensive steps below only execute when Rust-relevant files change.
+      # On a docs/TS-only PR the job finishes in seconds and still passes.
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            rust:
+              - 'src-tauri/**'
+              - '.github/workflows/check.yml'
+
       - name: Install Linux dependencies
+        if: steps.changes.outputs.rust == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev
@@ -63,9 +75,11 @@ jobs:
       # source of truth, shared with local dev). Installed before the cache so
       # rust-cache keys on the pinned rustc version.
       - name: Install Rust toolchain
+        if: steps.changes.outputs.rust == 'true'
         run: rustup show
 
       - uses: swatinem/rust-cache@v2
+        if: steps.changes.outputs.rust == 'true'
         with:
           workspaces: src-tauri
           # Keep the compiled dependency cache even when clippy/tests fail, so a
@@ -73,10 +87,13 @@ jobs:
           cache-on-failure: true
 
       - name: Format check
+        if: steps.changes.outputs.rust == 'true'
         run: cargo fmt --check
 
       - name: Clippy
+        if: steps.changes.outputs.rust == 'true'
         run: cargo clippy --all-targets -- -D warnings
 
       - name: Test
+        if: steps.changes.outputs.rust == 'true'
         run: cargo test
