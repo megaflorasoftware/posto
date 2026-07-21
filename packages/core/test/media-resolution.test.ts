@@ -1,3 +1,4 @@
+import { test } from "vitest";
 import { resolveMediaForValue, type ContentEntry, type Field, type PagesConfig } from "../src/pagescms/config";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -13,18 +14,21 @@ const config: PagesConfig = {
   content: [],
 };
 const src: Field = { name: "src", type: "string" };
-assert(resolveMediaForValue(config, src, "/projects/posto.jpg")?.name === "projects", "specific output owns value");
-assert(resolveMediaForValue(config, src, "/other/photo.jpg")?.name === "default", "root output remains fallback owner");
-assert(resolveMediaForValue(config, { ...src, options: { media: "avatars" } }, "/projects/posto.jpg")?.name === "avatars", "explicit source remains authoritative");
 
-const entry: ContentEntry = {
-  name: "blog",
-  type: "collection",
-  path: "src/blog",
-  fields: [],
-  media: { name: "post", input: "src/blog/{slug}/images", output: "/blog/{slug}/images" },
-};
-const scoped = resolveMediaForValue(config, src, "/blog/hello/images/hero.jpg", entry, { slug: "hello" });
-assert(scoped?.name === "post" && scoped.input === "src/blog/hello/images", "expanded collection source resolved");
+test("resolves the owning media folder for a value", () => {
+  assert(resolveMediaForValue(config, src, "/projects/posto.jpg")?.name === "projects", "specific output owns value");
+  assert(resolveMediaForValue(config, src, "/other/photo.jpg")?.name === "default", "root output remains fallback owner");
+  assert(resolveMediaForValue(config, { ...src, options: { media: "avatars" } }, "/projects/posto.jpg")?.name === "avatars", "explicit source remains authoritative");
+});
 
-console.log("media resolution tests passed");
+test("expands collection-scoped media sources", () => {
+  const entry: ContentEntry = {
+    name: "blog",
+    type: "collection",
+    path: "src/blog",
+    fields: [],
+    media: { name: "post", input: "src/blog/{slug}/images", output: "/blog/{slug}/images" },
+  };
+  const scoped = resolveMediaForValue(config, src, "/blog/hello/images/hero.jpg", entry, { slug: "hello" });
+  assert(scoped?.name === "post" && scoped.input === "src/blog/hello/images", "expanded collection source resolved");
+});

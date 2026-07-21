@@ -1,3 +1,4 @@
+import { test } from "vitest";
 import {
   DEFAULT_DURATION_MS,
   computeDeploymentRing,
@@ -23,9 +24,9 @@ function completed(workflowId: number, startedAgo: number, durationMs: number): 
   };
 }
 
-// Averaging: last three completed runs of the workflow, ignoring older ones
-// and runs of other workflows.
-{
+test("averages the last three completed runs of that workflow type", () => {
+  // Averaging: last three completed runs of the workflow, ignoring older ones
+  // and runs of other workflows.
   const runs: DeploymentRun[] = [
     completed(42, 100_000, 60_000),
     completed(42, 200_000, 90_000),
@@ -37,19 +38,17 @@ function completed(workflowId: number, startedAgo: number, durationMs: number): 
     estimateDurationMs(runs, 42) === 90_000,
     "averages the last three completed runs of that workflow type",
   );
-}
+});
 
-// No history for the workflow → the two-minute default.
-{
+test("falls back to the default duration without matching history", () => {
   const runs: DeploymentRun[] = [completed(7, 100_000, 60_000)];
   assert(
     estimateDurationMs(runs, 42) === DEFAULT_DURATION_MS,
     "falls back to the default duration without matching history",
   );
-}
+});
 
-// In-progress run fills proportionally to elapsed / estimated time.
-{
+test("an in-progress run fills proportionally to elapsed time", () => {
   const runs: DeploymentRun[] = [
     {
       workflowId: 42,
@@ -66,10 +65,9 @@ function completed(workflowId: number, startedAgo: number, durationMs: number): 
   assert(ring.state === "running" && !ring.done, "an in-progress run reads as running");
   // 45s of a 90s estimate ≈ 50%.
   assert(Math.round(ring.value) === 50, `running ring fills to elapsed/estimate (got ${ring.value})`);
-}
+});
 
-// A long-overrunning run caps below a full ring until it actually finishes.
-{
+test("an overrunning run never shows as complete", () => {
   const runs: DeploymentRun[] = [
     {
       workflowId: 42,
@@ -82,10 +80,9 @@ function completed(workflowId: number, startedAgo: number, durationMs: number): 
   ];
   const ring = computeDeploymentRing(runs, NOW);
   assert(ring.value < 100 && !ring.done, "an overrunning ring never shows as complete");
-}
+});
 
-// Completed runs show a full ring and the right success flag.
-{
+test("completed runs show a full ring with the right success flag", () => {
   const success = computeDeploymentRing([completed(42, 60_000, 60_000)], NOW);
   assert(
     success.done && success.success && success.value === 100 && success.state === "success",
@@ -100,12 +97,9 @@ function completed(workflowId: number, startedAgo: number, durationMs: number): 
     failed.done && !failed.success && failed.state === "failure",
     "a failed run is done but not marked success",
   );
-}
+});
 
-// No runs at all → an idle, empty ring.
-{
+test("no runs read as an idle, empty ring", () => {
   const ring = computeDeploymentRing([], NOW);
   assert(ring.state === "idle" && ring.value === 0 && !ring.done, "no runs reads as idle");
-}
-
-console.log("deployment ring tests passed");
+});

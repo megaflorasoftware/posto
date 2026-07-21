@@ -75,9 +75,14 @@ fn detect_dev_command(root: &Path, port: u16, base_path: &str) -> Result<Command
             return Ok(cmd);
         }
     }
-    let is_11ty = [".eleventy.js", "eleventy.config.js", "eleventy.config.mjs", "eleventy.config.cjs"]
-        .iter()
-        .any(|f| root.join(f).exists());
+    let is_11ty = [
+        ".eleventy.js",
+        "eleventy.config.js",
+        "eleventy.config.mjs",
+        "eleventy.config.cjs",
+    ]
+    .iter()
+    .any(|f| root.join(f).exists());
     if is_11ty || package_json.exists() {
         let mut cmd = Command::new("npx");
         cmd.args(["@11ty/eleventy", "--serve", "--port"])

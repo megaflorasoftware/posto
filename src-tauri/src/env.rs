@@ -151,7 +151,10 @@ pub async fn install_node(app: tauri::AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn install_package_manager(app: tauri::AppHandle, root: String) -> Result<String, String> {
+pub async fn install_package_manager(
+    app: tauri::AppHandle,
+    root: String,
+) -> Result<String, String> {
     let path = Path::new(&root);
     let pm = package_manager(path);
     if let Some(v) = tool_version(&app, pm, Some(path)) {

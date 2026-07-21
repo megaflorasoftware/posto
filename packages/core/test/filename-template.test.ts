@@ -1,3 +1,4 @@
+import { test } from "vitest";
 import {
   generateFilename,
   renamedFilename,
@@ -20,18 +21,21 @@ const blog: ContentEntry = {
 
 const values = { title: "A Different Title", slug: "custom-slug" };
 
-assert(
-  generateFilename("{fields.slug}.mdx", blog, values) === "custom-slug.mdx",
-  "an explicit fields.slug token uses the actual slug field",
-);
-assert(
-  generateFilename("{slug}.mdx", blog, values) === "a-different-title.mdx",
-  "the legacy bare slug token remains an alias for the primary field",
-);
-assert(
-  renamedFilename("{fields.slug}.mdx", blog, values, "a-different-title.mdx") ===
-    "custom-slug.mdx",
-  "editing the slug produces a rename target",
-);
+test("generates filenames from explicit and legacy slug tokens", () => {
+  assert(
+    generateFilename("{fields.slug}.mdx", blog, values) === "custom-slug.mdx",
+    "an explicit fields.slug token uses the actual slug field",
+  );
+  assert(
+    generateFilename("{slug}.mdx", blog, values) === "a-different-title.mdx",
+    "the legacy bare slug token remains an alias for the primary field",
+  );
+});
 
-console.log("filename template tests passed");
+test("produces a rename target when the slug changes", () => {
+  assert(
+    renamedFilename("{fields.slug}.mdx", blog, values, "a-different-title.mdx") ===
+      "custom-slug.mdx",
+    "editing the slug produces a rename target",
+  );
+});

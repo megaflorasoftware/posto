@@ -112,8 +112,18 @@ fn inject_reporter(body: &[u8]) -> Vec<u8> {
     let insert_at = lower
         .windows(5)
         .position(|w| w == b"<head")
-        .filter(|&p| matches!(lower.get(p + 5), Some(b'>') | Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r')))
-        .and_then(|p| lower[p..].iter().position(|&b| b == b'>').map(|q| p + q + 1))
+        .filter(|&p| {
+            matches!(
+                lower.get(p + 5),
+                Some(b'>') | Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r')
+            )
+        })
+        .and_then(|p| {
+            lower[p..]
+                .iter()
+                .position(|&b| b == b'>')
+                .map(|q| p + q + 1)
+        })
         .unwrap_or(0);
     let mut out = Vec::with_capacity(body.len() + REPORTER.len());
     out.extend_from_slice(&body[..insert_at]);
@@ -186,7 +196,9 @@ fn inject_and_relay(upstream: &mut TcpStream, client: &mut TcpStream) -> std::io
         .lines()
         .filter(|l| {
             let ll = l.to_lowercase();
-            !l.is_empty() && !ll.starts_with("content-length:") && !ll.starts_with("transfer-encoding:")
+            !l.is_empty()
+                && !ll.starts_with("content-length:")
+                && !ll.starts_with("transfer-encoding:")
         })
         .collect::<Vec<_>>()
         .join("\r\n");
@@ -276,10 +288,14 @@ fn handle_proxy_conn(
         let mut rewritten = head
             .lines()
             .filter(|l| {
+                if l.is_empty() {
+                    return false;
+                }
                 let lower = l.to_lowercase();
-                !l.is_empty()
-                    && !lower.starts_with("connection:")
-                    && !(inject && lower.starts_with("accept-encoding:"))
+                if lower.starts_with("connection:") {
+                    return false;
+                }
+                !(inject && lower.starts_with("accept-encoding:"))
             })
             .collect::<Vec<_>>()
             .join("\r\n");
@@ -337,10 +353,7 @@ pub(crate) fn ensure_proxy(state: &ProxyState) -> Result<u16, String> {
 
 pub(crate) fn dechunk(mut data: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
-    loop {
-        let Some(pos) = data.windows(2).position(|w| w == b"\r\n") else {
-            break;
-        };
+    while let Some(pos) = data.windows(2).position(|w| w == b"\r\n") {
         let size_line = String::from_utf8_lossy(&data[..pos]);
         let size = usize::from_str_radix(size_line.trim().split(';').next().unwrap_or(""), 16)
             .unwrap_or(0);
@@ -375,7 +388,10 @@ mod tests {
     fn request_head_parsing_distinguishes_navigation_from_prefetch() {
         let parse = |head: &str| {
             let req = parse_request_head(head).unwrap();
-            (req.path.clone(), req.is_get && req.navigate && !req.prefetch)
+            (
+                req.path.clone(),
+                req.is_get && req.navigate && !req.prefetch,
+            )
         };
         let nav = "GET /blog/my-post HTTP/1.1\r\nHost: x\r\nSec-Fetch-Mode: navigate\r\nSec-Fetch-Dest: iframe\r\n\r\n";
         assert_eq!(parse(nav), ("/blog/my-post".to_string(), true));
@@ -383,7 +399,8 @@ mod tests {
         assert_eq!(parse(fetch), ("/about".to_string(), false));
         let prefetch_link = "GET /about HTTP/1.1\r\nHost: x\r\nSec-Fetch-Mode: navigate\r\nSec-Purpose: prefetch\r\n\r\n";
         assert_eq!(parse(prefetch_link), ("/about".to_string(), false));
-        let legacy_nav = "GET /now HTTP/1.1\r\nHost: x\r\nAccept: text/html,application/xhtml+xml\r\n\r\n";
+        let legacy_nav =
+            "GET /now HTTP/1.1\r\nHost: x\r\nAccept: text/html,application/xhtml+xml\r\n\r\n";
         assert_eq!(parse(legacy_nav), ("/now".to_string(), true));
         let query = "GET /about?x=1 HTTP/1.1\r\nSec-Fetch-Mode: navigate\r\n\r\n";
         assert_eq!(parse(query), ("/about".to_string(), true));
