@@ -151,7 +151,7 @@ function App() {
   }
 
   async function selectRoot(dir: string) {
-    currentFile.flushPendingSave();
+    void currentFile.flushPendingSave();
     setRoot(dir);
     currentFile.closeFile();
     setStatus(null);
@@ -314,7 +314,7 @@ function App() {
     const dir = rootRef.current;
     if (!dir) return;
     // Pending edits must hit disk before git status, or they won't show.
-    currentFile.flushPendingSave();
+    await currentFile.flushPendingSave();
     setPublishOpen(true);
     void git.loadChanges(dir);
   }

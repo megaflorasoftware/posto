@@ -439,7 +439,7 @@ export default function RepoHome({
   }
 
   function leaveRepository() {
-    currentFile.flushPendingSave();
+    void currentFile.flushPendingSave();
     currentFile.closeFile();
     setShowDeployments(false);
     setShowMedia(false);

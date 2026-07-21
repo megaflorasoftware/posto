@@ -190,7 +190,7 @@ export function ImageLibraryImportDialog(props: {
             const paths = files
               .map((file) => (file as File & { path?: string }).path)
               .filter((path): path is string => !!path);
-            if (paths.length > 0) selectSources(paths);
+            if (paths.length > 0) void selectSources(paths);
             else
               importer.setError(
                 "Could not read the dropped file paths. Use Choose images instead.",
