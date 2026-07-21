@@ -353,10 +353,7 @@ pub(crate) fn ensure_proxy(state: &ProxyState) -> Result<u16, String> {
 
 pub(crate) fn dechunk(mut data: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
-    loop {
-        let Some(pos) = data.windows(2).position(|w| w == b"\r\n") else {
-            break;
-        };
+    while let Some(pos) = data.windows(2).position(|w| w == b"\r\n") {
         let size_line = String::from_utf8_lossy(&data[..pos]);
         let size = usize::from_str_radix(size_line.trim().split(';').next().unwrap_or(""), 16)
             .unwrap_or(0);
