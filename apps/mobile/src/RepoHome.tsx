@@ -47,6 +47,7 @@ import {
   CloudDownload,
   ChevronDown,
   ChevronLeft,
+  ChevronRight,
   GitCommitHorizontal,
   Menu,
   Pin,
@@ -56,6 +57,7 @@ import {
   Trash2,
   TriangleAlert,
 } from "lucide-react";
+import { DeploymentStatus } from "./DeploymentStatus";
 import {
   useEffect,
   useMemo,
@@ -91,6 +93,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
   const [removingRepo, setRemovingRepo] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showDeployments, setShowDeployments] = useState(false);
   const [checkingChanges, setCheckingChanges] = useState(false);
   // `.posto` settings dialogs: one per collection, one for workspace order.
   const [settingsFor, setSettingsFor] = useState<{
@@ -419,7 +422,9 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
   }
 
   function closeSecondaryView() {
-    if (showEditor) closeEditor();
+    // Deployments is a page reached from Settings, so back returns there.
+    if (showDeployments) setShowDeployments(false);
+    else if (showEditor) closeEditor();
     else {
       setConfirmingRemoveRepo(false);
       setShowSettings(false);
@@ -429,6 +434,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
   function leaveRepository() {
     currentFile.flushPendingSave();
     currentFile.closeFile();
+    setShowDeployments(false);
     setShowSettings(false);
     onChangeRepo();
   }
@@ -484,13 +490,19 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
           <ActionIcon
             variant="subtle"
             aria-label="Back"
-            onClick={showEditor || showSettings ? closeSecondaryView : leaveRepository}
+            onClick={
+              showEditor || showSettings || showDeployments ? closeSecondaryView : leaveRepository
+            }
           >
             <ChevronLeft size={22} />
           </ActionIcon>
           {!showEditor && (
             <Text fw={600} size="sm" truncate>
-              {showSettings ? "Settings" : repo?.name ?? "Repository"}
+              {showDeployments
+                ? "Deployments"
+                : showSettings
+                  ? "Settings"
+                  : repo?.name ?? "Repository"}
             </Text>
           )}
         </Group>
@@ -566,21 +578,30 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
             filenamePlacement="fields"
           />
         </main>
+      ) : showDeployments ? (
+        repo ? (
+          <DeploymentStatus owner={repo.owner} name={repo.name} root={root} />
+        ) : (
+          <main className="mobile-settings-screen">
+            <Text c="dimmed" size="sm">No repository is connected.</Text>
+          </main>
+        )
       ) : showSettings ? (
         <main className="mobile-settings-screen">
           <Stack gap="xs">
-            {[
-              ["Site details", "Name, URL, and metadata"],
-              ["Publishing", "Branch and deployment settings"],
-            ].map(([label, description]) => (
-              <div className="mobile-settings-row" key={label}>
+            {repo && (
+              <button
+                type="button"
+                className="mobile-settings-row mobile-settings-link"
+                onClick={() => setShowDeployments(true)}
+              >
                 <div>
-                  <Text fw={600} size="sm">{label}</Text>
-                  <Text c="dimmed" size="xs">{description}</Text>
+                  <Text fw={600} size="sm">Deployments</Text>
+                  <Text c="dimmed" size="xs">Live GitHub Actions status</Text>
                 </div>
-                <Text c="dimmed" size="xs">Coming soon</Text>
-              </div>
-            ))}
+                <ChevronRight size={18} />
+              </button>
+            )}
             <div className="mobile-settings-row mobile-settings-media-row">
               <div>
                 <Text fw={600} size="sm">Media</Text>
@@ -599,14 +620,6 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
                 Import image
               </Button>
             </div>
-            <div className="mobile-settings-row">
-              <div>
-                <Text fw={600} size="sm">Domains</Text>
-                <Text c="dimmed" size="xs">Custom domains and redirects</Text>
-              </div>
-              <Text c="dimmed" size="xs">Coming soon</Text>
-            </div>
-
             <div className="mobile-settings-danger">
               <Text c="dimmed" size="xs">
                 Removes this repository's downloaded copy from this device. Unpublished

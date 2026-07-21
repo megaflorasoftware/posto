@@ -19,12 +19,12 @@ import {
   useFileGroups,
   useGitSync,
   useSchemas,
+  useSiteUrl,
   type EditorTab,
 } from "@posto/editor";
 import { useDevServer } from "./hooks/useDevServer";
 import { usePreview } from "./hooks/usePreview";
 import { useDeployment } from "./hooks/useDeployment";
-import { useSiteUrl } from "./hooks/useSiteUrl";
 import { AppHeader } from "./components/AppHeader";
 import { DeploymentDrawer } from "./components/DeploymentDrawer";
 import { PreviewPane } from "./components/PreviewPane";

@@ -310,6 +310,11 @@ const mockFiles: Record<string, string> = {
   "/mock/site/posts/first.md":
     "---\ntitle: First post\nhero: portraits/person\npublished: true\ncount: 3\ntags:\n  - alpha\n  - beta\nauthor:\n  name: Henry\n  email: h@example.com\nlinks:\n  - label: Home\n    url: /\n  - label: About\n    url: /about\n---\n\nHello world.\n",
   "/mock/site/notes.txt": "Some notes.\n",
+  // Gives the desktop/mobile "Open Site" affordance a URL to resolve in dev.
+  "/mock/site/astro.config.mjs":
+    "import { defineConfig } from 'astro/config';\n\nexport default defineConfig({\n  site: 'https://example.com',\n});\n",
+  "/mock/repos/megaflorasoftware/posto/astro.config.mjs":
+    "import { defineConfig } from 'astro/config';\n\nexport default defineConfig({\n  site: 'https://example.com',\n});\n",
   "/mock/site/src/styles/global.css": "body {\n  margin: 0;\n}\n",
   "/mock/site/public/theme.css": ":root {\n  --accent: rebeccapurple;\n}\n",
   "/mock/site/src/blog/with-slug.mdx":

@@ -109,6 +109,7 @@ pub fn run() {
                 auth::sign_in,
                 auth::sign_out,
                 auth::list_user_repos,
+                auth::list_workflow_runs,
                 browser::open_in_app_browser,
                 browser::close_in_app_browser,
                 fs::list_files,
