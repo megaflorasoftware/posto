@@ -1,7 +1,8 @@
 # build output
 dist/
-# generated types
-.astro/
+# Astro generated files — track only the generated collection type schemas
+.astro/*
+!.astro/collections/
 # Posto-generated collection metadata
 .posto/
 
