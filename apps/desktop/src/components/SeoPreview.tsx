@@ -54,6 +54,10 @@ function truncate(text: string, max: number): string {
   return text.length > max ? text.slice(0, max - 1).trimEnd() + "…" : text;
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /**
  * Resolves a page-relative or absolute asset URL to something the webview can
  * load. Meta tags usually carry production URLs, so only the path matters.
@@ -191,7 +195,7 @@ export function SeoPreview(props: {
       </div>
 
       {error != null && (
-        <Alert color="yellow">Could not load page metadata: {String(error)}</Alert>
+        <Alert color="yellow">Could not load page metadata: {errorMessage(error)}</Alert>
       )}
 
       {seo && (

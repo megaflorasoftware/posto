@@ -10,6 +10,10 @@ import { CachedImage } from "./CachedImage";
 
 const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "ico"];
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function ImagePicker(props: {
   root: string;
   media: MediaEntry;
@@ -40,7 +44,7 @@ export function ImagePicker(props: {
     <Dialog opened onClose={props.onClose} title={props.media.label ?? "Choose image"} size="xl">
       {error != null && (
         <div className="picker-error">
-          Could not read {props.media.input}: {String(error)}
+          Could not read {props.media.input}: {errorMessage(error)}
         </div>
       )}
       {files &&

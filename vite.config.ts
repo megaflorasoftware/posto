@@ -10,6 +10,9 @@ const ignorePatterns = [
   ".claude/**",
   "src-tauri/gen/**",
   "src-tauri/target/**",
+  // Cargo owns these; rustfmt doesn't touch them and oxfmt shouldn't fight it.
+  "**/Cargo.toml",
+  "**/Cargo.lock",
 ];
 
 export default {

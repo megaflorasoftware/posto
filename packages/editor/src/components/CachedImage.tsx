@@ -28,13 +28,15 @@ export function useThumbnailUrl(
   return resolved.key === key ? resolved.src : null;
 }
 
-export function CachedImage(props: Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> & {
-  path: string | null | undefined;
-  fallback?: ReactNode;
-  fallbackSrc?: string | null;
-  thumbnailWidth?: number;
-  thumbnailHeight?: number;
-}) {
+export function CachedImage(
+  props: Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> & {
+    path: string | null | undefined;
+    fallback?: ReactNode;
+    fallbackSrc?: string | null;
+    thumbnailWidth?: number;
+    thumbnailHeight?: number;
+  },
+) {
   const {
     path,
     fallback = null,

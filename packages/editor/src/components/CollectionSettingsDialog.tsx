@@ -109,7 +109,11 @@ export function CollectionSettingsDialog(props: {
   }
 
   return (
-    <Dialog opened onClose={props.onClose} title={`${collection.label ?? collection.name} settings`}>
+    <Dialog
+      opened
+      onClose={props.onClose}
+      title={`${collection.label ?? collection.name} settings`}
+    >
       {error !== null && (
         <Alert color="red" mb="sm">
           {error}

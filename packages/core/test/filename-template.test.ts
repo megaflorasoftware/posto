@@ -1,9 +1,5 @@
 import { test } from "vitest";
-import {
-  generateFilename,
-  renamedFilename,
-  type ContentEntry,
-} from "../src/pagescms/config";
+import { generateFilename, renamedFilename, type ContentEntry } from "../src/pagescms/config";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);

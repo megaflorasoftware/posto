@@ -72,7 +72,10 @@ export function useImageLibraryImport(input: {
     setError(null);
   }
 
-  function updateDraft(at: number, update: (draft: ImageLibraryImportDraft) => ImageLibraryImportDraft) {
+  function updateDraft(
+    at: number,
+    update: (draft: ImageLibraryImportDraft) => ImageLibraryImportDraft,
+  ) {
     setDrafts((current) => current.map((draft, i) => (i === at ? update(draft) : draft)));
   }
 
@@ -103,9 +106,11 @@ export function useImageLibraryImport(input: {
       metadataExtension: draft.metadataExtension,
       existingPaths: files.map((file) => file.path),
       existingEntryIds: files
-        .filter((file) =>
-          metadataExts.has(file.name.split(".").pop()?.toLowerCase() as ImageLibraryMetadataExtension)
-          && matchesImageLibraryPath(input.library, file.path.slice(prefix.length)),
+        .filter(
+          (file) =>
+            metadataExts.has(
+              file.name.split(".").pop()?.toLowerCase() as ImageLibraryMetadataExtension,
+            ) && matchesImageLibraryPath(input.library, file.path.slice(prefix.length)),
         )
         .map((file) => astroEntryId(file.path.slice(prefix.length))),
     });
@@ -117,7 +122,9 @@ export function useImageLibraryImport(input: {
    * is left focused; returns whether the whole batch imported. */
   async function execute(): Promise<boolean> {
     if (drafts.length === 0) {
-      setError(new MediaPlanError([{ code: "validation", message: "Choose an image to import." }]).message);
+      setError(
+        new MediaPlanError([{ code: "validation", message: "Choose an image to import." }]).message,
+      );
       return false;
     }
     setPending(true);

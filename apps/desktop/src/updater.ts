@@ -4,6 +4,10 @@ import { check } from "@tauri-apps/plugin-updater";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /**
  * Checks GitHub releases for a newer version and, if the user accepts,
  * downloads it and relaunches. Every failure path is silent (logged only):
@@ -27,7 +31,7 @@ export async function checkForAppUpdate(): Promise<void> {
     try {
       await update.downloadAndInstall();
     } catch (e) {
-      await message(`The update could not be installed: ${e}`, {
+      await message(`The update could not be installed: ${errorMessage(e)}`, {
         title: "Update failed",
         kind: "error",
       });

@@ -5,7 +5,15 @@ import { validateForm } from "../pagescms/validate";
 import { astroEntryId } from "./collections";
 
 export const IMAGE_LIBRARY_EXTENSIONS = [
-  "avif", "gif", "jpeg", "jpg", "png", "svg", "tif", "tiff", "webp",
+  "avif",
+  "gif",
+  "jpeg",
+  "jpg",
+  "png",
+  "svg",
+  "tif",
+  "tiff",
+  "webp",
 ] as const;
 
 export type ImageLibraryHealth =
@@ -85,7 +93,7 @@ function isAbsolute(path: string): boolean {
 
 function normalize(path: string): string {
   const source = slash(path);
-  const prefix = source.startsWith("/") ? "/" : source.match(/^[A-Za-z]:\//)?.[0] ?? "";
+  const prefix = source.startsWith("/") ? "/" : (source.match(/^[A-Za-z]:\//)?.[0] ?? "");
   const parts: string[] = [];
   for (const part of source.slice(prefix.length).split("/")) {
     if (!part || part === ".") continue;
@@ -115,7 +123,11 @@ function basename(path: string): string {
 }
 
 function extension(path: string): string {
-  return basename(path).match(/\.([^.]+)$/)?.[1]?.toLowerCase() ?? "";
+  return (
+    basename(path)
+      .match(/\.([^.]+)$/)?.[1]
+      ?.toLowerCase() ?? ""
+  );
 }
 
 function relative(from: string, to: string): string | null {
@@ -137,8 +149,10 @@ export function matchesImageLibraryPath(library: AstroImageLibrary, relativePath
   const excludes = library.patterns
     .filter((pattern) => pattern.startsWith("!"))
     .map((pattern) => pattern.slice(1));
-  return includes.some((pattern) => picomatch(pattern, { dot: false })(path))
-    && !excludes.some((pattern) => picomatch(pattern, { dot: false })(path));
+  return (
+    includes.some((pattern) => picomatch(pattern, { dot: false })(path)) &&
+    !excludes.some((pattern) => picomatch(pattern, { dot: false })(path))
+  );
 }
 
 export interface ImageLibraryLocation {
@@ -148,7 +162,9 @@ export interface ImageLibraryLocation {
 }
 
 function normalizedRelativePath(path: string): string {
-  return slash(path).replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
+  return slash(path)
+    .replace(/^\.\//, "")
+    .replace(/^\/+|\/+$/g, "");
 }
 
 /** Resolves a configured media directory to a discovered library or one of
@@ -256,44 +272,88 @@ export function discoverImageLibraryAssets(
       !format ||
       !library.metadataExtensions.includes(format) ||
       !matchesImageLibraryPath(library, rel)
-    ) return [];
+    )
+      return [];
     const metadata = parseImageLibraryMetadata(file.content, format);
     const id = astroEntryId(rel);
     if (!metadata) {
-      return [{ libraryId: library.collection, entryId: id, metadataPath: path, imagePath: null, metadata: {}, metadataSource: file.content, health: ["malformed-image"] }];
+      return [
+        {
+          libraryId: library.collection,
+          entryId: id,
+          metadataPath: path,
+          imagePath: null,
+          metadata: {},
+          metadataSource: file.content,
+          health: ["malformed-image"],
+        },
+      ];
     }
     const imageValue = valueAt(metadata, library.imageFieldPath);
     if (typeof imageValue !== "string" || imageValue.trim() === "") {
-      return [{ libraryId: library.collection, entryId: id, metadataPath: path, imagePath: null, metadata, metadataSource: file.content, health: ["malformed-image"] }];
+      return [
+        {
+          libraryId: library.collection,
+          entryId: id,
+          metadataPath: path,
+          imagePath: null,
+          metadata,
+          metadataSource: file.content,
+          health: ["malformed-image"],
+        },
+      ];
     }
-    const imagePath = isAbsolute(imageValue) ? normalize(imageValue) : join(dirname(path), imageValue);
+    const imagePath = isAbsolute(imageValue)
+      ? normalize(imageValue)
+      : join(dirname(path), imageValue);
     const health: ImageLibraryHealth[] = [];
     if (relative(root, imagePath) === null) health.push("external-image");
     else if (!existing.has(imagePath)) health.push("missing-image");
-    return [{ libraryId: library.collection, entryId: id, metadataPath: path, imagePath, metadata, metadataSource: file.content, health: health.length ? health : ["valid"] }];
+    return [
+      {
+        libraryId: library.collection,
+        entryId: id,
+        metadataPath: path,
+        imagePath,
+        metadata,
+        metadataSource: file.content,
+        health: health.length ? health : ["valid"],
+      },
+    ];
   });
 
   const ids = new Map<string, ImageLibraryAsset[]>();
   const images = new Map<string, ImageLibraryAsset[]>();
   for (const asset of assets) {
     (ids.get(asset.entryId) ?? (ids.set(asset.entryId, []), ids.get(asset.entryId)!)).push(asset);
-    if (asset.imagePath) (images.get(asset.imagePath) ?? (images.set(asset.imagePath, []), images.get(asset.imagePath)!)).push(asset);
+    if (asset.imagePath)
+      (
+        images.get(asset.imagePath) ??
+        (images.set(asset.imagePath, []), images.get(asset.imagePath)!)
+      ).push(asset);
   }
-  for (const group of ids.values()) if (group.length > 1) {
-    for (const asset of group) asset.health = [...asset.health.filter((state) => state !== "valid"), "duplicate-entry-id"];
-  }
-  for (const group of images.values()) if (group.length > 1) {
-    for (const asset of group) asset.health = [...asset.health.filter((state) => state !== "valid"), "shared-image"];
-  }
+  for (const group of ids.values())
+    if (group.length > 1) {
+      for (const asset of group)
+        asset.health = [...asset.health.filter((state) => state !== "valid"), "duplicate-entry-id"];
+    }
+  for (const group of images.values())
+    if (group.length > 1) {
+      for (const asset of group)
+        asset.health = [...asset.health.filter((state) => state !== "valid"), "shared-image"];
+    }
   return assets;
 }
 
 function defaults(fields: Field[], supplied: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = { ...supplied };
   for (const field of fields) {
-    if (result[field.name] === undefined && field.default !== undefined) result[field.name] = field.default;
+    if (result[field.name] === undefined && field.default !== undefined)
+      result[field.name] = field.default;
     if (field.type === "object") {
-      const child = record(result[field.name]) ? result[field.name] as Record<string, unknown> : {};
+      const child = record(result[field.name])
+        ? (result[field.name] as Record<string, unknown>)
+        : {};
       const withDefaults = defaults(field.fields ?? [], child);
       if (Object.keys(withDefaults).length > 0) result[field.name] = withDefaults;
     }
@@ -302,8 +362,14 @@ function defaults(fields: Field[], supplied: Record<string, unknown>): Record<st
 }
 
 function normalizedFilename(requested: string): string | null {
-  const justName = basename(requested).trim().replace(/\s+/g, "-").replace(/[^A-Za-z0-9._-]/g, "-").replace(/-+/g, "-");
-  return justName && justName !== "." && justName !== ".." && !justName.startsWith(".") ? justName : null;
+  const justName = basename(requested)
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[^A-Za-z0-9._-]/g, "-")
+    .replace(/-+/g, "-");
+  return justName && justName !== "." && justName !== ".." && !justName.startsWith(".")
+    ? justName
+    : null;
 }
 
 /** Produces a deterministic, validated import plan without touching disk. */
@@ -312,20 +378,34 @@ export function planMediaImport(input: PlanMediaImportInput): MediaImportPlan {
   const root = libraryRoot(input.library, input.repositoryRoot);
   const sourceExt = extension(input.sourceImagePath);
   if (!(IMAGE_LIBRARY_EXTENSIONS as readonly string[]).includes(sourceExt)) {
-    issues.push({ code: "unsupported-image", message: `Unsupported image extension: ${sourceExt || "none"}` });
+    issues.push({
+      code: "unsupported-image",
+      message: `Unsupported image extension: ${sourceExt || "none"}`,
+    });
   }
   const requested = input.filename ?? basename(input.sourceImagePath);
   const filename = normalizedFilename(requested);
   if (!filename || extension(filename) !== sourceExt) {
-    issues.push({ code: "invalid-filename", message: "The destination filename must retain the source image extension." });
+    issues.push({
+      code: "invalid-filename",
+      message: "The destination filename must retain the source image extension.",
+    });
   }
   const folder = normalize(input.folder ?? "");
   if (isAbsolute(input.folder ?? "") || (input.folder ?? "").split(/[\\/]/).includes("..")) {
-    issues.push({ code: "external-path", message: "The destination folder must stay inside the image library." });
+    issues.push({
+      code: "external-path",
+      message: "The destination folder must stay inside the image library.",
+    });
   }
-  const format = input.metadataExtension ?? (input.library.metadataExtensions.length === 1 ? input.library.metadataExtensions[0] : null);
+  const format =
+    input.metadataExtension ??
+    (input.library.metadataExtensions.length === 1 ? input.library.metadataExtensions[0] : null);
   if (!format || !input.library.metadataExtensions.includes(format)) {
-    issues.push({ code: "ambiguous-metadata-format", message: "Choose one of the library's supported metadata formats." });
+    issues.push({
+      code: "ambiguous-metadata-format",
+      message: "Choose one of the library's supported metadata formats.",
+    });
   }
   if (issues.length || !filename || !format) throw new MediaPlanError(issues);
 
@@ -333,7 +413,9 @@ export function planMediaImport(input: PlanMediaImportInput): MediaImportPlan {
   const imagePath = join(root, folder, filename);
   const metadataPath = join(root, folder, `${stem}.${format}`);
   if (relative(root, imagePath) === null || relative(root, metadataPath) === null) {
-    throw new MediaPlanError([{ code: "external-path", message: "Planned files must stay inside the image library." }]);
+    throw new MediaPlanError([
+      { code: "external-path", message: "Planned files must stay inside the image library." },
+    ]);
   }
   const relativeMetadataPath = relative(root, metadataPath)!;
   if (!matchesImageLibraryPath(input.library, relativeMetadataPath)) {
@@ -344,9 +426,10 @@ export function planMediaImport(input: PlanMediaImportInput): MediaImportPlan {
     });
   }
   const existingPaths = new Set([...(input.existingPaths ?? [])].map(normalize));
-  for (const path of [imagePath, metadataPath]) if (existingPaths.has(path)) {
-    issues.push({ code: "collision", message: `File already exists: ${path}`, path });
-  }
+  for (const path of [imagePath, metadataPath])
+    if (existingPaths.has(path)) {
+      issues.push({ code: "collision", message: `File already exists: ${path}`, path });
+    }
   const entryId = astroEntryId(relativeMetadataPath);
   if (new Set(input.existingEntryIds ?? []).has(entryId)) {
     issues.push({ code: "collision", message: `Astro entry ID already exists: ${entryId}` });

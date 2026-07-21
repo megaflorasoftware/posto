@@ -40,8 +40,7 @@ input {
   background: var(--mantine-color-body);
   /* No bottom inset here: scrollable screens run to the device edge and pad
      their own content past the home indicator instead. */
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0
-    env(safe-area-inset-left);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
 }
 
 .mobile-header {
@@ -166,8 +165,7 @@ input {
 .repo-list-content {
   display: grid;
   gap: var(--mantine-spacing-xs);
-  padding: 0 var(--mantine-spacing-md)
-    calc(var(--mantine-spacing-md) + env(safe-area-inset-bottom));
+  padding: 0 var(--mantine-spacing-md) calc(var(--mantine-spacing-md) + env(safe-area-inset-bottom));
 }
 
 .repo-list .mantine-ScrollArea-viewport,
@@ -253,7 +251,8 @@ input {
 }
 
 @keyframes mobile-transient-notice {
-  0%, 82% {
+  0%,
+  82% {
     opacity: 1;
   }
 

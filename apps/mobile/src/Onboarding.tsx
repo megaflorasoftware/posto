@@ -15,12 +15,7 @@ import {
   Title,
 } from "@mantine/core";
 import { assetUrl } from "@posto/ipc";
-import type {
-  CloneProgress,
-  DeviceAuthorization,
-  GitHubRepo,
-  GitHubUser,
-} from "@posto/ipc";
+import type { CloneProgress, DeviceAuthorization, GitHubRepo, GitHubUser } from "@posto/ipc";
 import {
   Check,
   ChevronRight,
@@ -77,11 +72,7 @@ type Props = {
   onChangeRepo: () => void;
 };
 
-function Header({
-  stage,
-  user,
-  onSignOut,
-}: Pick<Props, "stage" | "user" | "onSignOut">) {
+function Header({ stage, user, onSignOut }: Pick<Props, "stage" | "user" | "onSignOut">) {
   return (
     <header className="mobile-header">
       <Text fw={600} size="sm">
@@ -140,8 +131,12 @@ function Authorizing({ device, onOpenVerification }: Pick<Props, "device" | "onO
         <Stack align="center" gap="lg">
           <Loader />
           <div>
-            <Title order={2} ta="center">Connecting to GitHub</Title>
-            <Text c="dimmed" ta="center" mt={6}>Requesting a one-time sign-in code…</Text>
+            <Title order={2} ta="center">
+              Connecting to GitHub
+            </Title>
+            <Text c="dimmed" ta="center" mt={6}>
+              Requesting a one-time sign-in code…
+            </Text>
           </div>
         </Stack>
       ) : (
@@ -150,16 +145,15 @@ function Authorizing({ device, onOpenVerification }: Pick<Props, "device" | "onO
             <Smartphone size={30} />
           </ThemeIcon>
           <div>
-            <Title order={2} ta="center">Enter this code on GitHub</Title>
+            <Title order={2} ta="center">
+              Enter this code on GitHub
+            </Title>
           </div>
           <button className="device-code" onClick={() => void copyCode()}>
             <span>{device.user_code}</span>
             {copied ? <Check size={20} /> : <Copy size={20} />}
           </button>
-          <Button
-            rightSection={<ExternalLink size={18} />}
-            onClick={onOpenVerification}
-          >
+          <Button rightSection={<ExternalLink size={18} />} onClick={onOpenVerification}>
             Open GitHub
           </Button>
           <Text size="sm" c="dimmed" ta="center">
@@ -228,7 +222,9 @@ function RepoPicker({ repos, downloaded, roots, error, onChooseRepo, onRetryRepo
       {error && repos.length === 0 ? (
         <Center className="empty-state">
           <Stack align="center">
-            <Text c="dimmed" ta="center">We couldn't load your repositories.</Text>
+            <Text c="dimmed" ta="center">
+              We couldn't load your repositories.
+            </Text>
             <Button variant="light" leftSection={<RefreshCw size={16} />} onClick={onRetryRepos}>
               Try again
             </Button>
@@ -244,9 +240,13 @@ function RepoPicker({ repos, downloaded, roots, error, onChooseRepo, onRetryRepo
                   <RepoRowIcon root={roots.get(repo.full_name)} isPrivate={repo.private} />
                   <div className="repo-info">
                     <Group gap="xs" wrap="nowrap">
-                      <Text fw={650} truncate>{repo.name}</Text>
+                      <Text fw={650} truncate>
+                        {repo.name}
+                      </Text>
                     </Group>
-                    <Text size="xs" c="dimmed" truncate>{repo.owner}</Text>
+                    <Text size="xs" c="dimmed" truncate>
+                      {repo.owner}
+                    </Text>
                   </div>
                   {isDownloaded ? <ChevronRight size={18} /> : <Download size={18} />}
                 </button>
@@ -282,14 +282,20 @@ function Cloning({ repo, progress }: { repo: GitHubRepo | null; progress: CloneP
           <Download size={30} />
         </ThemeIcon>
         <div>
-          <Title order={2} ta="center">{repo?.name ?? "Repository"}</Title>
+          <Title order={2} ta="center">
+            {repo?.name ?? "Repository"}
+          </Title>
           <Text c="dimmed" ta="center" mt={8}>
-            {checkingOut ? "Preparing downloaded files…" : "Downloading the latest repository snapshot…"}
+            {checkingOut
+              ? "Preparing downloaded files…"
+              : "Downloading the latest repository snapshot…"}
           </Text>
         </div>
         <div>
           <Group justify="space-between" mb={8}>
-            <Text size="sm" fw={600}>{percent}%</Text>
+            <Text size="sm" fw={600}>
+              {percent}%
+            </Text>
             <Text size="xs" c="dimmed">
               {checkingOut
                 ? progress.checkout_total
@@ -303,7 +309,8 @@ function Cloning({ repo, progress }: { repo: GitHubRepo | null; progress: CloneP
           <Progress value={percent} size="lg" radius="xl" animated />
         </div>
         <Text size="xs" c="dimmed" ta="center">
-          Keep Posto open until the repository is ready. Large media libraries may take several minutes.
+          Keep Posto open until the repository is ready. Large media libraries may take several
+          minutes.
         </Text>
       </Stack>
     </main>
@@ -326,7 +333,9 @@ function CloneError({
       <Stack gap="md" w="100%" maw={420}>
         <div>
           <Title order={2}>Download interrupted</Title>
-          <Text c="dimmed" size="sm" mt={4}>{repo?.full_name ?? "Repository"}</Text>
+          <Text c="dimmed" size="sm" mt={4}>
+            {repo?.full_name ?? "Repository"}
+          </Text>
         </div>
         <Alert color="red" title="The repository was not added">
           {error ?? "The download could not be completed."}
@@ -336,8 +345,12 @@ function CloneError({
           the app open on a stable connection while retrying.
         </Text>
         <Group grow>
-          <Button variant="default" onClick={onCancel}>Choose another</Button>
-          <Button leftSection={<RotateCcw size={16} />} onClick={onRetry}>Try again</Button>
+          <Button variant="default" onClick={onCancel}>
+            Choose another
+          </Button>
+          <Button leftSection={<RotateCcw size={16} />} onClick={onRetry}>
+            Try again
+          </Button>
         </Group>
       </Stack>
     </main>
@@ -355,12 +368,20 @@ export default function Onboarding(props: Props) {
       {props.stage !== "home" && (
         <Header stage={props.stage} user={props.user} onSignOut={props.onSignOut} />
       )}
-      {props.stage === "loading" && <Center className="screen"><Loader /></Center>}
+      {props.stage === "loading" && (
+        <Center className="screen">
+          <Loader />
+        </Center>
+      )}
       {props.stage === "signed-out" && <SignIn onSignIn={props.onSignIn} />}
       {props.stage === "authorizing" && (
         <Authorizing device={props.device} onOpenVerification={props.onOpenVerification} />
       )}
-      {props.stage === "repos-loading" && <Center className="screen"><Loader /></Center>}
+      {props.stage === "repos-loading" && (
+        <Center className="screen">
+          <Loader />
+        </Center>
+      )}
       {props.stage === "repos" && <RepoPicker {...props} />}
       {props.stage === "cloning" && <Cloning repo={props.selectedRepo} progress={props.progress} />}
       {props.stage === "clone-error" && (
@@ -381,7 +402,9 @@ export default function Onboarding(props: Props) {
         />
       )}
       {props.stage !== "repos" && props.stage !== "clone-error" && (
-        <div className="floating-error"><ErrorNotice error={props.error} /></div>
+        <div className="floating-error">
+          <ErrorNotice error={props.error} />
+        </div>
       )}
     </div>
   );

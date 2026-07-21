@@ -1,5 +1,10 @@
 import { test } from "vitest";
-import { parseAstroExportedType, parseAstroProps, parseAstroPropsType, type AstroPropDef } from "../src/mdx/mdx";
+import {
+  parseAstroExportedType,
+  parseAstroProps,
+  parseAstroPropsType,
+  type AstroPropDef,
+} from "../src/mdx/mdx";
 import { astroPropField } from "../src/mdx/propFields";
 import { buildAstroConfig, parseLoaderConfig } from "../src/astro/collections";
 import type { ContentEntry, Field } from "../src/pagescms/config";
@@ -77,17 +82,30 @@ test("resolves aliased collection entry types", () => {
 test("expands entry data into its schema fields", () => {
   const data = field(defs, "data", collections);
   assert(data?.type === "object", "entry data is an object form");
-  assert(data.fields?.map((item) => item.name).join(",") === "title,author", "data uses schema fields");
+  assert(
+    data.fields?.map((item) => item.name).join(",") === "title,author",
+    "data uses schema fields",
+  );
   assert(field(defs, "title", collections)?.type === "string", "nested data scalar");
   assert(field(defs, "authorName", collections)?.type === "string", "nested object scalar");
 });
 
 test("maps Astro entry metadata accessors to fields", () => {
   const id = field(defs, "id", collections);
-  assert(id?.type === "reference" && id.options?.astroId === true, "id uses Astro reference values");
+  assert(
+    id?.type === "reference" && id.options?.astroId === true,
+    "id uses Astro reference values",
+  );
   const filePath = field(defs, "filePath", collections);
-  assert(filePath?.type === "reference" && !filePath.options?.astroId, "filePath uses source paths");
-  assert((field(defs, "collection", collections)?.options?.values as unknown[] | undefined)?.[0] === "posts", "collection literal");
+  assert(
+    filePath?.type === "reference" && !filePath.options?.astroId,
+    "filePath uses source paths",
+  );
+  assert(
+    (field(defs, "collection", collections)?.options?.values as unknown[] | undefined)?.[0] ===
+      "posts",
+    "collection literal",
+  );
   assert(field(defs, "body", collections)?.type === "text", "body is editable text");
   assert(field(defs, "rendered", collections) === null, "rendered content stays raw");
 });
@@ -97,7 +115,10 @@ test("turns collection-key types into selectors", () => {
     const key = field(defs, name, collections);
     assert(key?.type === "select", `${name} is a collection selector`);
     const values = key.options?.values;
-    assert(Array.isArray(values) && values.join(",") === "posts,authors", `${name} lists collections`);
+    assert(
+      Array.isArray(values) && values.join(",") === "posts,authors",
+      `${name} lists collections`,
+    );
   }
   assert(field(defs, "context", collections) === null, "SchemaContext stays raw");
 });
@@ -113,7 +134,10 @@ type Props = PostData;
     { name: "Props", type: wholePropsType ?? "", optional: false },
     { collections, editableCollections: collections },
   );
-  assert(wholePropsField?.fields?.map((item) => item.name).join(",") === "title,author", "whole Props alias expands schema fields");
+  assert(
+    wholePropsField?.fields?.map((item) => item.name).join(",") === "title,author",
+    "whole Props alias expands schema fields",
+  );
 });
 
 const loaders = parseLoaderConfig(`
@@ -154,10 +178,23 @@ const astroConfig = buildAstroConfig(
 );
 
 test("builds sidebar config and a type registry from loaders", () => {
-  assert(astroConfig.content.map((entry) => entry.name).join(",") === "posts,customIds,data", "local editable loaders enter sidebar config");
-  assert(astroConfig.content[2].dataFile?.path === "src/data/items.json", "file loader exposes backing document");
-  assert(astroConfig.astroCollections?.map((entry) => entry.name).join(",") === "posts,customIds,data,remote", "all build-time schemas enter type registry");
-  assert(astroConfig.content[0].fields[0].type === "string", "custom generated reference ids stay manual strings");
+  assert(
+    astroConfig.content.map((entry) => entry.name).join(",") === "posts,customIds,data",
+    "local editable loaders enter sidebar config",
+  );
+  assert(
+    astroConfig.content[2].dataFile?.path === "src/data/items.json",
+    "file loader exposes backing document",
+  );
+  assert(
+    astroConfig.astroCollections?.map((entry) => entry.name).join(",") ===
+      "posts,customIds,data,remote",
+    "all build-time schemas enter type registry",
+  );
+  assert(
+    astroConfig.content[0].fields[0].type === "string",
+    "custom generated reference ids stay manual strings",
+  );
 });
 
 test("keeps custom generated entry ids as manual strings", () => {
@@ -179,30 +216,43 @@ test("resolves image-library ids without adding sidebar content", () => {
     {
       collections: [{ name: "media", fields: [{ name: "image", type: "image" }] }],
       editableCollections: [],
-      imageLibraries: [{
-        collection: "media",
-        base: "src/media",
-        patterns: ["**/*.{yml,yaml}", "!videos/**/*.{yml,yaml}"],
-        metadataExtensions: ["yml", "yaml"],
-        imageFieldPath: ["image"],
-        fields: [{ name: "image", type: "image" }, { name: "alt", type: "string" }],
-      }],
+      imageLibraries: [
+        {
+          collection: "media",
+          base: "src/media",
+          patterns: ["**/*.{yml,yaml}", "!videos/**/*.{yml,yaml}"],
+          metadataExtensions: ["yml", "yaml"],
+          imageFieldPath: ["image"],
+          fields: [
+            { name: "image", type: "image" },
+            { name: "alt", type: "string" },
+          ],
+        },
+      ],
     },
   );
-  assert(mediaIdField?.type === "reference" && mediaIdField.options?.astroId === true, "image-library IDs use the picker without entering sidebar content");
+  assert(
+    mediaIdField?.type === "reference" && mediaIdField.options?.astroId === true,
+    "image-library IDs use the picker without entering sidebar content",
+  );
 });
 
 const mediaContext = {
   collections: [{ name: "media", fields: [{ name: "image", type: "image" }] }],
   editableCollections: [],
-  imageLibraries: [{
-    collection: "media",
-    base: "src/media",
-    patterns: ["**/*.{yml,yaml}"],
-    metadataExtensions: ["yml", "yaml"] as ("yml" | "yaml")[],
-    imageFieldPath: ["image"],
-    fields: [{ name: "image", type: "image" }, { name: "alt", type: "string" }],
-  }],
+  imageLibraries: [
+    {
+      collection: "media",
+      base: "src/media",
+      patterns: ["**/*.{yml,yaml}"],
+      metadataExtensions: ["yml", "yaml"] as ("yml" | "yaml")[],
+      imageFieldPath: ["image"],
+      fields: [
+        { name: "image", type: "image" },
+        { name: "alt", type: "string" },
+      ],
+    },
+  ],
 };
 
 test("resolves media ids inside object and array shapes", () => {
@@ -218,26 +268,44 @@ interface Props {
   assert(mediaObject?.type === "object", "media IDs resolve inside objects");
   assert(mediaObject.fields?.[0].type === "reference", "object media member uses picker");
   const mediaIds = astroPropField(prop(mediaShapeDefs, "mediaIds"), mediaContext);
-  assert(mediaIds?.type === "reference" && mediaIds.list === true, "media ID arrays use reorderable pickers");
+  assert(
+    mediaIds?.type === "reference" && mediaIds.list === true,
+    "media ID arrays use reorderable pickers",
+  );
   const mediaItems = astroPropField(prop(mediaShapeDefs, "mediaItems"), mediaContext);
-  assert(mediaItems?.type === "object" && mediaItems.list === true, "media object arrays are reorderable");
+  assert(
+    mediaItems?.type === "object" && mediaItems.list === true,
+    "media object arrays are reorderable",
+  );
   assert(mediaItems.fields?.[0].type === "reference", "object-array media member uses picker");
 });
 
 test("resolves media ids through imported component types", () => {
-  const exportedMediaItem = parseAstroExportedType(`---
+  const exportedMediaItem = parseAstroExportedType(
+    `---
 import type { CollectionEntry } from 'astro:content';
 export interface PolaroidMediaItem {
   media: CollectionEntry<'media'>['id'];
   caption: string;
 }
----`, "PolaroidMediaItem");
+---`,
+    "PolaroidMediaItem",
+  );
   assert(exportedMediaItem, "exported component type resolves");
-  const importedAliasDefs = parseAstroProps(`---
+  const importedAliasDefs = parseAstroProps(
+    `---
 import type { PolaroidMediaItem } from './PolaroidStack.astro';
 export interface Props { media: PolaroidMediaItem[] }
----`, { PolaroidMediaItem: exportedMediaItem });
+---`,
+    { PolaroidMediaItem: exportedMediaItem },
+  );
   const importedMedia = astroPropField(prop(importedAliasDefs, "media"), mediaContext);
-  assert(importedMedia?.type === "object" && importedMedia.list === true, "HomeIntro imported media items are reorderable");
-  assert(importedMedia.fields?.[0].type === "reference", "HomeIntro imported media item uses picker");
+  assert(
+    importedMedia?.type === "object" && importedMedia.list === true,
+    "HomeIntro imported media items are reorderable",
+  );
+  assert(
+    importedMedia.fields?.[0].type === "reference",
+    "HomeIntro imported media item uses picker",
+  );
 });

@@ -39,7 +39,13 @@ import {
   slotAttr,
   splitSlots,
 } from "@posto/core/mdx/mdx";
-import { UNPARSED, astroPropField, jsValueProp, propJsValue, valueFits } from "@posto/core/mdx/propFields";
+import {
+  UNPARSED,
+  astroPropField,
+  jsValueProp,
+  propJsValue,
+  valueFits,
+} from "@posto/core/mdx/propFields";
 import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
 import { validateForm } from "@posto/core/pagescms/validate";
 import type { FileGroup } from "@posto/ipc";
@@ -214,7 +220,10 @@ function PropsForm(formProps: {
       rows.push({ key: field.name, kind: "raw", propName: field.name, def: null });
     }
   }
-  const declaredNames = new Set([...defs.map((def) => def.name), ...aliasedFields.map((field) => field.name)]);
+  const declaredNames = new Set([
+    ...defs.map((def) => def.name),
+    ...aliasedFields.map((field) => field.name),
+  ]);
   existing.forEach((prop, index) => {
     if (prop.kind === "spread") {
       rows.push({ key: `spread-${index}`, kind: "spread", value: prop.value });
@@ -241,7 +250,10 @@ function PropsForm(formProps: {
   function editJs(propName: string, value: unknown) {
     const def = defs.find((d) => d.name === propName);
     const aliased = aliasedFields.find((field) => field.name === propName);
-    setProp(propName, jsValueProp(propName, value, def ? !def.optional : aliased?.required === true));
+    setProp(
+      propName,
+      jsValueProp(propName, value, def ? !def.optional : aliased?.required === true),
+    );
   }
 
   /** Copy-on-write set along a path inside a prop's parsed value; numeric
@@ -428,7 +440,9 @@ function SlotChildrenFields(fieldProps: {
             maxRows={12}
             classNames={{ input: "mdx-children-input" }}
             value={textOf(slot)}
-            onChange={(e) => update(buckets.defaultContent, { name: slot, text: e.currentTarget.value })}
+            onChange={(e) =>
+              update(buckets.defaultContent, { name: slot, text: e.currentTarget.value })
+            }
           />
         </div>
       ))}
@@ -1038,8 +1052,7 @@ export const MdxSlotSync = Extension.create({
               const slot = child.attrs.slot as string | null;
               if (slot === null) hasDefault = true;
               else presentNamed.add(slot);
-              const declared =
-                slot === null ? schema.hasDefaultSlot : schema.slots.includes(slot);
+              const declared = slot === null ? schema.hasDefaultSlot : schema.slots.includes(slot);
               if (!declared && slotIsEmpty(child)) {
                 ops.push({ kind: "delete", from: childPos, to: childPos + child.nodeSize });
               }

@@ -44,9 +44,7 @@ interface ManagedImport {
 /** Capitalized JSX tag names appearing anywhere in the markdown body — the
  * signal for which component imports the body still needs. */
 function bodyComponentNames(markdown: string): Set<string> {
-  return new Set(
-    [...markdown.matchAll(/<([A-Z][\w.]*)[\s/>]/g)].map((m) => m[1].split(".")[0]),
-  );
+  return new Set([...markdown.matchAll(/<([A-Z][\w.]*)[\s/>]/g)].map((m) => m[1].split(".")[0]));
 }
 
 function toManagedImports(statements: string[], body: string): ManagedImport[] {
@@ -187,9 +185,7 @@ export function BodyEditor(props: {
   // replace the document without emitting an update.
   useEffect(() => {
     if (!editor || props.value === lastEmitted.current) return;
-    const next = props.mdx
-      ? splitLeadingImports(props.value)
-      : { imports: [], body: props.value };
+    const next = props.mdx ? splitLeadingImports(props.value) : { imports: [], body: props.value };
     importsRef.current = toManagedImports(next.imports, next.body);
     if (next.body === editor.getMarkdown()) return;
     editor.commands.setContent(next.body, { contentType: "markdown", emitUpdate: false });
@@ -200,9 +196,7 @@ export function BodyEditor(props: {
   // component so its card can offer all prop keys and slot sections. Keyed on
   // the import statements themselves, not the whole body, so typing in text
   // doesn't refetch.
-  const importsKey = props.mdx
-    ? splitLeadingImports(props.value).imports.join("\u0000")
-    : "";
+  const importsKey = props.mdx ? splitLeadingImports(props.value).imports.join("\u0000") : "";
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -338,106 +332,106 @@ export function BodyEditor(props: {
     // Component-card node views render through portals inside the content
     // element, so these providers reach them.
     <MdxSchemaContext.Provider value={schemas}>
-    <MdxFieldEnvContext.Provider
-      value={{
-        config: props.config,
-        root: props.root,
-        groups: props.groups,
-        entry: props.entry ?? null,
-        templateValues: props.templateValues,
-      }}
-    >
-    <RichTextEditor
-      editor={editor}
-      className="body-rich-editor"
-      // The scroll chain needs a class on every wrapper between the root and
-      // the ProseMirror element; Mantine's generated names aren't stable.
-      classNames={{ Typography: "body-rich-typography", content: "body-rich-content" }}
-    >
-      <RichTextEditor.Toolbar>
-        <RichTextEditor.ControlsGroup>
-          <RichTextEditor.H1 />
-          <RichTextEditor.H2 />
-          <RichTextEditor.H3 />
-          <RichTextEditor.H4 />
-        </RichTextEditor.ControlsGroup>
-        <RichTextEditor.ControlsGroup>
-          <RichTextEditor.Bold />
-          <RichTextEditor.Italic />
-          <RichTextEditor.Strikethrough />
-        </RichTextEditor.ControlsGroup>
-        <RichTextEditor.ControlsGroup>
-          <RichTextEditor.BulletList />
-          <RichTextEditor.OrderedList />
-          <RichTextEditor.Blockquote />
-          <RichTextEditor.CodeBlock />
-          <RichTextEditor.Hr />
-        </RichTextEditor.ControlsGroup>
-        <RichTextEditor.ControlsGroup>
-          <RichTextEditor.Link />
-          <RichTextEditor.Unlink />
-          <RichTextEditor.Control
-            title="Insert image"
-            aria-label="Insert image"
-            onClick={() => setPickerOpen(true)}
-          >
-            <ImageIcon size={16} />
-          </RichTextEditor.Control>
-          <RichTextEditor.Control
-            title="Insert HTML"
-            aria-label="Insert HTML"
-            onClick={insertHtml}
-          >
-            <CodeXml size={16} />
-          </RichTextEditor.Control>
-          {props.mdx && (
-            <RichTextEditor.Control
-              title="Insert component"
-              aria-label="Insert component"
-              onClick={() => setComponentPickerOpen(true)}
-            >
-              <Blocks size={16} />
-            </RichTextEditor.Control>
+      <MdxFieldEnvContext.Provider
+        value={{
+          config: props.config,
+          root: props.root,
+          groups: props.groups,
+          entry: props.entry ?? null,
+          templateValues: props.templateValues,
+        }}
+      >
+        <RichTextEditor
+          editor={editor}
+          className="body-rich-editor"
+          // The scroll chain needs a class on every wrapper between the root and
+          // the ProseMirror element; Mantine's generated names aren't stable.
+          classNames={{ Typography: "body-rich-typography", content: "body-rich-content" }}
+        >
+          <RichTextEditor.Toolbar>
+            <RichTextEditor.ControlsGroup>
+              <RichTextEditor.H1 />
+              <RichTextEditor.H2 />
+              <RichTextEditor.H3 />
+              <RichTextEditor.H4 />
+            </RichTextEditor.ControlsGroup>
+            <RichTextEditor.ControlsGroup>
+              <RichTextEditor.Bold />
+              <RichTextEditor.Italic />
+              <RichTextEditor.Strikethrough />
+            </RichTextEditor.ControlsGroup>
+            <RichTextEditor.ControlsGroup>
+              <RichTextEditor.BulletList />
+              <RichTextEditor.OrderedList />
+              <RichTextEditor.Blockquote />
+              <RichTextEditor.CodeBlock />
+              <RichTextEditor.Hr />
+            </RichTextEditor.ControlsGroup>
+            <RichTextEditor.ControlsGroup>
+              <RichTextEditor.Link />
+              <RichTextEditor.Unlink />
+              <RichTextEditor.Control
+                title="Insert image"
+                aria-label="Insert image"
+                onClick={() => setPickerOpen(true)}
+              >
+                <ImageIcon size={16} />
+              </RichTextEditor.Control>
+              <RichTextEditor.Control
+                title="Insert HTML"
+                aria-label="Insert HTML"
+                onClick={insertHtml}
+              >
+                <CodeXml size={16} />
+              </RichTextEditor.Control>
+              {props.mdx && (
+                <RichTextEditor.Control
+                  title="Insert component"
+                  aria-label="Insert component"
+                  onClick={() => setComponentPickerOpen(true)}
+                >
+                  <Blocks size={16} />
+                </RichTextEditor.Control>
+              )}
+            </RichTextEditor.ControlsGroup>
+            <RichTextEditor.ControlsGroup>
+              <RichTextEditor.Undo />
+              <RichTextEditor.Redo />
+            </RichTextEditor.ControlsGroup>
+          </RichTextEditor.Toolbar>
+          <div className="body-rich-scroll">
+            <RichTextEditor.Content />
+          </div>
+          {pickerOpen && (
+            <RichTextImagePickerDialog
+              root={props.root}
+              config={props.config}
+              configuredMedia={props.configuredMedia}
+              templateValues={props.templateValues}
+              groups={props.groups}
+              onClose={() => setPickerOpen(false)}
+              onPick={(outputPath) => {
+                setPickerOpen(false);
+                editor?.chain().focus().setImage({ src: outputPath }).run();
+              }}
+            />
           )}
-        </RichTextEditor.ControlsGroup>
-        <RichTextEditor.ControlsGroup>
-          <RichTextEditor.Undo />
-          <RichTextEditor.Redo />
-        </RichTextEditor.ControlsGroup>
-      </RichTextEditor.Toolbar>
-      <div className="body-rich-scroll">
-        <RichTextEditor.Content />
-      </div>
-      {pickerOpen && (
-        <RichTextImagePickerDialog
-          root={props.root}
-          config={props.config}
-          configuredMedia={props.configuredMedia}
-          templateValues={props.templateValues}
-          groups={props.groups}
-          onClose={() => setPickerOpen(false)}
-          onPick={(outputPath) => {
-            setPickerOpen(false);
-            editor?.chain().focus().setImage({ src: outputPath }).run();
-          }}
-        />
-      )}
-      {componentPickerOpen && (
-        <ComponentPicker
-          root={props.root}
-          onClose={() => setComponentPickerOpen(false)}
-          onPick={(file) => {
-            setComponentPickerOpen(false);
-            insertComponent(file);
-          }}
-          onPickHtml={() => {
-            setComponentPickerOpen(false);
-            insertHtml();
-          }}
-        />
-      )}
-    </RichTextEditor>
-    </MdxFieldEnvContext.Provider>
+          {componentPickerOpen && (
+            <ComponentPicker
+              root={props.root}
+              onClose={() => setComponentPickerOpen(false)}
+              onPick={(file) => {
+                setComponentPickerOpen(false);
+                insertComponent(file);
+              }}
+              onPickHtml={() => {
+                setComponentPickerOpen(false);
+                insertHtml();
+              }}
+            />
+          )}
+        </RichTextEditor>
+      </MdxFieldEnvContext.Provider>
     </MdxSchemaContext.Provider>
   );
 }

@@ -187,11 +187,7 @@ const mockFiles: Record<string, string> = {
     null,
     2,
   ),
-  "/mock/site/.posto/collections/pages.json": JSON.stringify(
-    { pinned: ["index.mdx"] },
-    null,
-    2,
-  ),
+  "/mock/site/.posto/collections/pages.json": JSON.stringify({ pinned: ["index.mdx"] }, null, 2),
   "/mock/site/.posto/collections/blog.json": JSON.stringify(
     {
       displayName: "Writing",
@@ -330,9 +326,9 @@ const mockFiles: Record<string, string> = {
     "",
     "# A post with components",
     "",
-    "Some **markdown** ahead of a component, with inline <Callout kind=\"tip\" /> JSX.",
+    'Some **markdown** ahead of a component, with inline <Callout kind="tip" /> JSX.',
     "",
-    "<CaptionedImage src=\"/images/photo.jpg\" width={640}>",
+    '<CaptionedImage src="/images/photo.jpg" width={640}>',
     "  A caption with *emphasis*.",
     "</CaptionedImage>",
     "",
@@ -552,8 +548,7 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       const matches = Object.keys(mockFiles)
         .filter((path) => path.startsWith(dir + "/") && !mockDeleted.has(path))
         .filter(
-          (path) =>
-            extensions.length === 0 || extensions.includes(path.split(".").pop() as string),
+          (path) => extensions.length === 0 || extensions.includes(path.split(".").pop() as string),
         )
         .sort()
         .map((path) => ({ name: path.split("/").pop() as string, path }));
@@ -630,7 +625,11 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       mockFiles[plan.destinationMetadataPath] = plan.serializedMetadata;
       mockDeleted.delete(plan.destinationImagePath);
       mockDeleted.delete(plan.destinationMetadataPath);
-      return { entryId: plan.entryId, imagePath: plan.destinationImagePath, metadataPath: plan.destinationMetadataPath };
+      return {
+        entryId: plan.entryId,
+        imagePath: plan.destinationImagePath,
+        metadataPath: plan.destinationMetadataPath,
+      };
     }
     case "revert_file":
       return null;
@@ -710,9 +709,7 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       // mock site maps to the sample repo, anything else to "no repo".
       const root = args?.root as string;
       if (new URLSearchParams(window.location.search).has("mockNoRepo")) return null;
-      return root.includes("/mock/")
-        ? { owner: "megaflorasoftware", name: "posto" }
-        : null;
+      return root.includes("/mock/") ? { owner: "megaflorasoftware", name: "posto" } : null;
     }
     case "list_workflow_runs": {
       if (!mockSignedIn) throw new Error("Not signed in to GitHub");
@@ -727,7 +724,9 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     }
     case "doctor_repo":
       if (new URLSearchParams(window.location.search).has("mockRepoBroken")) {
-        throw new Error("The local Git repository could not be opened: repository data is incomplete");
+        throw new Error(
+          "The local Git repository could not be opened: repository data is incomplete",
+        );
       }
       return "Repository checked.";
     case "remove_repo": {
@@ -839,19 +838,7 @@ export const openDirectory: () => Promise<string | null> = inTauri
 const IMAGE_FILE_FILTERS = [
   {
     name: "Images",
-    extensions: [
-      "avif",
-      "gif",
-      "heic",
-      "heif",
-      "jpeg",
-      "jpg",
-      "png",
-      "svg",
-      "tif",
-      "tiff",
-      "webp",
-    ],
+    extensions: ["avif", "gif", "heic", "heif", "jpeg", "jpg", "png", "svg", "tif", "tiff", "webp"],
   },
 ];
 

@@ -60,13 +60,7 @@ import {
 } from "lucide-react";
 import { DeploymentStatus } from "./DeploymentStatus";
 import { MediaLibraryPane } from "./MediaLibraryPane";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type TouchEvent as ReactTouchEvent,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type TouchEvent as ReactTouchEvent } from "react";
 
 // Drag distance (after damping) that arms the pull-to-refresh gesture.
 const PULL_REFRESH_THRESHOLD = 60;
@@ -84,7 +78,13 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, onRemoveRepo }: Props) {
+export default function RepoHome({
+  root,
+  repo,
+  onChangeRepo,
+  onRedownloadRepo,
+  onRemoveRepo,
+}: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -116,17 +116,18 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
   const files = useFileGroups(setError);
 
   async function refreshRepositoryContent(dir: string) {
-    const [, config] = await Promise.all([
-      files.refreshGroups(dir),
-      schemas.loadSchemas(dir),
-    ]);
+    const [, config] = await Promise.all([files.refreshGroups(dir), schemas.loadSchemas(dir)]);
     await files.refreshDataGroups(dir, config);
   }
 
   const currentFile = useCurrentFile({
     onAfterSave(path, content) {
       files.updateSidebarTitle(path, content);
-      if (schemas.configRef.current?.content.some((entry) => entry.dataFile && `${root}/${entry.dataFile.path}` === path)) {
+      if (
+        schemas.configRef.current?.content.some(
+          (entry) => entry.dataFile && `${root}/${entry.dataFile.path}` === path,
+        )
+      ) {
         void files.refreshDataGroups(root, schemas.configRef.current);
       }
       if (path === root + "/.pages.yml") void schemas.loadPagesConfig(root);
@@ -268,7 +269,9 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
   // the title (or whatever fields the template names) as the user edits.
   async function createNewFile(group: FileGroup) {
     if (group.dataCollection) {
-      const collection = schemas.configRef.current?.content.find((entry) => entry.name === group.dataCollection);
+      const collection = schemas.configRef.current?.content.find(
+        (entry) => entry.name === group.dataCollection,
+      );
       if (!collection) return;
       try {
         const id = await createDataDocumentEntry(group, collection);
@@ -436,7 +439,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
   }
 
   function leaveRepository() {
-    currentFile.flushPendingSave();
+    void currentFile.flushPendingSave();
     currentFile.closeFile();
     setShowDeployments(false);
     setShowMedia(false);
@@ -464,7 +467,10 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
   const entry = useMemo(() => {
     if (!currentFile.filePath || !config) return null;
     if (currentFile.dataEntry) {
-      return config.content.find((candidate) => candidate.name === currentFile.dataEntry?.collection) ?? null;
+      return (
+        config.content.find((candidate) => candidate.name === currentFile.dataEntry?.collection) ??
+        null
+      );
     }
     return matchEntry(config, root, currentFile.filePath);
   }, [config, currentFile.filePath, currentFile.dataEntry, root]);
@@ -478,7 +484,8 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
         : schemas.astroConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
           ? "astro"
           : "pages";
-  const openFileName = currentFile.dataEntry?.id ?? currentFile.filePath?.split("/").pop() ?? "File";
+  const openFileName =
+    currentFile.dataEntry?.id ?? currentFile.filePath?.split("/").pop() ?? "File";
   const mobileEditorTabs = editorTabsForFile({
     filePath: currentFile.filePath,
     fileContent: currentFile.fileContent,
@@ -510,7 +517,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
                   ? "Media"
                   : showSettings
                     ? "Settings"
-                    : repo?.name ?? "Repository"}
+                    : (repo?.name ?? "Repository")}
             </Text>
           )}
         </Group>
@@ -523,7 +530,9 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
           >
             <Tabs.List justify="center">
               {mobileEditorTabs.map((tab) => (
-                <Tabs.Tab key={tab} value={tab} tt="capitalize">{tab}</Tabs.Tab>
+                <Tabs.Tab key={tab} value={tab} tt="capitalize">
+                  {tab}
+                </Tabs.Tab>
               ))}
             </Tabs.List>
           </Tabs>
@@ -591,7 +600,9 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
           <DeploymentStatus owner={repo.owner} name={repo.name} root={root} />
         ) : (
           <main className="mobile-settings-screen">
-            <Text c="dimmed" size="sm">No repository is connected.</Text>
+            <Text c="dimmed" size="sm">
+              No repository is connected.
+            </Text>
           </main>
         )
       ) : showMedia ? (
@@ -612,8 +623,12 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
                 onClick={() => setShowDeployments(true)}
               >
                 <div>
-                  <Text fw={600} size="sm">Deployments</Text>
-                  <Text c="dimmed" size="xs">Live GitHub Actions status</Text>
+                  <Text fw={600} size="sm">
+                    Deployments
+                  </Text>
+                  <Text c="dimmed" size="xs">
+                    Live GitHub Actions status
+                  </Text>
                 </div>
                 <ChevronRight size={18} />
               </button>
@@ -625,7 +640,9 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
                 onClick={() => setShowMedia(true)}
               >
                 <div>
-                  <Text fw={600} size="sm">Media</Text>
+                  <Text fw={600} size="sm">
+                    Media
+                  </Text>
                   <Text c="dimmed" size="xs">
                     {`${config.imageLibraries.length} Astro image ${config.imageLibraries.length === 1 ? "library" : "libraries"}`}
                   </Text>
@@ -635,16 +652,20 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
             ) : (
               <div className="mobile-settings-row mobile-settings-media-row">
                 <div>
-                  <Text fw={600} size="sm">Media</Text>
-                  <Text c="dimmed" size="xs">No Astro image libraries found</Text>
+                  <Text fw={600} size="sm">
+                    Media
+                  </Text>
+                  <Text c="dimmed" size="xs">
+                    No Astro image libraries found
+                  </Text>
                 </div>
               </div>
             )}
           </Stack>
           <div className="mobile-settings-danger">
             <Text c="dimmed" size="xs">
-              Removes this repository's downloaded copy from this device. Unpublished
-              changes will be lost. You can download it again anytime.
+              Removes this repository's downloaded copy from this device. Unpublished changes will
+              be lost. You can download it again anytime.
             </Text>
             <Button
               fullWidth
@@ -653,9 +674,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
               leftSection={<Trash2 size={18} />}
               loading={removingRepo}
               onClick={() =>
-                confirmingRemoveRepo
-                  ? void removeRepository()
-                  : setConfirmingRemoveRepo(true)
+                confirmingRemoveRepo ? void removeRepository() : setConfirmingRemoveRepo(true)
               }
             >
               {confirmingRemoveRepo ? "Tap again to delete from device" : "Delete from device"}
@@ -663,264 +682,261 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
           </div>
         </main>
       ) : (
-      <main className="repo-home">
-      <Stack gap="sm" className="repo-home-notices">
-        {repairError && (
-          <Alert
-            color="red"
-            variant="light"
-            icon={<TriangleAlert size={19} />}
-            title="This repository needs to be downloaded again"
-          >
-            <Stack gap="sm">
-              <Text size="sm">{repairError}</Text>
-              <Text size="sm">
-                Remove the damaged local copy and download a clean copy from GitHub. Files that
-                have not been published may be lost.
-              </Text>
-              <Button
+        <main className="repo-home">
+          <Stack gap="sm" className="repo-home-notices">
+            {repairError && (
+              <Alert
                 color="red"
                 variant="light"
-                loading={redownloading}
-                onClick={() => void redownloadRepository()}
+                icon={<TriangleAlert size={19} />}
+                title="This repository needs to be downloaded again"
               >
-                Remove and redownload
-              </Button>
-            </Stack>
-          </Alert>
-        )}
-        {git.behindUpstream && (
-          <Alert
-            color="blue"
-            variant="light"
-            icon={<CloudDownload size={18} />}
-            title="Updates are available"
-            className="sync-alert"
-          >
-            <Group justify="space-between" align="center" wrap="nowrap">
-              <Text size="sm">Pull the latest changes before editing.</Text>
-              <Button
-                size="sm"
-                variant="light"
-                loading={git.pulling}
-                onClick={() => void git.fetchChanges()}
-              >
-                Pull
-              </Button>
-            </Group>
-          </Alert>
-        )}
-
-        {status && (
-          <Alert
-            key={status}
-            className="mobile-transient-notice"
-            color={status.includes("failed") ? "red" : "blue"}
-            variant="light"
-          >
-            {status}
-          </Alert>
-        )}
-
-        {error && (
-          <Alert color="red" variant="light" title="Files could not be loaded">
-            <Stack gap="sm">
-              <Text size="sm">{error}</Text>
-              <Button
-                variant="light"
-                color="red"
-                size="sm"
-                leftSection={<RefreshCw size={14} />}
-                onClick={() => void files.refreshGroups(root)}
-              >
-                Try again
-              </Button>
-            </Stack>
-          </Alert>
-        )}
-      </Stack>
-
-      <div
-        className="repo-files"
-        onTouchStart={onFilesTouchStart}
-        onTouchMove={onFilesTouchMove}
-        onTouchEnd={onFilesTouchEnd}
-        onTouchCancel={onFilesTouchEnd}
-      >
-      <div
-        className="mobile-refresh-indicator"
-        // The indicator tracks the finger directly while dragging; the height
-        // transition only smooths the settle after release.
-        style={{
-          height: refreshing ? 44 : pullDistance,
-          transition: pullDistance > 0 ? "none" : undefined,
-        }}
-        aria-hidden={!refreshing && pullDistance === 0}
-      >
-        {refreshing ? (
-          <Loader size="sm" />
-        ) : (
-          <RefreshCw
-            size={18}
-            style={{ opacity: Math.min(pullDistance / PULL_REFRESH_THRESHOLD, 1) }}
-          />
-        )}
-      </div>
-      <ScrollArea className="repo-files-scroll" type="auto" viewportRef={filesViewportRef}>
-        {loading ? (
-          null
-        ) : fileCount === 0 && !error ? (
-          <Center className="repo-files-state">
-            <Stack align="center" gap="xs">
-              <Text fw={600}>No editable files found</Text>
-              <Text size="sm" c="dimmed" ta="center">
-                Markdown, MDX, text, and stylesheet files will appear here.
-              </Text>
-            </Stack>
-          </Center>
-        ) : (
-          <div className="mobile-document-list">
-            {displayGroups.map(({ group, collection, exact }) => (
-              group.label ? (
-                <details key={`${group.kind ?? ""}:${group.path}`} open>
-                  <summary>
-                    <span className="mobile-group-label" title={group.label}>{group.label}</span>
-                    {group.kind !== "styles" && (
-                      <ActionIcon
-                        className="mobile-group-action"
-                        variant="subtle"
-                        color="gray"
-                        aria-label={`New file in ${group.label}`}
-                        title="New file"
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          void createNewFile(group);
-                        }}
-                      >
-                        <Plus size={16} />
-                      </ActionIcon>
-                    )}
-                    {collection && exact && (
-                      <ActionIcon
-                        className="mobile-group-action"
-                        variant="subtle"
-                        color="gray"
-                        aria-label={`Settings for ${group.label}`}
-                        title="Collection settings"
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          setSettingsFor({ collection, files: group.files });
-                        }}
-                      >
-                        <SlidersHorizontal size={16} />
-                      </ActionIcon>
-                    )}
-                    <ChevronDown size={14} className="mobile-group-chevron" />
-                  </summary>
-                  {group.files.map((file) => (
-                    <button
-                      className="mobile-file-item"
-                      key={file.key ?? file.path}
-                      title={file.name}
-                      onClick={() => void openFile(file)}
-                    >
-                      {file.title ?? file.name}
-                      {collection?.pinned?.includes(file.name) && (
-                        <Pin size={13} className="mobile-file-pin" aria-label="Pinned" />
-                      )}
-                    </button>
-                  ))}
-                </details>
-              ) : (
-                <div key={`${group.kind ?? ""}:${group.path}`}>
-                  {group.files.map((file) => (
-                    <button
-                      className="mobile-file-item"
-                      key={file.key ?? file.path}
-                      title={file.name}
-                      onClick={() => void openFile(file)}
-                    >
-                      {file.title ?? file.name}
-                    </button>
-                  ))}
-                </div>
-              )
-            ))}
-            {orderableCollections(schemas.config).length > 1 && (
-              <button
-                type="button"
-                className="mobile-collections-settings"
-                onClick={() => setOrderOpen(true)}
-              >
-                <SlidersHorizontal size={16} />
-                Collection settings
-              </button>
+                <Stack gap="sm">
+                  <Text size="sm">{repairError}</Text>
+                  <Text size="sm">
+                    Remove the damaged local copy and download a clean copy from GitHub. Files that
+                    have not been published may be lost.
+                  </Text>
+                  <Button
+                    color="red"
+                    variant="light"
+                    loading={redownloading}
+                    onClick={() => void redownloadRepository()}
+                  >
+                    Remove and redownload
+                  </Button>
+                </Stack>
+              </Alert>
             )}
+            {git.behindUpstream && (
+              <Alert
+                color="blue"
+                variant="light"
+                icon={<CloudDownload size={18} />}
+                title="Updates are available"
+                className="sync-alert"
+              >
+                <Group justify="space-between" align="center" wrap="nowrap">
+                  <Text size="sm">Pull the latest changes before editing.</Text>
+                  <Button
+                    size="sm"
+                    variant="light"
+                    loading={git.pulling}
+                    onClick={() => void git.fetchChanges()}
+                  >
+                    Pull
+                  </Button>
+                </Group>
+              </Alert>
+            )}
+
+            {status && (
+              <Alert
+                key={status}
+                className="mobile-transient-notice"
+                color={status.includes("failed") ? "red" : "blue"}
+                variant="light"
+              >
+                {status}
+              </Alert>
+            )}
+
+            {error && (
+              <Alert color="red" variant="light" title="Files could not be loaded">
+                <Stack gap="sm">
+                  <Text size="sm">{error}</Text>
+                  <Button
+                    variant="light"
+                    color="red"
+                    size="sm"
+                    leftSection={<RefreshCw size={14} />}
+                    onClick={() => void files.refreshGroups(root)}
+                  >
+                    Try again
+                  </Button>
+                </Stack>
+              </Alert>
+            )}
+          </Stack>
+
+          <div
+            className="repo-files"
+            onTouchStart={onFilesTouchStart}
+            onTouchMove={onFilesTouchMove}
+            onTouchEnd={onFilesTouchEnd}
+            onTouchCancel={onFilesTouchEnd}
+          >
+            <div
+              className="mobile-refresh-indicator"
+              // The indicator tracks the finger directly while dragging; the height
+              // transition only smooths the settle after release.
+              style={{
+                height: refreshing ? 44 : pullDistance,
+                transition: pullDistance > 0 ? "none" : undefined,
+              }}
+              aria-hidden={!refreshing && pullDistance === 0}
+            >
+              {refreshing ? (
+                <Loader size="sm" />
+              ) : (
+                <RefreshCw
+                  size={18}
+                  style={{ opacity: Math.min(pullDistance / PULL_REFRESH_THRESHOLD, 1) }}
+                />
+              )}
+            </div>
+            <ScrollArea className="repo-files-scroll" type="auto" viewportRef={filesViewportRef}>
+              {loading ? null : fileCount === 0 && !error ? (
+                <Center className="repo-files-state">
+                  <Stack align="center" gap="xs">
+                    <Text fw={600}>No editable files found</Text>
+                    <Text size="sm" c="dimmed" ta="center">
+                      Markdown, MDX, text, and stylesheet files will appear here.
+                    </Text>
+                  </Stack>
+                </Center>
+              ) : (
+                <div className="mobile-document-list">
+                  {displayGroups.map(({ group, collection, exact }) =>
+                    group.label ? (
+                      <details key={`${group.kind ?? ""}:${group.path}`} open>
+                        <summary>
+                          <span className="mobile-group-label" title={group.label}>
+                            {group.label}
+                          </span>
+                          {group.kind !== "styles" && (
+                            <ActionIcon
+                              className="mobile-group-action"
+                              variant="subtle"
+                              color="gray"
+                              aria-label={`New file in ${group.label}`}
+                              title="New file"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                void createNewFile(group);
+                              }}
+                            >
+                              <Plus size={16} />
+                            </ActionIcon>
+                          )}
+                          {collection && exact && (
+                            <ActionIcon
+                              className="mobile-group-action"
+                              variant="subtle"
+                              color="gray"
+                              aria-label={`Settings for ${group.label}`}
+                              title="Collection settings"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                setSettingsFor({ collection, files: group.files });
+                              }}
+                            >
+                              <SlidersHorizontal size={16} />
+                            </ActionIcon>
+                          )}
+                          <ChevronDown size={14} className="mobile-group-chevron" />
+                        </summary>
+                        {group.files.map((file) => (
+                          <button
+                            className="mobile-file-item"
+                            key={file.key ?? file.path}
+                            title={file.name}
+                            onClick={() => void openFile(file)}
+                          >
+                            {file.title ?? file.name}
+                            {collection?.pinned?.includes(file.name) && (
+                              <Pin size={13} className="mobile-file-pin" aria-label="Pinned" />
+                            )}
+                          </button>
+                        ))}
+                      </details>
+                    ) : (
+                      <div key={`${group.kind ?? ""}:${group.path}`}>
+                        {group.files.map((file) => (
+                          <button
+                            className="mobile-file-item"
+                            key={file.key ?? file.path}
+                            title={file.name}
+                            onClick={() => void openFile(file)}
+                          >
+                            {file.title ?? file.name}
+                          </button>
+                        ))}
+                      </div>
+                    ),
+                  )}
+                  {orderableCollections(schemas.config).length > 1 && (
+                    <button
+                      type="button"
+                      className="mobile-collections-settings"
+                      onClick={() => setOrderOpen(true)}
+                    >
+                      <SlidersHorizontal size={16} />
+                      Collection settings
+                    </button>
+                  )}
+                </div>
+              )}
+            </ScrollArea>
           </div>
-        )}
-      </ScrollArea>
-      </div>
 
-      <div className="repo-home-actions">
-        <Button
-          fullWidth
-          size="sm"
-          leftSection={<GitCommitHorizontal size={19} />}
-          disabled={!git.hasLocalChanges}
-          loading={checkingChanges || git.publishing}
-          onClick={() => void openPublish()}
-        >
-          {git.publishing
-            ? "Publishing…"
-            : checkingChanges
-              ? "Checking changes…"
-              : git.hasLocalChanges
-                ? "Publish…"
-                : "Up to date"}
-        </Button>
-      </div>
+          <div className="repo-home-actions">
+            <Button
+              fullWidth
+              size="sm"
+              leftSection={<GitCommitHorizontal size={19} />}
+              disabled={!git.hasLocalChanges}
+              loading={checkingChanges || git.publishing}
+              onClick={() => void openPublish()}
+            >
+              {git.publishing
+                ? "Publishing…"
+                : checkingChanges
+                  ? "Checking changes…"
+                  : git.hasLocalChanges
+                    ? "Publish…"
+                    : "Up to date"}
+            </Button>
+          </div>
 
-      {settingsFor && (
-        <CollectionSettingsDialog
-          root={root}
-          collection={settingsFor.collection}
-          files={settingsFor.files}
-          onClose={() => setSettingsFor(null)}
-          onSaved={() => void schemas.loadPostoConfig(root)}
-        />
-      )}
+          {settingsFor && (
+            <CollectionSettingsDialog
+              root={root}
+              collection={settingsFor.collection}
+              files={settingsFor.files}
+              onClose={() => setSettingsFor(null)}
+              onSaved={() => void schemas.loadPostoConfig(root)}
+            />
+          )}
 
-      {orderOpen && (
-        <CollectionOrderDialog
-          root={root}
-          collections={orderableCollections(schemas.config)}
-          onClose={() => setOrderOpen(false)}
-          onSaved={() => void schemas.loadPostoConfig(root)}
-        />
-      )}
+          {orderOpen && (
+            <CollectionOrderDialog
+              root={root}
+              collections={orderableCollections(schemas.config)}
+              onClose={() => setOrderOpen(false)}
+              onSaved={() => void schemas.loadPostoConfig(root)}
+            />
+          )}
 
-      <PublishModal
-        opened={publishOpen}
-        changes={git.changes}
-        error={git.changesError}
-        onClose={() => setPublishOpen(false)}
-        onRevert={(file) => void revert(file)}
-        onPublish={(message) => {
-          setPublishOpen(false);
-          void git.publish(message);
-        }}
-      />
-      </main>
+          <PublishModal
+            opened={publishOpen}
+            changes={git.changes}
+            error={git.changesError}
+            onClose={() => setPublishOpen(false)}
+            onRevert={(file) => void revert(file)}
+            onPublish={(message) => {
+              setPublishOpen(false);
+              void git.publish(message);
+            }}
+          />
+        </main>
       )}
 
       {mediaImportOpen && !importLibrary && (
         <Dialog opened onClose={closeMediaImport} title="Choose image library" size="sm">
-          <ImageLibraryList
-            libraries={config?.imageLibraries ?? []}
-            onChoose={setImportLibrary}
-          />
+          <ImageLibraryList libraries={config?.imageLibraries ?? []} onChoose={setImportLibrary} />
         </Dialog>
       )}
 

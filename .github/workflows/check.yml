@@ -30,17 +30,18 @@ jobs:
       - name: Test
         run: pnpm -r --if-present test
 
-      # Lint + format via Vite+. Informational until the codebase is normalized
-      # (`vp check --fix`) and the type-aware lint warnings are triaged; flip
-      # `continue-on-error` to false to make it a required gate.
+      # Lint + format via Vite+ — a required gate. `--deny-warnings` makes the
+      # type-aware lint warnings (all triaged to zero) fail CI if any creep back.
       - name: Install Vite+
         run: |
           curl -fsSL https://vite.plus | bash
           echo "$HOME/.vite-plus/bin" >> "$GITHUB_PATH"
 
-      - name: Lint & format check (Vite+)
-        continue-on-error: true
-        run: vp check
+      - name: Format check (Vite+)
+        run: vp check --no-lint
+
+      - name: Lint (Vite+)
+        run: vp lint --deny-warnings
 
   rust:
     name: Rust

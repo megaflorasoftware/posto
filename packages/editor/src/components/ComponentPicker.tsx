@@ -87,7 +87,11 @@ export function ComponentPicker(props: {
       onSpotlightClose={props.onClose}
       searchProps={{ placeholder: "Search components…" }}
       nothingFound={
-        files === null ? <Loader size="sm" /> : `No components found in ${componentDirs(props.root).join(", ")}`
+        files === null ? (
+          <Loader size="sm" />
+        ) : (
+          `No components found in ${componentDirs(props.root).join(", ")}`
+        )
       }
     />
   );

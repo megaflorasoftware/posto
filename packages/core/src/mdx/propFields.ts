@@ -1,9 +1,4 @@
-import type {
-  AstroCollectionSchema,
-  ContentEntry,
-  Field,
-  PagesConfig,
-} from "../pagescms/config";
+import type { AstroCollectionSchema, ContentEntry, Field, PagesConfig } from "../pagescms/config";
 import { type AstroPropDef, type MdxProp, parseTypeMembers } from "./mdx";
 
 // Bridges Astro `Props` declarations and MDX prop attributes to the Pages CMS
@@ -73,9 +68,11 @@ function editableCollection(
   context: AstroPropTypeContext | undefined,
   collection: string,
 ): ContentEntry | null {
-  return context?.editableCollections?.find(
-    (entry) => entry.type === "collection" && entry.name === collection,
-  ) ?? null;
+  return (
+    context?.editableCollections?.find(
+      (entry) => entry.type === "collection" && entry.name === collection,
+    ) ?? null
+  );
 }
 
 function cloneField(field: Field, name: string): Field {
@@ -156,7 +153,9 @@ function astroContentField(
     case "filePath":
       return editable
         ? { name, type: "reference", options: { collection: collectionName } }
-        : collection ? { name, type: "string" } : null;
+        : collection
+          ? { name, type: "string" }
+          : null;
     case "collection":
       return { name, type: "select", options: { values: [collectionName] } };
     case "data":
@@ -171,11 +170,7 @@ function astroContentField(
   }
 }
 
-function typeField(
-  name: string,
-  type: string,
-  context?: AstroPropTypeContext,
-): Field | null {
+function typeField(name: string, type: string, context?: AstroPropTypeContext): Field | null {
   const members = splitUnion(type).filter((m) => m !== "undefined" && m !== "null");
   if (members.length === 0) return null;
   if (members.length > 1) {
@@ -225,10 +220,7 @@ function typeField(
 
 /** Form field for a declared Astro prop, or null when the type has no
  * matching control and the prop should edit as a raw expression. */
-export function astroPropField(
-  def: AstroPropDef,
-  context?: AstroPropTypeContext,
-): Field | null {
+export function astroPropField(def: AstroPropDef, context?: AstroPropTypeContext): Field | null {
   const field = typeField(def.name, def.type, context);
   if (!field) return null;
   if (!def.optional) field.required = true;

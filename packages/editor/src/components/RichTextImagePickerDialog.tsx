@@ -97,7 +97,8 @@ export function RichTextImagePickerDialog(props: {
     return (
       <Dialog opened onClose={props.onClose} title="Choose image" size="lg">
         <Alert color="red">
-          This collection’s media-library template cannot be resolved until its referenced fields have values.
+          This collection’s media-library template cannot be resolved until its referenced fields
+          have values.
         </Alert>
       </Dialog>
     );
@@ -107,7 +108,8 @@ export function RichTextImagePickerDialog(props: {
     return (
       <Dialog opened onClose={props.onClose} title="Choose image" size="lg">
         <Alert color="red">
-          This collection’s configured media folder ({expandedMedia.input}) is not a recognized Astro image library or an included subfolder of one.
+          This collection’s configured media folder ({expandedMedia.input}) is not a recognized
+          Astro image library or an included subfolder of one.
         </Alert>
       </Dialog>
     );

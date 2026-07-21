@@ -1,7 +1,7 @@
 function frontmatterSlug(content: string): string | null {
   const fm = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!fm) return null;
-  const line = fm[1].split(/\r?\n/).find((l) => /^slug:/.test(l));
+  const line = fm[1].split(/\r?\n/).find((l) => l.startsWith("slug:"));
   if (!line) return null;
   const value = line
     .slice("slug:".length)

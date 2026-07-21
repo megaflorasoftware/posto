@@ -29,6 +29,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+/** Entry id/slug, coerced from a primitive. Objects/arrays aren't valid ids. */
+function entryId(item: Record<string, unknown>): string | null {
+  const id = item.id ?? item.slug;
+  if (typeof id === "string") return id === "" ? null : id;
+  if (typeof id === "number" || typeof id === "bigint") return String(id);
+  return null;
+}
+
 export function dataDocumentFormat(path: string): DataDocumentFormat | null {
   const ext = path.split(".").pop()?.toLowerCase();
   if (ext === "json") return "json";
@@ -49,7 +57,11 @@ export function parseDataDocument(source: string, format: DataDocumentFormat): P
       value: format === "json" ? JSON.parse(source) : parseToml(source),
     };
   } catch (error) {
-    return { format, value: undefined, error: error instanceof Error ? error.message : String(error) };
+    return {
+      format,
+      value: undefined,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -63,10 +75,8 @@ export function dataDocumentEntries(parsed: ParsedDataDocument): DataEntryLocato
   if (Array.isArray(value)) {
     return value.flatMap((item, index) => {
       if (!isRecord(item)) return [];
-      const id = item.id ?? item.slug;
-      return id === undefined || id === null || String(id) === ""
-        ? []
-        : [{ id: String(id), path: [index] }];
+      const id = entryId(item);
+      return id === null ? [] : [{ id, path: [index] }];
     });
   }
   if (!isRecord(value)) return [];
@@ -75,10 +85,8 @@ export function dataDocumentEntries(parsed: ParsedDataDocument): DataEntryLocato
     const [key, items] = arrays[0] as [string, unknown[]];
     const nested = items.flatMap((item, index) => {
       if (!isRecord(item)) return [];
-      const id = item.id ?? item.slug;
-      return id === undefined || id === null || String(id) === ""
-        ? []
-        : [{ id: String(id), path: [key, index] }];
+      const id = entryId(item);
+      return id === null ? [] : [{ id, path: [key, index] }];
     });
     if (nested.length > 0) return nested;
   }
@@ -105,7 +113,10 @@ export function dataEntryValues(
   return isRecord(value) ? value : null;
 }
 
-function parentAt(root: unknown, path: ValuePath): { parent: Record<string | number, unknown>; key: string | number } | null {
+function parentAt(
+  root: unknown,
+  path: ValuePath,
+): { parent: Record<string | number, unknown>; key: string | number } | null {
   if (path.length === 0) return null;
   let value = root;
   for (const key of path.slice(0, -1)) {
@@ -117,7 +128,10 @@ function parentAt(root: unknown, path: ValuePath): { parent: Record<string | num
     : null;
 }
 
-function ensureParent(root: unknown, path: ValuePath): { parent: Record<string | number, unknown>; key: string | number } | null {
+function ensureParent(
+  root: unknown,
+  path: ValuePath,
+): { parent: Record<string | number, unknown>; key: string | number } | null {
   if (path.length === 0 || root === null || typeof root !== "object") return null;
   let value = root as Record<string | number, unknown>;
   for (let index = 0; index < path.length - 1; index++) {
@@ -154,7 +168,11 @@ export function deleteDataValue(parsed: ParsedDataDocument, path: ValuePath): vo
   }
 }
 
-export function appendDataListItem(parsed: ParsedDataDocument, path: ValuePath, value: unknown): void {
+export function appendDataListItem(
+  parsed: ParsedDataDocument,
+  path: ValuePath,
+  value: unknown,
+): void {
   if (parsed.yaml) appendListItem(parsed.yaml, path, value);
   else {
     const current = plainAt(parsed, path);
@@ -163,7 +181,11 @@ export function appendDataListItem(parsed: ParsedDataDocument, path: ValuePath, 
   }
 }
 
-export function removeDataListItem(parsed: ParsedDataDocument, path: ValuePath, index: number): void {
+export function removeDataListItem(
+  parsed: ParsedDataDocument,
+  path: ValuePath,
+  index: number,
+): void {
   if (parsed.yaml) removeListItem(parsed.yaml, path, index);
   else {
     const current = plainAt(parsed, path);
@@ -171,7 +193,12 @@ export function removeDataListItem(parsed: ParsedDataDocument, path: ValuePath, 
   }
 }
 
-export function moveDataListItem(parsed: ParsedDataDocument, path: ValuePath, from: number, to: number): void {
+export function moveDataListItem(
+  parsed: ParsedDataDocument,
+  path: ValuePath,
+  from: number,
+  to: number,
+): void {
   if (parsed.yaml) moveListItem(parsed.yaml, path, from, to);
   else {
     const current = plainAt(parsed, path);
@@ -195,7 +222,8 @@ export function removeDataEntry(parsed: ParsedDataDocument, locator: DataEntryLo
     if (typeof key === "number") removeListItem(parsed.yaml, parentPath, key);
     else deleteValue(parsed.yaml, locator.path);
   } else if (target) {
-    if (Array.isArray(target.parent) && typeof target.key === "number") target.parent.splice(target.key, 1);
+    if (Array.isArray(target.parent) && typeof target.key === "number")
+      target.parent.splice(target.key, 1);
     else delete target.parent[target.key];
   }
 }
@@ -213,7 +241,10 @@ export function appendDataEntry(
   }
   if (!isRecord(documentValue)) return null;
   const arrays = Object.entries(documentValue).filter(([, item]) => Array.isArray(item));
-  if (arrays.length === 1 && entries.some((entry) => typeof entry.path[0] === "string" && typeof entry.path[1] === "number")) {
+  if (
+    arrays.length === 1 &&
+    entries.some((entry) => typeof entry.path[0] === "string" && typeof entry.path[1] === "number")
+  ) {
     const key = arrays[0][0];
     const items = arrays[0][1] as unknown[];
     appendDataListItem(parsed, [key], value);

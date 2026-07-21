@@ -29,8 +29,9 @@ export async function createDataDocumentEntry(
     if (field.name === "body" || field.name === "id") continue;
     if (field.default !== undefined) value[field.name] = field.default;
   }
-  const primary = collection.fields.find((field) => field.name === "title")
-    ?? collection.fields.find((field) => field.name === "name");
+  const primary =
+    collection.fields.find((field) => field.name === "title") ??
+    collection.fields.find((field) => field.name === "name");
   if (primary && value[primary.name] === undefined) value[primary.name] = "Untitled";
   if (!appendDataEntry(parsed, value)) throw new Error("Unsupported data document shape");
   await invoke("write_text_file", { path: group.path, content: serializeDataDocument(parsed) });

@@ -1,18 +1,24 @@
-import type { AstroImageLibrary, Field, ImageLibraryMetadataExtension } from "@posto/core/pagescms/config";
+import type {
+  AstroImageLibrary,
+  Field,
+  ImageLibraryMetadataExtension,
+} from "@posto/core/pagescms/config";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 
 export function imageLibraryMetadataFields(library: AstroImageLibrary): Field[] {
-  const omitImageField = (fields: Field[], prefix: string[] = []): Field[] => fields.flatMap((field) => {
-    const path = [...prefix, field.name];
-    if (
-      path.length === library.imageFieldPath.length
-      && path.every((part, index) => part === library.imageFieldPath[index])
-    ) return [];
-    const children = field.fields ? omitImageField(field.fields, path) : undefined;
-    const imageIsInside = path.every((part, index) => library.imageFieldPath[index] === part);
-    if (field.fields && children?.length === 0 && imageIsInside) return [];
-    return [{ ...field, fields: children }];
-  });
+  const omitImageField = (fields: Field[], prefix: string[] = []): Field[] =>
+    fields.flatMap((field) => {
+      const path = [...prefix, field.name];
+      if (
+        path.length === library.imageFieldPath.length &&
+        path.every((part, index) => part === library.imageFieldPath[index])
+      )
+        return [];
+      const children = field.fields ? omitImageField(field.fields, path) : undefined;
+      const imageIsInside = path.every((part, index) => library.imageFieldPath[index] === part);
+      if (field.fields && children?.length === 0 && imageIsInside) return [];
+      return [{ ...field, fields: children }];
+    });
 
   return omitImageField(library.fields);
 }

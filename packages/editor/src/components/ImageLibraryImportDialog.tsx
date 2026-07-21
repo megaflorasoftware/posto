@@ -54,10 +54,7 @@ export function ImageLibraryImportDialog(props: {
   const browserRoot = rootFolder ? `${libraryRoot}/${rootFolder}` : libraryRoot;
   const [step, setStep] = useState<ImportStep>(initialSources.length ? "location" : "source");
   const [currentDirectory, setCurrentDirectory] = useState("");
-  const metadataFields = useMemo(
-    () => imageLibraryMetadataFields(props.library),
-    [props.library],
-  );
+  const metadataFields = useMemo(() => imageLibraryMetadataFields(props.library), [props.library]);
   const libraryState = useImageLibraryAssets(props.root, props.library);
   const importer = useImageLibraryImport({
     root: props.root,
@@ -141,7 +138,11 @@ export function ImageLibraryImportDialog(props: {
     },
     listRemove: (path, itemIndex) => {
       const list = valueAtPath(draft?.metadata ?? {}, path);
-      if (Array.isArray(list)) update(path, list.filter((_item, i) => i !== itemIndex));
+      if (Array.isArray(list))
+        update(
+          path,
+          list.filter((_item, i) => i !== itemIndex),
+        );
     },
     listMove: (path, from, to) => {
       const list = valueAtPath(draft?.metadata ?? {}, path);
@@ -158,15 +159,20 @@ export function ImageLibraryImportDialog(props: {
   };
 
   const countSuffix = drafts.length > 1 ? ` (${drafts.length} images)` : "";
-  const title = step === "source"
-    ? "Choose images to import"
-    : step === "location"
-      ? `Choose a location in ${props.library.collection}${countSuffix}`
-      : `Import into ${props.library.collection}${countSuffix}`;
+  const title =
+    step === "source"
+      ? "Choose images to import"
+      : step === "location"
+        ? `Choose a location in ${props.library.collection}${countSuffix}`
+        : `Import into ${props.library.collection}${countSuffix}`;
 
   return (
     <Dialog opened onClose={props.onClose} title={title} size="xl">
-      {importer.error && <Alert color="red" mb="sm">{importer.error}</Alert>}
+      {importer.error && (
+        <Alert color="red" mb="sm">
+          {importer.error}
+        </Alert>
+      )}
 
       {step === "source" && props.autoChooseSource && (
         <Group justify="center" mih={140}>
@@ -184,8 +190,11 @@ export function ImageLibraryImportDialog(props: {
             const paths = files
               .map((file) => (file as File & { path?: string }).path)
               .filter((path): path is string => !!path);
-            if (paths.length > 0) selectSources(paths);
-            else importer.setError("Could not read the dropped file paths. Use Choose images instead.");
+            if (paths.length > 0) void selectSources(paths);
+            else
+              importer.setError(
+                "Could not read the dropped file paths. Use Choose images instead.",
+              );
           }}
           onReject={() => importer.setError("Choose supported image files.")}
         >
@@ -201,7 +210,12 @@ export function ImageLibraryImportDialog(props: {
               <Text className="image-library-import-desktop-copy" size="sm" c="dimmed" mb="md">
                 or choose them from your device
               </Text>
-              <Button onClick={(event) => { event.stopPropagation(); void chooseSource(); }}>
+              <Button
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void chooseSource();
+                }}
+              >
                 Choose images
               </Button>
             </div>
@@ -212,7 +226,9 @@ export function ImageLibraryImportDialog(props: {
       {step === "location" && (
         <>
           {libraryState.error && (
-            <Alert color="red" mb="sm">Could not read image library: {libraryState.error}</Alert>
+            <Alert color="red" mb="sm">
+              Could not read image library: {libraryState.error}
+            </Alert>
           )}
           <ImageLibraryBrowser
             rootDirectory={browserRoot}
@@ -221,18 +237,16 @@ export function ImageLibraryImportDialog(props: {
             assets={libraryState.assets}
             onDirectoryChange={setCurrentDirectory}
           />
-          <Button fullWidth mt="md" onClick={chooseLocation}>Choose location</Button>
+          <Button fullWidth mt="md" onClick={chooseLocation}>
+            Choose location
+          </Button>
         </>
       )}
 
       {step === "details" && draft && (
         <div className="image-library-import-details">
           <div className="image-library-import-preview">
-            <CachedImage
-              path={draft.sourceImagePath}
-              alt=""
-              fallback={<ImageIcon size={28} />}
-            />
+            <CachedImage path={draft.sourceImagePath} alt="" fallback={<ImageIcon size={28} />} />
             {drafts.length > 1 && (
               <>
                 <button
@@ -263,10 +277,18 @@ export function ImageLibraryImportDialog(props: {
             <TextInput
               size="xs"
               label="Filename (Astro ID)"
-              description={importer.folder ? `Importing into ${importer.folder}` : "Importing at the library root"}
+              description={
+                importer.folder
+                  ? `Importing into ${importer.folder}`
+                  : "Importing at the library root"
+              }
               value={draft.filename}
               error={!draft.filename ? "Required" : undefined}
-              rightSection={<Text size="xs" c="dimmed">.{sourceExtension}</Text>}
+              rightSection={
+                <Text size="xs" c="dimmed">
+                  .{sourceExtension}
+                </Text>
+              }
               rightSectionWidth={`${Math.max(3, sourceExtension.length + 1)}ch`}
               onChange={(event) => {
                 const filename = event.currentTarget.value;
@@ -282,10 +304,12 @@ export function ImageLibraryImportDialog(props: {
                   label: `.${extension}`,
                 }))}
                 value={draft.metadataExtension ?? null}
-                onChange={(value) => importer.updateDraft(index, (current) => ({
-                  ...current,
-                  metadataExtension: value as typeof current.metadataExtension,
-                }))}
+                onChange={(value) =>
+                  importer.updateDraft(index, (current) => ({
+                    ...current,
+                    metadataExtension: value as typeof current.metadataExtension,
+                  }))
+                }
               />
             )}
             <div className="form-fields image-library-metadata-fields">

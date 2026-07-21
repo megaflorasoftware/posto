@@ -60,8 +60,10 @@ export interface FieldContext {
 }
 
 function asString(value: unknown): string {
-  if (value === undefined || value === null) return "";
-  return typeof value === "string" ? value : String(value);
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint")
+    return String(value);
+  return "";
 }
 
 /** Initial value for a newly added list item, built from nested defaults. */
@@ -110,9 +112,7 @@ const IMAGE_NAME = /^(src|image|img|imgsrc)$/i;
 
 function imagePickable(field: Field): boolean {
   return (
-    !field.list &&
-    (field.type === "string" || field.type === "text") &&
-    IMAGE_NAME.test(field.name)
+    !field.list && (field.type === "string" || field.type === "text") && IMAGE_NAME.test(field.name)
   );
 }
 
@@ -122,15 +122,10 @@ function PickImageCta(props: { field: Field; path: ValuePath; ctx: FieldContext 
   const [open, setOpen] = useState(false);
   const values = props.ctx.templateValues();
   const currentValue = props.ctx.value(props.path);
-  const media = typeof currentValue === "string" && currentValue !== ""
-    ? resolveMediaForValue(
-        props.ctx.config,
-        props.field,
-        currentValue,
-        props.ctx.entry,
-        values,
-      )
-    : resolveMedia(props.ctx.config, props.field, props.ctx.entry, values);
+  const media =
+    typeof currentValue === "string" && currentValue !== ""
+      ? resolveMediaForValue(props.ctx.config, props.field, currentValue, props.ctx.entry, values)
+      : resolveMedia(props.ctx.config, props.field, props.ctx.entry, values);
   if (!media) return null;
   return (
     <>
@@ -176,7 +171,9 @@ function FieldShell(props: {
         </div>
       )}
       {props.children}
-      {props.field.description && <div className="field-description">{props.field.description}</div>}
+      {props.field.description && (
+        <div className="field-description">{props.field.description}</div>
+      )}
       {error && <div className="field-error">{error}</div>}
     </div>
   );
@@ -187,7 +184,9 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
   // Cleared text-like inputs delete the key so optional fields don't leave
   // `key: ""` litter behind in the frontmatter.
   const editText = (raw: string) => props.ctx.edit(props.path, raw === "" ? undefined : raw);
-  const schemaName = props.path.filter((part): part is string => typeof part === "string").join(".");
+  const schemaName = props.path
+    .filter((part): part is string => typeof part === "string")
+    .join(".");
   const templateSchema = props.ctx.entry?.fieldSchemas?.[schemaName];
   const fieldLabel = typeof props.field.label === "string" ? props.field.label : props.field.name;
   const templatable = !props.path.some((part) => typeof part === "number");
@@ -195,71 +194,68 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
     const expanded = expandFieldTemplate(template, props.ctx.templateValues());
     if (expanded !== null) props.ctx.edit(props.path, expanded);
   };
-  const templateActions = templatable && props.ctx.entry && props.ctx.onPostoSaved
-    ? (
-        <span className="field-template-actions">
-          <FieldTemplateActions
-            root={props.ctx.root}
-            collection={props.ctx.entry}
-            fieldName={schemaName}
-            label={fieldLabel}
-            onPostoSaved={props.ctx.onPostoSaved}
-            onGenerate={generate}
-          />
-          <FieldRowsAction
-            root={props.ctx.root}
-            collection={props.ctx.entry}
-            fieldName={schemaName}
-            label={fieldLabel}
-            onPostoSaved={props.ctx.onPostoSaved}
-          />
-        </span>
-      )
-    : null;
+  const templateActions =
+    templatable && props.ctx.entry && props.ctx.onPostoSaved ? (
+      <span className="field-template-actions">
+        <FieldTemplateActions
+          root={props.ctx.root}
+          collection={props.ctx.entry}
+          fieldName={schemaName}
+          label={fieldLabel}
+          onPostoSaved={props.ctx.onPostoSaved}
+          onGenerate={generate}
+        />
+        <FieldRowsAction
+          root={props.ctx.root}
+          collection={props.ctx.entry}
+          fieldName={schemaName}
+          label={fieldLabel}
+          onPostoSaved={props.ctx.onPostoSaved}
+        />
+      </span>
+    ) : null;
 
   const control = () => {
     const field = props.field;
     switch (field.type) {
-      case "string":
-        {
-          const rows = templateSchema?.rows ?? 1;
-          const regenerate = templateSchema?.template && templateSchema.editBehavior === "manual"
-            ? (
-                <ActionIcon
-                  variant="subtle"
-                  color="gray"
-                  size="sm"
-                  title={`Regenerate ${fieldLabel} from its template`}
-                  aria-label={`Regenerate ${fieldLabel} from its template`}
-                  onClick={() => generate(templateSchema.template!)}
-                >
-                  <RefreshCw size={15} />
-                </ActionIcon>
-              )
-            : undefined;
-          return rows > 1 ? (
-            <Textarea
-              className="templated-control"
-              size="xs"
-              rows={rows}
-              disabled={templateSchema?.editBehavior === "controlled"}
-              value={asString(value)}
-              rightSection={regenerate}
-              rightSectionPointerEvents="all"
-              onChange={(e) => editText(e.currentTarget.value)}
-            />
-          ) : (
-            <TextInput
-              className="templated-control"
-              size="xs"
-              disabled={templateSchema?.editBehavior === "controlled"}
-              value={asString(value)}
-              rightSection={regenerate}
-              rightSectionPointerEvents="all"
-              onChange={(e) => editText(e.currentTarget.value)}
-            />
-          );
-        }
+      case "string": {
+        const rows = templateSchema?.rows ?? 1;
+        const regenerate =
+          templateSchema?.template && templateSchema.editBehavior === "manual" ? (
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="sm"
+              title={`Regenerate ${fieldLabel} from its template`}
+              aria-label={`Regenerate ${fieldLabel} from its template`}
+              onClick={() => generate(templateSchema.template!)}
+            >
+              <RefreshCw size={15} />
+            </ActionIcon>
+          ) : undefined;
+        return rows > 1 ? (
+          <Textarea
+            className="templated-control"
+            size="xs"
+            rows={rows}
+            disabled={templateSchema?.editBehavior === "controlled"}
+            value={asString(value)}
+            rightSection={regenerate}
+            rightSectionPointerEvents="all"
+            onChange={(e) => editText(e.currentTarget.value)}
+          />
+        ) : (
+          <TextInput
+            className="templated-control"
+            size="xs"
+            disabled={templateSchema?.editBehavior === "controlled"}
+            value={asString(value)}
+            rightSection={regenerate}
+            rightSectionPointerEvents="all"
+            onChange={(e) => editText(e.currentTarget.value)}
+          />
+        );
+      }
       case "number":
         return (
           <NumberInput
@@ -787,7 +783,8 @@ function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContex
     .map((file) => ({
       // Pages CMS stores the repo-root-relative path by default.
       value: astroBase
-        ? (file.dataEntry?.id ?? astroEntryId(file.path.slice(astroBase.length), file.frontmatter?.slug))
+        ? (file.dataEntry?.id ??
+          astroEntryId(file.path.slice(astroBase.length), file.frontmatter?.slug))
         : valueTemplate
           ? referenceTemplate(valueTemplate, props.ctx.root, file)
           : file.path.slice(props.ctx.root.length + 1),

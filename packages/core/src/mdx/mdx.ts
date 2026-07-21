@@ -137,19 +137,61 @@ export function scanAnyElement(src: string): JsxBlock | null {
 
 /** HTML elements with no closing tag, per the HTML spec. */
 const VOID_ELEMENTS = new Set([
-  "area", "base", "br", "col", "embed", "hr", "img", "input", "link",
-  "meta", "param", "source", "track", "wbr",
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr",
 ]);
 
 /** Elements that read as standalone blocks when they open a line; anything
  * else (`<kbd>`, `<abbr>`, …) stays inline even at a line start, matching how
  * CommonMark distinguishes HTML blocks from inline HTML. */
 export const BLOCK_HTML_TAGS = new Set([
-  "address", "article", "aside", "audio", "blockquote", "details", "dialog",
-  "div", "dl", "fieldset", "figcaption", "figure", "footer", "form",
-  "h1", "h2", "h3", "h4", "h5", "h6", "header", "hgroup", "hr", "iframe",
-  "main", "nav", "ol", "p", "pre", "script", "section", "style", "table",
-  "ul", "video",
+  "address",
+  "article",
+  "aside",
+  "audio",
+  "blockquote",
+  "details",
+  "dialog",
+  "div",
+  "dl",
+  "fieldset",
+  "figcaption",
+  "figure",
+  "footer",
+  "form",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "header",
+  "hgroup",
+  "hr",
+  "iframe",
+  "main",
+  "nav",
+  "ol",
+  "p",
+  "pre",
+  "script",
+  "section",
+  "style",
+  "table",
+  "ul",
+  "video",
 ]);
 
 /** Scans a lowercase HTML element at the start of `src`: paired tags (with
@@ -630,9 +672,10 @@ export function parseAstroProps(
   const { aliases, namespaces } = astroContentTypeAliases(script);
   for (const [name, type] of Object.entries(importedTypes)) aliases.set(name, type);
   localTypeAliases(script, aliases, namespaces);
-  const head = /(?:export\s+)?(?:interface\s+Props(?:\s+extends\s+[^{]+)?\s*|type\s+Props\s*=\s*)\{/.exec(
-    script,
-  );
+  const head =
+    /(?:export\s+)?(?:interface\s+Props(?:\s+extends\s+[^{]+)?\s*|type\s+Props\s*=\s*)\{/.exec(
+      script,
+    );
   if (!head) return [];
   const bodyStart = head.index + head[0].length;
   const end = scanBraces(script, head.index + head[0].length - 1);
@@ -669,7 +712,9 @@ export function parseAstroExportedType(source: string, name: string): string | n
   localTypeAliases(script, aliases, namespaces);
 
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const interfaceHead = new RegExp(`export\\s+interface\\s+${escaped}(?:\\s+extends\\s+[^\\{]+)?\\s*\\{`).exec(script);
+  const interfaceHead = new RegExp(
+    `export\\s+interface\\s+${escaped}(?:\\s+extends\\s+[^\\{]+)?\\s*\\{`,
+  ).exec(script);
   if (interfaceHead) {
     const open = interfaceHead.index + interfaceHead[0].lastIndexOf("{");
     const end = scanBraces(script, open);

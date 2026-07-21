@@ -27,9 +27,7 @@ export function CollectionOrderDialog(props: {
   const [saving, setSaving] = useState(false);
 
   const path = `${props.root}/${POSTO_INDEX_PATH}`;
-  const labels = new Map(
-    props.collections.map((entry) => [entry.name, entry.label ?? entry.name]),
-  );
+  const labels = new Map(props.collections.map((entry) => [entry.name, entry.label ?? entry.name]));
 
   useEffect(() => {
     let active = true;

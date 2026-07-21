@@ -60,10 +60,15 @@ export function ImageLibraryReferenceField(props: {
   ): Promise<void> => {
     const previous = activeMetadataSave.current ?? Promise.resolve();
     const task = previous
-      .then(() => invoke("write_text_file", {
-        path: asset.metadataPath,
-        content: serializeImageLibraryMetadata(nextMetadata, metadataExtension(asset.metadataPath)),
-      }))
+      .then(() =>
+        invoke("write_text_file", {
+          path: asset.metadataPath,
+          content: serializeImageLibraryMetadata(
+            nextMetadata,
+            metadataExtension(asset.metadataPath),
+          ),
+        }),
+      )
       .then(() => {
         if (metadataRevisionRef.current === revision) {
           metadataDirtyRef.current = false;
@@ -94,12 +99,19 @@ export function ImageLibraryReferenceField(props: {
     return activeMetadataSave.current ?? Promise.resolve();
   };
 
-  useEffect(() => () => {
-    clearTimeout(metadataSaveTimer.current);
-    if (selectedAsset && metadataDirtyRef.current && validateForm(metadataFields, metadataRef.current).size === 0) {
-      void writeMetadata(selectedAsset, metadataRef.current, metadataRevisionRef.current);
-    }
-  }, [selectedAsset?.metadataPath, metadataFields]);
+  useEffect(
+    () => () => {
+      clearTimeout(metadataSaveTimer.current);
+      if (
+        selectedAsset &&
+        metadataDirtyRef.current &&
+        validateForm(metadataFields, metadataRef.current).size === 0
+      ) {
+        void writeMetadata(selectedAsset, metadataRef.current, metadataRevisionRef.current);
+      }
+    },
+    [selectedAsset?.metadataPath, metadataFields],
+  );
 
   const updateMetadata = (path: ValuePath, value: unknown) => {
     const next = editValueAtPath(metadataRef.current, path, value);
@@ -133,7 +145,11 @@ export function ImageLibraryReferenceField(props: {
     },
     listRemove: (path, index) => {
       const list = valueAtPath(metadata, path);
-      if (Array.isArray(list)) updateMetadata(path, list.filter((_item, itemIndex) => itemIndex !== index));
+      if (Array.isArray(list))
+        updateMetadata(
+          path,
+          list.filter((_item, itemIndex) => itemIndex !== index),
+        );
     },
     listMove: (path, from, to) => {
       const list = valueAtPath(metadata, path);
@@ -147,8 +163,16 @@ export function ImageLibraryReferenceField(props: {
 
   return (
     <>
-      {libraryState.error && <Alert color="yellow" mb="xs">Could not read image library: {libraryState.error}</Alert>}
-      {missing && <Alert color="yellow" mb="xs">The selected image entry is missing.</Alert>}
+      {libraryState.error && (
+        <Alert color="yellow" mb="xs">
+          Could not read image library: {libraryState.error}
+        </Alert>
+      )}
+      {missing && (
+        <Alert color="yellow" mb="xs">
+          The selected image entry is missing.
+        </Alert>
+      )}
       <div className="image-library-reference-item">
         <button
           type="button"
@@ -165,11 +189,17 @@ export function ImageLibraryReferenceField(props: {
               fallback={<ImageIcon size={20} />}
             />
           </span>
-          <span className="image-library-reference-edit"><Pencil size={20} /></span>
+          <span className="image-library-reference-edit">
+            <Pencil size={20} />
+          </span>
         </button>
         {selectedAsset && (
           <div className="image-library-reference-metadata">
-            {metadataError && <Alert color="red" mb="xs">Could not save image metadata: {metadataError}</Alert>}
+            {metadataError && (
+              <Alert color="red" mb="xs">
+                Could not save image metadata: {metadataError}
+              </Alert>
+            )}
             <div className="form-fields image-library-metadata-fields">
               {metadataFields.map((field) => (
                 <FieldEditor key={field.name} field={field} path={[field.name]} ctx={metadataCtx} />

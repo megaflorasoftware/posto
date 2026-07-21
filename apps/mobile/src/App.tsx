@@ -115,10 +115,7 @@ export default function App() {
           "--mobile-viewport-height",
           `${viewport?.height ?? window.innerHeight}px`,
         );
-        root.style.setProperty(
-          "--mobile-viewport-offset-top",
-          `${viewport?.offsetTop ?? 0}px`,
-        );
+        root.style.setProperty("--mobile-viewport-offset-top", `${viewport?.offsetTop ?? 0}px`);
       });
     };
 
@@ -272,31 +269,31 @@ export default function App() {
   return (
     <MantineProvider defaultColorScheme="auto" theme={mobileTheme}>
       <DialogVariantProvider variant="drawer">
-      <Onboarding
-        stage={stage}
-        user={user}
-        device={device}
-        repos={repos}
-        downloaded={downloaded}
-        roots={roots}
-        selectedRepo={selectedRepo}
-        readyRoot={readyRoot}
-        progress={progress}
-        error={error}
-        onSignIn={() => void signIn()}
-        onSignOut={() => void signOut()}
-        onOpenVerification={() => device && void openUrlInApp(device.verification_uri)}
-        onChooseRepo={(repo) => void chooseRepo(repo)}
-        onRetryRepos={() => void loadRepos()}
-        onRetryClone={() => selectedRepo && void chooseRepo(selectedRepo)}
-        onCancelClone={() => {
-          setError(null);
-          setStage("repos");
-        }}
-        onRedownloadRepo={(repo, root) => redownloadRepo(repo, root)}
-        onRemoveRepo={(root) => removeRepo(root)}
-        onChangeRepo={() => setStage("repos")}
-      />
+        <Onboarding
+          stage={stage}
+          user={user}
+          device={device}
+          repos={repos}
+          downloaded={downloaded}
+          roots={roots}
+          selectedRepo={selectedRepo}
+          readyRoot={readyRoot}
+          progress={progress}
+          error={error}
+          onSignIn={() => void signIn()}
+          onSignOut={() => void signOut()}
+          onOpenVerification={() => device && void openUrlInApp(device.verification_uri)}
+          onChooseRepo={(repo) => void chooseRepo(repo)}
+          onRetryRepos={() => void loadRepos()}
+          onRetryClone={() => selectedRepo && void chooseRepo(selectedRepo)}
+          onCancelClone={() => {
+            setError(null);
+            setStage("repos");
+          }}
+          onRedownloadRepo={(repo, root) => redownloadRepo(repo, root)}
+          onRemoveRepo={(root) => removeRepo(root)}
+          onChangeRepo={() => setStage("repos")}
+        />
       </DialogVariantProvider>
     </MantineProvider>
   );

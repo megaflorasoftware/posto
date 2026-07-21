@@ -2,11 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Alert } from "@mantine/core";
 
 import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
-import {
-  expandFieldTemplate,
-  frontmatterFields,
-  inferFields,
-} from "@posto/core/pagescms/config";
+import { expandFieldTemplate, frontmatterFields, inferFields } from "@posto/core/pagescms/config";
 import {
   type ParsedFile,
   type ValuePath,
@@ -40,9 +36,7 @@ function fieldAt(fields: Field[], path: ValuePath): Field | null {
 
 function plainValues(parsed: ParsedFile): Record<string, unknown> {
   const js = parsed.doc.toJS();
-  return js && typeof js === "object" && !Array.isArray(js)
-    ? (js as Record<string, unknown>)
-    : {};
+  return js && typeof js === "object" && !Array.isArray(js) ? (js as Record<string, unknown>) : {};
 }
 
 /**
@@ -160,12 +154,14 @@ export function FormEditor(props: {
     const schemas = props.entry?.fieldSchemas;
     if (!schemas) return;
     const controlled = Object.entries(schemas).filter(
-      ([name, schema]) => name !== "filename" && schema.template && schema.editBehavior === "controlled",
+      ([name, schema]) =>
+        name !== "filename" && schema.template && schema.editBehavior === "controlled",
     );
     for (let pass = 0; pass <= controlled.length; pass++) {
       let changed = false;
       for (const [name, schema] of Object.entries(schemas)) {
-        if (name === "filename" || !schema.template || schema.editBehavior !== "controlled") continue;
+        if (name === "filename" || !schema.template || schema.editBehavior !== "controlled")
+          continue;
         const values = plainValues(parsedRef.current);
         const expanded = expandFieldTemplate(schema.template, values);
         const path = name.split(".");

@@ -114,9 +114,10 @@ function parseFields(value: unknown): Record<string, FieldTemplateSchema | null>
     }
     const field = asObject(value);
     const template = field && optionalString(field.template);
-    const rows = field && typeof field.rows === "number" && Number.isFinite(field.rows) && field.rows >= 1
-      ? Math.floor(field.rows)
-      : undefined;
+    const rows =
+      field && typeof field.rows === "number" && Number.isFinite(field.rows) && field.rows >= 1
+        ? Math.floor(field.rows)
+        : undefined;
     // An empty filename object is an explicit override that removes a
     // filename template inherited from Pages CMS or Astro.
     if (!template && rows === undefined && name !== "filename") continue;

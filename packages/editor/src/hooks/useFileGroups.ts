@@ -75,26 +75,34 @@ export function useFileGroups(onError: (message: string) => void) {
           if (!values) return [];
           const frontmatter: Record<string, string> = {};
           for (const [key, value] of Object.entries(values)) {
-            if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+            if (
+              typeof value === "string" ||
+              typeof value === "number" ||
+              typeof value === "boolean"
+            ) {
               frontmatter[key] = String(value);
             }
           }
-          return [{
-            name: locator.id,
-            path,
-            key: `${path}#${collection.name}:${locator.path.join(".")}`,
-            title:
-              typeof values.title === "string"
-                ? values.title
-                : typeof values.name === "string" ? values.name : locator.id,
-            frontmatter,
-            dataEntry: {
-              collection: collection.name,
-              id: locator.id,
-              path: locator.path,
-              format: dataFile.format,
+          return [
+            {
+              name: locator.id,
+              path,
+              key: `${path}#${collection.name}:${locator.path.join(".")}`,
+              title:
+                typeof values.title === "string"
+                  ? values.title
+                  : typeof values.name === "string"
+                    ? values.name
+                    : locator.id,
+              frontmatter,
+              dataEntry: {
+                collection: collection.name,
+                id: locator.id,
+                path: locator.path,
+                format: dataFile.format,
+              },
             },
-          }];
+          ];
         });
         next.push({
           label: collection.label ?? collection.name,
@@ -119,13 +127,13 @@ export function useFileGroups(onError: (message: string) => void) {
         group.kind === "data"
           ? group
           : group.files.some((file) => file.path === path)
-          ? {
-              ...group,
-              files: group.files.map((file) =>
-                file.path === path ? { ...file, title, frontmatter } : file,
-              ),
-            }
-          : group,
+            ? {
+                ...group,
+                files: group.files.map((file) =>
+                  file.path === path ? { ...file, title, frontmatter } : file,
+                ),
+              }
+            : group,
       ),
     );
   }

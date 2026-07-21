@@ -876,7 +876,9 @@
   color: white;
   background: rgb(0 0 0 / 45%);
   cursor: pointer;
-  transition: background 120ms ease, opacity 120ms ease;
+  transition:
+    background 120ms ease,
+    opacity 120ms ease;
 }
 
 .image-library-import-pager-btn:hover {
