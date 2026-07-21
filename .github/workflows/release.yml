@@ -24,21 +24,32 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          # extra targets are only needed for the macOS cross-arch builds
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      # Version + components come from src-tauri/rust-toolchain.toml (single
+      # source of truth, shared with local dev and the Check workflow).
+      # `rustup show` installs that pinned toolchain.
+      - name: Install Rust toolchain
+        working-directory: src-tauri
+        run: rustup show
+
+      # `tauri build` runs inside src-tauri and rustup auto-overrides to the
+      # pinned toolchain, so the macOS cross-compile targets must be added to
+      # *that* toolchain — adding them to `stable` (the previous approach) left
+      # the pinned toolchain without x86_64-apple-darwin and broke the build.
+      - name: Add macOS cross-compile targets
+        if: matrix.platform == 'macos-latest'
+        working-directory: src-tauri
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - uses: swatinem/rust-cache@v2
         with:
@@ -55,6 +66,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - uses: tauri-apps/tauri-action@v0
+        id: tauri
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -65,3 +77,36 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+      # Publish version-less aliases of each installer so the docs site can link to
+      # https://github.com/megaflorasoftware/posto/releases/latest/download/<stable-name>,
+      # which GitHub only supports when the filename is constant across releases.
+      - name: Upload stable-named installers for direct download
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARTIFACT_PATHS: ${{ steps.tauri.outputs.artifactPaths }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          echo "$ARTIFACT_PATHS" | jq -r '.[]' | while read -r path; do
+            case "$path" in
+              *.dmg|*.exe|*.msi|*.AppImage|*.deb|*.rpm) ;;
+              *) continue ;;
+            esac
+            base="$(basename "$path")"
+            # Strip the version out of the filename, then collapse the doubled
+            # separators the removal leaves behind (e.g. Posto_0.8.4_aarch64.dmg
+            # -> Posto_aarch64.dmg, Posto-0.8.4-1.x86_64.rpm -> Posto-1.x86_64.rpm).
+            stable="${base//$version/}"
+            stable="${stable//__/_}"
+            stable="${stable//--/-}"
+            if [ "$stable" = "$base" ]; then
+              echo "Skipping $base (no version found to strip)"
+              continue
+            fi
+            cp "$path" "$(dirname "$path")/$stable"
+            echo "Uploading $stable"
+            gh release upload "$TAG" "$(dirname "$path")/$stable" --clobber --repo "$GITHUB_REPOSITORY"
+          done

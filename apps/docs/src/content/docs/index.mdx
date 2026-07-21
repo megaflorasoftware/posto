@@ -1,39 +1,53 @@
 ---
-title: Welcome to Starlight
-description: Get started building your docs site with Starlight.
-template: splash # Remove or comment out this line to display the site sidebar on this page.
+title: Posto
+description: An editor for static, Markdown-based websites, with typed forms built from a site's own schema.
+template: splash
 hero:
-  tagline: Congrats on setting up a new Starlight project!
-  image:
-    file: ../../assets/houston.webp
+  title: Posto
+  tagline: An editor for static, Markdown-based websites — with typed forms built from a site's own schema.
   actions:
-    - text: Example Guide
-      link: /guides/example/
+    - text: Download
+      link: "#download"
+      icon: down-caret
+      variant: primary
+    - text: Read docs
+      link: /what-is-posto/
       icon: right-arrow
-    - text: Read the Starlight docs
-      link: https://starlight.astro.build
-      icon: external
       variant: minimal
 ---
 
 import { Card, CardGrid } from "@astrojs/starlight/components";
 
-## Next steps
+## Key features
 
-<CardGrid stagger>
-  <Card title="Update content" icon="pencil">
-    Edit `src/content/docs/index.mdx` to see this page change.
+<CardGrid>
+  <Card title="Editor and preview side by side" icon="laptop">
+    Edit content on one side and see the running site on the other. See [Editing a site](/features/editing-a-site/) and [Previewing a site](/features/previewing-a-site/).
   </Card>
-  <Card title="Change page layout" icon="document">
-    Delete `template: splash` in `src/content/docs/index.mdx` to display a sidebar on this page.
+  <Card title="Local environment setup" icon="setting">
+    The desktop app detects and installs Node, the package manager, and dependencies, then runs the site's dev server, so a non-programmer can get a site running the way a developer would.
   </Card>
-  <Card title="Add new content" icon="add-document">
-    Add Markdown or MDX files to `src/content/docs` to create new pages.
+  <Card title="Native Astro support" icon="astro">
+    Rich-text `.mdx` editing with a site's own components, forms generated from [content collections](https://docs.astro.build/en/guides/content-collections/), and [media libraries](/frameworks/astro/media-libraries/) built from image collections. See [Typed collections](/frameworks/astro/typed-collections/).
   </Card>
-  <Card title="Configure your site" icon="setting">
-    Edit your `sidebar` and other config in `astro.config.mjs`.
+  <Card title="Publishing" icon="github">
+    Commit and push changes without running Git directly, and preview how a page appears in search results and when shared. See [Publishing a site](/features/publishing-a-site/).
   </Card>
-  <Card title="Read the docs" icon="open-book">
-    Learn more in [the Starlight Docs](https://starlight.astro.build/).
+</CardGrid>
+
+## Download
+
+<CardGrid>
+  <Card title="macOS" icon="apple">
+    - [Apple Silicon (.dmg)](https://github.com/megaflorasoftware/posto/releases/latest/download/Posto_aarch64.dmg) - [Intel (.dmg)](https://github.com/megaflorasoftware/posto/releases/latest/download/Posto_x64.dmg)
+  </Card>
+  <Card title="Windows" icon="seti:windows">
+    - [Installer (.exe)](https://github.com/megaflorasoftware/posto/releases/latest/download/Posto_x64-setup.exe) - [MSI (.msi)](https://github.com/megaflorasoftware/posto/releases/latest/download/Posto_x64_en-US.msi)
+  </Card>
+  <Card title="Linux" icon="linux">
+    - [AppImage](https://github.com/megaflorasoftware/posto/releases/latest/download/Posto_amd64.AppImage) - [Debian/Ubuntu (.deb)](https://github.com/megaflorasoftware/posto/releases/latest/download/Posto_amd64.deb)
+  </Card>
+  <Card title="Mobile" icon="phone">
+    iOS and Android builds aren't distributed yet — download links will appear here when they are.
   </Card>
 </CardGrid>

@@ -6,23 +6,83 @@ import starlight from "@astrojs/starlight";
 export default defineConfig({
   integrations: [
     starlight({
-      title: "My Docs",
-      social: [{ icon: "github", label: "GitHub", href: "https://github.com/withastro/starlight" }],
-      sidebar: [
+      title: "Posto",
+      social: [
         {
-          label: "Guides",
+          icon: "github",
+          label: "GitHub",
+          href: "https://github.com/megaflorasoftware/posto",
+        },
+      ],
+      sidebar: [
+        { label: "What is Posto?", slug: "what-is-posto" },
+        { label: "Opening your first site", slug: "getting-started" },
+        {
+          label: "Features",
           items: [
-            // Each item here is one entry in the navigation menu.
-            { label: "Example Guide", slug: "guides/example" },
+            { label: "Editing a site", slug: "features/editing-a-site" },
+            { label: "Previewing a site", slug: "features/previewing-a-site" },
+            { label: "Publishing a site", slug: "features/publishing-a-site" },
+            {
+              label: "Managing site media",
+              slug: "features/managing-site-media",
+            },
+            {
+              label: "Environment setup",
+              slug: "features/environment-setup",
+            },
           ],
         },
         {
-          label: "Development",
-          items: [{ autogenerate: { directory: "development" } }],
+          label: "Using Posto with Astro",
+          items: [
+            {
+              label: "Getting started",
+              slug: "frameworks/astro/getting-started",
+            },
+            {
+              label: "Typed collections",
+              slug: "frameworks/astro/typed-collections",
+            },
+            {
+              label: "Media libraries",
+              slug: "frameworks/astro/media-libraries",
+            },
+            {
+              label: "Components and MDX",
+              slug: "frameworks/astro/components-and-mdx",
+            },
+          ],
         },
         {
-          label: "Reference",
-          items: [{ autogenerate: { directory: "reference" } }],
+          label: "Using Posto with Pages CMS",
+          items: [
+            {
+              label: "Getting started",
+              slug: "frameworks/pages-cms/getting-started",
+            },
+            {
+              label: "Typed collections",
+              slug: "frameworks/pages-cms/typed-collections",
+            },
+            {
+              label: "Media libraries",
+              slug: "frameworks/pages-cms/media-libraries",
+            },
+          ],
+        },
+        {
+          label: "Deploying with GitHub",
+          items: [
+            {
+              label: "Tracking deployment status",
+              slug: "deployment/github/tracking-deployment-status",
+            },
+          ],
+        },
+        {
+          label: "Contributing",
+          items: [{ autogenerate: { directory: "development" } }],
         },
       ],
     }),
