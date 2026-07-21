@@ -252,6 +252,13 @@ export default function App() {
     await downloadRepo(repo);
   }
 
+  async function removeRepo(root: string) {
+    await invoke("remove_repo", { root });
+    setManaged((current) => current.filter((candidate) => candidate.root !== root));
+    setReadyRoot(null);
+    setStage("repos");
+  }
+
   const downloaded = useMemo(
     () => new Set(managed.map((repo) => `${repo.owner}/${repo.name}`)),
     [managed],
@@ -287,6 +294,7 @@ export default function App() {
           setStage("repos");
         }}
         onRedownloadRepo={(repo, root) => redownloadRepo(repo, root)}
+        onRemoveRepo={(root) => removeRepo(root)}
         onChangeRepo={() => setStage("repos")}
       />
       </DialogVariantProvider>

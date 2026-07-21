@@ -445,6 +445,13 @@ input {
   min-width: 0;
 }
 
+.mobile-settings-danger {
+  margin-top: var(--mantine-spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+
 .publish-list {
   display: grid;
   gap: var(--mantine-spacing-xs);

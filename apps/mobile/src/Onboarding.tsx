@@ -73,6 +73,7 @@ type Props = {
   onRetryClone: () => void;
   onCancelClone: () => void;
   onRedownloadRepo: (repo: GitHubRepo, root: string) => Promise<void>;
+  onRemoveRepo: (root: string) => Promise<void>;
   onChangeRepo: () => void;
 };
 
@@ -376,6 +377,7 @@ export default function Onboarding(props: Props) {
           repo={props.selectedRepo}
           onChangeRepo={props.onChangeRepo}
           onRedownloadRepo={redownloadSelectedRepo}
+          onRemoveRepo={() => props.onRemoveRepo(props.readyRoot!)}
         />
       )}
       {props.stage !== "repos" && props.stage !== "clone-error" && (

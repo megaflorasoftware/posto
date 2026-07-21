@@ -73,19 +73,22 @@ type Props = {
   repo: GitHubRepo | null;
   onChangeRepo: () => void;
   onRedownloadRepo: () => Promise<void>;
+  onRemoveRepo: () => Promise<void>;
 };
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }: Props) {
+export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, onRemoveRepo }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
   const [repairError, setRepairError] = useState<string | null>(null);
   const [redownloading, setRedownloading] = useState(false);
+  const [confirmingRemoveRepo, setConfirmingRemoveRepo] = useState(false);
+  const [removingRepo, setRemovingRepo] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [checkingChanges, setCheckingChanges] = useState(false);
@@ -226,6 +229,19 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     }
   }
 
+  async function removeRepository() {
+    setRemovingRepo(true);
+    try {
+      currentFile.clearPendingSave();
+      currentFile.closeFile();
+      await onRemoveRepo();
+    } catch (removeError) {
+      setStatus(`Could not remove the repository: ${message(removeError)}`);
+      setRemovingRepo(false);
+      setConfirmingRemoveRepo(false);
+    }
+  }
+
   async function openFile(file: string | FileEntry) {
     setConfirmingDelete(false);
     await currentFile.openFile(file);
@@ -322,6 +338,12 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
     return () => clearTimeout(timer);
   }, [confirmingDelete]);
 
+  useEffect(() => {
+    if (!confirmingRemoveRepo) return;
+    const timer = setTimeout(() => setConfirmingRemoveRepo(false), 4000);
+    return () => clearTimeout(timer);
+  }, [confirmingRemoveRepo]);
+
   async function deleteOpenFile() {
     const path = currentFile.filePathRef.current;
     if (!path) return;
@@ -398,7 +420,10 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
 
   function closeSecondaryView() {
     if (showEditor) closeEditor();
-    else setShowSettings(false);
+    else {
+      setConfirmingRemoveRepo(false);
+      setShowSettings(false);
+    }
   }
 
   function leaveRepository() {
@@ -580,6 +605,27 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo }:
                 <Text c="dimmed" size="xs">Custom domains and redirects</Text>
               </div>
               <Text c="dimmed" size="xs">Coming soon</Text>
+            </div>
+
+            <div className="mobile-settings-danger">
+              <Text c="dimmed" size="xs">
+                Removes this repository's downloaded copy from this device. Unpublished
+                changes will be lost. You can download it again anytime.
+              </Text>
+              <Button
+                fullWidth
+                color="red"
+                variant="light"
+                leftSection={<Trash2 size={18} />}
+                loading={removingRepo}
+                onClick={() =>
+                  confirmingRemoveRepo
+                    ? void removeRepository()
+                    : setConfirmingRemoveRepo(true)
+                }
+              >
+                {confirmingRemoveRepo ? "Tap again to delete from device" : "Delete from device"}
+              </Button>
             </div>
           </Stack>
 
