@@ -8,6 +8,7 @@ const ignorePatterns = [
   "**/node_modules/**",
   "temp/**",
   ".claude/**",
+  "**/.astro/**",
   "src-tauri/gen/**",
   "src-tauri/target/**",
   // Cargo owns these; rustfmt doesn't touch them and oxfmt shouldn't fight it.
