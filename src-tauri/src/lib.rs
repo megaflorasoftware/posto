@@ -1,4 +1,3 @@
-#[cfg(any(mobile, test))]
 mod auth;
 #[cfg(mobile)]
 mod browser;
@@ -53,6 +52,7 @@ pub fn run() {
     let builder = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .manage(auth::AuthState::default())
         .manage(devserver::DevServerState::default())
         .manage(proxy::ProxyState::default())
         .manage(watch::WatchState::default())
@@ -64,6 +64,11 @@ pub fn run() {
         });
     #[cfg(desktop)]
     let builder = builder.invoke_handler(tauri::generate_handler![
+        auth::auth_status,
+        auth::sign_in,
+        auth::sign_out,
+        auth::list_workflow_runs,
+        git::github_remote,
         fs::list_files,
         fs::list_dir_files,
         fs::image_thumbnail,
@@ -74,6 +79,9 @@ pub fn run() {
         fs::rename_file,
         fs::delete_file,
         fs::import_image_library_asset,
+        fs::write_temp_image,
+        fs::read_image_bytes,
+        fs::probe_image_is_heif,
         devserver::start_dev_server,
         devserver::stop_dev_server,
         devserver::ping_dev_server,
@@ -104,6 +112,7 @@ pub fn run() {
                 auth::sign_in,
                 auth::sign_out,
                 auth::list_user_repos,
+                auth::list_workflow_runs,
                 browser::open_in_app_browser,
                 browser::close_in_app_browser,
                 fs::list_files,
@@ -116,6 +125,9 @@ pub fn run() {
                 fs::rename_file,
                 fs::delete_file,
                 fs::import_image_library_asset,
+                fs::write_temp_image,
+                fs::read_image_bytes,
+                fs::probe_image_is_heif,
                 settings::get_last_root,
                 settings::get_recent_roots,
                 settings::set_last_root,

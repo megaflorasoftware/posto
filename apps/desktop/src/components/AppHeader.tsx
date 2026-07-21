@@ -1,17 +1,21 @@
-import { Button, Menu } from "@mantine/core";
-import { ChevronDown } from "lucide-react";
+import { ActionIcon, Button, Menu, Tooltip } from "@mantine/core";
+import { ChevronDown, Image as ImageIcon } from "lucide-react";
+import { DeploymentControl } from "./DeploymentControl";
+import type { Deployment } from "../hooks/useDeployment";
 
-/** The top bar: site chooser with recents, status message, and the
- * Publish / Fetch Changes action. */
+/** The top bar: site chooser with recents, a media browser shortcut,
+ * deployment status, and the Publish / Fetch Changes action. */
 export function AppHeader(props: {
   root: string | null;
   recentRoots: string[];
-  status: string | null;
   behindUpstream: boolean;
   pulling: boolean;
   hasLocalChanges: boolean;
+  deployment: Deployment;
+  canOpenMedia: boolean;
   onChooseDirectory: () => void;
   onSelectRoot: (dir: string) => void;
+  onOpenMedia: () => void;
   onFetchChanges: () => void;
   onOpenPublish: () => void;
 }) {
@@ -47,7 +51,25 @@ export function AppHeader(props: {
           </Menu.Dropdown>
         </Menu>
       </Button.Group>
-      <span className="navbar-status">{props.status}</span>
+      <span className="navbar-spacer" />
+      {props.root && <DeploymentControl deployment={props.deployment} />}
+      {props.root && (
+        <Tooltip
+          label={props.canOpenMedia ? "Media" : "No Astro image libraries found"}
+          openDelay={400}
+        >
+          <ActionIcon
+            size={30}
+            variant="subtle"
+            color="gray"
+            aria-label="Media"
+            disabled={!props.canOpenMedia}
+            onClick={props.onOpenMedia}
+          >
+            <ImageIcon size={18} />
+          </ActionIcon>
+        </Tooltip>
+      )}
       {props.behindUpstream ? (
         <Button size="xs" color="teal" loading={props.pulling} onClick={props.onFetchChanges}>
           Fetch Changes

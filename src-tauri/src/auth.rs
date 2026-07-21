@@ -1,4 +1,7 @@
-#![cfg_attr(test, allow(dead_code))]
+// Several GitHub helpers (repo listing, mobile-only credential lookups) are
+// compiled on desktop too but only wired up on some platforms; silence the
+// resulting per-platform dead-code noise here rather than cfg-gating each one.
+#![allow(dead_code)]
 
 mod storage;
 
@@ -51,6 +54,22 @@ pub struct GitHubRepo {
     clone_url: String,
     default_branch: String,
     updated_at: String,
+}
+
+/// A GitHub Actions workflow run, trimmed to the fields the deployment ring
+/// needs: which workflow it belongs to (to average runs "of that type"), its
+/// lifecycle status, and the timestamps that bound its duration.
+#[derive(Debug, Serialize)]
+pub struct WorkflowRun {
+    id: u64,
+    name: String,
+    workflow_id: u64,
+    status: String,
+    conclusion: Option<String>,
+    run_started_at: Option<String>,
+    updated_at: String,
+    created_at: String,
+    html_url: String,
 }
 
 #[derive(Default)]
@@ -106,6 +125,24 @@ struct ApiRepo {
     clone_url: String,
     default_branch: String,
     updated_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApiRunsResponse {
+    workflow_runs: Vec<ApiWorkflowRun>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApiWorkflowRun {
+    id: u64,
+    name: Option<String>,
+    workflow_id: u64,
+    status: Option<String>,
+    conclusion: Option<String>,
+    run_started_at: Option<String>,
+    updated_at: String,
+    created_at: String,
+    html_url: String,
 }
 
 enum PollAction {
@@ -210,6 +247,28 @@ impl GitHubClient {
         }
     }
 
+    /// The most recent workflow runs for `owner/name` on `branch`, newest
+    /// first. Pull-request runs are excluded so the ring tracks the branch's
+    /// own deploy pipeline rather than CI on incoming PRs.
+    async fn workflow_runs(
+        &self,
+        token: &str,
+        owner: &str,
+        name: &str,
+        branch: &str,
+    ) -> Result<Vec<WorkflowRun>, String> {
+        let url = format!(
+            "{API_URL}/repos/{owner}/{name}/actions/runs?branch={branch}&exclude_pull_requests=true&per_page=30"
+        );
+        let response = self
+            .api_get(&url, token)
+            .await?
+            .json::<ApiRunsResponse>()
+            .await
+            .map_err(err_str)?;
+        Ok(response.workflow_runs.into_iter().map(workflow_run).collect())
+    }
+
     async fn api_get(&self, url: &str, token: &str) -> Result<reqwest::Response, String> {
         self.http
             .get(url)
@@ -279,6 +338,23 @@ fn github_repo(repo: ApiRepo) -> GitHubRepo {
         clone_url: repo.clone_url,
         default_branch: repo.default_branch,
         updated_at: repo.updated_at,
+    }
+}
+
+fn workflow_run(run: ApiWorkflowRun) -> WorkflowRun {
+    WorkflowRun {
+        id: run.id,
+        name: run
+            .name
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| "Workflow".to_string()),
+        workflow_id: run.workflow_id,
+        status: run.status.unwrap_or_else(|| "completed".to_string()),
+        conclusion: run.conclusion,
+        run_started_at: run.run_started_at,
+        updated_at: run.updated_at,
+        created_at: run.created_at,
+        html_url: run.html_url,
     }
 }
 
@@ -358,6 +434,22 @@ pub async fn list_user_repos() -> Result<Vec<GitHubRepo>, String> {
         .await
         .map_err(err_str)??;
     GitHubClient::new()?.repos(&token).await
+}
+
+/// Recent GitHub Actions runs for `owner/name` on `branch`, newest first.
+/// Used by the desktop deployment ring; requires a stored session.
+#[tauri::command]
+pub async fn list_workflow_runs(
+    owner: String,
+    name: String,
+    branch: String,
+) -> Result<Vec<WorkflowRun>, String> {
+    let token = tauri::async_runtime::spawn_blocking(stored_token)
+        .await
+        .map_err(err_str)??;
+    GitHubClient::new()?
+        .workflow_runs(&token, &owner, &name, &branch)
+        .await
 }
 
 #[cfg(test)]

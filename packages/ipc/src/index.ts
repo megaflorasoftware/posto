@@ -88,6 +88,28 @@ export interface GitHubRepo {
   updated_at: string;
 }
 
+/** `owner/name` parsed from a local repository's GitHub remote. */
+export interface GitHubSlug {
+  owner: string;
+  name: string;
+}
+
+/** A GitHub Actions run, trimmed to what the deployment ring needs. */
+export interface WorkflowRun {
+  id: number;
+  name: string;
+  /** Groups runs "of that type" for duration averaging. */
+  workflow_id: number;
+  /** "queued" | "in_progress" | "completed" (other values pass through). */
+  status: string;
+  /** "success" | "failure" | "cancelled" | …; null while still running. */
+  conclusion: string | null;
+  run_started_at: string | null;
+  updated_at: string;
+  created_at: string;
+  html_url: string;
+}
+
 export interface ImageLibraryImportRequest {
   libraryRoot: string;
   sourceImagePath: string;
@@ -288,6 +310,11 @@ const mockFiles: Record<string, string> = {
   "/mock/site/posts/first.md":
     "---\ntitle: First post\nhero: portraits/person\npublished: true\ncount: 3\ntags:\n  - alpha\n  - beta\nauthor:\n  name: Henry\n  email: h@example.com\nlinks:\n  - label: Home\n    url: /\n  - label: About\n    url: /about\n---\n\nHello world.\n",
   "/mock/site/notes.txt": "Some notes.\n",
+  // Gives the desktop/mobile "Open Site" affordance a URL to resolve in dev.
+  "/mock/site/astro.config.mjs":
+    "import { defineConfig } from 'astro/config';\n\nexport default defineConfig({\n  site: 'https://example.com',\n});\n",
+  "/mock/repos/megaflorasoftware/posto/astro.config.mjs":
+    "import { defineConfig } from 'astro/config';\n\nexport default defineConfig({\n  site: 'https://example.com',\n});\n",
   "/mock/site/src/styles/global.css": "body {\n  margin: 0;\n}\n",
   "/mock/site/public/theme.css": ":root {\n  --accent: rebeccapurple;\n}\n",
   "/mock/site/src/blog/with-slug.mdx":
@@ -388,6 +415,41 @@ const mockGitHubRepos: GitHubRepo[] = [
     updated_at: "2026-07-16T18:30:00Z",
   },
 ];
+
+// Deployment-ring fixtures: a run still in progress, preceded by three
+// completed runs of the same workflow (~90s each) so the browser dev build
+// shows a filling ring that averages to a realistic estimate.
+function mockWorkflowRuns(): WorkflowRun[] {
+  const now = Date.now();
+  const iso = (msAgo: number) => new Date(now - msAgo).toISOString();
+  const completed = (id: number, startedAgo: number, durationMs: number): WorkflowRun => ({
+    id,
+    name: "Deploy",
+    workflow_id: 42,
+    status: "completed",
+    conclusion: "success",
+    run_started_at: iso(startedAgo),
+    updated_at: iso(startedAgo - durationMs),
+    created_at: iso(startedAgo),
+    html_url: "https://github.com/megaflorasoftware/posto/actions/runs/1000",
+  });
+  return [
+    {
+      id: 1004,
+      name: "Deploy",
+      workflow_id: 42,
+      status: "in_progress",
+      conclusion: null,
+      run_started_at: iso(40_000),
+      updated_at: iso(0),
+      created_at: iso(42_000),
+      html_url: "https://github.com/megaflorasoftware/posto/actions/runs/1004",
+    },
+    completed(1003, 600_000, 92_000),
+    completed(1002, 1_200_000, 88_000),
+    completed(1001, 1_800_000, 96_000),
+  ];
+}
 
 function mockFrontmatter(path: string): Record<string, string> | null {
   if (!/\.(md|mdx|markdown)$/i.test(path)) return null;
@@ -643,6 +705,26 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     }
     case "list_repos":
       return mockRepos.map((repo) => ({ ...repo }));
+    case "github_remote": {
+      // The desktop deployment ring resolves the open folder to a slug; the
+      // mock site maps to the sample repo, anything else to "no repo".
+      const root = args?.root as string;
+      if (new URLSearchParams(window.location.search).has("mockNoRepo")) return null;
+      return root.includes("/mock/")
+        ? { owner: "megaflorasoftware", name: "posto" }
+        : null;
+    }
+    case "list_workflow_runs": {
+      if (!mockSignedIn) throw new Error("Not signed in to GitHub");
+      const params = new URLSearchParams(window.location.search);
+      if (params.has("mockNoRuns")) return [];
+      const runs = mockWorkflowRuns();
+      // `?mockDeployed` finishes the latest run, for checking the done/check UI.
+      if (params.has("mockDeployed")) {
+        runs[0] = { ...runs[0], status: "completed", conclusion: "success" };
+      }
+      return runs;
+    }
     case "doctor_repo":
       if (new URLSearchParams(window.location.search).has("mockRepoBroken")) {
         throw new Error("The local Git repository could not be opened: repository data is incomplete");
@@ -755,20 +837,108 @@ export const openDirectory: () => Promise<string | null> = inTauri
   : async () => "/mock/site";
 
 const IMAGE_FILE_FILTERS = [
-  { name: "Images", extensions: ["avif", "gif", "jpeg", "jpg", "png", "svg", "tif", "tiff", "webp"] },
+  {
+    name: "Images",
+    extensions: [
+      "avif",
+      "gif",
+      "heic",
+      "heif",
+      "jpeg",
+      "jpg",
+      "png",
+      "svg",
+      "tif",
+      "tiff",
+      "webp",
+    ],
+  },
 ];
+
+async function decodeBitmap(blob: Blob): Promise<ImageBitmap> {
+  // EXIF orientation is baked in so portrait photos aren't rotated; retry
+  // without the option for engines that reject it.
+  try {
+    return await createImageBitmap(blob, { imageOrientation: "from-image" });
+  } catch {
+    return createImageBitmap(blob);
+  }
+}
+
+/** Transcodes already-read image bytes to a JPEG temp file and returns its
+ * absolute path. Decoding from an in-memory Blob keeps the canvas same-origin
+ * (no asset-protocol taint blocking the export); WKWebView supplies the HEIC
+ * decoder. */
+async function convertBytesToJpeg(bytes: Uint8Array): Promise<string> {
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await decodeBitmap(new Blob([bytes]));
+  } catch {
+    throw new Error("Could not decode the selected image.");
+  }
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Could not prepare the image for import.");
+    context.drawImage(bitmap, 0, 0);
+    const output = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (result) =>
+          result ? resolve(result) : reject(new Error("Could not convert the image to JPEG.")),
+        "image/jpeg",
+        0.92,
+      );
+    });
+    const out = Array.from(new Uint8Array(await output.arrayBuffer()));
+    return invoke<string>("write_temp_image", { bytes: out, extension: "jpg" });
+  } finally {
+    bitmap.close();
+  }
+}
+
+async function prepareImageSource(path: string): Promise<string> {
+  // The picker's extension can't be trusted — iOS hands HEIFs back named
+  // ".jpeg" — so sniff the file's actual content server-side and only re-encode
+  // true HEIFs, which the site (and most browsers) can't render.
+  if (!(await invoke<boolean>("probe_image_is_heif", { path }))) return path;
+  const bytes = new Uint8Array(await invoke<number[]>("read_image_bytes", { path }));
+  return convertBytesToJpeg(bytes);
+}
+
+/** Normalizes chosen or dropped source images so the importer always receives a
+ * format the app can preview and the published site can render — HEIC/HEIF are
+ * transcoded to JPEG, everything else passes through untouched. */
+export async function prepareImageSources(paths: string[]): Promise<string[]> {
+  if (!inTauri) return paths;
+  return Promise.all(paths.map(prepareImageSource));
+}
+
+/** The iOS picker returns `file://` URLs, but every filesystem consumer (the
+ * native importer, the byte reader, the format probe) expects a plain path, so
+ * strip the scheme and percent-decode. Plain paths (desktop) pass through. */
+function toFilesystemPath(path: string): string {
+  if (!path.startsWith("file://")) return path;
+  try {
+    return decodeURIComponent(new URL(path).pathname);
+  } catch {
+    return decodeURIComponent(path.slice("file://".length));
+  }
+}
 
 export const openImageFile: () => Promise<string | null> = inTauri
   ? async () => {
       const selected = await tauriOpen({ multiple: false, filters: IMAGE_FILE_FILTERS });
-      return typeof selected === "string" ? selected : null;
+      return typeof selected === "string" ? toFilesystemPath(selected) : null;
     }
   : async () => "/mock/uploads/photo.jpg";
 
 export const openImageFiles: () => Promise<string[]> = inTauri
   ? async () => {
       const selected = await tauriOpen({ multiple: true, filters: IMAGE_FILE_FILTERS });
-      return Array.isArray(selected) ? selected : selected ? [selected] : [];
+      const paths = Array.isArray(selected) ? selected : selected ? [selected] : [];
+      return paths.map(toFilesystemPath);
     }
   : async () => ["/mock/uploads/photo.jpg"];
 

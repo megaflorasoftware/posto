@@ -565,7 +565,7 @@ fn execute_image_library_import(
         return Err("An image-library destination already exists".to_string());
     }
     let source = std::fs::canonicalize(&plan.source_image_path)
-        .map_err(|e| format!("Invalid source image: {e}"))?;
+        .map_err(|e| format!("Invalid source image {}: {e}", plan.source_image_path))?;
     if !source.is_file() {
         return Err("Source image is not a file".to_string());
     }
@@ -629,6 +629,79 @@ pub fn import_image_library_asset(
     plan: ImageLibraryImportPlan,
 ) -> Result<ImageLibraryImportResult, String> {
     execute_image_library_import(plan, None)
+}
+
+/// Reads a picked image's raw bytes so the webview can decode it same-origin
+/// (e.g. to transcode a HEIC the site can't render). Mirrors the filesystem
+/// read the importer already performs when copying a chosen source.
+#[tauri::command]
+pub fn read_image_bytes(path: String) -> Result<Vec<u8>, String> {
+    std::fs::read(&path).map_err(|error| format!("Could not read image: {error}"))
+}
+
+/// ISO-BMFF `ftyp` brands that identify a HEIF/HEIC image.
+const HEIF_BRANDS: [&[u8]; 11] = [
+    b"heic", b"heix", b"hevc", b"hevx", b"heim", b"heis", b"hevm", b"hevs", b"mif1", b"msf1",
+    b"heif",
+];
+
+/// Sniffs a picked file's leading ISO-BMFF box to decide whether it needs
+/// HEIC→JPEG transcoding. Reading only the header avoids trusting the (on iOS,
+/// frequently wrong) filename extension and avoids shuttling the whole file
+/// when no conversion is required.
+#[tauri::command]
+pub fn probe_image_is_heif(path: String) -> Result<bool, String> {
+    use std::io::Read;
+    let mut file =
+        std::fs::File::open(&path).map_err(|error| format!("Could not open {path}: {error}"))?;
+    let mut header = [0u8; 12];
+    let read = file
+        .read(&mut header)
+        .map_err(|error| format!("Could not read {path}: {error}"))?;
+    if read < 12 || &header[4..8] != b"ftyp" {
+        return Ok(false);
+    }
+    let brand = header[8..12].to_ascii_lowercase();
+    Ok(HEIF_BRANDS.contains(&brand.as_slice()))
+}
+
+/// Persists bytes produced in the webview (e.g. a HEIC transcoded to JPEG) to a
+/// uniquely named file, giving the importer a real source path to copy from and
+/// the webview an asset-protocol path to preview. Writes into the app cache
+/// dir (like thumbnails) rather than `std::env::temp_dir()`, which resolves to
+/// an inaccessible `/tmp` inside the iOS sandbox. The name is content- and
+/// time-derived so concurrent picks never clash.
+#[tauri::command]
+pub fn write_temp_image(
+    app: tauri::AppHandle,
+    bytes: Vec<u8>,
+    extension: String,
+) -> Result<String, String> {
+    let ext: String = extension
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .collect();
+    if ext.is_empty() {
+        return Err("A file extension is required".to_string());
+    }
+    let directory = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("Could not locate app cache: {error}"))?
+        .join("image-imports");
+    std::fs::create_dir_all(&directory)
+        .map_err(|error| format!("Could not create import cache: {error}"))?;
+    let mut hasher = DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or_default()
+        .hash(&mut hasher);
+    let path = directory.join(format!("{:x}.{ext}", hasher.finish()));
+    std::fs::write(&path, &bytes)
+        .map_err(|error| format!("Could not write temp image: {error}"))?;
+    Ok(path.to_string_lossy().to_string())
 }
 
 #[cfg(test)]

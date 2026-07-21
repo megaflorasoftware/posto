@@ -19,14 +19,53 @@ body,
   border-bottom: 1px solid var(--mantine-color-default-border);
 }
 
-.navbar-status {
+.navbar-spacer {
   flex: 1;
-  text-align: right;
-  font-size: 0.8rem;
-  color: var(--mantine-color-dimmed);
+}
+
+/* Mantine's drawer content is itself the scroller; make it a full-height flex
+   column instead so the body can grow and the Import footer pins to the bottom
+   rather than trailing the grid. */
+.media-drawer-content {
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.media-drawer-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.media-drawer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.media-drawer-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--mantine-spacing-md);
+}
+
+/* The shared picker caps itself at 65vh and scrolls internally; in the drawer
+   the outer scroller owns scrolling and the grid fills the height. */
+.media-drawer .picker-grid {
+  max-height: none;
+  overflow: visible;
+}
+
+.media-drawer-footer {
+  flex-shrink: 0;
+  padding: var(--mantine-spacing-md);
+  border-top: 1px solid var(--mantine-color-default-border);
 }
 
 .empty-state {
@@ -586,4 +625,47 @@ body,
 
 .preview.no-pointer {
   pointer-events: none;
+}
+
+/* Deployment status ring in the header — a RingProgress that links to the
+   repo's GitHub Actions page. */
+.deployment-ring {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--mantine-radius-sm);
+  transition: opacity 120ms ease;
+}
+.deployment-ring:hover {
+  opacity: 0.7;
+}
+/* The RingProgress label band is left-aligned with horizontal insets; this
+   centers the check/X (and kills SVG baseline whitespace) within it. */
+.deployment-ring-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  line-height: 0;
+}
+
+/* Device-flow sign-in code shown in the deployment drawer. */
+.device-code {
+  width: 100%;
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--mantine-spacing-sm);
+  border: 1px solid var(--mantine-primary-color-filled);
+  border-radius: var(--mantine-radius-sm);
+  color: var(--mantine-primary-color-filled);
+  background: var(--mantine-primary-color-light);
+  cursor: pointer;
+}
+.device-code span {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
 }

@@ -1,10 +1,11 @@
 {
   "name": "@posto/core",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "private": true,
   "type": "module",
   "exports": {
     "./astro/*": "./src/astro/*.ts",
+    "./github/*": "./src/github/*.ts",
     "./mdx/*": "./src/mdx/*.ts",
     "./pagescms/*": "./src/pagescms/*.ts",
     "./posto/*": "./src/posto/*.ts"
