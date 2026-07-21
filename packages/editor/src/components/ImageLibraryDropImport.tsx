@@ -17,18 +17,25 @@ export function ImageLibraryDropImport(props: {
   const [sources, setSources] = useState<string[] | null>(null);
   const [collection, setCollection] = useState<string | null>(null);
   const libraries = props.config.imageLibraries ?? [];
-  useEffect(() => onFileDrop((paths) => {
-    const images = paths.filter((path) => DROPPED_IMAGE.test(path));
-    if (images.length === 0) return;
-    if (libraries.length === 0) {
-      props.onError?.("This project has no editable Astro image library.");
-      return;
-    }
-    setSources(images);
-    setCollection(libraries.length === 1 ? libraries[0].collection : null);
-  }), [libraries, props.onError]);
+  useEffect(
+    () =>
+      onFileDrop((paths) => {
+        const images = paths.filter((path) => DROPPED_IMAGE.test(path));
+        if (images.length === 0) return;
+        if (libraries.length === 0) {
+          props.onError?.("This project has no editable Astro image library.");
+          return;
+        }
+        setSources(images);
+        setCollection(libraries.length === 1 ? libraries[0].collection : null);
+      }),
+    [libraries, props.onError],
+  );
   const library = libraries.find((candidate) => candidate.collection === collection) ?? null;
-  const close = () => { setSources(null); setCollection(null); };
+  const close = () => {
+    setSources(null);
+    setCollection(null);
+  };
   if (!sources) return null;
   if (!library) {
     return (
@@ -48,7 +55,9 @@ export function ImageLibraryDropImport(props: {
       groups={props.groups}
       sourcePaths={sources}
       onClose={close}
-      onImported={() => { props.onImported(); }}
+      onImported={() => {
+        props.onImported();
+      }}
     />
   );
 }

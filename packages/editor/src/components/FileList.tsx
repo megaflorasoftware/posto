@@ -48,11 +48,7 @@ export function FileList(props: {
           key={file.key ?? file.path}
           className={`file-item${props.activeKey === (file.key ?? file.path) ? " active" : ""}`}
         >
-          <button
-            className="file-item-name"
-            onClick={() => props.onOpen(file)}
-            title={file.name}
-          >
+          <button className="file-item-name" onClick={() => props.onOpen(file)} title={file.name}>
             {file.title ?? file.name}
           </button>
           {props.pinned?.includes(file.name) && (

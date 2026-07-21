@@ -35,13 +35,13 @@ pnpm install
 
 Run these from the repo root:
 
-| Command | What it does |
-| --- | --- |
-| `pnpm dev` | Run the desktop app in development |
-| `pnpm build` | Type-check and build the desktop app |
-| `pnpm test` | Run the TypeScript test suites (Vitest) across all packages |
-| `pnpm typecheck` | Type-check every package and app (`tsc --noEmit`) |
-| `pnpm check` | Format, lint, and type-aware checks via Vite+ (`vp check`) |
+| Command          | What it does                                                |
+| ---------------- | ----------------------------------------------------------- |
+| `pnpm dev`       | Run the desktop app in development                          |
+| `pnpm build`     | Type-check and build the desktop app                        |
+| `pnpm test`      | Run the TypeScript test suites (Vitest) across all packages |
+| `pnpm typecheck` | Type-check every package and app (`tsc --noEmit`)           |
+| `pnpm check`     | Format, lint, and type-aware checks via Vite+ (`vp check`)  |
 
 Rust checks run from `src-tauri/`:
 

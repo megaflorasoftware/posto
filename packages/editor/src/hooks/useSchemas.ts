@@ -26,7 +26,9 @@ function effectiveConfig(
     {
       media: pagesConfig?.media.length
         ? pagesConfig.media
-        : (astroConfig?.media.length ? astroConfig.media : DEFAULT_ASTRO_MEDIA),
+        : astroConfig?.media.length
+          ? astroConfig.media
+          : DEFAULT_ASTRO_MEDIA,
       content: [...(pagesConfig?.content ?? []), ...(astroConfig?.content ?? [])],
       astroCollections: astroConfig?.astroCollections,
       imageLibraries: astroConfig?.imageLibraries,
@@ -125,7 +127,10 @@ export function useSchemas() {
       if (!file.name.endsWith(".schema.json")) continue;
       const name = file.name.slice(0, -".schema.json".length);
       try {
-        const fields = parseCollectionSchema(name, await invoke<string>("read_text_file", { path: file.path }));
+        const fields = parseCollectionSchema(
+          name,
+          await invoke<string>("read_text_file", { path: file.path }),
+        );
         if (fields && fields.length > 0) collections.push({ name, fields });
       } catch {
         // One unreadable schema shouldn't take down the rest.
@@ -135,7 +140,9 @@ export function useSchemas() {
     let loaders = new Map<string, LoaderInfo>();
     for (const configPath of ["/src/content.config.ts", "/src/content/config.ts"]) {
       try {
-        loaders = parseLoaderConfig(await invoke<string>("read_text_file", { path: dir + configPath }));
+        loaders = parseLoaderConfig(
+          await invoke<string>("read_text_file", { path: dir + configPath }),
+        );
         break;
       } catch {
         // Missing config file — the src/content/<name> convention applies.

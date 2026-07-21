@@ -47,7 +47,9 @@ function MediaBrowser(props: {
           />
         )}
         {state.error ? (
-          <Text c="red" size="sm">Could not read image library: {state.error}</Text>
+          <Text c="red" size="sm">
+            Could not read image library: {state.error}
+          </Text>
         ) : (
           <ImageLibraryBrowser
             rootDirectory={libraryRoot}
@@ -101,7 +103,9 @@ export function MediaDrawer(props: {
       classNames={{ content: "media-drawer-content", body: "media-drawer-body" }}
     >
       {libraries.length === 0 ? (
-        <Text c="dimmed" size="sm" p="md">No Astro image libraries found.</Text>
+        <Text c="dimmed" size="sm" p="md">
+          No Astro image libraries found.
+        </Text>
       ) : (
         <MediaBrowser
           root={props.root}

@@ -50,7 +50,9 @@ export function ImageLibraryBrowser(props: {
       return location && !location.includes("/") ? [{ name: location, path: directory }] : [];
     })
     .sort((a, b) => a.name.localeCompare(b.name));
-  const assets = props.assets.filter((asset) => normalize(dirname(asset.metadataPath)) === normalize(current));
+  const assets = props.assets.filter(
+    (asset) => normalize(dirname(asset.metadataPath)) === normalize(current),
+  );
   const empty = props.currentDirectory === "" && folders.length === 0 && assets.length === 0;
 
   if (empty) return <div className="picker-empty">No image entries or directories here.</div>;
@@ -65,7 +67,9 @@ export function ImageLibraryBrowser(props: {
             className="picker-card picker-directory"
             onClick={() => props.onDirectoryChange(parent(props.currentDirectory))}
           >
-            <span className="picker-card-preview"><FolderUp size={36} /></span>
+            <span className="picker-card-preview">
+              <FolderUp size={36} />
+            </span>
             <span className="picker-item-name">..</span>
             <span className="picker-item-path">Go up a directory</span>
           </button>
@@ -77,19 +81,28 @@ export function ImageLibraryBrowser(props: {
               type="button"
               className="picker-card picker-directory"
               key={folder.path}
-              onClick={() => props.onDirectoryChange(
-                props.currentDirectory ? `${props.currentDirectory}/${folder.name}` : folder.name,
-              )}
+              onClick={() =>
+                props.onDirectoryChange(
+                  props.currentDirectory ? `${props.currentDirectory}/${folder.name}` : folder.name,
+                )
+              }
             >
               {previews.length > 0 ? (
-                <span className="picker-card-preview picker-directory-preview-grid" data-image-count={previews.length}>
+                <span
+                  className="picker-card-preview picker-directory-preview-grid"
+                  data-image-count={previews.length}
+                >
                   {previews.map((path, index) => (
                     <CachedImage key={`${path}:${index}`} path={path} alt="" loading="lazy" />
                   ))}
-                  <span className="picker-directory-preview-badge"><Folder size={16} /></span>
+                  <span className="picker-directory-preview-badge">
+                    <Folder size={16} />
+                  </span>
                 </span>
               ) : (
-                <span className="picker-card-preview"><Folder size={36} /></span>
+                <span className="picker-card-preview">
+                  <Folder size={36} />
+                </span>
               )}
               <span className="picker-item-name">{folder.name}</span>
               <span className="picker-item-path">Directory</span>
@@ -124,7 +137,10 @@ export function ImageLibraryBrowser(props: {
               {content}
             </button>
           ) : (
-            <div key={`${asset.entryId}:${asset.metadataPath}`} className="picker-card picker-card-static">
+            <div
+              key={`${asset.entryId}:${asset.metadataPath}`}
+              className="picker-card picker-card-static"
+            >
               {content}
             </div>
           );

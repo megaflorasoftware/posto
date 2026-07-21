@@ -78,10 +78,15 @@ async function loadStore(store: LibraryStore): Promise<void> {
         invoke<string[]>("list_directories", { dir: store.libraryRoot }),
       ]);
       const metadata = files.filter((file) => {
-        const extension = file.name.split(".").pop()?.toLowerCase() as ImageLibraryMetadataExtension;
+        const extension = file.name
+          .split(".")
+          .pop()
+          ?.toLowerCase() as ImageLibraryMetadataExtension;
         const relativePath = file.path.slice(store.libraryRoot.length + 1);
-        return store.library.metadataExtensions.includes(extension)
-          && matchesImageLibraryPath(store.library, relativePath);
+        return (
+          store.library.metadataExtensions.includes(extension) &&
+          matchesImageLibraryPath(store.library, relativePath)
+        );
       });
       const documents = await Promise.all(
         metadata.map(async (file) => ({
@@ -118,10 +123,7 @@ async function loadStore(store: LibraryStore): Promise<void> {
 
 /** Reloads the shared index for a library outside a component — used to refresh
  * after an import when the filesystem watcher doesn't cover in-app writes. */
-export function refreshImageLibraryAssets(
-  root: string,
-  library: AstroImageLibrary,
-): Promise<void> {
+export function refreshImageLibraryAssets(root: string, library: AstroImageLibrary): Promise<void> {
   return loadStore(getStore(root, library));
 }
 
@@ -135,7 +137,11 @@ export function useImageLibraryAssets(root: string, library: AstroImageLibrary) 
     store.listeners.add(listener);
     if (!store.stopWatching) {
       store.stopWatching = onFsChanged((paths) => {
-        if (paths.some((path) => path === store.libraryRoot || path.startsWith(`${store.libraryRoot}/`))) {
+        if (
+          paths.some(
+            (path) => path === store.libraryRoot || path.startsWith(`${store.libraryRoot}/`),
+          )
+        ) {
           void loadStore(store);
         }
       });

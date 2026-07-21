@@ -98,10 +98,7 @@ export function DeploymentStatus({
     return () => window.clearInterval(id);
   }, [running]);
 
-  const ring = useMemo(
-    () => computeDeploymentRing(runs.map(toDeploymentRun), now),
-    [runs, now],
-  );
+  const ring = useMemo(() => computeDeploymentRing(runs.map(toDeploymentRun), now), [runs, now]);
   const actionsUrl = `https://github.com/${owner}/${name}/actions`;
   const color = RING_COLOR[ring.state] ?? "gray";
   const label = ring.done ? (

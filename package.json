@@ -1,9 +1,10 @@
 {
   "name": "posto",
   "version": "0.8.4",
-  "description": "",
-  "type": "module",
   "private": true,
+  "description": "",
+  "license": "MIT",
+  "type": "module",
   "scripts": {
     "start": "pnpm --filter desktop dev",
     "dev": "pnpm --filter desktop dev",
@@ -18,7 +19,6 @@
     "lint": "vp lint",
     "format": "vp fmt"
   },
-  "license": "MIT",
   "devDependencies": {
     "@tauri-apps/cli": "^2"
   }

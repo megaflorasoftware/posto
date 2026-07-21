@@ -201,7 +201,8 @@ function resolveField(
   const field: Field = {
     name: String(merged.name ?? ""),
     type: KNOWN_TYPES.has(type) ? type : "text",
-    label: merged.label === false ? false : typeof merged.label === "string" ? merged.label : undefined,
+    label:
+      merged.label === false ? false : typeof merged.label === "string" ? merged.label : undefined,
     description: typeof merged.description === "string" ? merged.description : undefined,
     required: merged.required === true,
     hidden: merged.hidden === true,
@@ -249,7 +250,8 @@ function collectEntries(
           .filter((f): f is Record<string, unknown> => !!f && typeof f === "object")
           .map((f) => resolveField(f, components, new Set()))
       : [];
-    const view = entry.view && typeof entry.view === "object" ? (entry.view as Record<string, unknown>) : {};
+    const view =
+      entry.view && typeof entry.view === "object" ? (entry.view as Record<string, unknown>) : {};
     const filename =
       typeof entry.filename === "string"
         ? entry.filename
@@ -340,7 +342,8 @@ export function matchCollectionForDir(
   dirPath: string,
 ): ContentEntry | null {
   const prefix = root.endsWith("/") ? root : root + "/";
-  const rel = dirPath === root ? "" : dirPath.startsWith(prefix) ? dirPath.slice(prefix.length) : null;
+  const rel =
+    dirPath === root ? "" : dirPath.startsWith(prefix) ? dirPath.slice(prefix.length) : null;
   if (rel === null) return null;
   for (const entry of config.content) {
     if (entry.type !== "collection") continue;
@@ -442,27 +445,24 @@ export function expandFieldTemplate(
   values: Record<string, unknown>,
 ): string | null {
   let missing = false;
-  const expanded = template.replace(
-    FIELD_TEMPLATE_TOKEN,
-    (_, name: string, filter?: string) => {
-      let value = values[name];
-      if (value === undefined && name.includes(".")) {
-        value = values;
-        for (const part of name.split(".")) {
-          if (!value || typeof value !== "object" || Array.isArray(value)) {
-            value = undefined;
-            break;
-          }
-          value = (value as Record<string, unknown>)[part];
+  const expanded = template.replace(FIELD_TEMPLATE_TOKEN, (_, name: string, filter?: string) => {
+    let value = values[name];
+    if (value === undefined && name.includes(".")) {
+      value = values;
+      for (const part of name.split(".")) {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          value = undefined;
+          break;
         }
+        value = (value as Record<string, unknown>)[part];
       }
-      if (value === undefined || value === null || String(value).trim() === "") {
-        missing = true;
-        return "";
-      }
-      return filter ? slugify(String(value)) : String(value).trim();
-    },
-  );
+    }
+    if (value === undefined || value === null || String(value).trim() === "") {
+      missing = true;
+      return "";
+    }
+    return filter ? slugify(String(value)) : String(value).trim();
+  });
   return missing ? null : expanded;
 }
 
@@ -510,7 +510,8 @@ export function generateFilename(
       if (name === null) return "untitled"; // `{primary}` with no primary field
       const value = values[name];
       if (value === undefined || value === null) return "";
-      const slugged = Boolean(filter) || (!explicitField && (token === "primary" || token === "slug"));
+      const slugged =
+        Boolean(filter) || (!explicitField && (token === "primary" || token === "slug"));
       return slugged ? slugify(String(value)) : String(value).trim();
     });
 }
@@ -697,7 +698,9 @@ export function resolveMediaForValue(
   const candidates = [entry?.media, ...config.media]
     .filter((media): media is MediaEntry => media !== undefined)
     .map((media, index) => ({ media: expandMediaEntry(media, values), index }))
-    .filter((candidate): candidate is { media: MediaEntry; index: number } => candidate.media !== null);
+    .filter(
+      (candidate): candidate is { media: MediaEntry; index: number } => candidate.media !== null,
+    );
   const value = outputPath.startsWith("/") ? outputPath : `/${outputPath}`;
   const matches = candidates
     .map(({ media, index }) => ({ media, index, output: normalizedOutput(media) }))
@@ -745,11 +748,7 @@ export function mediaOutputPath(
 }
 
 /** Inverse of {@link mediaOutputPath}: public output path → absolute file path. */
-export function mediaInputPath(
-  root: string,
-  media: MediaEntry,
-  outputPath: string,
-): string | null {
+export function mediaInputPath(root: string, media: MediaEntry, outputPath: string): string | null {
   const output = normalizedOutput(media);
   const value = outputPath.startsWith("/") ? outputPath : "/" + outputPath;
   if (!value.startsWith(output + "/")) return null;

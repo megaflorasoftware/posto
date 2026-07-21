@@ -21,8 +21,17 @@ export function ImageLibraryPickerDialog(props: {
   const [currentDirectory, setCurrentDirectory] = useState("");
   const openDirectory = currentDirectory ? `${directory}/${currentDirectory}` : directory;
   return (
-    <Dialog opened onClose={props.onClose} title={`Choose from ${props.library.collection}`} size="xl">
-      {props.error && <Alert color="red" mb="sm">{props.error}</Alert>}
+    <Dialog
+      opened
+      onClose={props.onClose}
+      title={`Choose from ${props.library.collection}`}
+      size="xl"
+    >
+      {props.error && (
+        <Alert color="red" mb="sm">
+          {props.error}
+        </Alert>
+      )}
       <ImageLibraryBrowser
         rootDirectory={directory}
         currentDirectory={currentDirectory}
@@ -40,7 +49,9 @@ export function ImageLibraryPickerDialog(props: {
         >
           Open Media Library
         </Button>
-        <Button fullWidth onClick={props.onImport}>Import image</Button>
+        <Button fullWidth onClick={props.onImport}>
+          Import image
+        </Button>
       </div>
     </Dialog>
   );

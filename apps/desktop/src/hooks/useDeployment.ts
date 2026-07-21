@@ -146,10 +146,7 @@ export function useDeployment(root: string | null): Deployment {
     return () => window.clearInterval(id);
   }, [running]);
 
-  const ring = useMemo(
-    () => computeDeploymentRing(runs.map(toDeploymentRun), now),
-    [runs, now],
-  );
+  const ring = useMemo(() => computeDeploymentRing(runs.map(toDeploymentRun), now), [runs, now]);
 
   const actionsUrl = slug ? `https://github.com/${slug.owner}/${slug.name}/actions` : null;
   const hasRing = signedIn && slug !== null && latestRun !== null;

@@ -65,13 +65,21 @@ function App() {
     onAfterSave(path, content) {
       files.updateSidebarTitle(path, content);
       const dir = rootRef.current;
-      if (dir && schemas.configRef.current?.content.some((entry) => entry.dataFile && `${dir}/${entry.dataFile.path}` === path)) {
+      if (
+        dir &&
+        schemas.configRef.current?.content.some(
+          (entry) => entry.dataFile && `${dir}/${entry.dataFile.path}` === path,
+        )
+      ) {
         void files.refreshDataGroups(dir, schemas.configRef.current);
       }
       setSaveTick((t) => t + 1);
       // Editing the schema itself must re-parse it, or forms keep the old one.
       if (dir && path === dir + "/.pages.yml") void schemas.loadPagesConfig(dir);
-      if (dir && (path === dir + "/src/content.config.ts" || path === dir + "/src/content/config.ts")) {
+      if (
+        dir &&
+        (path === dir + "/src/content.config.ts" || path === dir + "/src/content/config.ts")
+      ) {
         void schemas.loadAstroConfig(dir);
       }
       // Frontmatter drives template-derived filenames; each (already
@@ -185,7 +193,9 @@ function App() {
     const dir = rootRef.current;
     if (!dir) return;
     if (group.dataCollection) {
-      const collection = schemas.configRef.current?.content.find((entry) => entry.name === group.dataCollection);
+      const collection = schemas.configRef.current?.content.find(
+        (entry) => entry.name === group.dataCollection,
+      );
       if (!collection) return;
       try {
         const id = await createDataDocumentEntry(group, collection);
@@ -370,7 +380,10 @@ function App() {
   const entry = useMemo(() => {
     if (!root || !currentFile.filePath || !config) return null;
     if (currentFile.dataEntry) {
-      return config.content.find((candidate) => candidate.name === currentFile.dataEntry?.collection) ?? null;
+      return (
+        config.content.find((candidate) => candidate.name === currentFile.dataEntry?.collection) ??
+        null
+      );
     }
     return matchEntry(config, root, currentFile.filePath);
   }, [root, currentFile.filePath, currentFile.dataEntry, config]);

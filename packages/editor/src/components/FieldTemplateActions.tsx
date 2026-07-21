@@ -16,10 +16,7 @@ import type {
   FieldTemplateSchema,
   TemplateEditBehavior,
 } from "@posto/core/pagescms/config";
-import {
-  POSTO_COLLECTIONS_DIR,
-  updatePostoFieldTemplateSource,
-} from "@posto/core/posto/config";
+import { POSTO_COLLECTIONS_DIR, updatePostoFieldTemplateSource } from "@posto/core/posto/config";
 import { invoke } from "@posto/ipc";
 import { Dialog } from "./Dialog";
 
@@ -92,7 +89,11 @@ function TemplateDialog(props: {
           autosize
           minRows={3}
           value={template}
-          error={missingFilenameExtension ? "Filename templates must end with an extension, such as .mdx." : undefined}
+          error={
+            missingFilenameExtension
+              ? "Filename templates must end with an extension, such as .mdx."
+              : undefined
+          }
           onChange={(event) => setTemplate(event.currentTarget.value)}
         />
         <Radio.Group
@@ -110,8 +111,12 @@ function TemplateDialog(props: {
                 <Group wrap="nowrap" align="flex-start">
                   <Radio.Indicator />
                   <div>
-                    <Text size="sm" fw={600}>{behavior.label}</Text>
-                    <Text size="xs" c="dimmed">{behavior.description}</Text>
+                    <Text size="sm" fw={600}>
+                      {behavior.label}
+                    </Text>
+                    <Text size="xs" c="dimmed">
+                      {behavior.description}
+                    </Text>
                   </div>
                 </Group>
               </Radio.Card>
@@ -124,25 +129,29 @@ function TemplateDialog(props: {
               color="red"
               variant="subtle"
               disabled={saving}
-              onClick={() => void write(
-                props.fieldName === "filename" || props.schema?.rows !== undefined
-                  ? {
-                      editBehavior,
-                      ...(props.schema?.rows !== undefined ? { rows: props.schema.rows } : {}),
-                    }
-                  : null,
-              )}
+              onClick={() =>
+                void write(
+                  props.fieldName === "filename" || props.schema?.rows !== undefined
+                    ? {
+                        editBehavior,
+                        ...(props.schema?.rows !== undefined ? { rows: props.schema.rows } : {}),
+                      }
+                    : null,
+                )
+              }
             >
               Remove template
             </Button>
           )}
           <Button
             disabled={saving || trimmed === "" || missingFilenameExtension}
-            onClick={() => void write({
-              template: trimmed,
-              editBehavior,
-              ...(props.schema?.rows !== undefined ? { rows: props.schema.rows } : {}),
-            })}
+            onClick={() =>
+              void write({
+                template: trimmed,
+                editBehavior,
+                ...(props.schema?.rows !== undefined ? { rows: props.schema.rows } : {}),
+              })
+            }
           >
             Save template
           </Button>
@@ -203,9 +212,13 @@ function RowsDialog(props: {
           max={50}
           allowDecimal={false}
           value={rows}
-          onChange={(value) => setRows(typeof value === "number" ? Math.max(1, Math.floor(value)) : 1)}
+          onChange={(value) =>
+            setRows(typeof value === "number" ? Math.max(1, Math.floor(value)) : 1)
+          }
         />
-        <Button disabled={saving} onClick={() => void save()}>Save</Button>
+        <Button disabled={saving} onClick={() => void save()}>
+          Save
+        </Button>
       </Stack>
     </Dialog>
   );

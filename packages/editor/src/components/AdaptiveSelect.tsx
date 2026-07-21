@@ -58,17 +58,24 @@ function MobileOptionDrawer(props: {
     if (props.opened) setQuery("");
   }, [props.opened]);
   const normalized = query.trim().toLocaleLowerCase();
-  const filtered = props.options.filter((option) =>
-    !normalized || option.label.toLocaleLowerCase().includes(normalized),
+  const filtered = props.options.filter(
+    (option) => !normalized || option.label.toLocaleLowerCase().includes(normalized),
   );
-  const custom = props.allowCustom && query.trim() !== "" && !props.options.some(
-    (option) => option.value.toLocaleLowerCase() === normalized,
-  ) ? query.trim() : null;
+  const custom =
+    props.allowCustom &&
+    query.trim() !== "" &&
+    !props.options.some((option) => option.value.toLocaleLowerCase() === normalized)
+      ? query.trim()
+      : null;
 
   return (
     <Dialog opened={props.opened} onClose={props.onClose} title={props.title} size="sm">
       <div className="mobile-combobox-drawer">
-        <div className="mobile-combobox-options" role="listbox" aria-multiselectable={props.multiple}>
+        <div
+          className="mobile-combobox-options"
+          role="listbox"
+          aria-multiselectable={props.multiple}
+        >
           {props.clearable && !props.multiple && props.selected.length > 0 && (
             <button type="button" className="mobile-combobox-option" onClick={props.onClear}>
               <span>None</span>
@@ -128,18 +135,25 @@ export function AdaptiveSelect(props: SelectProps) {
   const variant = useDialogVariant();
   const [opened, setOpened] = useState(false);
   const options = useMemo(() => optionsFromData(props.data), [props.data]);
-  const drawerTitle = typeof props.label === "string"
-    ? props.label
-    : typeof props["aria-label"] === "string" ? props["aria-label"] : "Choose option";
+  const drawerTitle =
+    typeof props.label === "string"
+      ? props.label
+      : typeof props["aria-label"] === "string"
+        ? props["aria-label"]
+        : "Choose option";
   if (variant !== "drawer") return <Select {...props} />;
 
   if (!props.searchable) {
     const nativeData = [
-      ...((props.clearable || props.placeholder) ? [{
-        value: "",
-        label: props.placeholder ?? "None",
-        disabled: !props.clearable,
-      }] : []),
+      ...(props.clearable || props.placeholder
+        ? [
+            {
+              value: "",
+              label: props.placeholder ?? "None",
+              disabled: !props.clearable,
+            },
+          ]
+        : []),
       ...options,
     ];
     return (
@@ -188,7 +202,9 @@ export function AdaptiveSelect(props: SelectProps) {
         options={options}
         selected={props.value ? [props.value] : []}
         clearable={props.clearable}
-        nothingFoundMessage={typeof props.nothingFoundMessage === "string" ? props.nothingFoundMessage : undefined}
+        nothingFoundMessage={
+          typeof props.nothingFoundMessage === "string" ? props.nothingFoundMessage : undefined
+        }
         onClose={() => setOpened(false)}
         onClear={() => {
           props.onChange?.(null, { value: "", label: "None" });
@@ -210,9 +226,12 @@ export function AdaptiveTagsInput(props: TagsInputProps) {
   const variant = useDialogVariant();
   const [opened, setOpened] = useState(false);
   const options = useMemo(() => optionsFromData(props.data), [props.data]);
-  const drawerTitle = typeof props.label === "string"
-    ? props.label
-    : typeof props["aria-label"] === "string" ? props["aria-label"] : "Choose options";
+  const drawerTitle =
+    typeof props.label === "string"
+      ? props.label
+      : typeof props["aria-label"] === "string"
+        ? props["aria-label"]
+        : "Choose options";
   if (variant !== "drawer") return <TagsInput {...props} />;
 
   const values = props.value ?? [];
@@ -244,11 +263,13 @@ export function AdaptiveTagsInput(props: TagsInputProps) {
         multiple
         allowCustom
         onClose={() => setOpened(false)}
-        onChoose={(value) => props.onChange?.(
-          values.includes(value)
-            ? values.filter((current) => current !== value)
-            : [...values, value],
-        )}
+        onChoose={(value) =>
+          props.onChange?.(
+            values.includes(value)
+              ? values.filter((current) => current !== value)
+              : [...values, value],
+          )
+        }
       />
     </>
   );

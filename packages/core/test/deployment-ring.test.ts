@@ -64,7 +64,10 @@ test("an in-progress run fills proportionally to elapsed time", () => {
   const ring = computeDeploymentRing(runs, NOW);
   assert(ring.state === "running" && !ring.done, "an in-progress run reads as running");
   // 45s of a 90s estimate ≈ 50%.
-  assert(Math.round(ring.value) === 50, `running ring fills to elapsed/estimate (got ${ring.value})`);
+  assert(
+    Math.round(ring.value) === 50,
+    `running ring fills to elapsed/estimate (got ${ring.value})`,
+  );
 });
 
 test("an overrunning run never shows as complete", () => {

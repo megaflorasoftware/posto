@@ -73,9 +73,11 @@ export function EditorPane(props: {
   const { filePath, fileContent, entry, editorTab, dataEntry } = props;
 
   const fileName = dataEntry?.id ?? filePath?.split("/").pop() ?? "";
-  const filenameSchema = entry?.fieldSchemas?.filename ?? (entry?.filename
-    ? { template: entry.filename, editBehavior: "controlled" as const }
-    : undefined);
+  const filenameSchema =
+    entry?.fieldSchemas?.filename ??
+    (entry?.filename
+      ? { template: entry.filename, editBehavior: "controlled" as const }
+      : undefined);
   const [filenameDraft, setFilenameDraft] = useState(fileName);
   useEffect(() => setFilenameDraft(fileName), [fileName]);
 
@@ -109,9 +111,8 @@ export function EditorPane(props: {
     />
   );
 
-  const filenameReadOnly = !!dataEntry || !!(
-    filenameSchema?.template && filenameSchema.editBehavior === "controlled"
-  );
+  const filenameReadOnly =
+    !!dataEntry || !!(filenameSchema?.template && filenameSchema.editBehavior === "controlled");
   const filenameInput = (
     <TextInput
       className="pane-filename-input"
@@ -119,18 +120,22 @@ export function EditorPane(props: {
       aria-label="Filename"
       value={filenameDraft}
       readOnly={filenameReadOnly}
-      rightSection={!filenameReadOnly && filenameSchema?.template && filenameSchema.editBehavior === "manual" ? (
-        <ActionIcon
-          variant="subtle"
-          color="gray"
-          size="sm"
-          title="Regenerate Filename from its template"
-          aria-label="Regenerate Filename from its template"
-          onClick={() => props.onRefreshFilename(filenameSchema.template!)}
-        >
-          <RefreshCw size={15} />
-        </ActionIcon>
-      ) : undefined}
+      rightSection={
+        !filenameReadOnly &&
+        filenameSchema?.template &&
+        filenameSchema.editBehavior === "manual" ? (
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size="sm"
+            title="Regenerate Filename from its template"
+            aria-label="Regenerate Filename from its template"
+            onClick={() => props.onRefreshFilename(filenameSchema.template!)}
+          >
+            <RefreshCw size={15} />
+          </ActionIcon>
+        ) : undefined
+      }
       rightSectionPointerEvents="all"
       onChange={(event) => setFilenameDraft(event.currentTarget.value)}
       onBlur={() => void commitFilename()}
@@ -143,17 +148,18 @@ export function EditorPane(props: {
       }}
     />
   );
-  const filenameActions = entry && !dataEntry ? (
-    <FieldTemplateActions
-      root={props.root}
-      collection={entry}
-      fieldName="filename"
-      label="Filename"
-      schema={filenameSchema}
-      onPostoSaved={props.onPostoSaved}
-      onGenerate={props.onRefreshFilename}
-    />
-  ) : null;
+  const filenameActions =
+    entry && !dataEntry ? (
+      <FieldTemplateActions
+        root={props.root}
+        collection={entry}
+        fieldName="filename"
+        label="Filename"
+        schema={filenameSchema}
+        onPostoSaved={props.onPostoSaved}
+        onGenerate={props.onRefreshFilename}
+      />
+    ) : null;
   const filenameField = (
     <div className="form-field pane-filename-field">
       <div className="field-label-row">
@@ -168,11 +174,7 @@ export function EditorPane(props: {
     <>
       {(props.filenamePlacement ?? "header") === "header" && (
         <div className="pane-header">
-          {filenameReadOnly ? (
-            <div className="pane-filename-text">{fileName}</div>
-          ) : (
-            filenameInput
-          )}
+          {filenameReadOnly ? <div className="pane-filename-text">{fileName}</div> : filenameInput}
           {filenameActions}
         </div>
       )}
@@ -199,7 +201,9 @@ export function EditorPane(props: {
           {!props.hideTabList && (
             <Tabs.List>
               {tabs.map((tab) => (
-                <Tabs.Tab key={tab} value={tab} tt="capitalize">{tab}</Tabs.Tab>
+                <Tabs.Tab key={tab} value={tab} tt="capitalize">
+                  {tab}
+                </Tabs.Tab>
               ))}
             </Tabs.List>
           )}
@@ -214,7 +218,9 @@ export function EditorPane(props: {
               config={props.config ?? EMPTY_CONFIG}
               root={props.root}
               groups={props.groups}
-              fieldsHeader={(props.filenamePlacement ?? "header") === "fields" ? filenameField : undefined}
+              fieldsHeader={
+                (props.filenamePlacement ?? "header") === "fields" ? filenameField : undefined
+              }
               onChange={props.onFormEdit}
               onPostoSaved={props.onPostoSaved}
             />
@@ -230,7 +236,9 @@ export function EditorPane(props: {
               config={props.config ?? EMPTY_CONFIG}
               root={props.root}
               groups={props.groups}
-              fieldsHeader={(props.filenamePlacement ?? "header") === "fields" ? filenameField : undefined}
+              fieldsHeader={
+                (props.filenamePlacement ?? "header") === "fields" ? filenameField : undefined
+              }
               onChange={props.onFormEdit}
               onPostoSaved={props.onPostoSaved}
             />

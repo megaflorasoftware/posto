@@ -13,7 +13,9 @@ function imageFields(source: string): SchemaImageField[] {
       let start = property.lastIndex;
       while (/\s/.test(block[start] ?? "")) start++;
       let end = start;
-      let braces = 0, parens = 0, brackets = 0;
+      let braces = 0,
+        parens = 0,
+        brackets = 0;
       let quote: string | null = null;
       for (; end < block.length; end++) {
         const char = block[end];
@@ -24,8 +26,10 @@ function imageFields(source: string): SchemaImageField[] {
         }
         if (char === '"' || char === "'" || char === "`") quote = char;
         else if (char === "{") braces++;
-        else if (char === "}") { if (braces === 0 && parens === 0 && brackets === 0) break; braces--; }
-        else if (char === "(") parens++;
+        else if (char === "}") {
+          if (braces === 0 && parens === 0 && brackets === 0) break;
+          braces--;
+        } else if (char === "(") parens++;
         else if (char === ")") parens--;
         else if (char === "[") brackets++;
         else if (char === "]") brackets--;
@@ -44,7 +48,10 @@ function imageFields(source: string): SchemaImageField[] {
           let close = -1;
           for (let index = open; index < value.length; index++) {
             if (value[index] === "{") depth++;
-            else if (value[index] === "}" && --depth === 0) { close = index; break; }
+            else if (value[index] === "}" && --depth === 0) {
+              close = index;
+              break;
+            }
           }
           if (close > open) {
             walk(
@@ -66,7 +73,9 @@ function declaredSchemaSource(source: string, identifier: string): string | null
   const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const constant = new RegExp(`(?:export\\s+)?const\\s+${escaped}\\s*=`).exec(source);
   if (constant) {
-    let parens = 0, braces = 0, brackets = 0;
+    let parens = 0,
+      braces = 0,
+      brackets = 0;
     let quote: string | null = null;
     for (let index = constant.index; index < source.length; index++) {
       const char = source[index];

@@ -190,9 +190,7 @@ export function SeoPreview(props: {
         </Button>
       </div>
 
-      {error != null && (
-        <Alert color="yellow">Could not load page metadata: {String(error)}</Alert>
-      )}
+      {error != null && <Alert color="yellow">Could not load page metadata: {String(error)}</Alert>}
 
       {seo && (
         <>

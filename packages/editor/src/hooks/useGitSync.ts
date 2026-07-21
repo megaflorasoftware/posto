@@ -133,7 +133,7 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
       return false;
     }
     const cached = changedFilesRef.current;
-    const next = (cached?.root === dir ? cached.files : changes ?? []).filter(
+    const next = (cached?.root === dir ? cached.files : (changes ?? [])).filter(
       (candidate) => candidate.path !== file.path,
     );
     changedFilesRef.current = { root: dir, files: next };

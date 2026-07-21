@@ -75,8 +75,7 @@ export function buildNewFile(
   // leaving an invisible orphan. Those fall back to an always-visible
   // `untitled.<ext>`; only the template's extension survives.
   const usable = generated !== "" && !generated.includes("/") && !generated.startsWith(".");
-  const extension =
-    pattern.match(/\.([a-z0-9]+)\s*$/i)?.[1] ?? collectionExtension(entry) ?? "md";
+  const extension = pattern.match(/\.([a-z0-9]+)\s*$/i)?.[1] ?? collectionExtension(entry) ?? "md";
   const name = dedupeFilename(usable ? generated : `untitled.${extension}`, taken);
   // Written through setValue so scalars get the same treatment as form
   // edits: strings quoted, date fields plain (so date-typed schemas like

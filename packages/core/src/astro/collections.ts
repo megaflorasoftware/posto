@@ -131,7 +131,9 @@ function convertSchema(name: string, schema: JsonSchema, required: boolean): Fie
       const item = items ? convertSchema(name, items, false) : null;
       // Nested arrays have no editable item shape; degrade like inferField.
       const field: Field =
-        item && !item.list ? { ...item, required: base.required, default: base.default } : { ...textField(name), required: base.required, default: base.default };
+        item && !item.list
+          ? { ...item, required: base.required, default: base.default }
+          : { ...textField(name), required: base.required, default: base.default };
       const min = typeof schema.minItems === "number" ? schema.minItems : undefined;
       const max = typeof schema.maxItems === "number" ? schema.maxItems : undefined;
       field.list = min !== undefined || max !== undefined ? { min, max } : true;
@@ -139,18 +141,18 @@ function convertSchema(name: string, schema: JsonSchema, required: boolean): Fie
     }
     case "object": {
       const properties = asSchema(schema.properties);
-      if (!properties) return { ...textField(name), required: base.required, default: base.default };
+      if (!properties)
+        return { ...textField(name), required: base.required, default: base.default };
       const childRequired = Array.isArray(schema.required) ? schema.required : [];
       return {
         ...base,
         type: "object",
-        fields: Object.entries(properties)
-          .map(([key, child]) => {
-            const childSchema = asSchema(child);
-            return childSchema
-              ? convertSchema(key, childSchema, childRequired.includes(key))
-              : textField(key);
-          }),
+        fields: Object.entries(properties).map(([key, child]) => {
+          const childSchema = asSchema(child);
+          return childSchema
+            ? convertSchema(key, childSchema, childRequired.includes(key))
+            : textField(key);
+        }),
       };
     }
     default:
@@ -373,7 +375,9 @@ export function parseLoaderConfig(source: string): Map<string, LoaderInfo> {
 }
 
 /** Media source used when no `.pages.yml` provides one: Astro's `public` dir. */
-export const DEFAULT_ASTRO_MEDIA: MediaEntry[] = [{ name: "default", input: "public", output: "/" }];
+export const DEFAULT_ASTRO_MEDIA: MediaEntry[] = [
+  { name: "default", input: "public", output: "/" },
+];
 
 function normalizePath(base: string): string {
   return base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
@@ -426,12 +430,22 @@ function resolveReferences(
 
 /** Restores Astro `image()` fields, which are plain strings in generated JSON
  * Schema. Traversing child fields also covers objects and object-list items. */
-function resolveImages(fields: Field[], images: NonNullable<LoaderInfo["images"]> = [], prefix: string[] = []): Field[] {
+function resolveImages(
+  fields: Field[],
+  images: NonNullable<LoaderInfo["images"]> = [],
+  prefix: string[] = [],
+): Field[] {
   return fields.map((field) => {
     const path = [...prefix, field.name];
-    const resolved = images.some((candidate) => candidate.path.length === path.length && candidate.path.every((part, index) => part === path[index])) && (field.type === "string" || field.type === "text")
-      ? { ...field, type: "image" }
-      : field;
+    const resolved =
+      images.some(
+        (candidate) =>
+          candidate.path.length === path.length &&
+          candidate.path.every((part, index) => part === path[index]),
+      ) &&
+      (field.type === "string" || field.type === "text")
+        ? { ...field, type: "image" }
+        : field;
     return resolved.fields
       ? { ...resolved, fields: resolveImages(resolved.fields, images, path) }
       : resolved;
@@ -445,7 +459,8 @@ function metadataExtensions(patterns: string[]): ImageLibraryMetadataExtension[]
     const single = pattern.match(/\.([a-z0-9]+)$/i)?.[1];
     for (const ext of single ? [single] : braces) {
       const normalized = ext.toLowerCase();
-      if (normalized === "yaml" || normalized === "yml" || normalized === "json") found.add(normalized);
+      if (normalized === "yaml" || normalized === "yml" || normalized === "json")
+        found.add(normalized);
     }
   }
   return [...found];
@@ -462,24 +477,44 @@ function discoverImageLibraries(
     const images = loader?.images ?? [];
     if (images.length === 0 || loader?.kind !== "glob") continue;
     if (images.length > 1) {
-      diagnostics.push({ collection: collection.name, code: "multiple-image-fields", message: `Collection ${collection.name} has multiple image fields and cannot be managed as an image library.` });
+      diagnostics.push({
+        collection: collection.name,
+        code: "multiple-image-fields",
+        message: `Collection ${collection.name} has multiple image fields and cannot be managed as an image library.`,
+      });
       continue;
     }
     if (!loader.base) {
-      diagnostics.push({ collection: collection.name, code: "missing-loader-base", message: `Collection ${collection.name} has no static glob loader base.` });
+      diagnostics.push({
+        collection: collection.name,
+        code: "missing-loader-base",
+        message: `Collection ${collection.name} has no static glob loader base.`,
+      });
       continue;
     }
     if (loader.customIds) {
-      diagnostics.push({ collection: collection.name, code: "custom-entry-ids", message: `Collection ${collection.name} uses a custom generateId function, so Posto cannot manage its image entry IDs.` });
+      diagnostics.push({
+        collection: collection.name,
+        code: "custom-entry-ids",
+        message: `Collection ${collection.name} uses a custom generateId function, so Posto cannot manage its image entry IDs.`,
+      });
       continue;
     }
     if (images.some((image) => !image.writable)) {
-      diagnostics.push({ collection: collection.name, code: "unsupported-image-shape", message: `Collection ${collection.name} has an image field inside a list. Posto image libraries require one scalar image field nested only through objects.` });
+      diagnostics.push({
+        collection: collection.name,
+        code: "unsupported-image-shape",
+        message: `Collection ${collection.name} has an image field inside a list. Posto image libraries require one scalar image field nested only through objects.`,
+      });
       continue;
     }
     const extensions = metadataExtensions(loader.patterns ?? []);
     if (extensions.length === 0) {
-      diagnostics.push({ collection: collection.name, code: "unsupported-metadata-format", message: `Collection ${collection.name} does not use YAML or JSON metadata.` });
+      diagnostics.push({
+        collection: collection.name,
+        code: "unsupported-metadata-format",
+        message: `Collection ${collection.name} does not use YAML or JSON metadata.`,
+      });
       continue;
     }
     libraries.push({
@@ -523,7 +558,11 @@ export function buildAstroConfig(
           label: name.charAt(0).toUpperCase() + name.slice(1),
           type: "collection",
           path: filePath,
-          fields: resolveReferences(resolveImages(fields, loader.images), loader.references, loaders),
+          fields: resolveReferences(
+            resolveImages(fields, loader.images),
+            loader.references,
+            loaders,
+          ),
           dataFile: {
             path: filePath,
             format: format === "yml" ? "yaml" : (format as "json" | "yaml" | "toml"),
@@ -547,9 +586,7 @@ export function buildAstroConfig(
       label: name.charAt(0).toUpperCase() + name.slice(1),
       type: "collection",
       path:
-        loader?.kind === "glob" && loader.base
-          ? normalizePath(loader.base)
-          : `src/content/${name}`,
+        loader?.kind === "glob" && loader.base ? normalizePath(loader.base) : `src/content/${name}`,
       subfolders:
         patterns.length > 0 && patterns.every((p) => !p.includes("/")) ? false : undefined,
       extension,

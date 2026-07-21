@@ -43,7 +43,10 @@ export function DataFormEditor(props: {
   onPostoSaved?: () => void;
 }) {
   const parsedRef = useRef<ParsedDataDocument>(null as unknown as ParsedDataDocument);
-  const locatorRef = useRef<DataEntryLocator>({ id: props.dataEntry.id, path: props.dataEntry.path });
+  const locatorRef = useRef<DataEntryLocator>({
+    id: props.dataEntry.id,
+    path: props.dataEntry.path,
+  });
   const processed = useRef<string | null>(null);
   const lastEmitted = useRef<string | null>(null);
   const defaultsApplied = useRef(false);
@@ -121,12 +124,14 @@ export function DataFormEditor(props: {
     const schemas = props.entry.fieldSchemas;
     if (!schemas) return;
     const controlled = Object.entries(schemas).filter(
-      ([name, schema]) => name !== "filename" && schema.template && schema.editBehavior === "controlled",
+      ([name, schema]) =>
+        name !== "filename" && schema.template && schema.editBehavior === "controlled",
     );
     for (let pass = 0; pass <= controlled.length; pass++) {
       let changed = false;
       for (const [name, schema] of Object.entries(schemas)) {
-        if (name === "filename" || !schema.template || schema.editBehavior !== "controlled") continue;
+        if (name === "filename" || !schema.template || schema.editBehavior !== "controlled")
+          continue;
         const values = dataEntryValues(parsedRef.current, locatorRef.current) ?? {};
         const expanded = expandFieldTemplate(schema.template, values);
         const path = name.split(".");

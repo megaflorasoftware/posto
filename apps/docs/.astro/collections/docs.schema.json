@@ -28,16 +28,7 @@
         "properties": {
           "tag": {
             "type": "string",
-            "enum": [
-              "title",
-              "base",
-              "link",
-              "style",
-              "meta",
-              "script",
-              "noscript",
-              "template"
-            ]
+            "enum": ["title", "base", "link", "style", "meta", "script", "noscript", "template"]
           },
           "attrs": {
             "type": "object",
@@ -60,9 +51,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "tag"
-        ]
+        "required": ["tag"]
       }
     },
     "tableOfContents": {
@@ -92,10 +81,7 @@
     "template": {
       "default": "doc",
       "type": "string",
-      "enum": [
-        "doc",
-        "splash"
-      ]
+      "enum": ["doc", "splash"]
     },
     "hero": {
       "type": "object",
@@ -119,9 +105,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "file"
-              ]
+              "required": ["file"]
             },
             {
               "type": "object",
@@ -137,10 +121,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "dark",
-                "light"
-              ]
+              "required": ["dark", "light"]
             },
             {
               "type": "object",
@@ -149,9 +130,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "html"
-              ]
+              "required": ["html"]
             }
           ]
         },
@@ -169,11 +148,7 @@
               "variant": {
                 "default": "primary",
                 "type": "string",
-                "enum": [
-                  "primary",
-                  "secondary",
-                  "minimal"
-                ]
+                "enum": ["primary", "secondary", "minimal"]
               },
               "icon": {
                 "anyOf": [
@@ -478,10 +453,7 @@
                 }
               }
             },
-            "required": [
-              "text",
-              "link"
-            ]
+            "required": ["text", "link"]
           }
         }
       }
@@ -566,14 +538,7 @@
                 "variant": {
                   "default": "default",
                   "type": "string",
-                  "enum": [
-                    "note",
-                    "danger",
-                    "success",
-                    "caution",
-                    "tip",
-                    "default"
-                  ]
+                  "enum": ["note", "danger", "success", "caution", "tip", "default"]
                 },
                 "class": {
                   "type": "string"
@@ -582,9 +547,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "text"
-              ]
+              "required": ["text"]
             }
           ]
         },
@@ -621,9 +584,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "content"
-      ]
+      "required": ["content"]
     },
     "pagefind": {
       "default": true,
@@ -637,7 +598,5 @@
       "type": "string"
     }
   },
-  "required": [
-    "title"
-  ]
+  "required": ["title"]
 }

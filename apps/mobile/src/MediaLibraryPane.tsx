@@ -38,7 +38,9 @@ export function MediaLibraryPane(props: {
           />
         )}
         {libraryState.error ? (
-          <Text c="red" size="sm">Could not read image library: {libraryState.error}</Text>
+          <Text c="red" size="sm">
+            Could not read image library: {libraryState.error}
+          </Text>
         ) : (
           <ImageLibraryBrowser
             rootDirectory={libraryRoot}
