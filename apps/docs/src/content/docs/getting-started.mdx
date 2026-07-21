@@ -1,0 +1,65 @@
+---
+title: Opening your first site
+description: From installing Posto to your first published change — opening a site, letting the environment set itself up, editing, and publishing.
+---
+
+This page walks from a fresh install to a published change. It assumes the site already lives in
+a Git repository; if you're building a site *for* Posto, also read the setup guide for your
+framework afterwards.
+
+## 1. Install Posto
+
+Download the desktop app from the [home page](/) or the latest
+[GitHub release](https://github.com/megaflorasoftware/posto/releases/latest). On macOS, clear
+the quarantine flag after installing (see [What is Posto?](/what-is-posto/)).
+
+The mobile app isn't distributed yet; this page will link to it when it is.
+
+## 2. Open the site
+
+- **Desktop** — open the site's repository folder on your computer. Posto doesn't clone
+  repositories yet, so if the site only exists on GitHub, clone it once with Git (or a Git
+  client) first:
+
+  ```sh
+  git clone https://github.com/your-account/your-site.git
+  ```
+
+- **Mobile** — sign in to GitHub, pick the repository, and Posto clones it with one tap.
+
+## 3. Let the environment set up
+
+On desktop, Posto gets the site running the way a developer would: it detects and installs Node
+and the site's package manager, installs dependencies, and starts the dev server. When it
+finishes, the live preview appears beside the editor. See
+[Environment setup](/features/environment-setup/) for details.
+
+Mobile skips this step — there is no dev server or preview on mobile.
+
+## 4. Make an edit
+
+Pick a file from the sidebar. Frontmatter is edited as a form on the **Fields** tab, the content
+itself in the rich-text **Body** tab, and edits save automatically as you type. The preview
+follows along. [Editing a site](/features/editing-a-site/) covers the editor in full.
+
+## 5. Publish
+
+When you're happy with the changes, press **Publish**: review the changed files, write a short
+message, and Posto commits and pushes them to the repository.
+
+:::caution
+Publishing pushes straight to the default branch. If the host deploys from that branch, the
+change goes live — there is no draft or review step. See
+[Publishing a site](/features/publishing-a-site/).
+:::
+
+If the site deploys through GitHub Actions, the deployment indicator in the header
+[tracks the deploy](/deployment/github/tracking-deployment-status/) until it's live.
+
+## Next
+
+- Setting up a site so Posto can do more with it:
+  [Astro](/frameworks/astro/getting-started/) ·
+  [Pages CMS](/frameworks/pages-cms/getting-started/)
+- The rest of the editor: [Previewing](/features/previewing-a-site/) ·
+  [Managing site media](/features/managing-site-media/)
