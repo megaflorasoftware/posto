@@ -135,6 +135,15 @@ function trimSlashes(path: string): string {
   return path.replace(/^\/+|\/+$/g, "");
 }
 
+/** Stringifies a scalar field value. Objects/arrays have no filename-safe
+ * representation, so they're treated as empty rather than `[object Object]`. */
+function scalarString(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint")
+    return String(value);
+  return "";
+}
+
 /**
  * Default output path for a media input dir when the config doesn't set one.
  * A site's `public` folder is served from the site root, so a leading
@@ -199,7 +208,7 @@ function resolveField(
 
   const type = typeof merged.type === "string" ? merged.type : "text";
   const field: Field = {
-    name: String(merged.name ?? ""),
+    name: typeof merged.name === "string" ? merged.name : "",
     type: KNOWN_TYPES.has(type) ? type : "text",
     label:
       merged.label === false ? false : typeof merged.label === "string" ? merged.label : undefined,
@@ -259,7 +268,7 @@ function collectEntries(
           ? (entry.filename as { template?: unknown }).template
           : undefined;
     out.push({
-      name: String(entry.name ?? ""),
+      name: typeof entry.name === "string" ? entry.name : "",
       label: typeof entry.label === "string" ? entry.label : undefined,
       type: entry.type,
       path: trimSlashes(entry.path),
@@ -457,11 +466,12 @@ export function expandFieldTemplate(
         value = (value as Record<string, unknown>)[part];
       }
     }
-    if (value === undefined || value === null || String(value).trim() === "") {
+    const text = scalarString(value);
+    if (text.trim() === "") {
       missing = true;
       return "";
     }
-    return filter ? slugify(String(value)) : String(value).trim();
+    return filter ? slugify(text) : text.trim();
   });
   return missing ? null : expanded;
 }
@@ -508,11 +518,11 @@ export function generateFilename(
       const explicitField = match.startsWith("{fields.");
       const name = filenameFieldName(entry, token, explicitField);
       if (name === null) return "untitled"; // `{primary}` with no primary field
-      const value = values[name];
-      if (value === undefined || value === null) return "";
+      const text = scalarString(values[name]);
+      if (text === "") return "";
       const slugged =
         Boolean(filter) || (!explicitField && (token === "primary" || token === "slug"));
-      return slugged ? slugify(String(value)) : String(value).trim();
+      return slugged ? slugify(text) : text.trim();
     });
 }
 
@@ -576,9 +586,9 @@ export function renamedFilename(
   const fields = patternFields(pattern, entry);
   if (fields.length === 0) return null;
   for (const token of filenameFieldTokens(pattern, entry)) {
-    const value = values[token.name];
-    if (value === undefined || value === null || String(value).trim() === "") return null;
-    if (token.slugged && slugify(String(value)) === "") return null;
+    const text = scalarString(values[token.name]);
+    if (text.trim() === "") return null;
+    if (token.slugged && slugify(text) === "") return null;
   }
   const dates: Record<string, string> = {};
   const captured: string[] = [];

@@ -60,8 +60,10 @@ export interface FieldContext {
 }
 
 function asString(value: unknown): string {
-  if (value === undefined || value === null) return "";
-  return typeof value === "string" ? value : String(value);
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint")
+    return String(value);
+  return "";
 }
 
 /** Initial value for a newly added list item, built from nested defaults. */

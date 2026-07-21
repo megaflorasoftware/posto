@@ -29,6 +29,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+/** Entry id/slug, coerced from a primitive. Objects/arrays aren't valid ids. */
+function entryId(item: Record<string, unknown>): string | null {
+  const id = item.id ?? item.slug;
+  if (typeof id === "string") return id === "" ? null : id;
+  if (typeof id === "number" || typeof id === "bigint") return String(id);
+  return null;
+}
+
 export function dataDocumentFormat(path: string): DataDocumentFormat | null {
   const ext = path.split(".").pop()?.toLowerCase();
   if (ext === "json") return "json";
@@ -67,10 +75,8 @@ export function dataDocumentEntries(parsed: ParsedDataDocument): DataEntryLocato
   if (Array.isArray(value)) {
     return value.flatMap((item, index) => {
       if (!isRecord(item)) return [];
-      const id = item.id ?? item.slug;
-      return id === undefined || id === null || String(id) === ""
-        ? []
-        : [{ id: String(id), path: [index] }];
+      const id = entryId(item);
+      return id === null ? [] : [{ id, path: [index] }];
     });
   }
   if (!isRecord(value)) return [];
@@ -79,10 +85,8 @@ export function dataDocumentEntries(parsed: ParsedDataDocument): DataEntryLocato
     const [key, items] = arrays[0] as [string, unknown[]];
     const nested = items.flatMap((item, index) => {
       if (!isRecord(item)) return [];
-      const id = item.id ?? item.slug;
-      return id === undefined || id === null || String(id) === ""
-        ? []
-        : [{ id: String(id), path: [key, index] }];
+      const id = entryId(item);
+      return id === null ? [] : [{ id, path: [key, index] }];
     });
     if (nested.length > 0) return nested;
   }
