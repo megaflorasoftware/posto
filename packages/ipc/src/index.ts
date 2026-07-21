@@ -837,20 +837,108 @@ export const openDirectory: () => Promise<string | null> = inTauri
   : async () => "/mock/site";
 
 const IMAGE_FILE_FILTERS = [
-  { name: "Images", extensions: ["avif", "gif", "jpeg", "jpg", "png", "svg", "tif", "tiff", "webp"] },
+  {
+    name: "Images",
+    extensions: [
+      "avif",
+      "gif",
+      "heic",
+      "heif",
+      "jpeg",
+      "jpg",
+      "png",
+      "svg",
+      "tif",
+      "tiff",
+      "webp",
+    ],
+  },
 ];
+
+async function decodeBitmap(blob: Blob): Promise<ImageBitmap> {
+  // EXIF orientation is baked in so portrait photos aren't rotated; retry
+  // without the option for engines that reject it.
+  try {
+    return await createImageBitmap(blob, { imageOrientation: "from-image" });
+  } catch {
+    return createImageBitmap(blob);
+  }
+}
+
+/** Transcodes already-read image bytes to a JPEG temp file and returns its
+ * absolute path. Decoding from an in-memory Blob keeps the canvas same-origin
+ * (no asset-protocol taint blocking the export); WKWebView supplies the HEIC
+ * decoder. */
+async function convertBytesToJpeg(bytes: Uint8Array): Promise<string> {
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await decodeBitmap(new Blob([bytes]));
+  } catch {
+    throw new Error("Could not decode the selected image.");
+  }
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Could not prepare the image for import.");
+    context.drawImage(bitmap, 0, 0);
+    const output = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (result) =>
+          result ? resolve(result) : reject(new Error("Could not convert the image to JPEG.")),
+        "image/jpeg",
+        0.92,
+      );
+    });
+    const out = Array.from(new Uint8Array(await output.arrayBuffer()));
+    return invoke<string>("write_temp_image", { bytes: out, extension: "jpg" });
+  } finally {
+    bitmap.close();
+  }
+}
+
+async function prepareImageSource(path: string): Promise<string> {
+  // The picker's extension can't be trusted — iOS hands HEIFs back named
+  // ".jpeg" — so sniff the file's actual content server-side and only re-encode
+  // true HEIFs, which the site (and most browsers) can't render.
+  if (!(await invoke<boolean>("probe_image_is_heif", { path }))) return path;
+  const bytes = new Uint8Array(await invoke<number[]>("read_image_bytes", { path }));
+  return convertBytesToJpeg(bytes);
+}
+
+/** Normalizes chosen or dropped source images so the importer always receives a
+ * format the app can preview and the published site can render — HEIC/HEIF are
+ * transcoded to JPEG, everything else passes through untouched. */
+export async function prepareImageSources(paths: string[]): Promise<string[]> {
+  if (!inTauri) return paths;
+  return Promise.all(paths.map(prepareImageSource));
+}
+
+/** The iOS picker returns `file://` URLs, but every filesystem consumer (the
+ * native importer, the byte reader, the format probe) expects a plain path, so
+ * strip the scheme and percent-decode. Plain paths (desktop) pass through. */
+function toFilesystemPath(path: string): string {
+  if (!path.startsWith("file://")) return path;
+  try {
+    return decodeURIComponent(new URL(path).pathname);
+  } catch {
+    return decodeURIComponent(path.slice("file://".length));
+  }
+}
 
 export const openImageFile: () => Promise<string | null> = inTauri
   ? async () => {
       const selected = await tauriOpen({ multiple: false, filters: IMAGE_FILE_FILTERS });
-      return typeof selected === "string" ? selected : null;
+      return typeof selected === "string" ? toFilesystemPath(selected) : null;
     }
   : async () => "/mock/uploads/photo.jpg";
 
 export const openImageFiles: () => Promise<string[]> = inTauri
   ? async () => {
       const selected = await tauriOpen({ multiple: true, filters: IMAGE_FILE_FILTERS });
-      return Array.isArray(selected) ? selected : selected ? [selected] : [];
+      const paths = Array.isArray(selected) ? selected : selected ? [selected] : [];
+      return paths.map(toFilesystemPath);
     }
   : async () => ["/mock/uploads/photo.jpg"];
 

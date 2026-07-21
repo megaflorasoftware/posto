@@ -16,11 +16,13 @@ import {
   Copy,
   ExternalLink,
   FolderGit2,
+  Globe,
   LogOut,
   Smartphone,
   X,
 } from "lucide-react";
 import { useState } from "react";
+import { openUrl } from "@posto/ipc";
 import type { DeploymentState } from "@posto/core/github/deployment";
 import type { Deployment } from "../hooks/useDeployment";
 
@@ -197,9 +199,15 @@ function Status({ deployment }: { deployment: Deployment }) {
   );
 }
 
-/** Right-side drawer for the GitHub deployment integration: login when signed
- * out, deployment status once connected. */
-export function DeploymentDrawer({ deployment }: { deployment: Deployment }) {
+/** Right-side drawer for the GitHub deployment integration: an open-live-site
+ * shortcut, login when signed out, deployment status once connected. */
+export function DeploymentDrawer({
+  deployment,
+  siteUrl,
+}: {
+  deployment: Deployment;
+  siteUrl: string | null;
+}) {
   const authorizing = deployment.signingIn || deployment.device !== null;
 
   return (
@@ -215,6 +223,15 @@ export function DeploymentDrawer({ deployment }: { deployment: Deployment }) {
           <Alert color="red" variant="light">
             {deployment.error}
           </Alert>
+        )}
+        {siteUrl && (
+          <Button
+            variant="light"
+            leftSection={<Globe size={16} />}
+            onClick={() => void openUrl(siteUrl)}
+          >
+            Open Site
+          </Button>
         )}
         {deployment.signedIn ? (
           <Status deployment={deployment} />

@@ -21,6 +21,7 @@ interface LibraryStore {
   snapshot: LibrarySnapshot;
   listeners: Set<() => void>;
   loading: Promise<void> | null;
+  reloadQueued: boolean;
   stopWatching: (() => void) | null;
 }
 
@@ -48,6 +49,7 @@ function getStore(root: string, library: AstroImageLibrary): LibraryStore {
       snapshot: { assets: [], directories: [], error: null, loading: false },
       listeners: new Set(),
       loading: null,
+      reloadQueued: false,
       stopWatching: null,
     };
     stores.set(key, store);
@@ -61,7 +63,13 @@ function publish(store: LibraryStore, snapshot: Partial<LibrarySnapshot>): void 
 }
 
 async function loadStore(store: LibraryStore): Promise<void> {
-  if (store.loading) return store.loading;
+  // A request that arrives mid-load (e.g. the last image of a batch landing
+  // while an earlier refresh is in flight) queues one more pass so the newest
+  // files are never missed.
+  if (store.loading) {
+    store.reloadQueued = true;
+    return store.loading;
+  }
   publish(store, { loading: true });
   store.loading = (async () => {
     try {
@@ -98,7 +106,23 @@ async function loadStore(store: LibraryStore): Promise<void> {
       publish(store, { loading: false });
     }
   })();
-  return store.loading;
+  const pending = store.loading;
+  void pending.then(() => {
+    if (store.reloadQueued) {
+      store.reloadQueued = false;
+      void loadStore(store);
+    }
+  });
+  return pending;
+}
+
+/** Reloads the shared index for a library outside a component — used to refresh
+ * after an import when the filesystem watcher doesn't cover in-app writes. */
+export function refreshImageLibraryAssets(
+  root: string,
+  library: AstroImageLibrary,
+): Promise<void> {
+  return loadStore(getStore(root, library));
 }
 
 /** One shared asset index and filesystem subscription per repository library. */

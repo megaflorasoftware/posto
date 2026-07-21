@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Button, Group, Text, TextInput } from "@mantine/core";
+import { Alert, Button, Group, Loader, Text, TextInput } from "@mantine/core";
 import { Dropzone, IMAGE_MIME_TYPE } from "@mantine/dropzone";
 import { ChevronLeft, ChevronRight, Image as ImageIcon, Upload } from "lucide-react";
 import type { AstroImageLibrary, PagesConfig } from "@posto/core/pagescms/config";
@@ -7,6 +7,7 @@ import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 import { validateForm } from "@posto/core/pagescms/validate";
 import {
   onFileDrop,
+  prepareImageSources,
   type FileGroup,
   type ImageLibraryImportResult,
 } from "@posto/ipc";
@@ -37,6 +38,9 @@ export function ImageLibraryImportDialog(props: {
   sourcePath?: string;
   sourcePaths?: string[];
   initialFolder?: string;
+  /** Open the device picker immediately instead of showing the source step,
+   * whose dropzone would just repeat the button that launched this dialog. */
+  autoChooseSource?: boolean;
   onClose: () => void;
   onImported: (result: ImageLibraryImportResult) => void;
 }) {
@@ -70,20 +74,44 @@ export function ImageLibraryImportDialog(props: {
     !!candidate.filename && validateForm(metadataFields, candidate.metadata).size === 0;
   const allValid = drafts.length > 0 && drafts.every(draftValid);
 
-  const selectSources = (paths: string[]) => {
+  const selectSources = async (paths: string[]) => {
     if (paths.length === 0) return;
-    importer.setSources(paths);
+    let prepared: string[];
+    try {
+      prepared = await prepareImageSources(paths);
+    } catch (caught) {
+      importer.setError(caught instanceof Error ? caught.message : String(caught));
+      return;
+    }
+    importer.setSources(prepared);
     setStep("location");
   };
 
   useEffect(() => {
     if (step !== "source") return;
-    return onFileDrop((paths) => selectSources(paths));
+    return onFileDrop((paths) => void selectSources(paths));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
+  // Auto-launch the picker on open (mobile), closing the dialog on cancel so the
+  // user never sees a redundant "choose images" step behind the native sheet.
+  useEffect(() => {
+    if (!props.autoChooseSource || initialSources.length > 0) return;
+    let active = true;
+    void (async () => {
+      const paths = await importer.chooseSources();
+      if (!active) return;
+      if (paths.length === 0) props.onClose();
+      else await selectSources(paths);
+    })();
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const chooseSource = async () => {
-    selectSources(await importer.chooseSources());
+    await selectSources(await importer.chooseSources());
   };
 
   const chooseLocation = () => {
@@ -140,7 +168,13 @@ export function ImageLibraryImportDialog(props: {
     <Dialog opened onClose={props.onClose} title={title} size="xl">
       {importer.error && <Alert color="red" mb="sm">{importer.error}</Alert>}
 
-      {step === "source" && (
+      {step === "source" && props.autoChooseSource && (
+        <Group justify="center" mih={140}>
+          <Loader />
+        </Group>
+      )}
+
+      {step === "source" && !props.autoChooseSource && (
         <Dropzone
           className="image-library-import-dropzone"
           accept={IMAGE_MIME_TYPE}

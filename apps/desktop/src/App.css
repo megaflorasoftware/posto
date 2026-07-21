@@ -19,14 +19,53 @@ body,
   border-bottom: 1px solid var(--mantine-color-default-border);
 }
 
-.navbar-status {
+.navbar-spacer {
   flex: 1;
-  text-align: right;
-  font-size: 0.8rem;
-  color: var(--mantine-color-dimmed);
+}
+
+/* Mantine's drawer content is itself the scroller; make it a full-height flex
+   column instead so the body can grow and the Import footer pins to the bottom
+   rather than trailing the grid. */
+.media-drawer-content {
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.media-drawer-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.media-drawer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.media-drawer-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--mantine-spacing-md);
+}
+
+/* The shared picker caps itself at 65vh and scrolls internally; in the drawer
+   the outer scroller owns scrolling and the grid fills the height. */
+.media-drawer .picker-grid {
+  max-height: none;
+  overflow: visible;
+}
+
+.media-drawer-footer {
+  flex-shrink: 0;
+  padding: var(--mantine-spacing-md);
+  border-top: 1px solid var(--mantine-color-default-border);
 }
 
 .empty-state {

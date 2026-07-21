@@ -27,6 +27,7 @@ import { usePreview } from "./hooks/usePreview";
 import { useDeployment } from "./hooks/useDeployment";
 import { AppHeader } from "./components/AppHeader";
 import { DeploymentDrawer } from "./components/DeploymentDrawer";
+import { MediaDrawer } from "./components/MediaDrawer";
 import { PreviewPane } from "./components/PreviewPane";
 
 import "@mantine/core/styles.css";
@@ -41,9 +42,12 @@ function App() {
   const [recentRoots, setRecentRoots] = useState<string[]>([]);
   // Editor tab choice sticks for the session; Fields is the default when available.
   const [editorTab, setEditorTab] = useState<EditorTab>("fields");
-  // Status-bar message in the header (publish/pull results, errors).
-  const [status, setStatus] = useState<string | null>(null);
+  // Publish/pull/import status and error messages. The header no longer shows a
+  // status line, so these currently only drive callers that read the setter's
+  // side effects; kept as a single sink so those call sites stay unchanged.
+  const [, setStatus] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
+  const [mediaOpen, setMediaOpen] = useState(false);
   // Bumped after each successful save so the SEO preview refetches the page.
   const [saveTick, setSaveTick] = useState(0);
 
@@ -389,19 +393,33 @@ function App() {
         <AppHeader
           root={root}
           recentRoots={recentRoots}
-          status={status}
           behindUpstream={git.behindUpstream}
           pulling={git.pulling}
           hasLocalChanges={git.hasLocalChanges}
           onChooseDirectory={() => void chooseDirectory()}
           onSelectRoot={(dir) => void selectRoot(dir)}
           deployment={deployment}
-          siteUrl={siteUrl}
+          canOpenMedia={!!config?.imageLibraries?.length}
+          onOpenMedia={() => setMediaOpen(true)}
           onFetchChanges={() => void git.fetchChanges()}
           onOpenPublish={() => void openPublishModal()}
         />
 
-        <DeploymentDrawer deployment={deployment} />
+        <DeploymentDrawer deployment={deployment} siteUrl={siteUrl} />
+
+        {root && config && (
+          <MediaDrawer
+            opened={mediaOpen}
+            onClose={() => setMediaOpen(false)}
+            root={root}
+            config={config}
+            groups={files.groups}
+            onImported={() => {
+              setStatus("Image imported. Publish when you are ready.");
+              void refreshGroups(root);
+            }}
+          />
+        )}
 
         <PublishModal
           opened={publishOpen}

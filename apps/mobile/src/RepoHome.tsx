@@ -25,6 +25,7 @@ import {
   editorTabsForFile,
   renameTargetForContent,
   orderableCollections,
+  refreshImageLibraryAssets,
   resolveEditorTab,
   sidebarDisplayGroups,
   useCurrentFile,
@@ -58,6 +59,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { DeploymentStatus } from "./DeploymentStatus";
+import { MediaLibraryPane } from "./MediaLibraryPane";
 import {
   useEffect,
   useMemo,
@@ -94,6 +96,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
   const [showEditor, setShowEditor] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showDeployments, setShowDeployments] = useState(false);
+  const [showMedia, setShowMedia] = useState(false);
   const [checkingChanges, setCheckingChanges] = useState(false);
   // `.posto` settings dialogs: one per collection, one for workspace order.
   const [settingsFor, setSettingsFor] = useState<{
@@ -422,8 +425,9 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
   }
 
   function closeSecondaryView() {
-    // Deployments is a page reached from Settings, so back returns there.
+    // Deployments and Media are pages reached from Settings, so back returns there.
     if (showDeployments) setShowDeployments(false);
+    else if (showMedia) setShowMedia(false);
     else if (showEditor) closeEditor();
     else {
       setConfirmingRemoveRepo(false);
@@ -435,6 +439,7 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
     currentFile.flushPendingSave();
     currentFile.closeFile();
     setShowDeployments(false);
+    setShowMedia(false);
     setShowSettings(false);
     onChangeRepo();
   }
@@ -444,16 +449,15 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
     setImportLibrary(null);
   }
 
-  function openMediaImport() {
-    const libraries = config?.imageLibraries ?? [];
-    if (libraries.length === 0) return;
-    setImportLibrary(libraries.length === 1 ? libraries[0] : null);
+  function importIntoLibrary(library: AstroImageLibrary) {
+    setImportLibrary(library);
     setMediaImportOpen(true);
   }
 
   function imageImported() {
     setStatus("Image imported. Publish when you are ready.");
     void git.refreshLocalChanges(root);
+    if (importLibrary) void refreshImageLibraryAssets(root, importLibrary);
   }
 
   const config = schemas.config;
@@ -491,7 +495,9 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
             variant="subtle"
             aria-label="Back"
             onClick={
-              showEditor || showSettings || showDeployments ? closeSecondaryView : leaveRepository
+              showEditor || showSettings || showDeployments || showMedia
+                ? closeSecondaryView
+                : leaveRepository
             }
           >
             <ChevronLeft size={22} />
@@ -500,9 +506,11 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
             <Text fw={600} size="sm" truncate>
               {showDeployments
                 ? "Deployments"
-                : showSettings
-                  ? "Settings"
-                  : repo?.name ?? "Repository"}
+                : showMedia
+                  ? "Media"
+                  : showSettings
+                    ? "Settings"
+                    : repo?.name ?? "Repository"}
             </Text>
           )}
         </Group>
@@ -586,6 +594,14 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
             <Text c="dimmed" size="sm">No repository is connected.</Text>
           </main>
         )
+      ) : showMedia ? (
+        <main className="mobile-media-screen">
+          <MediaLibraryPane
+            root={root}
+            libraries={config?.imageLibraries ?? []}
+            onImport={importIntoLibrary}
+          />
+        </main>
       ) : showSettings ? (
         <main className="mobile-settings-screen">
           <Stack gap="xs">
@@ -602,65 +618,49 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
                 <ChevronRight size={18} />
               </button>
             )}
-            <div className="mobile-settings-row mobile-settings-media-row">
-              <div>
-                <Text fw={600} size="sm">Media</Text>
-                <Text c="dimmed" size="xs">
-                  {config?.imageLibraries?.length
-                    ? `${config.imageLibraries.length} Astro image ${config.imageLibraries.length === 1 ? "library" : "libraries"}`
-                    : "No Astro image libraries found"}
-                </Text>
+            {config?.imageLibraries?.length ? (
+              <button
+                type="button"
+                className="mobile-settings-row mobile-settings-link"
+                onClick={() => setShowMedia(true)}
+              >
+                <div>
+                  <Text fw={600} size="sm">Media</Text>
+                  <Text c="dimmed" size="xs">
+                    {`${config.imageLibraries.length} Astro image ${config.imageLibraries.length === 1 ? "library" : "libraries"}`}
+                  </Text>
+                </div>
+                <ChevronRight size={18} />
+              </button>
+            ) : (
+              <div className="mobile-settings-row mobile-settings-media-row">
+                <div>
+                  <Text fw={600} size="sm">Media</Text>
+                  <Text c="dimmed" size="xs">No Astro image libraries found</Text>
+                </div>
               </div>
-              <Button
-                size="compact-sm"
-                variant="light"
-                disabled={!config?.imageLibraries?.length}
-                onClick={openMediaImport}
-              >
-                Import image
-              </Button>
-            </div>
-            <div className="mobile-settings-danger">
-              <Text c="dimmed" size="xs">
-                Removes this repository's downloaded copy from this device. Unpublished
-                changes will be lost. You can download it again anytime.
-              </Text>
-              <Button
-                fullWidth
-                color="red"
-                variant="light"
-                leftSection={<Trash2 size={18} />}
-                loading={removingRepo}
-                onClick={() =>
-                  confirmingRemoveRepo
-                    ? void removeRepository()
-                    : setConfirmingRemoveRepo(true)
-                }
-              >
-                {confirmingRemoveRepo ? "Tap again to delete from device" : "Delete from device"}
-              </Button>
-            </div>
+            )}
           </Stack>
-
-          {mediaImportOpen && !importLibrary && (
-            <Dialog opened onClose={closeMediaImport} title="Choose image library" size="sm">
-              <ImageLibraryList
-                libraries={config?.imageLibraries ?? []}
-                onChoose={setImportLibrary}
-              />
-            </Dialog>
-          )}
-
-          {importLibrary && config && (
-            <ImageLibraryImportDialog
-              root={root}
-              library={importLibrary}
-              config={config}
-              groups={files.groups}
-              onClose={closeMediaImport}
-              onImported={imageImported}
-            />
-          )}
+          <div className="mobile-settings-danger">
+            <Text c="dimmed" size="xs">
+              Removes this repository's downloaded copy from this device. Unpublished
+              changes will be lost. You can download it again anytime.
+            </Text>
+            <Button
+              fullWidth
+              color="red"
+              variant="light"
+              leftSection={<Trash2 size={18} />}
+              loading={removingRepo}
+              onClick={() =>
+                confirmingRemoveRepo
+                  ? void removeRepository()
+                  : setConfirmingRemoveRepo(true)
+              }
+            >
+              {confirmingRemoveRepo ? "Tap again to delete from device" : "Delete from device"}
+            </Button>
+          </div>
         </main>
       ) : (
       <main className="repo-home">
@@ -913,6 +913,27 @@ export default function RepoHome({ root, repo, onChangeRepo, onRedownloadRepo, o
         }}
       />
       </main>
+      )}
+
+      {mediaImportOpen && !importLibrary && (
+        <Dialog opened onClose={closeMediaImport} title="Choose image library" size="sm">
+          <ImageLibraryList
+            libraries={config?.imageLibraries ?? []}
+            onChoose={setImportLibrary}
+          />
+        </Dialog>
+      )}
+
+      {importLibrary && config && (
+        <ImageLibraryImportDialog
+          root={root}
+          library={importLibrary}
+          config={config}
+          groups={files.groups}
+          autoChooseSource
+          onClose={closeMediaImport}
+          onImported={imageImported}
+        />
       )}
     </>
   );
