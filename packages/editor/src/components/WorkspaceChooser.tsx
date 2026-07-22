@@ -25,7 +25,11 @@ export function WorkspaceChooser(props: {
           onClick={() => props.onChoose(candidate)}
         >
           <Stack gap={2} align="flex-start">
-            <Text size="sm">{candidate.dir.slice(props.repoRoot.length + 1)}</Text>
+            <Text size="sm">
+              {candidate.dir === props.repoRoot
+                ? "Repository root"
+                : candidate.dir.slice(props.repoRoot.length + 1)}
+            </Text>
             <Text size="xs" c="dimmed">
               {candidate.signals.join(", ") || "Schema configuration"}
             </Text>
@@ -37,6 +41,11 @@ export function WorkspaceChooser(props: {
             {candidate.hasPagesYml && (
               <Badge size="xs" variant="outline">
                 pages cms
+              </Badge>
+            )}
+            {candidate.hasPostoDir && (
+              <Badge size="xs" variant="outline">
+                posto
               </Badge>
             )}
           </Group>

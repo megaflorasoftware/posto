@@ -248,6 +248,32 @@ export default function RepoHome({
     }
   }
 
+  async function openWorkspaceChooser() {
+    try {
+      const inventory = await invoke<ProjectInventory[]>("scan_projects", { root: repoRoot });
+      const scan = await scanWorkspace(repoRoot, inventory, ipcProjectIO);
+      setWorkspaceCandidates([{ dir: repoRoot, ...scan.root }, ...scan.candidates]);
+      setShowSettings(false);
+    } catch (workspaceError) {
+      setError(`Could not inspect project: ${message(workspaceError)}`);
+    }
+  }
+
+  async function browseWorkspace() {
+    try {
+      const directories = await invoke<string[]>("list_directories", { dir: repoRoot });
+      const candidates = await Promise.all(
+        [repoRoot, ...directories].map(async (dir) => ({
+          dir,
+          ...(await detectProject(dir, ipcProjectIO)),
+        })),
+      );
+      setWorkspaceCandidates(candidates);
+    } catch (workspaceError) {
+      setError(`Could not browse repository: ${message(workspaceError)}`);
+    }
+  }
+
   const fileCount = useMemo(
     () => files.groups.reduce((total, group) => total + group.files.length, 0),
     [files.groups],
@@ -316,7 +342,7 @@ export default function RepoHome({
     return {
       config: schemas.configRef.current ?? EMPTY_CONFIG,
       pagesContent: schemas.pagesConfig?.content ?? [],
-      derivedContent: schemas.astroConfig?.content ?? [],
+      derivedContent: schemas.derivedConfig?.content ?? [],
     };
   }
 
@@ -580,8 +606,9 @@ export default function RepoHome({
                       : (repo?.name ?? "Repository")}
               </Text>
               {!showDeployments && !showMedia && !showSettings && projectInfo && (
-                <Text size="xs" c="dimmed" tt="capitalize">
-                  {projectInfo.type}
+                <Text size="xs" c="dimmed">
+                  {root !== repoRoot ? `${root.slice(repoRoot.length + 1)} · ` : ""}
+                  <span style={{ textTransform: "capitalize" }}>{projectInfo.type}</span>
                 </Text>
               )}
             </Group>
@@ -642,7 +669,7 @@ export default function RepoHome({
             repoRoot={repoRoot}
             candidates={workspaceCandidates}
             onChoose={(candidate) => void chooseWorkspace(candidate)}
-            onBrowse={() => void chooseWorkspace(null)}
+            onBrowse={() => void browseWorkspace()}
           />
         </main>
       ) : showEditor ? (
@@ -657,7 +684,7 @@ export default function RepoHome({
             entrySource={entrySource}
             config={config}
             configError={schemas.configError}
-            hasDerivedFallback={schemas.astroConfig !== null}
+            hasDerivedFallback={schemas.derivedConfig !== null}
             componentBlocksEnabled={adapter.capabilities.componentBlocks !== null}
             groups={files.groups}
             editorTab={editorTab}
@@ -709,7 +736,7 @@ export default function RepoHome({
                 <ChevronRight size={18} />
               </button>
             )}
-            {config?.mediaLibraries?.length ? (
+            {adapter.capabilities.mediaLibraries && config?.mediaLibraries?.length ? (
               <button
                 type="button"
                 className="mobile-settings-row mobile-settings-link"
@@ -737,6 +764,21 @@ export default function RepoHome({
                 </div>
               </div>
             )}
+            <button
+              type="button"
+              className="mobile-settings-row mobile-settings-link"
+              onClick={() => void openWorkspaceChooser()}
+            >
+              <div>
+                <Text fw={600} size="sm">
+                  Project directory
+                </Text>
+                <Text c="dimmed" size="xs">
+                  {root === repoRoot ? "Repository root" : root.slice(repoRoot.length + 1)}
+                </Text>
+              </div>
+              <ChevronRight size={18} />
+            </button>
           </Stack>
           <div className="mobile-settings-danger">
             <Text c="dimmed" size="xs">
@@ -1007,6 +1049,7 @@ export default function RepoHome({
             opened={publishOpen}
             changes={git.changes}
             error={git.changesError}
+            scopeLabel={root !== repoRoot ? root.slice(repoRoot.length + 1) : undefined}
             onClose={() => setPublishOpen(false)}
             onRevert={(file) => void revert(file)}
             onPublish={(message) => {
@@ -1017,13 +1060,13 @@ export default function RepoHome({
         </main>
       )}
 
-      {mediaImportOpen && !importLibrary && (
+      {adapter.capabilities.mediaLibraries && mediaImportOpen && !importLibrary && (
         <Dialog opened onClose={closeMediaImport} title="Choose image library" size="sm">
           <ImageLibraryList libraries={config?.mediaLibraries ?? []} onChoose={setImportLibrary} />
         </Dialog>
       )}
 
-      {importLibrary && config && (
+      {adapter.capabilities.mediaLibraries && importLibrary && config && (
         <ImageLibraryImportDialog
           root={root}
           library={importLibrary}

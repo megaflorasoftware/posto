@@ -18,6 +18,7 @@ export function AppHeader(props: {
   canOpenMedia: boolean;
   onChooseDirectory: () => void;
   onSelectRoot: (dir: string) => void;
+  onSwitchProject: () => void;
   onOpenMedia: () => void;
   onFetchChanges: () => void;
   onOpenPublish: () => void;
@@ -44,12 +45,18 @@ export function AppHeader(props: {
               variant="default"
               px={6}
               aria-label="Recent sites"
-              disabled={recentOptions.length === 0}
+              disabled={recentOptions.length === 0 && !props.repoRoot}
             >
               <ChevronDown size={14} />
             </Button>
           </Menu.Target>
           <Menu.Dropdown>
+            {props.repoRoot && (
+              <>
+                <Menu.Label>Current repository</Menu.Label>
+                <Menu.Item onClick={props.onSwitchProject}>Switch project…</Menu.Item>
+              </>
+            )}
             <Menu.Label>Recent sites</Menu.Label>
             {recentOptions.map((dir) => (
               <Menu.Item key={dir} title={dir} onClick={() => props.onSelectRoot(dir)}>

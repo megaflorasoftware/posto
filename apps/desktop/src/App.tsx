@@ -238,6 +238,31 @@ function App() {
     }
   }
 
+  async function chooseProjectInRepository() {
+    if (!repoRoot) return;
+    try {
+      const inventory = await invoke<ProjectInventory[]>("scan_projects", { root: repoRoot });
+      const scan = await scanWorkspace(repoRoot, inventory, ipcProjectIO);
+      setWorkspaceCandidates([{ dir: repoRoot, ...scan.root }, ...scan.candidates]);
+    } catch (error) {
+      notify(
+        `Could not inspect project: ${error instanceof Error ? error.message : String(error)}`,
+        "error",
+      );
+    }
+  }
+
+  async function browseWithinRepository() {
+    if (!repoRoot) return;
+    const dir = await openDirectory();
+    if (typeof dir !== "string") return;
+    if (dir !== repoRoot && !dir.startsWith(`${repoRoot}/`)) {
+      notify("Choose a folder inside the current repository.", "error");
+      return;
+    }
+    await selectRoot(repoRoot, dir);
+  }
+
   async function refreshRecentRoots() {
     try {
       setRecentRoots(await invoke<string[]>("get_recent_roots"));
@@ -510,6 +535,7 @@ function App() {
           hasLocalChanges={git.hasLocalChanges}
           onChooseDirectory={() => void chooseDirectory()}
           onSelectRoot={(dir) => void selectRepository(dir)}
+          onSwitchProject={() => void chooseProjectInRepository()}
           deployment={deployment}
           canOpenMedia={adapter.capabilities.mediaLibraries && !!config?.mediaLibraries?.length}
           onOpenMedia={() => setMediaOpen(true)}
@@ -567,7 +593,7 @@ function App() {
               repoRoot={repoRoot}
               candidates={workspaceCandidates}
               onChoose={(candidate) => void selectRoot(repoRoot, candidate.dir)}
-              onBrowse={() => void chooseDirectory()}
+              onBrowse={() => void browseWithinRepository()}
             />
           </div>
         ) : !root ? (
