@@ -5,10 +5,25 @@ import {
   parseLoaderConfig,
   type LoaderInfo,
 } from "../astro/collections";
-import { DEFAULT_MEDIA, type Field, type SchemaDiagnostic } from "../pagescms/config";
+import {
+  DEFAULT_MEDIA,
+  type Field,
+  type PagesConfig,
+  type SchemaDiagnostic,
+} from "../pagescms/config";
 import { scalarFrontmatter } from "../pagescms/frontmatterScalars";
+import {
+  componentNameFromFile,
+  parseAstroExportedType,
+  parseAstroProps,
+  parseAstroPropsType,
+  parseAstroSlots,
+  relativeImportPath,
+  resolveImportPath,
+} from "../mdx/mdx";
+import { astroPropField } from "../mdx/propFields";
 import { PROJECT_MARKERS } from "./detect";
-import type { ProjectAdapter, ProjectIO } from "./adapter";
+import type { ComponentRef, ProjectAdapter, ProjectIO } from "./adapter";
 
 export { DEFAULT_ASTRO_MEDIA };
 
@@ -16,18 +31,91 @@ const astroComponentBlocks = {
   componentDirs(root: string) {
     return [`${root}/src/components`];
   },
-  async listComponents() {
-    return [];
+  async listComponents(root: string, io: ProjectIO) {
+    const components: ComponentRef[] = [];
+    for (const dir of this.componentDirs(root)) {
+      const listed = await io.listDirFilesOptional(dir, ["astro"]);
+      for (const file of listed ?? []) {
+        components.push({ name: componentNameFromFile(file.name), path: file.path });
+      }
+    }
+    return components;
   },
-  async componentFields() {
-    return { fields: [], diagnostics: [] };
+  async componentFields(
+    ref: { name: string; path: string },
+    io: ProjectIO,
+    config: PagesConfig = { media: [], content: [] },
+  ) {
+    const source = await io.readTextFileOptional(ref.path);
+    if (source === null) {
+      return {
+        fields: [],
+        diagnostics: [
+          {
+            feature: "component-blocks",
+            code: "component-not-found",
+            message: `Component source not found: ${ref.path}`,
+          },
+        ],
+      };
+    }
+    const importedTypes: Record<string, string> = {};
+    const imports = /import\s+(type\s+)?\{([\s\S]*?)\}\s+from\s+["']([^"']+)["']/g;
+    for (const statement of source.matchAll(imports)) {
+      const typeOnly = statement[1] !== undefined;
+      const spec = statement[3];
+      if (!spec.startsWith(".") || !/\.(?:astro|tsx?|jsx?)$/.test(spec)) continue;
+      const importedPath = resolveImportPath(ref.path, spec);
+      if (!importedPath) continue;
+      const importedSource = await io.readTextFileOptional(importedPath);
+      if (importedSource === null) continue;
+      for (const raw of statement[2].split(",")) {
+        const member = raw.trim();
+        const explicitlyType = member.startsWith("type ");
+        if (!typeOnly && !explicitlyType) continue;
+        const match = /^(?:type\s+)?(\w+)(?:\s+as\s+(\w+))?$/.exec(member);
+        if (!match) continue;
+        const type = parseAstroExportedType(importedSource, match[1]);
+        if (type) importedTypes[match[2] ?? match[1]] = type;
+      }
+    }
+    const typeContext = {
+      collections: config.collectionSchemas ?? config.content,
+      editableCollections: config.content,
+      mediaLibraries: config.mediaLibraries,
+    };
+    const definitions = parseAstroProps(source, importedTypes);
+    const fields = definitions.map((definition) => {
+      const field = astroPropField(definition, typeContext);
+      return (
+        field ?? {
+          name: definition.name,
+          type: "text",
+          required: !definition.optional,
+          options: { mdxRawType: definition.type },
+        }
+      );
+    });
+    const propsType = parseAstroPropsType(source, importedTypes);
+    if (propsType) {
+      const field = astroPropField(
+        { name: "Props", type: propsType, optional: false },
+        typeContext,
+      );
+      for (const nested of field?.type === "object" ? (field.fields ?? []) : []) {
+        if (!fields.some((candidate) => candidate.name === nested.name)) fields.push(nested);
+      }
+    }
+    const slots = parseAstroSlots(source);
+    return {
+      fields,
+      diagnostics: [],
+      slots: slots.named,
+      hasDefaultSlot: slots.hasDefault,
+    };
   },
   importFor(ref: { name: string; path: string }, documentPath: string) {
-    const from = documentPath.slice(0, documentPath.lastIndexOf("/"));
-    const relative = ref.path.startsWith(`${from}/`)
-      ? `./${ref.path.slice(from.length + 1)}`
-      : ref.path;
-    return `import ${ref.name} from '${relative}';`;
+    return `import ${ref.name} from '${relativeImportPath(documentPath, ref.path)}';`;
   },
 };
 

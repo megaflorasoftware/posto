@@ -64,6 +64,7 @@ function App() {
   const [mediaOpen, setMediaOpen] = useState(false);
   // Bumped after each successful save so the SEO preview refetches the page.
   const [saveTick, setSaveTick] = useState(0);
+  const [componentSchemaVersion, setComponentSchemaVersion] = useState(0);
 
   // Latest values for callbacks that outlive the render they were created in.
   const rootRef = useRef(root);
@@ -410,6 +411,7 @@ function App() {
       setProjectInfo(detected);
     }
     if (scopes.has("derivedConfig")) void schemas.loadDerivedConfig(dir, adapter);
+    if (scopes.has("componentSchemas")) setComponentSchemaVersion((version) => version + 1);
     if (scopes.has("dataDocuments")) {
       void files.refreshDataGroups(dir, schemas.configRef.current);
     }
@@ -627,7 +629,8 @@ function App() {
                   config={config}
                   configError={schemas.configError}
                   hasDerivedFallback={schemas.derivedConfig !== null}
-                  componentBlocksEnabled={adapter.capabilities.componentBlocks !== null}
+                  componentBlocks={adapter.capabilities.componentBlocks}
+                  componentSchemaVersion={componentSchemaVersion}
                   groups={files.groups}
                   editorTab={editorTab}
                   onTabChange={setEditorTab}

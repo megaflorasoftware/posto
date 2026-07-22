@@ -122,6 +122,7 @@ export default function RepoHome({
   } | null>(null);
   const [orderOpen, setOrderOpen] = useState(false);
   const [mediaImportOpen, setMediaImportOpen] = useState(false);
+  const [componentSchemaVersion, setComponentSchemaVersion] = useState(0);
   const [importLibrary, setImportLibrary] = useState<MediaLibrary | null>(null);
   const [editorTab, setEditorTab] = useState<EditorTab>("fields");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -153,6 +154,7 @@ export default function RepoHome({
       if (path === root + "/.pages.yml") void schemas.loadPagesConfig(root);
       const scopes = invalidationScopesForPaths(adapter, root, [path], schemas.configRef.current);
       if (scopes.has("derivedConfig")) void schemas.loadDerivedConfig(root, adapter);
+      if (scopes.has("componentSchemas")) setComponentSchemaVersion((version) => version + 1);
       if (scopes.has("dataDocuments")) {
         void files.refreshDataGroups(root, schemas.configRef.current);
       }
@@ -685,7 +687,8 @@ export default function RepoHome({
             config={config}
             configError={schemas.configError}
             hasDerivedFallback={schemas.derivedConfig !== null}
-            componentBlocksEnabled={adapter.capabilities.componentBlocks !== null}
+            componentBlocks={adapter.capabilities.componentBlocks}
+            componentSchemaVersion={componentSchemaVersion}
             groups={files.groups}
             editorTab={editorTab}
             onTabChange={setEditorTab}

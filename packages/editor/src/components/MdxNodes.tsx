@@ -25,8 +25,6 @@ import {
 } from "lucide-react";
 
 import {
-  type AstroComponentSchema,
-  type AstroPropDef,
   type MdxProp,
   type SlotPiece,
   assembleSlotChildren,
@@ -39,20 +37,20 @@ import {
   slotAttr,
   splitSlots,
 } from "@posto/core/mdx/mdx";
-import {
-  UNPARSED,
-  astroPropField,
-  jsValueProp,
-  propJsValue,
-  valueFits,
-} from "@posto/core/mdx/propFields";
+import { UNPARSED, jsValueProp, propJsValue, valueFits } from "@posto/core/mdx/propFields";
 import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
 import { validateForm } from "@posto/core/pagescms/validate";
 import type { FileGroup } from "@posto/ipc";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
 
-/** Prop/slot schemas of imported Astro components, keyed by local name. */
-export const MdxSchemaContext = createContext<Record<string, AstroComponentSchema>>({});
+export interface ComponentBlockSchema {
+  fields: Field[];
+  slots: string[];
+  hasDefaultSlot: boolean;
+}
+
+/** Adapter-provided prop/slot schemas, keyed by the document's local name. */
+export const MdxSchemaContext = createContext<Record<string, ComponentBlockSchema>>({});
 
 /** Environment FieldEditor controls need (media resolution, references). */
 export interface MdxFieldEnv {
@@ -78,7 +76,7 @@ export const MdxFieldEnvContext = createContext<MdxFieldEnv>({
  * slot-sync plugin run without access to context. BodyEditor keeps both in
  * step when schemas load.
  */
-export const componentSchemas: { current: Record<string, AstroComponentSchema> } = {
+export const componentSchemas: { current: Record<string, ComponentBlockSchema> } = {
   current: {},
 };
 
@@ -179,16 +177,7 @@ function PropsForm(formProps: {
 
   const existing = parsedProps;
   const schema = schemas[name];
-  const defs: AstroPropDef[] = schema?.props ?? [];
-  const typeContext = {
-    collections: env.config.collectionSchemas ?? env.config.content,
-    editableCollections: env.config.content,
-    mediaLibraries: env.config.mediaLibraries,
-  };
-  const propsTypeField = schema?.propsType
-    ? astroPropField({ name: "Props", type: schema.propsType, optional: false }, typeContext)
-    : null;
-  const aliasedFields = propsTypeField?.type === "object" ? (propsTypeField.fields ?? []) : [];
+  const declaredFields = schema?.fields ?? [];
   const values: Record<string, unknown> = {};
   for (const prop of existing) {
     if (prop.kind !== "spread") values[prop.name] = propJsValue(prop);
@@ -196,39 +185,38 @@ function PropsForm(formProps: {
 
   type Row =
     | { key: string; kind: "field"; field: Field }
-    | { key: string; kind: "raw"; propName: string; def: AstroPropDef | null }
+    | { key: string; kind: "raw"; propName: string; rawType: string | null; required: boolean }
     | { key: string; kind: "spread"; value: string };
   const rows: Row[] = [];
   const fields: Field[] = [];
-  for (const def of defs) {
-    const field = astroPropField(def, typeContext);
-    const value = values[def.name];
-    if (field && value !== UNPARSED && valueFits(field, value)) {
-      rows.push({ key: def.name, kind: "field", field });
-      fields.push(field);
-    } else {
-      rows.push({ key: def.name, kind: "raw", propName: def.name, def });
-    }
-  }
-  for (const field of aliasedFields) {
-    if (defs.some((def) => def.name === field.name)) continue;
+  for (const field of declaredFields) {
+    const rawType = typeof field.options?.mdxRawType === "string" ? field.options.mdxRawType : null;
     const value = values[field.name];
-    if (value !== UNPARSED && valueFits(field, value)) {
+    if (!rawType && value !== UNPARSED && valueFits(field, value)) {
       rows.push({ key: field.name, kind: "field", field });
       fields.push(field);
     } else {
-      rows.push({ key: field.name, kind: "raw", propName: field.name, def: null });
+      rows.push({
+        key: field.name,
+        kind: "raw",
+        propName: field.name,
+        rawType,
+        required: field.required === true,
+      });
     }
   }
-  const declaredNames = new Set([
-    ...defs.map((def) => def.name),
-    ...aliasedFields.map((field) => field.name),
-  ]);
+  const declaredNames = new Set(declaredFields.map((field) => field.name));
   existing.forEach((prop, index) => {
     if (prop.kind === "spread") {
       rows.push({ key: `spread-${index}`, kind: "spread", value: prop.value });
     } else if (!declaredNames.has(prop.name)) {
-      rows.push({ key: prop.name, kind: "raw", propName: prop.name, def: null });
+      rows.push({
+        key: prop.name,
+        kind: "raw",
+        propName: prop.name,
+        rawType: null,
+        required: false,
+      });
     }
   });
   if (rows.length === 0) return null;
@@ -248,12 +236,8 @@ function PropsForm(formProps: {
 
   /** Writes a JS value back as a prop, keyed to the prop's declared type. */
   function editJs(propName: string, value: unknown) {
-    const def = defs.find((d) => d.name === propName);
-    const aliased = aliasedFields.find((field) => field.name === propName);
-    setProp(
-      propName,
-      jsValueProp(propName, value, def ? !def.optional : aliased?.required === true),
-    );
+    const field = declaredFields.find((candidate) => candidate.name === propName);
+    setProp(propName, jsValueProp(propName, value, field?.required === true));
   }
 
   /** Copy-on-write set along a path inside a prop's parsed value; numeric
@@ -334,7 +318,7 @@ function PropsForm(formProps: {
   // Raw rows keep the old text-input semantics: value text edited verbatim,
   // kind preserved (a shorthand boolean edited to anything else becomes an
   // expression so the new value survives serialization).
-  function editRaw(propName: string, def: AstroPropDef | null, value: string) {
+  function editRaw(propName: string, rawType: string | null, value: string) {
     const prop = existing.find((p) => p.kind !== "spread" && p.name === propName);
     if (prop) {
       setProp(propName, {
@@ -343,7 +327,7 @@ function PropsForm(formProps: {
         kind: prop.kind === "boolean" && value !== "true" ? "expression" : prop.kind,
       });
     } else {
-      setProp(propName, { name: propName, value, kind: schemaKind(def?.type ?? "") });
+      setProp(propName, { name: propName, value, kind: schemaKind(rawType ?? "") });
     }
   }
 
@@ -364,14 +348,14 @@ function PropsForm(formProps: {
             key={row.key}
             size="xs"
             label={row.propName}
-            placeholder={row.def?.type}
+            placeholder={row.rawType ?? undefined}
             leftSection={
-              (prop?.kind ?? schemaKind(row.def?.type ?? "")) === "string" ? undefined : (
+              (prop?.kind ?? schemaKind(row.rawType ?? "")) === "string" ? undefined : (
                 <span className="mdx-expr-hint">{"{}"}</span>
               )
             }
             value={prop?.value ?? ""}
-            onChange={(e) => editRaw(row.propName, row.def, e.currentTarget.value)}
+            onChange={(e) => editRaw(row.propName, row.rawType, e.currentTarget.value)}
           />
         );
       })}
@@ -588,8 +572,8 @@ function ComponentCardView(props: NodeViewProps) {
   // collapses them for cards whose form would otherwise dominate.
   const [propsOpen, setPropsOpen] = useState(true);
   const hasProps =
-    parsedProps === null || parsedProps.length > 0 || (schemas[name]?.props.length ?? 0) > 0;
-  const typed = (schemas[name]?.props.length ?? 0) > 0;
+    parsedProps === null || parsedProps.length > 0 || (schemas[name]?.fields.length ?? 0) > 0;
+  const typed = (schemas[name]?.fields.length ?? 0) > 0;
   return (
     <NodeViewWrapper className="mdx-component mdx-component-card">
       <div className="mdx-card-header" contentEditable={false}>

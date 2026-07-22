@@ -63,7 +63,13 @@ export interface ComponentSchemaSource {
   componentFields(
     ref: ComponentRef,
     io: ProjectIO,
-  ): Promise<{ fields: Field[]; diagnostics: ProjectDiagnostic[] }>;
+    config?: PagesConfig,
+  ): Promise<{
+    fields: Field[];
+    diagnostics: ProjectDiagnostic[];
+    slots?: string[];
+    hasDefaultSlot?: boolean;
+  }>;
   importFor(ref: ComponentRef, documentPath: string): string;
 }
 

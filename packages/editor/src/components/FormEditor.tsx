@@ -17,6 +17,7 @@ import {
 } from "@posto/core/pagescms/frontmatter";
 import { type Errors, validateForm } from "@posto/core/pagescms/validate";
 import type { FileGroup } from "@posto/ipc";
+import type { ComponentSchemaSource } from "@posto/core/project/adapter";
 import { BodyEditor } from "./BodyEditor";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
 
@@ -57,7 +58,8 @@ export function FormEditor(props: {
   config: PagesConfig;
   root: string;
   groups: FileGroup[];
-  componentBlocksEnabled?: boolean;
+  componentBlocks: ComponentSchemaSource | null;
+  componentSchemaVersion?: number;
   fieldsHeader?: ReactNode;
   onChange: (content: string, valid: boolean) => void;
   onPostoSaved?: () => void;
@@ -264,7 +266,8 @@ export function FormEditor(props: {
         templateValues={values}
         config={props.config}
         groups={props.groups}
-        componentBlocksEnabled={props.componentBlocksEnabled}
+        componentBlocks={props.componentBlocks}
+        componentSchemaVersion={props.componentSchemaVersion}
         onChange={onBodyEdit}
       />
     ) : (

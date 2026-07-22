@@ -6,8 +6,8 @@ import Image from "@tiptap/extension-image";
 import { Markdown } from "@tiptap/markdown";
 import { Blocks, CodeXml, Image as ImageIcon } from "lucide-react";
 
-import { assetUrl, invoke } from "@posto/ipc";
-import type { FileEntry, FileGroup } from "@posto/ipc";
+import { assetUrl } from "@posto/ipc";
+import type { FileGroup } from "@posto/ipc";
 import {
   expandMediaEntry,
   mediaInputPath,
@@ -15,22 +15,19 @@ import {
   type MediaEntry,
   type PagesConfig,
 } from "@posto/core/pagescms/config";
-import {
-  type AstroComponentSchema,
-  componentNameFromFile,
-  importInfo,
-  parseAstroProps,
-  parseAstroExportedType,
-  parseAstroPropsType,
-  parseAstroSlots,
-  relativeImportPath,
-  resolveImportPath,
-  splitLeadingImports,
-} from "@posto/core/mdx/mdx";
+import { importInfo, resolveImportPath, splitLeadingImports } from "@posto/core/mdx/mdx";
+import type { ComponentRef, ComponentSchemaSource } from "@posto/core/project/adapter";
 import { ComponentPicker } from "./ComponentPicker";
 import { htmlNodes } from "./HtmlNodes";
 import { RichTextImagePickerDialog } from "./RichTextImagePickerDialog";
-import { MdxFieldEnvContext, MdxSchemaContext, componentSchemas, mdxNodes } from "./MdxNodes";
+import {
+  MdxFieldEnvContext,
+  MdxSchemaContext,
+  componentSchemas,
+  mdxNodes,
+  type ComponentBlockSchema,
+} from "./MdxNodes";
+import { ipcProjectIO } from "../hooks/useSchemas";
 
 /** An import statement managed outside the document, with its bindings. */
 interface ManagedImport {
@@ -86,13 +83,14 @@ export function BodyEditor(props: {
   /** Full config + sidebar groups, for field controls inside component cards. */
   config: PagesConfig;
   groups: FileGroup[];
-  componentBlocksEnabled?: boolean;
+  componentBlocks: ComponentSchemaSource | null;
+  componentSchemaVersion?: number;
   onChange: (markdown: string) => void;
 }) {
-  const mdx = props.mdx && props.componentBlocksEnabled !== false;
+  const mdx = props.mdx && props.componentBlocks !== null;
   const [pickerOpen, setPickerOpen] = useState(false);
   const [componentPickerOpen, setComponentPickerOpen] = useState(false);
-  const [schemas, setSchemas] = useState<Record<string, AstroComponentSchema>>({});
+  const [schemas, setSchemas] = useState<Record<string, ComponentBlockSchema>>({});
   const configuredMedia = props.configuredMedia
     ? expandMediaEntry(props.configuredMedia, props.templateValues)
     : null;
@@ -134,7 +132,7 @@ export function BodyEditor(props: {
     if (!src.startsWith("/")) return src;
     const libraryMedia = (props.config.mediaLibraries ?? []).map((library) => {
       const input = library.base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
-      return { name: `astro:${library.collection}`, input, output: `/${input}` };
+      return { name: `library:${library.collection}`, input, output: `/${input}` };
     });
     const candidates = [configuredMedia, ...libraryMedia].filter(
       (media): media is MediaEntry => media !== null,
@@ -193,62 +191,32 @@ export function BodyEditor(props: {
     editor.commands.setContent(next.body, { contentType: "markdown", emitUpdate: false });
   }, [editor, props.value]);
 
-  // Astro components declare their props in a `Props` interface and their
-  // slots as `<slot>` tags — load both for each relatively-imported .astro
-  // component so its card can offer all prop keys and slot sections. Keyed on
-  // the import statements themselves, not the whole body, so typing in text
-  // doesn't refetch.
+  // The active adapter owns component discovery and prop parsing. The editor
+  // only consumes neutral fields and slot metadata for components imported by
+  // this document.
   const importsKey = mdx ? splitLeadingImports(props.value).imports.join("\u0000") : "";
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const loaded: Record<string, AstroComponentSchema> = {};
-      const importedTypesFor = async (source: string, ownerPath: string) => {
-        const resolved: Record<string, string> = {};
-        const imports = /import\s+(type\s+)?\{([\s\S]*?)\}\s+from\s+["']([^"']+)["']/g;
-        for (const statement of source.matchAll(imports)) {
-          const typeOnly = statement[1] !== undefined;
-          const spec = statement[3];
-          if (!spec.startsWith(".") || !/\.(?:astro|tsx?|jsx?)$/.test(spec)) continue;
-          const importedPath = resolveImportPath(ownerPath, spec);
-          if (!importedPath) continue;
-          let importedSource: string;
-          try {
-            importedSource = await invoke<string>("read_text_file", { path: importedPath });
-          } catch {
-            continue;
-          }
-          for (const raw of statement[2].split(",")) {
-            const member = raw.trim();
-            const explicitlyType = member.startsWith("type ");
-            if (!typeOnly && !explicitlyType) continue;
-            const match = /^(?:type\s+)?(\w+)(?:\s+as\s+(\w+))?$/.exec(member);
-            if (!match) continue;
-            const type = parseAstroExportedType(importedSource, match[1]);
-            if (type) resolved[match[2] ?? match[1]] = type;
-          }
-        }
-        return resolved;
-      };
+      const loaded: Record<string, ComponentBlockSchema> = {};
+      const source = props.componentBlocks;
+      if (!source) return;
       for (const statement of importsKey === "" ? [] : importsKey.split("\u0000")) {
         const { names, spec } = importInfo(statement);
-        if (!spec || !spec.endsWith(".astro") || names.length === 0) continue;
+        if (!spec || names.length === 0) continue;
         const file = resolveImportPath(props.path, spec);
         if (!file) continue;
         try {
-          const source = await invoke<string>("read_text_file", { path: file });
-          const importedTypes = await importedTypesFor(source, file);
-          const defs = parseAstroProps(source, importedTypes);
-          const propsType = parseAstroPropsType(source, importedTypes) ?? undefined;
-          const slots = parseAstroSlots(source);
-          // Register even prop-less, slot-less components: a loaded schema
-          // with no slots is what tells the card to render no sections.
+          const result = await source.componentFields(
+            { name: names[0], path: file },
+            ipcProjectIO,
+            props.config,
+          );
           for (const name of names) {
             loaded[name] = {
-              props: defs,
-              propsType,
-              slots: slots.named,
-              hasDefaultSlot: slots.hasDefault,
+              fields: result.fields,
+              slots: result.slots ?? [],
+              hasDefaultSlot: result.hasDefaultSlot ?? false,
             };
           }
         } catch {
@@ -266,15 +234,15 @@ export function BodyEditor(props: {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [importsKey, props.path]);
+  }, [importsKey, props.path, props.componentBlocks, props.componentSchemaVersion, props.config]);
 
   // Inserts the picked component at the cursor and, when it isn't imported
   // yet, adds the import at the top of the document. A cursor inside written
   // text gets an inline component; an empty paragraph (or block position)
   // gets a block one, so the paragraph is never split by the insert.
-  function insertComponent(file: FileEntry) {
+  function insertComponent(file: ComponentRef) {
     if (!editor) return;
-    const name = componentNameFromFile(file.name);
+    const name = file.name;
     const alreadyImported = importsRef.current.some((imp) => imp.names.includes(name));
     const { $from } = editor.state.selection;
     const inline = $from.parent.isTextblock && $from.parent.content.size > 0;
@@ -291,9 +259,8 @@ export function BodyEditor(props: {
       ? [...(schema.hasDefaultSlot ? [emptySlot(null)] : []), ...schema.slots.map(emptySlot)]
       : [emptySlot(null)];
     if (!alreadyImported) {
-      const spec = relativeImportPath(props.path, file.path);
       importsRef.current.push({
-        statement: `import ${name} from '${spec}';`,
+        statement: props.componentBlocks?.importFor(file, props.path) ?? "",
         names: [name],
         pinned: false,
       });
@@ -421,6 +388,7 @@ export function BodyEditor(props: {
           {componentPickerOpen && (
             <ComponentPicker
               root={props.root}
+              source={props.componentBlocks!}
               onClose={() => setComponentPickerOpen(false)}
               onPick={(file) => {
                 setComponentPickerOpen(false);

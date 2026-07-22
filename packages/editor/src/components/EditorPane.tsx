@@ -9,6 +9,7 @@ import { DataFormEditor } from "./DataFormEditor";
 import type { SaveState } from "../hooks/useCurrentFile";
 import { FieldTemplateActions } from "./FieldTemplateActions";
 import type { ProjectType } from "@posto/core/project/detect";
+import type { ComponentSchemaSource } from "@posto/core/project/adapter";
 
 export type EditorTab = "fields" | "body" | "raw";
 
@@ -60,7 +61,8 @@ export function EditorPane(props: {
   configError: string | null;
   /** Whether Astro schemas exist to fall back on when `.pages.yml` is broken. */
   hasDerivedFallback: boolean;
-  componentBlocksEnabled?: boolean;
+  componentBlocks: ComponentSchemaSource | null;
+  componentSchemaVersion?: number;
   groups: FileGroup[];
   editorTab: EditorTab;
   onTabChange: (tab: EditorTab) => void;
@@ -231,7 +233,8 @@ export function EditorPane(props: {
               config={props.config ?? EMPTY_CONFIG}
               root={props.root}
               groups={props.groups}
-              componentBlocksEnabled={props.componentBlocksEnabled}
+              componentBlocks={props.componentBlocks}
+              componentSchemaVersion={props.componentSchemaVersion}
               fieldsHeader={
                 (props.filenamePlacement ?? "header") === "fields" ? filenameField : undefined
               }

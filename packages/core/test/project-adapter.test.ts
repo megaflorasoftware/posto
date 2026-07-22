@@ -70,3 +70,37 @@ test("glob invalidations preserve recursive wildcard semantics", () => {
     new Set(),
   );
 });
+
+test("Astro component capabilities provide neutral refs, fields, slots, and imports", async () => {
+  const source = astroAdapter.capabilities.componentBlocks!;
+  const componentPath = "/site/src/components/callout.astro";
+  const io = {
+    async pathExists() {
+      return false;
+    },
+    async readTextFileOptional(path: string) {
+      return path === componentPath
+        ? `---\ninterface Props { title: string; count?: number; payload: Date }\n---\n<slot /><slot name="footer" />`
+        : null;
+    },
+    async listDirFilesOptional(dir: string) {
+      return dir === "/site/src/components"
+        ? [{ name: "callout.astro", path: componentPath }]
+        : null;
+    },
+  };
+  const refs = await source.listComponents("/site", io);
+  expect(refs).toEqual([{ name: "Callout", path: componentPath }]);
+  expect(await source.componentFields(refs[0], io, { media: [], content: [] })).toMatchObject({
+    fields: [
+      { name: "title", type: "string", required: true },
+      { name: "count", type: "number" },
+      { name: "payload", type: "text", options: { mdxRawType: "Date" } },
+    ],
+    slots: ["footer"],
+    hasDefaultSlot: true,
+  });
+  expect(source.importFor(refs[0], "/site/src/content/post.mdx")).toBe(
+    "import Callout from '../components/callout.astro';",
+  );
+});
