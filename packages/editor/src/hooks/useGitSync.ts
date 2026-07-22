@@ -29,6 +29,7 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
   const [behindUpstream, setBehindUpstream] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const publishingRef = useRef(false);
   // Whether git reports uncommitted local changes; the header's Publish
   // button is disabled while false. Kept fresh by refreshLocalChanges (run
   // on saves via the fs watcher, deletes, reverts, pulls, …) and publish.
@@ -148,23 +149,28 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
 
   async function publish(message: string) {
     const dir = rootRef.current;
-    if (!dir) return;
-    await cb.current.beforeSync?.();
+    if (!dir || publishingRef.current) return;
+    publishingRef.current = true;
     const quiet = cb.current.onPublishError !== undefined;
     setPublishing(true);
-    if (!quiet) cb.current.onStatus("Publishing…", "progress");
     try {
-      const result = await invoke<string>("publish", { root: dir, message });
-      if (!quiet) cb.current.onStatus(result, "success");
-    } catch (e) {
-      if (quiet) cb.current.onPublishError?.(`Publish failed: ${errorMessage(e)}`);
-      else cb.current.onStatus(`Publish failed: ${errorMessage(e)}`, "error");
+      await cb.current.beforeSync?.();
+      if (!quiet) cb.current.onStatus("Publishing…", "progress");
+      try {
+        const result = await invoke<string>("publish", { root: dir, message });
+        if (!quiet) cb.current.onStatus(result, "success");
+      } catch (e) {
+        if (quiet) cb.current.onPublishError?.(`Publish failed: ${errorMessage(e)}`);
+        else cb.current.onStatus(`Publish failed: ${errorMessage(e)}`, "error");
+      }
+      // Committing doesn't touch watched files, so refresh the flag directly —
+      // and before clearing `publishing`, so the button lands on "Up to date"
+      // without flashing an enabled "Publish…" in between.
+      await refreshLocalChanges(dir);
+    } finally {
+      publishingRef.current = false;
+      setPublishing(false);
     }
-    // Committing doesn't touch watched files, so refresh the flag directly —
-    // and before clearing `publishing`, so the button lands on "Up to date"
-    // without flashing an enabled "Publish…" in between.
-    await refreshLocalChanges(dir);
-    setPublishing(false);
   }
 
   return {
