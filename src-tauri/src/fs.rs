@@ -31,13 +31,55 @@ pub struct FileEntry {
 const FRONTMATTER_TITLE_EXTENSIONS: &[&str] = &["md", "mdx", "markdown"];
 
 fn frontmatter_scalar(value: &str) -> Option<String> {
-    let trimmed = value
-        .trim()
-        .trim_matches('"')
-        .trim_matches('\'')
-        .trim()
-        .to_string();
-    (!trimmed.is_empty()).then_some(trimmed)
+    let trimmed = value.trim();
+    if trimmed.is_empty()
+        || matches!(trimmed, "~" | "null" | "Null" | "NULL" | "|" | ">")
+        || trimmed.starts_with('{')
+        || trimmed.starts_with('[')
+    {
+        return None;
+    }
+
+    if (trimmed.starts_with('"') && trimmed.ends_with('"'))
+        || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
+    {
+        let unquoted = trimmed[1..trimmed.len() - 1].trim().to_string();
+        return (!unquoted.is_empty()).then_some(unquoted);
+    }
+
+    // YAML comments begin at a # preceded by whitespace. Quoted values were
+    // handled above, so a lightweight scan is sufficient for this scalar set.
+    let plain = trimmed
+        .find(" #")
+        .map(|index| &trimmed[..index])
+        .unwrap_or(trimmed)
+        .trim();
+    if plain.is_empty() {
+        return None;
+    }
+    if plain.eq_ignore_ascii_case("true") {
+        return Some("true".to_string());
+    }
+    if plain.eq_ignore_ascii_case("false") {
+        return Some("false".to_string());
+    }
+
+    let unsigned = plain.trim_start_matches(['+', '-']);
+    let leading_zero_integer = unsigned.len() > 1
+        && unsigned.starts_with('0')
+        && unsigned.chars().all(|character| character.is_ascii_digit());
+    if !leading_zero_integer {
+        if let Ok(integer) = plain.parse::<i64>() {
+            return Some(integer.to_string());
+        }
+        if let Ok(decimal) = plain.parse::<f64>() {
+            if decimal.is_finite() {
+                return Some(decimal.to_string());
+            }
+        }
+    }
+
+    Some(plain.to_string())
 }
 
 /// Extracts top-level `key: value` scalar pairs from a markdown file's
@@ -756,6 +798,31 @@ mod tests {
             None
         );
         assert!(read_text_file_optional(temp.path().to_string_lossy().to_string()).is_err());
+    }
+
+    #[test]
+    fn frontmatter_scalar_scan_matches_typescript_fixture() {
+        let temp = tempfile::tempdir().unwrap();
+        let fixture = temp.path().join("frontmatter-scalars.md");
+        std::fs::write(
+            &fixture,
+            include_str!("../../packages/core/test/fixtures/frontmatter-scalars.md"),
+        )
+        .unwrap();
+
+        let actual = frontmatter_scalars(&fixture, "md").unwrap();
+        let expected = std::collections::BTreeMap::from([
+            ("decimal".to_string(), "1.5".to_string()),
+            ("disabled".to_string(), "false".to_string()),
+            ("enabled".to_string(), "true".to_string()),
+            ("integer".to_string(), "12".to_string()),
+            ("leading_zero".to_string(), "01".to_string()),
+            ("legacy_boolean".to_string(), "yes".to_string()),
+            ("plain_with_comment".to_string(), "visible".to_string()),
+            ("slug".to_string(), "hello:world".to_string()),
+            ("title".to_string(), "A: colon".to_string()),
+        ]);
+        assert_eq!(actual, expected);
     }
 
     #[test]

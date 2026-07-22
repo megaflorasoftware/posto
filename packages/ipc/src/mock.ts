@@ -9,6 +9,7 @@ import {
   type ManagedRepo,
   type WorkflowRun,
 } from "./index";
+import { scalarFrontmatter } from "@posto/core/pagescms/frontmatterScalars";
 
 /**
  * Browser development backend.
@@ -340,22 +341,7 @@ function mockWorkflowRuns(): WorkflowRun[] {
 
 function mockFrontmatter(path: string): Record<string, string> | null {
   if (!/\.(md|mdx|markdown)$/i.test(path)) return null;
-  const content = mockFiles[path];
-  const fm = content?.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (!fm) return null;
-  const pairs: Record<string, string> = {};
-  for (const line of fm[1].split(/\r?\n/)) {
-    if (/^[\s-]/.test(line)) continue; // nested values and sequence items
-    const sep = line.indexOf(":");
-    if (sep === -1) continue;
-    const key = line.slice(0, sep).trim();
-    const value = line
-      .slice(sep + 1)
-      .trim()
-      .replace(/^["']|["']$/g, "");
-    if (key !== "" && !key.includes(" ") && value !== "") pairs[key] = value;
-  }
-  return Object.keys(pairs).length > 0 ? pairs : null;
+  return scalarFrontmatter(mockFiles[path] ?? "");
 }
 
 function mockTitle(frontmatter: Record<string, string> | null): string | null {

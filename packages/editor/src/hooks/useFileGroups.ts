@@ -1,30 +1,13 @@
 import { useRef, useState } from "react";
 import { invoke } from "@posto/ipc";
 import type { FileGroup } from "@posto/ipc";
-import { parseFile } from "@posto/core/pagescms/frontmatter";
+import { scalarFrontmatter } from "@posto/core/pagescms/frontmatterScalars";
 import type { PagesConfig } from "@posto/core/pagescms/config";
 import {
   dataDocumentEntries,
   dataEntryValues,
   parseDataDocument,
 } from "@posto/core/astro/dataDocument";
-
-// Sidebar labels and sort keys come from frontmatter; keep them in sync when
-// a save changes it (list_files only runs on directory selection).
-function sidebarFrontmatter(path: string, content: string): Record<string, string> | null {
-  if (!/\.(md|mdx|markdown)$/i.test(path)) return null;
-  const parsed = parseFile(content);
-  if (parsed.error) return null;
-  const values = parsed.doc.toJSON() as unknown;
-  if (!values || typeof values !== "object" || Array.isArray(values)) return null;
-  // Scalars only, matching what the backend's line-based scan surfaces.
-  const pairs: Record<string, string> = {};
-  for (const [key, value] of Object.entries(values)) {
-    if (typeof value === "string" && value.trim() !== "") pairs[key] = value;
-    else if (typeof value === "number" || typeof value === "boolean") pairs[key] = String(value);
-  }
-  return Object.keys(pairs).length > 0 ? pairs : null;
-}
 
 function sidebarTitle(frontmatter: Record<string, string> | null): string | null {
   return frontmatter?.title ?? frontmatter?.name ?? null;
@@ -120,7 +103,7 @@ export function useFileGroups(onError: (message: string) => void) {
   }
 
   function updateSidebarTitle(path: string, content: string) {
-    const frontmatter = sidebarFrontmatter(path, content);
+    const frontmatter = /\.(md|mdx|markdown)$/i.test(path) ? scalarFrontmatter(content) : null;
     const title = sidebarTitle(frontmatter);
     setGroups((current) =>
       current.map((group) =>
