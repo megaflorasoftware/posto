@@ -193,6 +193,9 @@ const mockFiles: Record<string, string> = {
   "/mock/site/media/portraits/person.jpg": "[mock image]",
   "/mock/site/public/images/photo.jpg": "[mock image]",
   "/mock/site/public/images/nested/logo.png": "[mock image]",
+  "/mock/site/.hidden.txt": "hidden fixture",
+  "/mock/site/dist/generated.txt": "build fixture",
+  "/mock/site/node_modules/example/readme.txt": "dependency fixture",
   "/mock/site/src/layouts/BaseLayout.astro": "<html><slot /></html>",
   "/mock/site/src/layouts/PostLayout.astro": "<article><slot /></article>",
   "/mock/site/src/layouts/notes.txt": "not a layout",
@@ -361,10 +364,26 @@ function mockTitle(frontmatter: Record<string, string> | null): string | null {
   return frontmatter?.title ?? frontmatter?.name ?? null;
 }
 
+const skippedMockDirectories = new Set([
+  "node_modules",
+  "_site",
+  "dist",
+  "build",
+  "out",
+  "target",
+]);
+
 function listMockDirFiles(dir: string, extensions: string[]) {
   if (!mockDirectories.has(dir)) throw new Error(`Not a directory: ${dir}`);
   return Object.keys(mockFiles)
     .filter((path) => path.startsWith(dir + "/") && !mockDeleted.has(path))
+    .filter((path) => {
+      const segments = path.slice(dir.length + 1).split("/");
+      return (
+        segments.every((segment) => !segment.startsWith(".")) &&
+        segments.slice(0, -1).every((segment) => !skippedMockDirectories.has(segment))
+      );
+    })
     .filter(
       (path) => extensions.length === 0 || extensions.includes(path.split(".").pop() as string),
     )

@@ -49,3 +49,25 @@ test("directory commands share fixtures and missing-path behavior", async () => 
     }),
   ).rejects.toThrow("Not a directory: /mock/site/missing");
 });
+
+test("recursive listings skip hidden entries and generated directories", async () => {
+  await expect(
+    invoke("list_dir_files", {
+      dir: "/mock/site",
+      extensions: ["txt"],
+    }),
+  ).resolves.toEqual([
+    { name: "notes.txt", path: "/mock/site/notes.txt" },
+    { name: "notes.txt", path: "/mock/site/src/layouts/notes.txt" },
+  ]);
+
+  const postoFiles = await invoke<{ path: string }[]>("list_dir_files", {
+    dir: "/mock/site/.posto",
+    extensions: ["json"],
+  });
+  expect(postoFiles.map((file) => file.path)).toEqual([
+    "/mock/site/.posto/collections/blog.json",
+    "/mock/site/.posto/collections/pages.json",
+    "/mock/site/.posto/index.json",
+  ]);
+});
