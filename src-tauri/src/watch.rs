@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -37,8 +38,41 @@ fn adapter_ignored(rel: &str, rules: &[IgnoreRule]) -> bool {
         rule.prefix
             .as_ref()
             .is_some_and(|prefix| rel.starts_with(prefix))
-            || rule.glob.as_ref().is_some_and(|glob| glob == rel)
+            || rule
+                .glob
+                .as_ref()
+                .is_some_and(|glob| wildcard_match(glob, rel))
     })
+}
+
+fn wildcard_match(pattern: &str, value: &str) -> bool {
+    let pattern = pattern.as_bytes();
+    let value = value.as_bytes();
+    let (mut p, mut v, mut star, mut matched) = (0, 0, None, 0);
+    while v < value.len() {
+        if p < pattern.len() && (pattern[p] == b'?' && value[v] != b'/' || pattern[p] == value[v]) {
+            p += 1;
+            v += 1;
+        } else if p < pattern.len() && pattern[p] == b'*' {
+            let recursive = p + 1 < pattern.len() && pattern[p + 1] == b'*';
+            p += if recursive { 2 } else { 1 };
+            star = Some((p, recursive));
+            matched = v;
+        } else if let Some((after_star, recursive)) = star {
+            if !recursive && value[matched] == b'/' {
+                return false;
+            }
+            matched += 1;
+            v = matched;
+            p = after_star;
+        } else {
+            return false;
+        }
+    }
+    while p < pattern.len() && pattern[p] == b'*' {
+        p += 1;
+    }
+    p == pattern.len()
 }
 
 fn watch_ignored(root: &str, path: &str, rules: &[IgnoreRule]) -> bool {
@@ -95,16 +129,30 @@ pub fn watch_root(
         .watcher()
         .watch(Path::new(&root), notify::RecursiveMode::Recursive)
         .map_err(|e| e.to_string())?;
-    for extra in extra_paths {
-        let path = Path::new(&extra);
-        if path.exists() {
+    let extra_parents: HashSet<_> = extra_paths
+        .iter()
+        .filter_map(|extra| Path::new(extra).parent().map(Path::to_path_buf))
+        .collect();
+    for path in extra_parents {
+        if path.is_dir() {
             debouncer
                 .watcher()
-                .watch(path, notify::RecursiveMode::NonRecursive)
+                .watch(&path, notify::RecursiveMode::NonRecursive)
                 .map_err(|e| e.to_string())?;
         }
     }
     // Assign last: an error above leaves the previous watch running.
     *state.watcher.lock().unwrap() = Some(debouncer);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wildcard_match;
+
+    #[test]
+    fn watcher_globs_match_frontend_semantics() {
+        assert!(wildcard_match("a/**/b/*.md", "a/nested/deep/b/post.md"));
+        assert!(!wildcard_match("a/*/b/*.md", "a/nested/deep/b/post.md"));
+    }
 }

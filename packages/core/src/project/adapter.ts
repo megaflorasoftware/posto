@@ -88,11 +88,17 @@ function matches(path: string, matcher: PathMatcher): boolean {
   if (matcher.exact && path === matcher.exact) return true;
   if (matcher.prefix && path.startsWith(matcher.prefix)) return true;
   if (matcher.glob) {
-    const escaped = matcher.glob
-      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-      .replace(/\*\*/g, ".*")
-      .replace(/\*/g, "[^/]*");
-    return new RegExp(`^${escaped}$`).test(path);
+    let pattern = "";
+    for (let index = 0; index < matcher.glob.length; index += 1) {
+      const char = matcher.glob[index];
+      if (char === "*" && matcher.glob[index + 1] === "*") {
+        pattern += ".*";
+        index += 1;
+      } else if (char === "*") pattern += "[^/]*";
+      else if (char === "?") pattern += "[^/]";
+      else pattern += char.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+    }
+    return new RegExp(`^${pattern}$`).test(path);
   }
   return false;
 }

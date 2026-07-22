@@ -44,7 +44,7 @@ pub fn get_last_selection(app: tauri::AppHandle) -> Option<RootSelection> {
         .get("work_dirs")
         .and_then(|value| value.get(&root))
         .and_then(serde_json::Value::as_str)
-        .filter(|path| Path::new(path).is_dir())
+        .filter(|path| Path::new(path).is_dir() && Path::new(path).starts_with(&root))
         .unwrap_or(&root)
         .to_string();
     Some(RootSelection { root, work_dir })
@@ -99,6 +99,13 @@ pub fn set_last_root(app: tauri::AppHandle, root: String, work_dir: Option<Strin
     recents.retain(|r| r != &root);
     recents.insert(0, root.clone());
     recents.truncate(MAX_RECENT_ROOTS);
+    let retained: std::collections::HashSet<&str> = recents.iter().map(String::as_str).collect();
+    if let Some(work_dirs) = settings
+        .get_mut("work_dirs")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        work_dirs.retain(|root, _| retained.contains(root.as_str()));
+    }
     settings["last_root"] = serde_json::Value::String(root.clone());
     if let Some(work_dir) = work_dir {
         if !settings

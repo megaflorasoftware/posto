@@ -55,3 +55,18 @@ test("invalidations return only affected refresh scopes", () => {
     new Set(["projectType"]),
   );
 });
+
+test("glob invalidations preserve recursive wildcard semantics", () => {
+  const adapter = {
+    ...genericAdapter,
+    invalidations: () => [
+      { paths: [{ glob: "/site/a/**/b/*.md" }], refresh: "derivedConfig" as const },
+    ],
+  };
+  expect(invalidationScopesForPaths(adapter, "/site", ["/site/a/nested/deep/b/post.md"])).toEqual(
+    new Set(["derivedConfig"]),
+  );
+  expect(invalidationScopesForPaths(adapter, "/site", ["/site/a/nested/b/post.txt"])).toEqual(
+    new Set(),
+  );
+});
