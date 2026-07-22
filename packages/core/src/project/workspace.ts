@@ -15,6 +15,25 @@ export interface WorkspaceScan {
   hasWorkspaceManifest: boolean;
 }
 
+const WORKSPACE_LAYOUT_FILES = [
+  "package.json",
+  "pnpm-workspace.yaml",
+  "lerna.json",
+  "turbo.json",
+] as const;
+
+/** Whether a changed path can alter the workspace layout outside the active project. */
+export function workspaceLayoutChanged(
+  repoRoot: string,
+  workDir: string,
+  paths: string[],
+): boolean {
+  if (repoRoot === workDir) return false;
+  return paths.some((path) =>
+    WORKSPACE_LAYOUT_FILES.some((marker) => path === `${repoRoot}/${marker}`),
+  );
+}
+
 const WORKSPACE_MARKERS = new Set([
   "pnpm-workspace.yaml",
   "lerna.json",

@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { DetectionIO } from "../src/project/detect";
-import { decideWorkspace, scanWorkspace } from "../src/project/workspace";
+import { decideWorkspace, scanWorkspace, workspaceLayoutChanged } from "../src/project/workspace";
 
 const files: Record<string, string> = {
   "/repo/pnpm-workspace.yaml": "packages: [apps/*]",
@@ -48,4 +48,14 @@ test("a framework root wins over nested candidates", async () => {
     automatic: false,
   });
   delete files["/repo/package.json"];
+});
+
+test("workspace manifests never invalidate a single-project session", () => {
+  expect(workspaceLayoutChanged("/repo", "/repo", ["/repo/package.json"])).toBe(false);
+  expect(workspaceLayoutChanged("/repo", "/repo/apps/site", ["/repo/pnpm-workspace.yaml"])).toBe(
+    true,
+  );
+  expect(workspaceLayoutChanged("/repo", "/repo/apps/site", ["/repo/apps/site/package.json"])).toBe(
+    false,
+  );
 });

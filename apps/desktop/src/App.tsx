@@ -14,6 +14,7 @@ import {
   scanWorkspace,
   type ProjectCandidate,
   type ProjectInventory,
+  workspaceLayoutChanged,
 } from "@posto/core/project/workspace";
 import {
   EditorPane,
@@ -343,16 +344,15 @@ function App() {
   async function invalidateAdapterPaths(paths: string[]) {
     const dir = rootRef.current;
     if (!dir) return;
-    if (
-      repoRoot &&
-      paths.some((path) =>
-        ["package.json", "pnpm-workspace.yaml", "lerna.json", "turbo.json"].some(
-          (marker) => path === `${repoRoot}/${marker}`,
-        ),
-      )
-    ) {
-      await selectRepository(repoRoot);
-      return;
+    if (repoRoot && workspaceLayoutChanged(repoRoot, dir, paths)) {
+      // A manifest edit can add/remove sibling candidates, but the active
+      // project remains valid until its directory disappears. Do not tear
+      // down the open file, preview, or dev server merely to re-decide the
+      // same workDir.
+      if (!(await ipcProjectIO.pathExists(dir, "directory"))) {
+        await selectRepository(repoRoot);
+        return;
+      }
     }
     const scopes = invalidationScopesForPaths(adapter, dir, paths, schemas.configRef.current);
     if (scopes.has("projectType")) {
