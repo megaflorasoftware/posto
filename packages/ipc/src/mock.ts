@@ -364,14 +364,7 @@ function mockTitle(frontmatter: Record<string, string> | null): string | null {
   return frontmatter?.title ?? frontmatter?.name ?? null;
 }
 
-const skippedMockDirectories = new Set([
-  "node_modules",
-  "_site",
-  "dist",
-  "build",
-  "out",
-  "target",
-]);
+const skippedMockDirectories = new Set(["node_modules", "_site", "dist", "build", "out", "target"]);
 
 function listMockDirFiles(dir: string, extensions: string[]) {
   if (!mockDirectories.has(dir)) throw new Error(`Not a directory: ${dir}`);
