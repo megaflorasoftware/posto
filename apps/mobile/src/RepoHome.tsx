@@ -194,12 +194,16 @@ export default function RepoHome({
     setError(null);
     setRepairError(null);
     void (async () => {
-      try {
-        // Validate/repair the native checkout before any filesystem reads.
-        // Running these concurrently caused first-open "Not a directory"
-        // errors when the repository registry was still settling.
-        if (repo)
+      if (repo) {
+        try {
           await invoke<string>("doctor_repo", { root: repoRoot, expectedUrl: repo.clone_url });
+        } catch (checkError) {
+          if (active) setRepairError(message(checkError));
+          if (active) setLoading(false);
+          return;
+        }
+      }
+      try {
         const inventory = await invoke<ProjectInventory[]>("scan_projects", { root: repoRoot });
         const scan = await scanWorkspace(repoRoot, inventory, ipcProjectIO);
         const decision = decideWorkspace(repoRoot, scan);
@@ -217,7 +221,7 @@ export default function RepoHome({
           void git.refreshLocalChanges(selectedRoot);
         }
       } catch (checkError) {
-        if (active) setRepairError(message(checkError));
+        if (active) setError(`Could not inspect project: ${message(checkError)}`);
       } finally {
         if (active) setLoading(false);
       }
@@ -230,14 +234,18 @@ export default function RepoHome({
   }, [repoRoot]);
 
   async function chooseWorkspace(candidate: ProjectCandidate | null) {
-    const selectedRoot = candidate?.dir ?? repoRoot;
-    const detected = await detectProject(selectedRoot, ipcProjectIO);
-    setWorkDir(selectedRoot);
-    setProjectInfo(detected);
-    setWorkspaceCandidates(null);
-    void invoke("set_last_root", { root: repoRoot, workDir: selectedRoot });
-    await refreshRepositoryContent(selectedRoot, projectAdapter(detected.type));
-    void git.refreshLocalChanges(selectedRoot);
+    try {
+      const selectedRoot = candidate?.dir ?? repoRoot;
+      const detected = await detectProject(selectedRoot, ipcProjectIO);
+      setWorkDir(selectedRoot);
+      setProjectInfo(detected);
+      setWorkspaceCandidates(null);
+      void invoke("set_last_root", { root: repoRoot, workDir: selectedRoot });
+      await refreshRepositoryContent(selectedRoot, projectAdapter(detected.type));
+      void git.refreshLocalChanges(selectedRoot);
+    } catch (chooseError) {
+      setError(`Could not inspect project: ${message(chooseError)}`);
+    }
   }
 
   const fileCount = useMemo(

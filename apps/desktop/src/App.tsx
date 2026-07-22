@@ -173,7 +173,16 @@ function App() {
   }
 
   async function selectRoot(repository: string, dir: string) {
-    const detected = await detectProject(dir, ipcProjectIO);
+    let detected: ProjectInfo;
+    try {
+      detected = await detectProject(dir, ipcProjectIO);
+    } catch (error) {
+      notify(
+        `Could not inspect project: ${error instanceof Error ? error.message : String(error)}`,
+        "error",
+      );
+      return;
+    }
     const selectedAdapter = projectAdapter(detected.type);
     void currentFile.flushPendingSave();
     setRoot(dir);
@@ -204,17 +213,24 @@ function App() {
   }
 
   async function selectRepository(repository: string) {
-    const inventory = await invoke<ProjectInventory[]>("scan_projects", { root: repository });
-    const scan = await scanWorkspace(repository, inventory, ipcProjectIO);
-    const decision = decideWorkspace(repository, scan);
-    if (decision.kind === "choose") {
-      setRepoRoot(repository);
-      setRoot(null);
-      setProjectInfo(null);
-      setWorkspaceCandidates(decision.candidates);
-      return;
+    try {
+      const inventory = await invoke<ProjectInventory[]>("scan_projects", { root: repository });
+      const scan = await scanWorkspace(repository, inventory, ipcProjectIO);
+      const decision = decideWorkspace(repository, scan);
+      if (decision.kind === "choose") {
+        setRepoRoot(repository);
+        setRoot(null);
+        setProjectInfo(null);
+        setWorkspaceCandidates(decision.candidates);
+        return;
+      }
+      await selectRoot(repository, decision.workDir);
+    } catch (error) {
+      notify(
+        `Could not inspect project: ${error instanceof Error ? error.message : String(error)}`,
+        "error",
+      );
     }
-    await selectRoot(repository, decision.workDir);
   }
 
   async function refreshRecentRoots() {
