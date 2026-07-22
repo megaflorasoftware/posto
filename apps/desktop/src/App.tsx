@@ -8,6 +8,7 @@ import { EMPTY_CONFIG, matchEntry, renamedFilename } from "@posto/core/pagescms/
 import { parseFile } from "@posto/core/pagescms/frontmatter";
 import { detectProject, type ProjectInfo } from "@posto/core/project/detect";
 import { projectAdapter } from "@posto/core/project/registry";
+import { invalidationScopesForPaths } from "@posto/core/project/adapter";
 import {
   EditorPane,
   ImageLibraryDropImport,
@@ -72,7 +73,7 @@ function App() {
   const files = useFileGroups(notifyError);
   const devServer = useDevServer();
   const deployment = useDeployment(root);
-  const siteUrl = useSiteUrl(root);
+  const siteUrl = useSiteUrl(root, adapter);
 
   const currentFile = useCurrentFile({
     onAfterSave(path, content) {
@@ -89,12 +90,7 @@ function App() {
       setSaveTick((t) => t + 1);
       // Editing the schema itself must re-parse it, or forms keep the old one.
       if (dir && path === dir + "/.pages.yml") void schemas.loadPagesConfig(dir);
-      if (
-        dir &&
-        (path === dir + "/src/content.config.ts" || path === dir + "/src/content/config.ts")
-      ) {
-        void schemas.loadAstroConfig(dir);
-      }
+      if (dir) void invalidateAdapterPaths([path]);
       // Frontmatter drives template-derived filenames; each (already
       // debounced) save is the moment to bring the name back in line.
       void renameForTemplate(path, content);
@@ -142,6 +138,8 @@ function App() {
     groupsRef: files.groupsRef,
     filePathRef: currentFile.filePathRef,
     onRouteOpened: (path) => openFile(path, false),
+    adapter,
+    root,
   });
 
   const git = useGitSync(root, {
@@ -299,19 +297,34 @@ function App() {
     void refreshGroups(dir);
     if (paths.includes(dir + "/.pages.yml")) void schemas.loadPagesConfig(dir);
     if (paths.some((p) => p.startsWith(dir + "/.posto/"))) void schemas.loadPostoConfig(dir);
-    if (
-      paths.some(
-        (p) =>
-          p.startsWith(dir + "/.astro/collections") ||
-          p === dir + "/src/content.config.ts" ||
-          p === dir + "/src/content/config.ts",
-      )
-    ) {
-      void schemas.loadAstroConfig(dir);
-    }
+    void invalidateAdapterPaths(paths);
     if (paths.includes(currentFile.filePathRef.current ?? "")) {
       void currentFile.reloadFromDisk();
     }
+  }
+
+  async function invalidateAdapterPaths(paths: string[]) {
+    const dir = rootRef.current;
+    if (!dir) return;
+    const scopes = invalidationScopesForPaths(
+      adapter,
+      dir,
+      paths,
+      schemas.configRef.current,
+    );
+    if (scopes.has("projectType")) {
+      const detected = await detectProject(dir, ipcProjectIO);
+      if (detected.type !== projectInfo?.type) {
+        await selectRoot(dir);
+        return;
+      }
+      setProjectInfo(detected);
+    }
+    if (scopes.has("derivedConfig")) void schemas.loadDerivedConfig(dir, adapter);
+    if (scopes.has("dataDocuments")) {
+      void files.refreshDataGroups(dir, schemas.configRef.current);
+    }
+    if (scopes.has("mediaLibraries")) void refreshGroups(dir);
   }
 
   useEffect(() => {

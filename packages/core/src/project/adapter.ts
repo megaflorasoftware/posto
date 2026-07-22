@@ -54,6 +54,7 @@ export interface InvalidationRule {
 export interface IgnoreRule {
   prefix?: string;
   glob?: string;
+  exceptPrefixes?: string[];
 }
 
 export interface ComponentRef {
@@ -84,4 +85,30 @@ export interface ProjectAdapter {
     componentBlocks: ComponentSchemaSource | null;
     entryIds: "framework" | null;
   };
+}
+
+function matches(path: string, matcher: PathMatcher): boolean {
+  if (matcher.exact && path === matcher.exact) return true;
+  if (matcher.prefix && path.startsWith(matcher.prefix)) return true;
+  if (matcher.glob) {
+    const escaped = matcher.glob.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*\*/g, ".*").replace(/\*/g, "[^/]*");
+    return new RegExp(`^${escaped}$`).test(path);
+  }
+  return false;
+}
+
+/** Resolves changed paths to a de-duplicated set of adapter refresh scopes. */
+export function invalidationScopesForPaths(
+  adapter: ProjectAdapter,
+  root: string,
+  paths: string[],
+  config?: PagesConfig | null,
+): Set<InvalidationScope> {
+  const scopes = new Set<InvalidationScope>();
+  for (const rule of adapter.invalidations(root, config)) {
+    if (paths.some((path) => rule.paths.some((matcher) => matches(path, matcher)))) {
+      scopes.add(rule.refresh);
+    }
+  }
+  return scopes;
 }

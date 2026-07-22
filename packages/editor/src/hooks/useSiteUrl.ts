@@ -1,17 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@posto/ipc";
-
-// Astro config file names, in the order Astro itself resolves them.
-const ASTRO_CONFIG_FILES = [
-  "astro.config.mjs",
-  "astro.config.ts",
-  "astro.config.js",
-  "astro.config.mts",
-  "astro.config.cjs",
-];
-
-// `site: 'https://example.com'` in the Astro config — the canonical deploy URL.
-const SITE_FIELD = /(?:^|[\s,{(])site\s*:\s*(['"`])([^'"`]+)\1/m;
+import type { ProjectAdapter } from "@posto/core/project/adapter";
+import { genericAdapter } from "@posto/core/project/generic";
 
 function normalizeUrl(value: string): string | null {
   const trimmed = value.trim();
@@ -31,12 +21,11 @@ async function readFile(path: string): Promise<string | null> {
 /** Resolves the site's live URL from, in order of confidence: the Astro
  * config's `site` field, a `public/CNAME` (GitHub Pages / custom domains), or
  * package.json's `homepage`. Null when none is found. */
-async function resolveSiteUrl(root: string): Promise<string | null> {
-  for (const file of ASTRO_CONFIG_FILES) {
-    const source = await readFile(`${root}/${file}`);
-    const match = source?.match(SITE_FIELD);
-    if (match) {
-      const url = normalizeUrl(match[2]);
+async function resolveSiteUrl(root: string, adapter: ProjectAdapter): Promise<string | null> {
+  for (const candidate of adapter.siteUrlSources(root)) {
+    const source = await readFile(candidate.path);
+    if (source) {
+      const url = normalizeUrl(candidate.extract(source) ?? "");
       if (url) return url;
     }
   }
@@ -65,7 +54,10 @@ async function resolveSiteUrl(root: string): Promise<string | null> {
 }
 
 /** The open site's live URL, re-resolved whenever the root changes. */
-export function useSiteUrl(root: string | null): string | null {
+export function useSiteUrl(
+  root: string | null,
+  adapter: ProjectAdapter = genericAdapter,
+): string | null {
   const [siteUrl, setSiteUrl] = useState<string | null>(null);
   useEffect(() => {
     if (!root) {
@@ -74,7 +66,7 @@ export function useSiteUrl(root: string | null): string | null {
     }
     let active = true;
     setSiteUrl(null);
-    void resolveSiteUrl(root)
+    void resolveSiteUrl(root, adapter)
       .then((url) => {
         if (active) setSiteUrl(url);
       })
@@ -85,6 +77,6 @@ export function useSiteUrl(root: string | null): string | null {
     return () => {
       active = false;
     };
-  }, [root]);
+  }, [root, adapter]);
   return siteUrl;
 }

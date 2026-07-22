@@ -9,6 +9,7 @@ import {
   type DeploymentRun,
   type DeploymentState,
 } from "@posto/core/github/deployment";
+import type { ProjectAdapter } from "@posto/core/project/adapter";
 
 // The deployment ring tracks the default branch's own pipeline.
 const BRANCH = "main";
@@ -60,15 +61,17 @@ export function DeploymentStatus({
   owner,
   name,
   root,
+  adapter,
 }: {
   owner: string;
   name: string;
   root: string;
+  adapter: ProjectAdapter;
 }) {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [now, setNow] = useState(() => Date.now());
   const [error, setError] = useState<string | null>(null);
-  const siteUrl = useSiteUrl(root);
+  const siteUrl = useSiteUrl(root, adapter);
 
   useEffect(() => {
     let active = true;

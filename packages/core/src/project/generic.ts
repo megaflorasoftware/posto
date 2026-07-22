@@ -1,12 +1,22 @@
 import type { ProjectAdapter } from "./adapter";
+import { PROJECT_MARKERS } from "./detect";
 
 export const genericAdapter: ProjectAdapter = {
   type: "generic",
   async loadDerivedConfig() {
     return null;
   },
-  invalidations() {
-    return [];
+  invalidations(root) {
+    return [
+      ...PROJECT_MARKERS.map((path) => ({
+        paths: [{ exact: `${root}/${path}` }],
+        refresh: "projectType" as const,
+      })),
+      {
+        paths: [{ exact: `${root}/.astro` }, { prefix: `${root}/.astro/` }],
+        refresh: "projectType",
+      },
+    ];
   },
   routeForFile() {
     return null;

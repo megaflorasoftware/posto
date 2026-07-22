@@ -111,7 +111,7 @@ export const astroAdapter: ProjectAdapter = {
     }));
   },
   watchIgnores() {
-    return [{ prefix: ".astro/" }];
+    return [{ prefix: ".astro/", exceptPrefixes: [".astro/collections/"] }];
   },
   capabilities: {
     imageLibraries: true,

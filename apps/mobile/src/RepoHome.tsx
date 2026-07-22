@@ -47,6 +47,7 @@ import { parseFile } from "@posto/core/pagescms/frontmatter";
 import { detectProject, type ProjectInfo } from "@posto/core/project/detect";
 import { projectAdapter } from "@posto/core/project/registry";
 import type { ProjectAdapter } from "@posto/core/project/adapter";
+import { invalidationScopesForPaths } from "@posto/core/project/adapter";
 import { invoke } from "@posto/ipc";
 import type { ChangedFile, FileEntry, FileGroup, GitHubRepo } from "@posto/ipc";
 import {
@@ -141,8 +142,10 @@ export default function RepoHome({
         void files.refreshDataGroups(root, schemas.configRef.current);
       }
       if (path === root + "/.pages.yml") void schemas.loadPagesConfig(root);
-      if (path === root + "/src/content.config.ts" || path === root + "/src/content/config.ts") {
-        void schemas.loadAstroConfig(root);
+      const scopes = invalidationScopesForPaths(adapter, root, [path], schemas.configRef.current);
+      if (scopes.has("derivedConfig")) void schemas.loadDerivedConfig(root, adapter);
+      if (scopes.has("dataDocuments")) {
+        void files.refreshDataGroups(root, schemas.configRef.current);
       }
       // Frontmatter drives template-derived filenames; each (already
       // debounced) save is the moment to bring the name back in line.
@@ -621,7 +624,7 @@ export default function RepoHome({
         </main>
       ) : showDeployments ? (
         repo ? (
-          <DeploymentStatus owner={repo.owner} name={repo.name} root={root} />
+          <DeploymentStatus owner={repo.owner} name={repo.name} root={root} adapter={adapter} />
         ) : (
           <main className="mobile-settings-screen">
             <Text c="dimmed" size="sm">
