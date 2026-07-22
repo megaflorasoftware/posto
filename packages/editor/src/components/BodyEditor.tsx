@@ -86,8 +86,10 @@ export function BodyEditor(props: {
   /** Full config + sidebar groups, for field controls inside component cards. */
   config: PagesConfig;
   groups: FileGroup[];
+  componentBlocksEnabled?: boolean;
   onChange: (markdown: string) => void;
 }) {
+  const mdx = props.mdx && props.componentBlocksEnabled !== false;
   const [pickerOpen, setPickerOpen] = useState(false);
   const [componentPickerOpen, setComponentPickerOpen] = useState(false);
   const [schemas, setSchemas] = useState<Record<string, AstroComponentSchema>>({});
@@ -102,7 +104,7 @@ export function BodyEditor(props: {
   // split runs once — the component remounts per file (keyed upstream).
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const initial = useMemo(
-    () => (props.mdx ? splitLeadingImports(props.value) : { imports: [], body: props.value }),
+    () => (mdx ? splitLeadingImports(props.value) : { imports: [], body: props.value }),
     [],
   );
   const importsRef = useRef<ManagedImport[]>(toManagedImports(initial.imports, initial.body));
@@ -110,7 +112,7 @@ export function BodyEditor(props: {
   /** Emitted markdown: managed imports (filtered to what the body still
    * uses) above the document's markdown. */
   function composeMarkdown(body: string): string {
-    if (!props.mdx) return body;
+    if (!mdx) return body;
     const used = bodyComponentNames(body);
     const kept = importsRef.current.filter((imp) => {
       // Bindingless (side-effect) imports are never auto-removed.
@@ -130,7 +132,7 @@ export function BodyEditor(props: {
   // once) always sees the current root/media libraries.
   const resolveSrc = (src: string): string => {
     if (!src.startsWith("/")) return src;
-    const libraryMedia = (props.config.imageLibraries ?? []).map((library) => {
+    const libraryMedia = (props.config.mediaLibraries ?? []).map((library) => {
       const input = library.base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
       return { name: `astro:${library.collection}`, input, output: `/${input}` };
     });
@@ -164,7 +166,7 @@ export function BodyEditor(props: {
       // HTML preservation applies to .md and .mdx alike: authored tags like
       // <kbd> round-trip as chips instead of being stripped.
       ...htmlNodes,
-      ...(props.mdx ? mdxNodes : []),
+      ...(mdx ? mdxNodes : []),
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
@@ -185,7 +187,7 @@ export function BodyEditor(props: {
   // replace the document without emitting an update.
   useEffect(() => {
     if (!editor || props.value === lastEmitted.current) return;
-    const next = props.mdx ? splitLeadingImports(props.value) : { imports: [], body: props.value };
+    const next = mdx ? splitLeadingImports(props.value) : { imports: [], body: props.value };
     importsRef.current = toManagedImports(next.imports, next.body);
     if (next.body === editor.getMarkdown()) return;
     editor.commands.setContent(next.body, { contentType: "markdown", emitUpdate: false });
@@ -196,7 +198,7 @@ export function BodyEditor(props: {
   // component so its card can offer all prop keys and slot sections. Keyed on
   // the import statements themselves, not the whole body, so typing in text
   // doesn't refetch.
-  const importsKey = props.mdx ? splitLeadingImports(props.value).imports.join("\u0000") : "";
+  const importsKey = mdx ? splitLeadingImports(props.value).imports.join("\u0000") : "";
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -384,7 +386,7 @@ export function BodyEditor(props: {
               >
                 <CodeXml size={16} />
               </RichTextEditor.Control>
-              {props.mdx && (
+              {mdx && (
                 <RichTextEditor.Control
                   title="Insert component"
                   aria-label="Insert component"

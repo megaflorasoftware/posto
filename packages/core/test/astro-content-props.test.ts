@@ -93,12 +93,12 @@ test("expands entry data into its schema fields", () => {
 test("maps Astro entry metadata accessors to fields", () => {
   const id = field(defs, "id", collections);
   assert(
-    id?.type === "reference" && id.options?.astroId === true,
+    id?.type === "reference" && id.options?.idScheme === "framework",
     "id uses Astro reference values",
   );
   const filePath = field(defs, "filePath", collections);
   assert(
-    filePath?.type === "reference" && !filePath.options?.astroId,
+    filePath?.type === "reference" && !filePath.options?.idScheme,
     "filePath uses source paths",
   );
   assert(
@@ -187,7 +187,7 @@ test("builds sidebar config and a type registry from loaders", () => {
     "file loader exposes backing document",
   );
   assert(
-    astroConfig.astroCollections?.map((entry) => entry.name).join(",") ===
+    astroConfig.collectionSchemas?.map((entry) => entry.name).join(",") ===
       "posts,customIds,data,remote",
     "all build-time schemas enter type registry",
   );
@@ -204,7 +204,7 @@ test("keeps custom generated entry ids as manual strings", () => {
     optional: false,
   };
   const customIdField = astroPropField(customIdDef, {
-    collections: astroConfig.astroCollections ?? [],
+    collections: astroConfig.collectionSchemas ?? [],
     editableCollections: astroConfig.content,
   });
   assert(customIdField?.type === "string", "custom generated entry ids do not use a wrong picker");
@@ -216,7 +216,7 @@ test("resolves image-library ids without adding sidebar content", () => {
     {
       collections: [{ name: "media", fields: [{ name: "image", type: "image" }] }],
       editableCollections: [],
-      imageLibraries: [
+      mediaLibraries: [
         {
           collection: "media",
           base: "src/media",
@@ -232,7 +232,7 @@ test("resolves image-library ids without adding sidebar content", () => {
     },
   );
   assert(
-    mediaIdField?.type === "reference" && mediaIdField.options?.astroId === true,
+    mediaIdField?.type === "reference" && mediaIdField.options?.idScheme === "framework",
     "image-library IDs use the picker without entering sidebar content",
   );
 });
@@ -240,7 +240,7 @@ test("resolves image-library ids without adding sidebar content", () => {
 const mediaContext = {
   collections: [{ name: "media", fields: [{ name: "image", type: "image" }] }],
   editableCollections: [],
-  imageLibraries: [
+  mediaLibraries: [
     {
       collection: "media",
       base: "src/media",

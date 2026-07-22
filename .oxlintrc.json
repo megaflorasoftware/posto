@@ -1,0 +1,20 @@
+{
+  "overrides": [
+    {
+      "files": ["packages/editor/src/**/*.{ts,tsx}", "apps/*/src/**/*.{ts,tsx}"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@posto/core/astro/*"],
+                "message": "Framework internals must be accessed through a project adapter."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

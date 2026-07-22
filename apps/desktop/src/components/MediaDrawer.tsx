@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button, Drawer, Select, Text } from "@mantine/core";
 import { Upload } from "lucide-react";
-import type { AstroImageLibrary, PagesConfig } from "@posto/core/pagescms/config";
+import type { MediaLibrary, PagesConfig } from "@posto/core/pagescms/config";
 import {
   ImageLibraryBrowser,
   ImageLibraryImportDialog,
@@ -17,7 +17,7 @@ function MediaBrowser(props: {
   root: string;
   config: PagesConfig;
   groups: FileGroup[];
-  libraries: AstroImageLibrary[];
+  libraries: MediaLibrary[];
   onImported: () => void;
 }) {
   const [libraryIndex, setLibraryIndex] = useState(0);
@@ -92,7 +92,7 @@ export function MediaDrawer(props: {
   groups: FileGroup[];
   onImported: () => void;
 }) {
-  const libraries = props.config.imageLibraries ?? [];
+  const libraries = props.config.mediaLibraries ?? [];
   return (
     <Drawer
       opened={props.opened}
@@ -104,7 +104,7 @@ export function MediaDrawer(props: {
     >
       {libraries.length === 0 ? (
         <Text c="dimmed" size="sm" p="md">
-          No Astro image libraries found.
+          No media libraries found.
         </Text>
       ) : (
         <MediaBrowser

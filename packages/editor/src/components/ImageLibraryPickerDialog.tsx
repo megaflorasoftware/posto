@@ -1,14 +1,14 @@
 import { useState } from "react";
 import { Alert, Button } from "@mantine/core";
-import type { ImageLibraryAsset } from "@posto/core/astro/imageLibrary";
-import type { AstroImageLibrary } from "@posto/core/pagescms/config";
+import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
+import type { MediaLibrary } from "@posto/core/pagescms/config";
 import { openPath } from "@posto/ipc";
 import { Dialog } from "./Dialog";
 import { ImageLibraryBrowser } from "./ImageLibraryBrowser";
 
 export function ImageLibraryPickerDialog(props: {
   root: string;
-  library: AstroImageLibrary;
+  library: MediaLibrary;
   assets: ImageLibraryAsset[];
   directories: string[];
   directory?: string;

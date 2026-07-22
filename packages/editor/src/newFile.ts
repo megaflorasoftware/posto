@@ -23,15 +23,15 @@ type SchemaSources = {
   /** Entries parsed from `.pages.yml` (before the `.posto` overlay). */
   pagesContent: ContentEntry[];
   /** Entries sourced from Astro collection schemas. */
-  astroContent: ContentEntry[];
+  derivedContent: ContentEntry[];
 };
 
 /** Whether the effective entry came from an Astro collection schema. The
  * `.posto` overlay clones entries it touches, so match by name+path;
  * `.pages.yml` wins ties, matching the config's precedence order. */
-function isAstroEntry(entry: ContentEntry, sources: SchemaSources): boolean {
+function isDerivedEntry(entry: ContentEntry, sources: SchemaSources): boolean {
   const matches = (e: ContentEntry) => e.name === entry.name && e.path === entry.path;
-  return !sources.pagesContent.some(matches) && sources.astroContent.some(matches);
+  return !sources.pagesContent.some(matches) && sources.derivedContent.some(matches);
 }
 
 /** `name.md` → `name-2.md`, `name-3.md`, … until no sibling claims it. */
@@ -67,7 +67,7 @@ export function buildNewFile(
     const name = dedupeFilename("untitled.md", taken);
     return { path: group.path + "/" + name, content: '---\ntitle: "Untitled"\n---\n' };
   }
-  const pattern = entryFilenamePattern(entry, isAstroEntry(entry, sources));
+  const pattern = entryFilenamePattern(entry, isDerivedEntry(entry, sources));
   const values = newEntryValues(pattern, entry);
   const generated = generateFilename(pattern, entry, values).trim();
   // A template over valueless fields can expand to a degenerate name — "",

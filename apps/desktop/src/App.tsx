@@ -196,7 +196,7 @@ function App() {
     return {
       config: schemas.configRef.current ?? EMPTY_CONFIG,
       pagesContent: schemas.pagesConfig?.content ?? [],
-      astroContent: schemas.derivedConfig?.content ?? [],
+      derivedContent: schemas.derivedConfig?.content ?? [],
     };
   }
 
@@ -446,7 +446,7 @@ function App() {
           onChooseDirectory={() => void chooseDirectory()}
           onSelectRoot={(dir) => void selectRoot(dir)}
           deployment={deployment}
-          canOpenMedia={adapter.capabilities.imageLibraries && !!config?.imageLibraries?.length}
+          canOpenMedia={adapter.capabilities.mediaLibraries && !!config?.mediaLibraries?.length}
           onOpenMedia={() => setMediaOpen(true)}
           onFetchChanges={() => void git.fetchChanges()}
           onOpenPublish={() => void openPublishModal()}
@@ -523,7 +523,8 @@ function App() {
                   entrySource={entrySource}
                   config={config}
                   configError={schemas.configError}
-                  hasAstroFallback={schemas.derivedConfig !== null}
+                  hasDerivedFallback={schemas.derivedConfig !== null}
+                  componentBlocksEnabled={adapter.capabilities.componentBlocks !== null}
                   groups={files.groups}
                   editorTab={editorTab}
                   onTabChange={setEditorTab}

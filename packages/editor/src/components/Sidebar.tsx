@@ -102,10 +102,7 @@ export function orderableCollections(config: PagesConfig | null): ContentEntry[]
 }
 
 export function SchemaDiagnostics({ config }: { config: PagesConfig | null }) {
-  const diagnostics = [
-    ...(config?.schemaDiagnostics ?? []),
-    ...(config?.imageLibraryDiagnostics ?? []),
-  ];
+  const diagnostics = config?.diagnostics ?? [];
   if (diagnostics.length === 0) return null;
   const label = `${diagnostics.length} schema ${diagnostics.length === 1 ? "notice" : "notices"}`;
   return (

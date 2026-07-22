@@ -14,7 +14,7 @@ import {
   setDataValue,
   type DataEntryLocator,
   type ParsedDataDocument,
-} from "@posto/core/astro/dataDocument";
+} from "@posto/core/project/dataDocument";
 import { validateForm, type Errors } from "@posto/core/pagescms/validate";
 import type { FileEntry, FileGroup } from "@posto/ipc";
 import { FieldEditor, type FieldContext } from "./FieldEditor";

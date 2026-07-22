@@ -3,8 +3,8 @@ import {
   discoverImageLibraryAssets,
   matchesImageLibraryPath,
   type ImageLibraryAsset,
-} from "@posto/core/astro/imageLibrary";
-import type { AstroImageLibrary, ImageLibraryMetadataExtension } from "@posto/core/pagescms/config";
+} from "@posto/core/project/mediaLibrary";
+import type { MediaLibrary, MediaLibraryMetadataExtension } from "@posto/core/pagescms/config";
 import { invoke, onFsChanged, type FileEntry } from "@posto/ipc";
 
 interface LibrarySnapshot {
@@ -17,7 +17,7 @@ interface LibrarySnapshot {
 interface LibraryStore {
   root: string;
   libraryRoot: string;
-  library: AstroImageLibrary;
+  library: MediaLibrary;
   snapshot: LibrarySnapshot;
   listeners: Set<() => void>;
   loading: Promise<void> | null;
@@ -27,7 +27,7 @@ interface LibraryStore {
 
 const stores = new Map<string, LibraryStore>();
 
-function storeKey(root: string, library: AstroImageLibrary): string {
+function storeKey(root: string, library: MediaLibrary): string {
   return JSON.stringify([
     root,
     library.collection,
@@ -38,7 +38,7 @@ function storeKey(root: string, library: AstroImageLibrary): string {
   ]);
 }
 
-function getStore(root: string, library: AstroImageLibrary): LibraryStore {
+function getStore(root: string, library: MediaLibrary): LibraryStore {
   const key = storeKey(root, library);
   let store = stores.get(key);
   if (!store) {
@@ -81,7 +81,7 @@ async function loadStore(store: LibraryStore): Promise<void> {
         const extension = file.name
           .split(".")
           .pop()
-          ?.toLowerCase() as ImageLibraryMetadataExtension;
+          ?.toLowerCase() as MediaLibraryMetadataExtension;
         const relativePath = file.path.slice(store.libraryRoot.length + 1);
         return (
           store.library.metadataExtensions.includes(extension) &&
@@ -123,12 +123,12 @@ async function loadStore(store: LibraryStore): Promise<void> {
 
 /** Reloads the shared index for a library outside a component — used to refresh
  * after an import when the filesystem watcher doesn't cover in-app writes. */
-export function refreshImageLibraryAssets(root: string, library: AstroImageLibrary): Promise<void> {
+export function refreshImageLibraryAssets(root: string, library: MediaLibrary): Promise<void> {
   return loadStore(getStore(root, library));
 }
 
 /** One shared asset index and filesystem subscription per repository library. */
-export function useImageLibraryAssets(root: string, library: AstroImageLibrary) {
+export function useImageLibraryAssets(root: string, library: MediaLibrary) {
   const store = useMemo(() => getStore(root, library), [root, library]);
   const [, render] = useState(0);
 

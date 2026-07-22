@@ -57,6 +57,7 @@ export function FormEditor(props: {
   config: PagesConfig;
   root: string;
   groups: FileGroup[];
+  componentBlocksEnabled?: boolean;
   fieldsHeader?: ReactNode;
   onChange: (content: string, valid: boolean) => void;
   onPostoSaved?: () => void;
@@ -263,6 +264,7 @@ export function FormEditor(props: {
         templateValues={values}
         config={props.config}
         groups={props.groups}
+        componentBlocksEnabled={props.componentBlocksEnabled}
         onChange={onBodyEdit}
       />
     ) : (

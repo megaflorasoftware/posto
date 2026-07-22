@@ -40,7 +40,7 @@ import {
   EMPTY_CONFIG,
   matchEntry,
   renamedFilename,
-  type AstroImageLibrary,
+  type MediaLibrary,
   type ContentEntry,
 } from "@posto/core/pagescms/config";
 import { parseFile } from "@posto/core/pagescms/frontmatter";
@@ -113,7 +113,7 @@ export default function RepoHome({
   } | null>(null);
   const [orderOpen, setOrderOpen] = useState(false);
   const [mediaImportOpen, setMediaImportOpen] = useState(false);
-  const [importLibrary, setImportLibrary] = useState<AstroImageLibrary | null>(null);
+  const [importLibrary, setImportLibrary] = useState<MediaLibrary | null>(null);
   const [editorTab, setEditorTab] = useState<EditorTab>("fields");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -277,7 +277,7 @@ export default function RepoHome({
     return {
       config: schemas.configRef.current ?? EMPTY_CONFIG,
       pagesContent: schemas.pagesConfig?.content ?? [],
-      astroContent: schemas.astroConfig?.content ?? [],
+      derivedContent: schemas.astroConfig?.content ?? [],
     };
   }
 
@@ -472,7 +472,7 @@ export default function RepoHome({
     setImportLibrary(null);
   }
 
-  function importIntoLibrary(library: AstroImageLibrary) {
+  function importIntoLibrary(library: MediaLibrary) {
     setImportLibrary(library);
     setMediaImportOpen(true);
   }
@@ -609,7 +609,8 @@ export default function RepoHome({
             entrySource={entrySource}
             config={config}
             configError={schemas.configError}
-            hasAstroFallback={schemas.astroConfig !== null}
+            hasDerivedFallback={schemas.astroConfig !== null}
+            componentBlocksEnabled={adapter.capabilities.componentBlocks !== null}
             groups={files.groups}
             editorTab={editorTab}
             onTabChange={setEditorTab}
@@ -636,7 +637,7 @@ export default function RepoHome({
         <main className="mobile-media-screen">
           <MediaLibraryPane
             root={root}
-            libraries={config?.imageLibraries ?? []}
+            libraries={config?.mediaLibraries ?? []}
             onImport={importIntoLibrary}
           />
         </main>
@@ -660,7 +661,7 @@ export default function RepoHome({
                 <ChevronRight size={18} />
               </button>
             )}
-            {config?.imageLibraries?.length ? (
+            {config?.mediaLibraries?.length ? (
               <button
                 type="button"
                 className="mobile-settings-row mobile-settings-link"
@@ -671,7 +672,7 @@ export default function RepoHome({
                     Media
                   </Text>
                   <Text c="dimmed" size="xs">
-                    {`${config.imageLibraries.length} Astro image ${config.imageLibraries.length === 1 ? "library" : "libraries"}`}
+                    {`${config.mediaLibraries.length} media ${config.mediaLibraries.length === 1 ? "library" : "libraries"}`}
                   </Text>
                 </div>
                 <ChevronRight size={18} />
@@ -683,7 +684,7 @@ export default function RepoHome({
                     Media
                   </Text>
                   <Text c="dimmed" size="xs">
-                    No Astro image libraries found
+                    No media libraries found
                   </Text>
                 </div>
               </div>
@@ -964,7 +965,7 @@ export default function RepoHome({
 
       {mediaImportOpen && !importLibrary && (
         <Dialog opened onClose={closeMediaImport} title="Choose image library" size="sm">
-          <ImageLibraryList libraries={config?.imageLibraries ?? []} onChoose={setImportLibrary} />
+          <ImageLibraryList libraries={config?.mediaLibraries ?? []} onChoose={setImportLibrary} />
         </Dialog>
       )}
 

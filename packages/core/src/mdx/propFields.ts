@@ -1,4 +1,4 @@
-import type { AstroCollectionSchema, ContentEntry, Field, PagesConfig } from "../pagescms/config";
+import type { CollectionSchema, ContentEntry, Field, PagesConfig } from "../pagescms/config";
 import { type AstroPropDef, type MdxProp, parseTypeMembers } from "./mdx";
 
 // Bridges Astro `Props` declarations and MDX prop attributes to the Pages CMS
@@ -50,17 +50,17 @@ function literalValue(member: string): string | null {
 export interface AstroPropTypeContext {
   /** Effective collections, including Astro schemas and any `.pages.yml`
    * overrides. Collection-aware Astro utility types resolve against these. */
-  collections: AstroCollectionSchema[];
+  collections: CollectionSchema[];
   /** File-backed collections that can power reference pickers. */
   editableCollections?: PagesConfig["content"];
   /** Collections discovered as managed image libraries. */
-  imageLibraries?: PagesConfig["imageLibraries"];
+  mediaLibraries?: PagesConfig["mediaLibraries"];
 }
 
 function collectionSchema(
   context: AstroPropTypeContext | undefined,
   collection: string,
-): AstroCollectionSchema | null {
+): CollectionSchema | null {
   return context?.collections.find((entry) => entry.name === collection) ?? null;
 }
 
@@ -85,7 +85,7 @@ function cloneField(field: Field, name: string): Field {
 
 function collectionDataField(
   name: string,
-  collection: AstroCollectionSchema,
+  collection: CollectionSchema,
   path: string[],
 ): Field | null {
   if (path.length === 0) {
@@ -139,14 +139,14 @@ function astroContentField(
   switch (property) {
     case "id":
       if (!collection) return null;
-      return context?.imageLibraries?.some((library) => library.collection === collectionName) ||
-        (editable && !editable.astroCustomIds)
+      return context?.mediaLibraries?.some((library) => library.collection === collectionName) ||
+        (editable && !editable.opaqueEntryIds)
         ? {
             name,
             type: "reference",
             options: {
               collection: collectionName,
-              astroId: true,
+              idScheme: "framework",
             },
           }
         : { name, type: "string" };

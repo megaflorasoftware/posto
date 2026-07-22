@@ -7,7 +7,7 @@ import {
   dataDocumentEntries,
   dataEntryValues,
   parseDataDocument,
-} from "@posto/core/astro/dataDocument";
+} from "@posto/core/project/dataDocument";
 
 function sidebarTitle(frontmatter: Record<string, string> | null): string | null {
   return frontmatter?.title ?? frontmatter?.name ?? null;

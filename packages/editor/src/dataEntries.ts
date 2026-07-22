@@ -5,7 +5,7 @@ import {
   parseDataDocument,
   removeDataEntry,
   serializeDataDocument,
-} from "@posto/core/astro/dataDocument";
+} from "@posto/core/project/dataDocument";
 
 function nextId(group: FileGroup): string {
   const taken = new Set(group.files.map((file) => file.name));

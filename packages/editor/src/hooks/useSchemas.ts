@@ -28,10 +28,9 @@ function effectiveConfig(
           ? derivedConfig.media
           : [],
       content: [...(pagesConfig?.content ?? []), ...(derivedConfig?.content ?? [])],
-      astroCollections: derivedConfig?.astroCollections,
-      imageLibraries: derivedConfig?.imageLibraries,
-      imageLibraryDiagnostics: derivedConfig?.imageLibraryDiagnostics,
-      schemaDiagnostics: derivedConfig?.schemaDiagnostics,
+      collectionSchemas: derivedConfig?.collectionSchemas,
+      mediaLibraries: derivedConfig?.mediaLibraries,
+      diagnostics: derivedConfig?.diagnostics,
     },
     postoConfig,
   );

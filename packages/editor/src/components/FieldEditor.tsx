@@ -27,7 +27,7 @@ import {
   resolveMedia,
   resolveMediaForValue,
 } from "@posto/core/pagescms/config";
-import { astroEntryId } from "@posto/core/astro/collections";
+import { frameworkEntryId } from "@posto/core/project/entryIds";
 import { expandEntryName } from "@posto/core/posto/config";
 import { applyCollectionPrefs } from "../collectionPrefs";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
@@ -713,10 +713,10 @@ function referenceTemplate(template: string, root: string, file: FileEntry): str
 }
 
 function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
-  const imageLibrary = props.ctx.config.imageLibraries?.find(
+  const imageLibrary = props.ctx.config.mediaLibraries?.find(
     (library) => library.collection === props.field.options?.collection,
   );
-  if (props.field.options?.astroId === true && imageLibrary) {
+  if (props.field.options?.idScheme === "framework" && imageLibrary) {
     return <ImageLibraryReferenceField {...props} library={imageLibrary} />;
   }
   const collection = props.ctx.config.content.find(
@@ -776,7 +776,7 @@ function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContex
   // from the same default-`generateId` rules Astro applies (frontmatter slug
   // override, slugified base-relative path).
   const astroBase =
-    props.field.options?.astroId && collection
+    props.field.options?.idScheme && collection
       ? props.ctx.root + "/" + collection.path + "/"
       : null;
   const files = ordered
@@ -784,7 +784,7 @@ function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContex
       // Pages CMS stores the repo-root-relative path by default.
       value: astroBase
         ? (file.dataEntry?.id ??
-          astroEntryId(file.path.slice(astroBase.length), file.frontmatter?.slug))
+          frameworkEntryId(file.path.slice(astroBase.length), file.frontmatter?.slug))
         : valueTemplate
           ? referenceTemplate(valueTemplate, props.ctx.root, file)
           : file.path.slice(props.ctx.root.length + 1),

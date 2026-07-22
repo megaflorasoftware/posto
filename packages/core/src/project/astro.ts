@@ -12,6 +12,23 @@ import type { ProjectAdapter, ProjectDiagnostic, ProjectIO } from "./adapter";
 
 export { DEFAULT_ASTRO_MEDIA };
 
+const astroComponentBlocks = {
+  componentDirs(root: string) {
+    return [`${root}/src/components`];
+  },
+  async listComponents() {
+    return [];
+  },
+  async componentFields() {
+    return { fields: [], diagnostics: [] };
+  },
+  importFor(ref: { name: string; path: string }, documentPath: string) {
+    const from = documentPath.slice(0, documentPath.lastIndexOf("/"));
+    const relative = ref.path.startsWith(`${from}/`) ? `./${ref.path.slice(from.length + 1)}` : ref.path;
+    return `import ${ref.name} from '${relative}';`;
+  },
+};
+
 function scannerDiagnostic(value: SchemaDiagnostic): ProjectDiagnostic {
   return { feature: "derived-config", ...value };
 }
@@ -41,10 +58,7 @@ export async function loadAstroDerivedConfig(root: string, io: ProjectIO) {
     config,
     diagnostics: [
       ...scannerDiagnostics.map(scannerDiagnostic),
-      ...(config.imageLibraryDiagnostics ?? []).map((diagnostic) => ({
-        feature: "media-library",
-        ...diagnostic,
-      })),
+      ...(config.diagnostics ?? []),
     ],
   };
 }
@@ -69,7 +83,7 @@ export const astroAdapter: ProjectAdapter = {
         paths: [{ exact: `${root}/${path}` }],
         refresh: "projectType" as const,
       })),
-      ...(config?.imageLibraries ?? []).map((library) => ({
+      ...(config?.mediaLibraries ?? []).map((library) => ({
         paths: [{ prefix: `${root}/${library.base}/` }],
         refresh: "mediaLibraries" as const,
       })),
@@ -114,9 +128,9 @@ export const astroAdapter: ProjectAdapter = {
     return [{ prefix: ".astro/", exceptPrefixes: [".astro/collections/"] }];
   },
   capabilities: {
-    imageLibraries: true,
+    mediaLibraries: true,
     dataDocuments: true,
-    componentBlocks: null,
+    componentBlocks: astroComponentBlocks,
     entryIds: "framework",
   },
 };

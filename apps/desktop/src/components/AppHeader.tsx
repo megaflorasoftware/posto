@@ -62,7 +62,7 @@ export function AppHeader(props: {
       {props.root && <DeploymentControl deployment={props.deployment} />}
       {props.root && (
         <Tooltip
-          label={props.canOpenMedia ? "Media" : "No Astro image libraries found"}
+          label={props.canOpenMedia ? "Media" : "No media libraries found"}
           openDelay={400}
         >
           <ActionIcon

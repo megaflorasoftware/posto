@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button, Select, Text } from "@mantine/core";
 import { Upload } from "lucide-react";
-import type { AstroImageLibrary } from "@posto/core/pagescms/config";
+import type { MediaLibrary } from "@posto/core/pagescms/config";
 import { ImageLibraryBrowser, useImageLibraryAssets } from "@posto/editor";
 
 /** Read-only mobile media browser: the same directory/asset grid as the import
@@ -9,8 +9,8 @@ import { ImageLibraryBrowser, useImageLibraryAssets } from "@posto/editor";
  * caller only renders this when at least one image library exists. */
 export function MediaLibraryPane(props: {
   root: string;
-  libraries: AstroImageLibrary[];
-  onImport: (library: AstroImageLibrary) => void;
+  libraries: MediaLibrary[];
+  onImport: (library: MediaLibrary) => void;
 }) {
   const [libraryIndex, setLibraryIndex] = useState(0);
   const [currentDirectory, setCurrentDirectory] = useState("");

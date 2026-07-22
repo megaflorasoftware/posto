@@ -1,5 +1,5 @@
 import { Folder, FolderUp } from "lucide-react";
-import type { ImageLibraryAsset } from "@posto/core/astro/imageLibrary";
+import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
 import { CachedImage } from "./CachedImage";
 
 function normalize(path: string): string {

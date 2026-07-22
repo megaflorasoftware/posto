@@ -181,9 +181,9 @@ function PropsForm(formProps: {
   const schema = schemas[name];
   const defs: AstroPropDef[] = schema?.props ?? [];
   const typeContext = {
-    collections: env.config.astroCollections ?? env.config.content,
+    collections: env.config.collectionSchemas ?? env.config.content,
     editableCollections: env.config.content,
-    imageLibraries: env.config.imageLibraries,
+    mediaLibraries: env.config.mediaLibraries,
   };
   const propsTypeField = schema?.propsType
     ? astroPropField({ name: "Props", type: schema.propsType, optional: false }, typeContext)

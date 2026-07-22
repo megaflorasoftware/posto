@@ -80,7 +80,7 @@ export interface ProjectAdapter {
   siteUrlSources(root: string): SiteUrlSource[];
   watchIgnores(): IgnoreRule[];
   capabilities: {
-    imageLibraries: boolean;
+    mediaLibraries: boolean;
     dataDocuments: boolean;
     componentBlocks: ComponentSchemaSource | null;
     entryIds: "framework" | null;

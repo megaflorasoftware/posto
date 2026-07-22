@@ -28,7 +28,7 @@ export const genericAdapter: ProjectAdapter = {
     return [];
   },
   capabilities: {
-    imageLibraries: false,
+    mediaLibraries: false,
     dataDocuments: false,
     componentBlocks: null,
     entryIds: null,

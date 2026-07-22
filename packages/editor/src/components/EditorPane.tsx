@@ -59,7 +59,8 @@ export function EditorPane(props: {
   config: PagesConfig | null;
   configError: string | null;
   /** Whether Astro schemas exist to fall back on when `.pages.yml` is broken. */
-  hasAstroFallback: boolean;
+  hasDerivedFallback: boolean;
+  componentBlocksEnabled?: boolean;
   groups: FileGroup[];
   editorTab: EditorTab;
   onTabChange: (tab: EditorTab) => void;
@@ -181,7 +182,7 @@ export function EditorPane(props: {
       )}
       {props.configError && (
         <Alert color="yellow" className="config-error">
-          {`Schema configuration issue${props.hasAstroFallback ? " (using the last available schemas)" : ""} — ${props.configError}`}
+          {`Schema configuration issue${props.hasDerivedFallback ? " (using the last available schemas)" : ""} — ${props.configError}`}
         </Alert>
       )}
       {!showForm ? (
@@ -230,6 +231,7 @@ export function EditorPane(props: {
               config={props.config ?? EMPTY_CONFIG}
               root={props.root}
               groups={props.groups}
+              componentBlocksEnabled={props.componentBlocksEnabled}
               fieldsHeader={
                 (props.filenamePlacement ?? "header") === "fields" ? filenameField : undefined
               }
