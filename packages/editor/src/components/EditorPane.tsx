@@ -8,6 +8,7 @@ import { FormEditor } from "./FormEditor";
 import { DataFormEditor } from "./DataFormEditor";
 import type { SaveState } from "../hooks/useCurrentFile";
 import { FieldTemplateActions } from "./FieldTemplateActions";
+import type { ProjectType } from "@posto/core/project/detect";
 
 export type EditorTab = "fields" | "body" | "raw";
 
@@ -54,7 +55,7 @@ export function EditorPane(props: {
   entry: ContentEntry | null;
   dataEntry?: FileEntry["dataEntry"];
   /** Which schema source the entry came from, for the header badge. */
-  entrySource: "astro" | "pages" | null;
+  entrySource: ProjectType | "pages" | null;
   config: PagesConfig | null;
   configError: string | null;
   /** Whether Astro schemas exist to fall back on when `.pages.yml` is broken. */

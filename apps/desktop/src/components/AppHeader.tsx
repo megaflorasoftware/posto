@@ -2,11 +2,13 @@ import { ActionIcon, Button, Menu, Tooltip } from "@mantine/core";
 import { ChevronDown, Image as ImageIcon } from "lucide-react";
 import { DeploymentControl } from "./DeploymentControl";
 import type { Deployment } from "../hooks/useDeployment";
+import type { ProjectInfo } from "@posto/core/project/detect";
 
 /** The top bar: site chooser with recents, a media browser shortcut,
  * deployment status, and the Publish / Fetch Changes action. */
 export function AppHeader(props: {
   root: string | null;
+  projectInfo: ProjectInfo | null;
   recentRoots: string[];
   behindUpstream: boolean;
   pulling: boolean;
@@ -51,6 +53,11 @@ export function AppHeader(props: {
           </Menu.Dropdown>
         </Menu>
       </Button.Group>
+      {props.projectInfo && (
+        <Tooltip label={props.projectInfo.signals.join(", ") || "No framework markers found"}>
+          <span className="project-type-badge">{props.projectInfo.type}</span>
+        </Tooltip>
+      )}
       <span className="navbar-spacer" />
       {props.root && <DeploymentControl deployment={props.deployment} />}
       {props.root && (

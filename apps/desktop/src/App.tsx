@@ -6,6 +6,8 @@ import { checkForAppUpdate } from "./updater";
 import type { ChangedFile, FileEntry, FileGroup } from "@posto/ipc";
 import { EMPTY_CONFIG, matchEntry, renamedFilename } from "@posto/core/pagescms/config";
 import { parseFile } from "@posto/core/pagescms/frontmatter";
+import { detectProject, type ProjectInfo } from "@posto/core/project/detect";
+import { projectAdapter } from "@posto/core/project/registry";
 import {
   EditorPane,
   ImageLibraryDropImport,
@@ -20,6 +22,7 @@ import {
   useFileGroups,
   useGitSync,
   useSchemas,
+  ipcProjectIO,
   useSiteUrl,
   type EditorTab,
 } from "@posto/editor";
@@ -40,6 +43,8 @@ import "./App.css";
 
 function App() {
   const [root, setRoot] = useState<string | null>(null);
+  const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
+  const adapter = useMemo(() => projectAdapter(projectInfo?.type ?? "generic"), [projectInfo]);
   // Recently-opened site roots, newest first (backend caps at 10).
   const [recentRoots, setRecentRoots] = useState<string[]>([]);
   // Editor tab choice sticks for the session; Fields is the default when available.
@@ -53,7 +58,7 @@ function App() {
   const rootRef = useRef(root);
   rootRef.current = root;
 
-  const schemas = useSchemas();
+  const schemas = useSchemas(adapter);
   const notify = useCallback((message: string, severity: "progress" | "success" | "error") => {
     notifications.show({
       message,
@@ -160,17 +165,20 @@ function App() {
   }
 
   async function selectRoot(dir: string) {
+    const detected = await detectProject(dir, ipcProjectIO);
+    const selectedAdapter = projectAdapter(detected.type);
     void currentFile.flushPendingSave();
     setRoot(dir);
+    setProjectInfo(detected);
     currentFile.closeFile();
     preview.resetRoute();
     void schemas.loadPagesConfig(dir);
-    void schemas.loadAstroConfig(dir);
+    void schemas.loadDerivedConfig(dir, selectedAdapter);
     void schemas.loadPostoConfig(dir);
     await refreshGroups(dir);
     void devServer.startServer(dir);
     void invoke("set_last_root", { root: dir }).then(() => refreshRecentRoots());
-    void invoke("watch_root", { root: dir });
+    void invoke("watch_root", { root: dir, ignoreRules: selectedAdapter.watchIgnores() });
   }
 
   async function refreshRecentRoots() {
@@ -190,7 +198,7 @@ function App() {
     return {
       config: schemas.configRef.current ?? EMPTY_CONFIG,
       pagesContent: schemas.pagesConfig?.content ?? [],
-      astroContent: schemas.astroConfig?.content ?? [],
+      astroContent: schemas.derivedConfig?.content ?? [],
     };
   }
 
@@ -407,8 +415,8 @@ function App() {
       ? null
       : schemas.pagesConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
         ? "pages"
-        : schemas.astroConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
-          ? "astro"
+        : schemas.derivedConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
+          ? projectInfo?.type ?? null
           : null;
 
   return (
@@ -417,6 +425,7 @@ function App() {
       <div className="app">
         <AppHeader
           root={root}
+          projectInfo={projectInfo}
           recentRoots={recentRoots}
           behindUpstream={git.behindUpstream}
           pulling={git.pulling}
@@ -424,7 +433,7 @@ function App() {
           onChooseDirectory={() => void chooseDirectory()}
           onSelectRoot={(dir) => void selectRoot(dir)}
           deployment={deployment}
-          canOpenMedia={!!config?.imageLibraries?.length}
+          canOpenMedia={adapter.capabilities.imageLibraries && !!config?.imageLibraries?.length}
           onOpenMedia={() => setMediaOpen(true)}
           onFetchChanges={() => void git.fetchChanges()}
           onOpenPublish={() => void openPublishModal()}
@@ -501,7 +510,7 @@ function App() {
                   entrySource={entrySource}
                   config={config}
                   configError={schemas.configError}
-                  hasAstroFallback={schemas.astroConfig !== null}
+                  hasAstroFallback={schemas.derivedConfig !== null}
                   groups={files.groups}
                   editorTab={editorTab}
                   onTabChange={setEditorTab}

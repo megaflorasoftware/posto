@@ -33,6 +33,7 @@ import {
   useFileGroups,
   useGitSync,
   useSchemas,
+  ipcProjectIO,
   type EditorTab,
 } from "@posto/editor";
 import {
@@ -43,6 +44,9 @@ import {
   type ContentEntry,
 } from "@posto/core/pagescms/config";
 import { parseFile } from "@posto/core/pagescms/frontmatter";
+import { detectProject, type ProjectInfo } from "@posto/core/project/detect";
+import { projectAdapter } from "@posto/core/project/registry";
+import type { ProjectAdapter } from "@posto/core/project/adapter";
 import { invoke } from "@posto/ipc";
 import type { ChangedFile, FileEntry, FileGroup, GitHubRepo } from "@posto/ipc";
 import {
@@ -87,6 +91,8 @@ export default function RepoHome({
   onRemoveRepo,
 }: Props) {
   const [loading, setLoading] = useState(true);
+  const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
+  const adapter = useMemo(() => projectAdapter(projectInfo?.type ?? "generic"), [projectInfo]);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
@@ -113,11 +119,14 @@ export default function RepoHome({
   const [refreshing, setRefreshing] = useState(false);
   const filesViewportRef = useRef<HTMLDivElement>(null);
   const pullStartY = useRef<number | null>(null);
-  const schemas = useSchemas();
+  const schemas = useSchemas(adapter);
   const files = useFileGroups(setError);
 
-  async function refreshRepositoryContent(dir: string) {
-    const [, config] = await Promise.all([files.refreshGroups(dir), schemas.loadSchemas(dir)]);
+  async function refreshRepositoryContent(dir: string, selectedAdapter?: ProjectAdapter) {
+    const [, config] = await Promise.all([
+      files.refreshGroups(dir),
+      schemas.loadSchemas(dir, selectedAdapter),
+    ]);
     await files.refreshDataGroups(dir, config);
   }
 
@@ -178,7 +187,11 @@ export default function RepoHome({
         // Running these concurrently caused first-open "Not a directory"
         // errors when the repository registry was still settling.
         if (repo) await invoke<string>("doctor_repo", { root, expectedUrl: repo.clone_url });
-        if (active) await refreshRepositoryContent(root);
+        const detected = await detectProject(root, ipcProjectIO);
+        if (active) {
+          setProjectInfo(detected);
+          await refreshRepositoryContent(root, projectAdapter(detected.type));
+        }
       } catch (checkError) {
         if (active) setRepairError(message(checkError));
       } finally {
@@ -485,8 +498,8 @@ export default function RepoHome({
       ? null
       : schemas.pagesConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
         ? "pages"
-        : schemas.astroConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
-          ? "astro"
+        : schemas.derivedConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
+          ? projectInfo?.type ?? null
           : null;
   const openFileName =
     currentFile.dataEntry?.id ?? currentFile.filePath?.split("/").pop() ?? "File";
@@ -514,15 +527,22 @@ export default function RepoHome({
             <ChevronLeft size={22} />
           </ActionIcon>
           {!showEditor && (
-            <Text fw={600} size="sm" truncate>
-              {showDeployments
-                ? "Deployments"
-                : showMedia
-                  ? "Media"
-                  : showSettings
-                    ? "Settings"
-                    : (repo?.name ?? "Repository")}
-            </Text>
+            <Group gap="xs" wrap="nowrap">
+              <Text fw={600} size="sm" truncate>
+                {showDeployments
+                  ? "Deployments"
+                  : showMedia
+                    ? "Media"
+                    : showSettings
+                      ? "Settings"
+                      : (repo?.name ?? "Repository")}
+              </Text>
+              {!showDeployments && !showMedia && !showSettings && projectInfo && (
+                <Text size="xs" c="dimmed" tt="capitalize">
+                  {projectInfo.type}
+                </Text>
+              )}
+            </Group>
           )}
         </Group>
         {showEditor && (

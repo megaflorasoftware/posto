@@ -2,17 +2,10 @@ import { useMemo, useRef, useState } from "react";
 import { invoke } from "@posto/ipc";
 import {
   parsePagesConfig,
-  type Field,
   type PagesConfig,
-  type SchemaDiagnostic,
 } from "@posto/core/pagescms/config";
-import {
-  DEFAULT_ASTRO_MEDIA,
-  buildAstroConfig,
-  parseCollectionSchema,
-  parseLoaderConfig,
-  type LoaderInfo,
-} from "@posto/core/astro/collections";
+import type { ProjectAdapter, ProjectIO } from "@posto/core/project/adapter";
+import { astroAdapter } from "@posto/core/project/astro";
 import {
   POSTO_COLLECTIONS_DIR,
   POSTO_INDEX_PATH,
@@ -24,21 +17,21 @@ import {
 
 function effectiveConfig(
   pagesConfig: PagesConfig | null,
-  astroConfig: PagesConfig | null,
+  derivedConfig: PagesConfig | null,
   postoConfig: PostoConfig | null,
 ): PagesConfig {
   return mergePostoConfig(
     {
       media: pagesConfig?.media.length
         ? pagesConfig.media
-        : astroConfig?.media.length
-          ? astroConfig.media
-          : DEFAULT_ASTRO_MEDIA,
-      content: [...(pagesConfig?.content ?? []), ...(astroConfig?.content ?? [])],
-      astroCollections: astroConfig?.astroCollections,
-      imageLibraries: astroConfig?.imageLibraries,
-      imageLibraryDiagnostics: astroConfig?.imageLibraryDiagnostics,
-      schemaDiagnostics: astroConfig?.schemaDiagnostics,
+        : derivedConfig?.media.length
+          ? derivedConfig.media
+          : [],
+      content: [...(pagesConfig?.content ?? []), ...(derivedConfig?.content ?? [])],
+      astroCollections: derivedConfig?.astroCollections,
+      imageLibraries: derivedConfig?.imageLibraries,
+      imageLibraryDiagnostics: derivedConfig?.imageLibraryDiagnostics,
+      schemaDiagnostics: derivedConfig?.schemaDiagnostics,
     },
     postoConfig,
   );
@@ -46,21 +39,46 @@ function effectiveConfig(
 
 /** Schema sources for form editing: `.pages.yml` plus Astro collection
  * schemas as a fallback, merged into one effective config. */
-export function useSchemas() {
+export const ipcProjectIO: ProjectIO = {
+  async pathExists(path, kind) {
+    if (kind === "directory") {
+      return (
+        (await invoke<unknown[] | null>("list_dir_files_optional", {
+          dir: path,
+          extensions: [],
+        })) !== null
+      );
+    }
+    return (await invoke<string | null>("read_text_file_optional", { path })) !== null;
+  },
+  readTextFileOptional(path) {
+    return invoke<string | null>("read_text_file_optional", { path });
+  },
+  listDirFilesOptional(dir, extensions) {
+    return invoke<{ name: string; path: string }[] | null>("list_dir_files_optional", {
+      dir,
+      extensions,
+    });
+  },
+};
+
+export function useSchemas(adapter: ProjectAdapter = astroAdapter) {
+  const adapterRef = useRef(adapter);
+  adapterRef.current = adapter;
   const [pagesConfig, setPagesConfig] = useState<PagesConfig | null>(null);
   const pagesConfigRef = useRef<PagesConfig | null>(null);
   // Fallback schemas derived from Astro content collections; `.pages.yml`
   // entries take precedence when both describe a folder.
-  const [astroConfig, setAstroConfig] = useState<PagesConfig | null>(null);
-  const astroConfigRef = useRef<PagesConfig | null>(null);
+  const [derivedConfig, setDerivedConfig] = useState<PagesConfig | null>(null);
+  const derivedConfigRef = useRef<PagesConfig | null>(null);
   // `.posto/` user preferences, overlaid on the effective config below.
   const [postoConfig, setPostoConfig] = useState<PostoConfig | null>(null);
   const postoConfigRef = useRef<PostoConfig | null>(null);
   const [configErrors, setConfigErrors] = useState<
-    Partial<Record<"pages" | "astro" | "posto", string>>
+    Partial<Record<"pages" | "derived" | "posto", string>>
   >({});
 
-  function setSourceError(source: "pages" | "astro" | "posto", message: string | null) {
+  function setSourceError(source: "pages" | "derived" | "posto", message: string | null) {
     setConfigErrors((current) => {
       const next = { ...current };
       if (message) next[source] = message;
@@ -74,9 +92,9 @@ export function useSchemas() {
     setPagesConfig(config);
   }
 
-  function commitAstroConfig(config: PagesConfig | null) {
-    astroConfigRef.current = config;
-    setAstroConfig(config);
+  function commitDerivedConfig(config: PagesConfig | null) {
+    derivedConfigRef.current = config;
+    setDerivedConfig(config);
   }
 
   function commitPostoConfig(config: PostoConfig | null) {
@@ -160,82 +178,43 @@ export function useSchemas() {
     return null;
   }
 
-  // Astro projects generate a JSON Schema per content collection under
-  // `.astro/collections/` (kept fresh by the dev server posto runs). Those
-  // become fallback form schemas for folders `.pages.yml` doesn't cover.
-  async function loadAstroConfig(dir: string): Promise<PagesConfig | null> {
-    setSourceError("astro", null);
-    let listed: { name: string; path: string }[] | null;
+  async function loadDerivedConfig(
+    dir: string,
+    selectedAdapter: ProjectAdapter = adapterRef.current,
+  ): Promise<PagesConfig | null> {
+    setSourceError("derived", null);
     try {
-      listed = await invoke<{ name: string; path: string }[] | null>("list_dir_files_optional", {
-        dir: dir + "/.astro/collections",
-        extensions: ["json"],
-      });
+      const loaded = await selectedAdapter.loadDerivedConfig(dir, ipcProjectIO);
+      commitDerivedConfig(loaded?.config ?? null);
+      return loaded?.config ?? null;
     } catch (e) {
-      setSourceError("astro", e instanceof Error ? e.message : String(e));
-      return astroConfigRef.current;
+      setSourceError("derived", e instanceof Error ? e.message : String(e));
+      return derivedConfigRef.current;
     }
-    if (listed === null) {
-      commitAstroConfig(null);
-      return null; // not an Astro project, or `astro sync` hasn't run yet
-    }
-    const collections: { name: string; fields: Field[] }[] = [];
-    for (const file of listed) {
-      if (!file.name.endsWith(".schema.json")) continue;
-      const name = file.name.slice(0, -".schema.json".length);
-      try {
-        const source = await invoke<string | null>("read_text_file_optional", { path: file.path });
-        if (source === null) continue;
-        const fields = parseCollectionSchema(name, source);
-        if (fields && fields.length > 0) collections.push({ name, fields });
-      } catch (e) {
-        setSourceError("astro", e instanceof Error ? e.message : String(e));
-        return astroConfigRef.current;
-      }
-    }
-    if (collections.length === 0) {
-      commitAstroConfig(null);
-      return null;
-    }
-    let loaders = new Map<string, LoaderInfo>();
-    let scannerDiagnostics: SchemaDiagnostic[] = [];
-    for (const configPath of ["/src/content.config.ts", "/src/content/config.ts"]) {
-      try {
-        const source = await invoke<string | null>("read_text_file_optional", {
-          path: dir + configPath,
-        });
-        if (source === null) continue;
-        ({ loaders, diagnostics: scannerDiagnostics } = parseLoaderConfig(source));
-        break;
-      } catch (e) {
-        setSourceError("astro", e instanceof Error ? e.message : String(e));
-        return astroConfigRef.current;
-      }
-    }
-    const parsed = buildAstroConfig(collections, loaders, scannerDiagnostics);
-    commitAstroConfig(parsed);
-    return parsed;
   }
 
   /** Reloads every repository-owned schema/config source and returns the
    * effective result immediately. Callers that must rebuild derived file
    * groups should use this result rather than waiting for React state to
    * commit and then reading configRef. */
-  async function loadSchemas(dir: string): Promise<PagesConfig> {
-    const [pages, astro, posto] = await Promise.all([
+  async function loadSchemas(
+    dir: string,
+    selectedAdapter: ProjectAdapter = adapterRef.current,
+  ): Promise<PagesConfig> {
+    const [pages, derived, posto] = await Promise.all([
       loadPagesConfig(dir),
-      loadAstroConfig(dir),
+      loadDerivedConfig(dir, selectedAdapter),
       loadPostoConfig(dir),
     ]);
-    return effectiveConfig(pages, astro, posto);
+    return effectiveConfig(pages, derived, posto);
   }
 
   // Effective schema config: `.pages.yml` entries first (higher resolution —
   // labels, media, widget types), Astro collection schemas after them as a
   // fallback. matchEntry's first-match-wins ordering makes the precedence.
   const config = useMemo(
-    () => effectiveConfig(pagesConfig, astroConfig, postoConfig),
-    [pagesConfig, astroConfig, postoConfig],
+    () => effectiveConfig(pagesConfig, derivedConfig, postoConfig),
+    [pagesConfig, derivedConfig, postoConfig],
   );
   const configRef = useRef(config);
   configRef.current = config;
@@ -245,10 +224,13 @@ export function useSchemas() {
     config,
     configRef,
     pagesConfig,
-    astroConfig,
+    derivedConfig,
+    // Compatibility aliases while app call sites migrate to adapter language.
+    astroConfig: derivedConfig,
     configError,
     loadPagesConfig,
-    loadAstroConfig,
+    loadDerivedConfig,
+    loadAstroConfig: loadDerivedConfig,
     loadPostoConfig,
     loadSchemas,
   };
