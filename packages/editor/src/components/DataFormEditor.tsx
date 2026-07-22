@@ -18,6 +18,7 @@ import {
 import { validateForm, type Errors } from "@posto/core/pagescms/validate";
 import type { FileEntry, FileGroup } from "@posto/ipc";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
+import type { EntryIdSource } from "@posto/core/project/entryIds";
 
 function fieldAt(fields: Field[], path: (string | number)[]): Field | null {
   let scope = fields;
@@ -38,6 +39,7 @@ export function DataFormEditor(props: {
   config: PagesConfig;
   root: string;
   groups: FileGroup[];
+  entryIds: EntryIdSource | null;
   fieldsHeader?: ReactNode;
   onChange: (content: string, valid: boolean) => void;
   onPostoSaved?: () => void;
@@ -157,6 +159,7 @@ export function DataFormEditor(props: {
     root: props.root,
     entry: props.entry,
     groups: props.groups,
+    entryIds: props.entryIds,
     errors: () => errors,
     templateValues: () => values,
     value: (path) => {

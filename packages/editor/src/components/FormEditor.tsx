@@ -18,6 +18,7 @@ import {
 import { type Errors, validateForm } from "@posto/core/pagescms/validate";
 import type { FileGroup } from "@posto/ipc";
 import type { ComponentSchemaSource } from "@posto/core/project/adapter";
+import type { EntryIdSource } from "@posto/core/project/entryIds";
 import { BodyEditor } from "./BodyEditor";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
 
@@ -59,6 +60,7 @@ export function FormEditor(props: {
   root: string;
   groups: FileGroup[];
   componentBlocks: ComponentSchemaSource | null;
+  entryIds: EntryIdSource | null;
   componentSchemaVersion?: number;
   fieldsHeader?: ReactNode;
   onChange: (content: string, valid: boolean) => void;
@@ -188,6 +190,7 @@ export function FormEditor(props: {
     root: props.root,
     entry: props.entry,
     groups: props.groups,
+    entryIds: props.entryIds,
     errors: () => errors,
     templateValues: () => values,
     value: (path) => {
@@ -267,6 +270,7 @@ export function FormEditor(props: {
         config={props.config}
         groups={props.groups}
         componentBlocks={props.componentBlocks}
+        entryIds={props.entryIds}
         componentSchemaVersion={props.componentSchemaVersion}
         onChange={onBodyEdit}
       />

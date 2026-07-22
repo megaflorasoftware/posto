@@ -10,6 +10,7 @@ import type { SaveState } from "../hooks/useCurrentFile";
 import { FieldTemplateActions } from "./FieldTemplateActions";
 import type { ProjectType } from "@posto/core/project/detect";
 import type { ComponentSchemaSource } from "@posto/core/project/adapter";
+import type { EntryIdSource } from "@posto/core/project/entryIds";
 
 export type EditorTab = "fields" | "body" | "raw";
 
@@ -62,6 +63,7 @@ export function EditorPane(props: {
   /** Whether Astro schemas exist to fall back on when `.pages.yml` is broken. */
   hasDerivedFallback: boolean;
   componentBlocks: ComponentSchemaSource | null;
+  entryIds: EntryIdSource | null;
   componentSchemaVersion?: number;
   groups: FileGroup[];
   editorTab: EditorTab;
@@ -215,6 +217,7 @@ export function EditorPane(props: {
               config={props.config ?? EMPTY_CONFIG}
               root={props.root}
               groups={props.groups}
+              entryIds={props.entryIds}
               fieldsHeader={
                 (props.filenamePlacement ?? "header") === "fields" ? filenameField : undefined
               }
@@ -234,6 +237,7 @@ export function EditorPane(props: {
               root={props.root}
               groups={props.groups}
               componentBlocks={props.componentBlocks}
+              entryIds={props.entryIds}
               componentSchemaVersion={props.componentSchemaVersion}
               fieldsHeader={
                 (props.filenamePlacement ?? "header") === "fields" ? filenameField : undefined

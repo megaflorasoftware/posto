@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { frameworkEntryId } from "@posto/core/project/entryIds";
+import { pathEntryId } from "@posto/core/project/entryIds";
 import {
   MediaPlanError,
   matchesImageLibraryPath,
@@ -112,7 +112,7 @@ export function useImageLibraryImport(input: {
               file.name.split(".").pop()?.toLowerCase() as MediaLibraryMetadataExtension,
             ) && matchesImageLibraryPath(input.library, file.path.slice(prefix.length)),
         )
-        .map((file) => frameworkEntryId(file.path.slice(prefix.length))),
+        .map((file) => pathEntryId(file.path.slice(prefix.length))),
     });
   }
 

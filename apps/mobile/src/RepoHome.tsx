@@ -131,14 +131,18 @@ export default function RepoHome({
   const filesViewportRef = useRef<HTMLDivElement>(null);
   const pullStartY = useRef<number | null>(null);
   const schemas = useSchemas(adapter);
-  const files = useFileGroups(setError);
+  const files = useFileGroups(setError, adapter.capabilities.dataDocuments);
 
   async function refreshRepositoryContent(dir: string, selectedAdapter?: ProjectAdapter) {
     const [, config] = await Promise.all([
       files.refreshGroups(dir),
       schemas.loadSchemas(dir, selectedAdapter),
     ]);
-    await files.refreshDataGroups(dir, config);
+    await files.refreshDataGroups(
+      dir,
+      config,
+      (selectedAdapter ?? adapter).capabilities.dataDocuments,
+    );
   }
 
   const currentFile = useCurrentFile({
@@ -688,6 +692,7 @@ export default function RepoHome({
             configError={schemas.configError}
             hasDerivedFallback={schemas.derivedConfig !== null}
             componentBlocks={adapter.capabilities.componentBlocks}
+            entryIds={adapter.capabilities.entryIds}
             componentSchemaVersion={componentSchemaVersion}
             groups={files.groups}
             editorTab={editorTab}

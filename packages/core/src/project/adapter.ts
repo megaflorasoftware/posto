@@ -1,5 +1,6 @@
 import type { Diagnostic, Field, MediaEntry, PagesConfig } from "../pagescms/config";
 import type { ProjectType } from "./detect";
+import type { EntryIdSource } from "./entryIds";
 
 export interface ProjectIO {
   pathExists(path: string, kind?: "file" | "directory"): Promise<boolean>;
@@ -86,7 +87,7 @@ export interface ProjectAdapter {
     mediaLibraries: boolean;
     dataDocuments: boolean;
     componentBlocks: ComponentSchemaSource | null;
-    entryIds: "framework" | null;
+    entryIds: EntryIdSource | null;
   };
 }
 

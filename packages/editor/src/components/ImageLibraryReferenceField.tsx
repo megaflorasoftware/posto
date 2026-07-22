@@ -135,6 +135,7 @@ export function ImageLibraryReferenceField(props: {
     root: props.ctx.root,
     entry: null,
     groups: props.ctx.groups,
+    entryIds: props.ctx.entryIds,
     errors: () => metadataErrors,
     templateValues: () => metadata,
     value: (path) => valueAtPath(metadata, path),

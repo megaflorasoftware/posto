@@ -18,6 +18,12 @@ test("Astro routes are adapter-owned", () => {
   expect(genericAdapter.routeForFile("/site", "/site/src/pages/about.mdx", "")).toBeNull();
 });
 
+test("Astro owns its entry id behavior", () => {
+  expect(astroAdapter.capabilities.entryIds?.derive("Hello World/index.md")).toBe("hello-world");
+  expect(astroAdapter.capabilities.entryIds?.derive("post.md", "custom-id")).toBe("custom-id");
+  expect(genericAdapter.capabilities.entryIds).toBeNull();
+});
+
 test("Eleventy supplies a conservative markdown route", () => {
   expect(eleventyAdapter.routeForFile("/site", "/site/posts/hello.md", "")).toEqual({
     route: "/posts/hello",

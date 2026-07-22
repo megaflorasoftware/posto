@@ -24,6 +24,7 @@ import {
 import { astroPropField } from "../mdx/propFields";
 import { PROJECT_MARKERS } from "./detect";
 import type { ComponentRef, ProjectAdapter, ProjectIO } from "./adapter";
+import { pathEntryIds } from "./entryIds";
 
 export { DEFAULT_ASTRO_MEDIA };
 
@@ -216,6 +217,6 @@ export const astroAdapter: ProjectAdapter = {
     mediaLibraries: true,
     dataDocuments: true,
     componentBlocks: astroComponentBlocks,
-    entryIds: "framework",
+    entryIds: pathEntryIds,
   },
 };

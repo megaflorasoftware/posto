@@ -17,6 +17,7 @@ import {
 } from "@posto/core/pagescms/config";
 import { importInfo, resolveImportPath, splitLeadingImports } from "@posto/core/mdx/mdx";
 import type { ComponentRef, ComponentSchemaSource } from "@posto/core/project/adapter";
+import type { EntryIdSource } from "@posto/core/project/entryIds";
 import { ComponentPicker } from "./ComponentPicker";
 import { htmlNodes } from "./HtmlNodes";
 import { RichTextImagePickerDialog } from "./RichTextImagePickerDialog";
@@ -84,6 +85,7 @@ export function BodyEditor(props: {
   config: PagesConfig;
   groups: FileGroup[];
   componentBlocks: ComponentSchemaSource | null;
+  entryIds: EntryIdSource | null;
   componentSchemaVersion?: number;
   onChange: (markdown: string) => void;
 }) {
@@ -306,6 +308,7 @@ export function BodyEditor(props: {
           config: props.config,
           root: props.root,
           groups: props.groups,
+          entryIds: props.entryIds,
           entry: props.entry ?? null,
           templateValues: props.templateValues,
         }}

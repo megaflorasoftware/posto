@@ -41,6 +41,7 @@ import { UNPARSED, jsValueProp, propJsValue, valueFits } from "@posto/core/mdx/p
 import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
 import { validateForm } from "@posto/core/pagescms/validate";
 import type { FileGroup } from "@posto/ipc";
+import type { EntryIdSource } from "@posto/core/project/entryIds";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
 
 export interface ComponentBlockSchema {
@@ -57,6 +58,7 @@ export interface MdxFieldEnv {
   config: PagesConfig;
   root: string;
   groups: FileGroup[];
+  entryIds: EntryIdSource | null;
   /** Collection entry of the file being edited; scopes media resolution. */
   entry: ContentEntry | null;
   /** Top-level frontmatter for per-entry media-folder templates. */
@@ -67,6 +69,7 @@ export const MdxFieldEnvContext = createContext<MdxFieldEnv>({
   config: { media: [], content: [] },
   root: "",
   groups: [],
+  entryIds: null,
   entry: null,
   templateValues: {},
 });
@@ -279,6 +282,7 @@ function PropsForm(formProps: {
     // collection's media source, same as its frontmatter fields.
     entry: env.entry,
     groups: env.groups,
+    entryIds: env.entryIds,
     errors: () => errors,
     templateValues: () => env.templateValues,
     value: (path) => {

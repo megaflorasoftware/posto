@@ -1,4 +1,3 @@
-import { slug as githubSlug } from "github-slugger";
 import type {
   MediaLibrary,
   Diagnostic,
@@ -421,22 +420,6 @@ function normalizePath(base: string): string {
 function patternExtension(pattern: string): string | undefined {
   const match = pattern.match(/\*\.([a-z0-9]+)$/i);
   return match ? match[1].toLowerCase() : undefined;
-}
-
-/**
- * Entry id Astro's glob-loader default `generateId` produces for a file: the
- * frontmatter `slug` when present, else the base-relative path without
- * extension, each segment slugified the way Astro does (github-slugger), with
- * a trailing `/index` dropped. Custom `generateId` functions aren't modeled.
- */
-export function astroEntryId(relPath: string, slug?: string | null): string {
-  if (slug) return slug;
-  const withoutExt = relPath.replace(/\.[^./]+$/, "");
-  return withoutExt
-    .split("/")
-    .map((segment) => githubSlug(segment))
-    .join("/")
-    .replace(/\/index$/, "");
 }
 
 /** Fills reference markers from the config scan; a reference whose target

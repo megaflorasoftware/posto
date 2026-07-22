@@ -81,7 +81,7 @@ function App() {
   }, []);
   const notifyError = useCallback((message: string) => notify(message, "error"), [notify]);
 
-  const files = useFileGroups(notifyError);
+  const files = useFileGroups(notifyError, adapter.capabilities.dataDocuments);
   const devServer = useDevServer();
   const deployment = useDeployment(repoRoot);
   const siteUrl = useSiteUrl(root, adapter);
@@ -630,6 +630,7 @@ function App() {
                   configError={schemas.configError}
                   hasDerivedFallback={schemas.derivedConfig !== null}
                   componentBlocks={adapter.capabilities.componentBlocks}
+                  entryIds={adapter.capabilities.entryIds}
                   componentSchemaVersion={componentSchemaVersion}
                   groups={files.groups}
                   editorTab={editorTab}

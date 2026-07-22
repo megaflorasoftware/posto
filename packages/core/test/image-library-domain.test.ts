@@ -4,7 +4,7 @@ import {
   discoverImageLibraryAssets,
   planMediaImport,
   resolveImageLibraryLocation,
-} from "../src/astro/imageLibrary";
+} from "../src/project/mediaLibrary";
 import type { MediaLibrary } from "../src/pagescms/config";
 
 function assert(condition: unknown, message: string): asserts condition {
