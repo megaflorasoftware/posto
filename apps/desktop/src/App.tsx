@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, MantineProvider } from "@mantine/core";
 import { Notifications, notifications } from "@mantine/notifications";
 import { invoke, onFsChanged, openDirectory } from "@posto/ipc";
@@ -54,16 +54,17 @@ function App() {
   rootRef.current = root;
 
   const schemas = useSchemas();
-  function notify(message: string, severity: "progress" | "success" | "error") {
+  const notify = useCallback((message: string, severity: "progress" | "success" | "error") => {
     notifications.show({
       message,
       color: severity === "error" ? "red" : severity === "success" ? "green" : "blue",
       autoClose: severity === "error" ? false : severity === "success" ? 5000 : 3000,
       withCloseButton: true,
     });
-  }
+  }, []);
+  const notifyError = useCallback((message: string) => notify(message, "error"), [notify]);
 
-  const files = useFileGroups((message) => notify(message, "error"));
+  const files = useFileGroups(notifyError);
   const devServer = useDevServer();
   const deployment = useDeployment(root);
   const siteUrl = useSiteUrl(root);
@@ -140,7 +141,7 @@ function App() {
 
   const git = useGitSync(root, {
     onStatus: notify,
-    onPublishError: (message) => notify(message, "error"),
+    onPublishError: notifyError,
     beforeSync: () => currentFile.flushPendingSave(),
     afterPull(dir) {
       // The fs watcher also reacts to git's writes, but refresh explicitly so
@@ -466,7 +467,7 @@ function App() {
             config={config}
             groups={files.groups}
             onImported={() => void refreshGroups(root)}
-            onError={(message) => notify(message, "error")}
+            onError={notifyError}
           />
         )}
 

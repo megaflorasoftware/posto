@@ -4,6 +4,8 @@ slug: "hello:world"
 leading_zero: 01
 integer: 12
 decimal: 1.50
+hexadecimal: 0x1F
+octal: 0o17
 enabled: true
 disabled: FALSE
 legacy_boolean: yes

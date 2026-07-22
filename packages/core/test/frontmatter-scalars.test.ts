@@ -14,6 +14,8 @@ const expected = {
   leading_zero: "01",
   integer: "12",
   decimal: "1.5",
+  hexadecimal: "31",
+  octal: "15",
   enabled: "true",
   disabled: "false",
   legacy_boolean: "yes",

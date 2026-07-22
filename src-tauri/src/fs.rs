@@ -63,6 +63,22 @@ fn frontmatter_scalar(value: &str) -> Option<String> {
     if plain.eq_ignore_ascii_case("false") {
         return Some("false".to_string());
     }
+    if let Some(hexadecimal) = plain
+        .strip_prefix("0x")
+        .or_else(|| plain.strip_prefix("0X"))
+    {
+        if let Ok(number) = i64::from_str_radix(hexadecimal, 16) {
+            return Some(number.to_string());
+        }
+    }
+    if let Some(octal) = plain
+        .strip_prefix("0o")
+        .or_else(|| plain.strip_prefix("0O"))
+    {
+        if let Ok(number) = i64::from_str_radix(octal, 8) {
+            return Some(number.to_string());
+        }
+    }
 
     let unsigned = plain.trim_start_matches(['+', '-']);
     let leading_zero_integer = unsigned.len() > 1
@@ -815,9 +831,11 @@ mod tests {
             ("decimal".to_string(), "1.5".to_string()),
             ("disabled".to_string(), "false".to_string()),
             ("enabled".to_string(), "true".to_string()),
+            ("hexadecimal".to_string(), "31".to_string()),
             ("integer".to_string(), "12".to_string()),
             ("leading_zero".to_string(), "01".to_string()),
             ("legacy_boolean".to_string(), "yes".to_string()),
+            ("octal".to_string(), "15".to_string()),
             ("plain_with_comment".to_string(), "visible".to_string()),
             ("slug".to_string(), "hello:world".to_string()),
             ("title".to_string(), "A: colon".to_string()),

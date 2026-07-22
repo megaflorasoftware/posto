@@ -263,6 +263,17 @@ const mockFiles: Record<string, string> = {
 // Files removed via delete_file; list_files' static groups filter these out
 // so deletion is observable in the mock, mirroring the real backend.
 const mockDeleted = new Set<string>();
+const mockDirectories = new Set<string>();
+
+function rememberMockPath(path: string) {
+  let directory = path.slice(0, path.lastIndexOf("/"));
+  while (directory) {
+    mockDirectories.add(directory);
+    directory = directory.slice(0, directory.lastIndexOf("/"));
+  }
+}
+
+Object.keys(mockFiles).forEach(rememberMockPath);
 const mockRepos: ManagedRepo[] = [
   {
     owner: "example-org",
@@ -440,6 +451,7 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     case "list_dir_files_optional": {
       const dir = args?.dir as string;
       const extensions = (args?.extensions as string[]) ?? [];
+      if (!mockDirectories.has(dir)) return null;
       const matches = Object.keys(mockFiles)
         .filter((path) => path.startsWith(dir + "/") && !mockDeleted.has(path))
         .filter(
@@ -447,7 +459,7 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
         )
         .sort()
         .map((path) => ({ name: path.split("/").pop() as string, path }));
-      return matches.length > 0 ? matches : null;
+      return matches;
     }
     case "image_thumbnail":
       return args?.path as string;
@@ -479,6 +491,7 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     }
     case "write_text_file":
       mockFiles[args?.path as string] = args?.content as string;
+      rememberMockPath(args?.path as string);
       return null;
     case "create_text_file": {
       const path = args?.path as string;
@@ -487,6 +500,7 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       }
       if (path in mockFiles) throw new Error(`File already exists: ${path}`);
       mockFiles[path] = args?.content as string;
+      rememberMockPath(path);
       mockDeleted.delete(path);
       return null;
     }
@@ -498,6 +512,7 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       }
       if (to in mockFiles) throw new Error(`File already exists: ${to}`);
       mockFiles[to] = mockFiles[from] ?? "";
+      rememberMockPath(to);
       delete mockFiles[from];
       mockDeleted.add(from);
       mockDeleted.delete(to);
@@ -516,6 +531,8 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       }
       mockFiles[plan.destinationImagePath] = "[mock image]";
       mockFiles[plan.destinationMetadataPath] = plan.serializedMetadata;
+      rememberMockPath(plan.destinationImagePath);
+      rememberMockPath(plan.destinationMetadataPath);
       mockDeleted.delete(plan.destinationImagePath);
       mockDeleted.delete(plan.destinationMetadataPath);
       return {

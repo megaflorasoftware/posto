@@ -111,19 +111,23 @@ export function useSchemas() {
 
   // `.posto/` holds user preferences layered over the derived config:
   // `index.json` for workspace settings and `collections/<name>.json` per
-  // collection. Every read is tolerant — a missing directory or malformed
-  // file degrades to defaults, never to an error.
+  // collection. Missing paths and malformed JSON degrade to defaults;
+  // unreadable paths surface an I/O error while preserving the last good
+  // preferences.
   async function loadPostoConfig(dir: string): Promise<PostoConfig | null> {
     setSourceError("posto", null);
     const config: PostoConfig = { collections: {} };
+    let indexSource: string | null;
     try {
-      const index = await invoke<string | null>("read_text_file_optional", {
+      indexSource = await invoke<string | null>("read_text_file_optional", {
         path: `${dir}/${POSTO_INDEX_PATH}`,
       });
-      if (index !== null) config.collectionOrder = parsePostoIndex(index).collectionOrder;
     } catch (e) {
       setSourceError("posto", e instanceof Error ? e.message : String(e));
       return postoConfigRef.current;
+    }
+    if (indexSource !== null) {
+      config.collectionOrder = parsePostoIndex(indexSource).collectionOrder;
     }
     let listed: { name: string; path: string }[] | null;
     try {
@@ -137,15 +141,16 @@ export function useSchemas() {
     }
     for (const file of listed ?? []) {
       if (!file.name.endsWith(".json")) continue;
+      let source: string | null;
       try {
-        const source = await invoke<string | null>("read_text_file_optional", { path: file.path });
-        if (source === null) continue;
-        const settings = parsePostoCollection(source);
-        if (settings) config.collections[file.name.slice(0, -".json".length)] = settings;
+        source = await invoke<string | null>("read_text_file_optional", { path: file.path });
       } catch (e) {
         setSourceError("posto", e instanceof Error ? e.message : String(e));
         return postoConfigRef.current;
       }
+      if (source === null) continue;
+      const settings = parsePostoCollection(source);
+      if (settings) config.collections[file.name.slice(0, -".json".length)] = settings;
     }
     if (config.collectionOrder || Object.keys(config.collections).length > 0) {
       commitPostoConfig(config);
