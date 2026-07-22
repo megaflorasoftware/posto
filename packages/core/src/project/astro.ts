@@ -5,7 +5,7 @@ import {
   parseLoaderConfig,
   type LoaderInfo,
 } from "../astro/collections";
-import type { Field, SchemaDiagnostic } from "../pagescms/config";
+import { DEFAULT_MEDIA, type Field, type SchemaDiagnostic } from "../pagescms/config";
 import { scalarFrontmatter } from "../pagescms/frontmatterScalars";
 import { PROJECT_MARKERS } from "./detect";
 import type { ProjectAdapter, ProjectDiagnostic, ProjectIO } from "./adapter";
@@ -67,6 +67,7 @@ const SITE_FIELD = /(?:^|[\s,{(])site\s*:\s*(['"`])([^'"`]+)\1/m;
 
 export const astroAdapter: ProjectAdapter = {
   type: "astro",
+  defaultMedia: DEFAULT_MEDIA,
   loadDerivedConfig: loadAstroDerivedConfig,
   invalidations(root, config) {
     return [

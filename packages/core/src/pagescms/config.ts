@@ -64,6 +64,9 @@ export interface MediaEntry {
   output: string;
 }
 
+/** Conventional public asset directory when a project declares no media source. */
+export const DEFAULT_MEDIA: MediaEntry[] = [{ name: "default", input: "public", output: "/" }];
+
 export interface ContentEntry {
   name: string;
   label?: string;

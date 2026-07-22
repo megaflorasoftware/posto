@@ -1,4 +1,4 @@
-import type { Field, PagesConfig } from "../pagescms/config";
+import type { Field, MediaEntry, PagesConfig } from "../pagescms/config";
 import type { ProjectType } from "./detect";
 
 export interface ProjectIO {
@@ -74,6 +74,8 @@ export interface ComponentSchemaSource {
 
 export interface ProjectAdapter {
   readonly type: ProjectType;
+  /** Media fallback applied only when neither Pages CMS nor derived config declares one. */
+  readonly defaultMedia: MediaEntry[];
   loadDerivedConfig(root: string, io: ProjectIO): Promise<DerivedConfig | null>;
   invalidations(root: string, config?: PagesConfig | null): InvalidationRule[];
   routeForFile(root: string, path: string, content: string): FileRoute | null;

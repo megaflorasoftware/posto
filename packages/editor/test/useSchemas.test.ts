@@ -4,6 +4,7 @@ import { act, renderHook } from "@testing-library/react";
 import { invoke } from "@posto/ipc";
 import { beforeEach, expect, test, vi } from "vitest";
 import { useSchemas } from "../src/hooks/useSchemas";
+import { genericAdapter } from "@posto/core/project/generic";
 
 vi.mock("@posto/ipc", () => ({ invoke: vi.fn() }));
 
@@ -38,4 +39,23 @@ test("malformed posto JSON is skipped without discarding valid preferences", asy
     collections: { good: { displayName: "Good" } },
   });
   expect(result.current.configError).toBeNull();
+});
+
+test("pages-only projects retain the conventional public media source", async () => {
+  invokeMock.mockImplementation(async (command, args) => {
+    if (command === "read_text_file_optional") {
+      const path = String(args?.path);
+      if (path.endsWith("/.pages.yml")) return "content: []\n";
+      return null;
+    }
+    if (command === "list_dir_files_optional") return null;
+    return null;
+  });
+  const { result } = renderHook(() => useSchemas(genericAdapter));
+
+  await act(async () => {
+    await result.current.loadSchemas("/site", genericAdapter);
+  });
+
+  expect(result.current.config.media).toEqual([{ name: "default", input: "public", output: "/" }]);
 });

@@ -1,8 +1,10 @@
 import type { ProjectAdapter } from "./adapter";
 import { PROJECT_MARKERS } from "./detect";
+import { DEFAULT_MEDIA } from "../pagescms/config";
 
 export const genericAdapter: ProjectAdapter = {
   type: "generic",
+  defaultMedia: DEFAULT_MEDIA,
   async loadDerivedConfig() {
     return null;
   },

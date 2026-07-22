@@ -16,6 +16,7 @@ function effectiveConfig(
   pagesConfig: PagesConfig | null,
   derivedConfig: PagesConfig | null,
   postoConfig: PostoConfig | null,
+  defaultMedia: PagesConfig["media"],
 ): PagesConfig {
   return mergePostoConfig(
     {
@@ -23,7 +24,7 @@ function effectiveConfig(
         ? pagesConfig.media
         : derivedConfig?.media.length
           ? derivedConfig.media
-          : [],
+          : defaultMedia,
       content: [...(pagesConfig?.content ?? []), ...(derivedConfig?.content ?? [])],
       collectionSchemas: derivedConfig?.collectionSchemas,
       mediaLibraries: derivedConfig?.mediaLibraries,
@@ -202,15 +203,15 @@ export function useSchemas(adapter: ProjectAdapter = astroAdapter) {
       loadDerivedConfig(dir, selectedAdapter),
       loadPostoConfig(dir),
     ]);
-    return effectiveConfig(pages, derived, posto);
+    return effectiveConfig(pages, derived, posto, selectedAdapter.defaultMedia);
   }
 
   // Effective schema config: `.pages.yml` entries first (higher resolution —
   // labels, media, widget types), Astro collection schemas after them as a
   // fallback. matchEntry's first-match-wins ordering makes the precedence.
   const config = useMemo(
-    () => effectiveConfig(pagesConfig, derivedConfig, postoConfig),
-    [pagesConfig, derivedConfig, postoConfig],
+    () => effectiveConfig(pagesConfig, derivedConfig, postoConfig, adapter.defaultMedia),
+    [pagesConfig, derivedConfig, postoConfig, adapter.defaultMedia],
   );
   const configRef = useRef(config);
   configRef.current = config;
