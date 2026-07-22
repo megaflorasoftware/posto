@@ -4,7 +4,10 @@ import { describe, expect, test } from "vitest";
 import { parseLoaderConfig } from "../src/astro/collections";
 
 const fixture = (name: string) =>
-  readFileSync(fileURLToPath(new URL(`./fixtures/content-config/${name}.txt`, import.meta.url)), "utf8");
+  readFileSync(
+    fileURLToPath(new URL(`./fixtures/content-config/${name}.txt`, import.meta.url)),
+    "utf8",
+  );
 
 describe("content config corpus", () => {
   test("static glob collection", () => {

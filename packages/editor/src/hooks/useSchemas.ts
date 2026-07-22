@@ -1,9 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { invoke } from "@posto/ipc";
-import {
-  parsePagesConfig,
-  type PagesConfig,
-} from "@posto/core/pagescms/config";
+import { parsePagesConfig, type PagesConfig } from "@posto/core/pagescms/config";
 import type { ProjectAdapter, ProjectIO } from "@posto/core/project/adapter";
 import { astroAdapter } from "@posto/core/project/astro";
 import {

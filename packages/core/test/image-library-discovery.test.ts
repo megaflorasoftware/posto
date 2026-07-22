@@ -107,7 +107,10 @@ test("discovers image libraries and their diagnostics", () => {
     "custom IDs diagnosed",
   );
   const blog = config.content.find((entry) => entry.name === "blog");
-  assert(blog?.fields[0].options?.idScheme === "framework", "top-level reference keeps Astro ID semantics");
+  assert(
+    blog?.fields[0].options?.idScheme === "framework",
+    "top-level reference keeps Astro ID semantics",
+  );
   assert(
     blog?.fields[1].fields?.[0].options?.idScheme === "framework",
     "nested reference keeps Astro ID semantics",

@@ -51,7 +51,7 @@ export interface SchemaDiagnostic {
 }
 
 export interface Diagnostic {
-  feature: "derived-config" | "media-library" | "project" | string;
+  feature: string;
   collection?: string | null;
   code: string;
   message: string;
