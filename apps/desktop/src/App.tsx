@@ -214,6 +214,11 @@ function App() {
 
   async function selectRepository(repository: string) {
     try {
+      const remembered = await invoke<string | null>("get_work_dir", { root: repository });
+      if (remembered) {
+        await selectRoot(repository, remembered);
+        return;
+      }
       const inventory = await invoke<ProjectInventory[]>("scan_projects", { root: repository });
       const scan = await scanWorkspace(repository, inventory, ipcProjectIO);
       const decision = decideWorkspace(repository, scan);
