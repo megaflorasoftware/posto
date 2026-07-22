@@ -20,13 +20,12 @@ export default {
   fmt: {
     ignorePatterns,
     overrides: [
-      // Docs prose: don't reflow. Reflowing breaks Markdown list items and links
-      // across lines (e.g. the download lists in apps/docs/.../index.mdx).
+      // Preserve authored Markdown line breaks. Flattening prose breaks GitHub
+      // alert markers (`> [!WARNING]`) by joining them to the following text.
       {
-        // `proseWrap: never` keeps list items and links on one line.
         files: ["**/*.md"],
         options: {
-          proseWrap: "never",
+          proseWrap: "preserve",
         },
       },
       {

@@ -50,10 +50,10 @@ JSON metadata works the same way; point the pattern at `**/*.json` and write the
 
 If a collection resembles a media library but breaks one of the rules, Posto shows a diagnostic in the editor explaining why:
 
-| Reason | Resolution |
-| --- | --- |
-| More than one `image()` field | Split into separate collections, or keep a single image field |
-| `glob()` loader has no static `base` | Use a plain string `base` path |
-| Uses a custom `generateId` | Remove it so Posto can manage entry IDs |
-| The `image()` field is inside a list | Move it to a scalar (nested only through objects) |
-| Metadata is not YAML or JSON | Use a `**/*.yaml`, `**/*.yml`, or `**/*.json` pattern |
+| Reason                               | Resolution                                                    |
+| ------------------------------------ | ------------------------------------------------------------- |
+| More than one `image()` field        | Split into separate collections, or keep a single image field |
+| `glob()` loader has no static `base` | Use a plain string `base` path                                |
+| Uses a custom `generateId`           | Remove it so Posto can manage entry IDs                       |
+| The `image()` field is inside a list | Move it to a scalar (nested only through objects)             |
+| Metadata is not YAML or JSON         | Use a `**/*.yaml`, `**/*.yml`, or `**/*.json` pattern         |
