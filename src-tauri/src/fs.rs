@@ -226,6 +226,22 @@ pub fn list_dir_files(dir: String, extensions: Vec<String>) -> Result<Vec<FileEn
     Ok(files)
 }
 
+/// Lists files when a directory exists. Absence is an expected `None`, while
+/// permission and other I/O failures remain errors the frontend can surface.
+#[tauri::command]
+pub fn list_dir_files_optional(
+    dir: String,
+    extensions: Vec<String>,
+) -> Result<Option<Vec<FileEntry>>, String> {
+    let path = Path::new(&dir);
+    match std::fs::metadata(path) {
+        Ok(metadata) if metadata.is_dir() => list_dir_files(dir, extensions).map(Some),
+        Ok(_) => Err(format!("Not a directory: {dir}")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("Failed to inspect {dir}: {error}")),
+    }
+}
+
 fn cached_image_thumbnail(
     cache_root: &Path,
     source: &Path,
@@ -376,6 +392,17 @@ pub fn list_directories(dir: String) -> Result<Vec<String>, String> {
 #[tauri::command]
 pub fn read_text_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| format!("Failed to read {path}: {e}"))
+}
+
+/// Reads a UTF-8 text file when present. Absence is expected; all other I/O
+/// failures reject so callers never confuse an unreadable config with none.
+#[tauri::command]
+pub fn read_text_file_optional(path: String) -> Result<Option<String>, String> {
+    match std::fs::read_to_string(&path) {
+        Ok(content) => Ok(Some(content)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("Failed to read {path}: {error}")),
+    }
 }
 
 #[tauri::command]
@@ -707,6 +734,29 @@ pub fn write_temp_image(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn optional_reads_only_suppress_not_found() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("config.yml");
+        std::fs::write(&file, "title: hello").unwrap();
+
+        assert_eq!(
+            read_text_file_optional(file.to_string_lossy().to_string()).unwrap(),
+            Some("title: hello".to_string())
+        );
+        assert_eq!(
+            read_text_file_optional(
+                temp.path()
+                    .join("missing.yml")
+                    .to_string_lossy()
+                    .to_string()
+            )
+            .unwrap(),
+            None
+        );
+        assert!(read_text_file_optional(temp.path().to_string_lossy().to_string()).is_err());
+    }
 
     #[test]
     fn image_thumbnails_are_bounded_cached_and_revisioned() {

@@ -560,6 +560,18 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
         { name: "logo.png", path: `${dir}/nested/logo.png` },
       ];
     }
+    case "list_dir_files_optional": {
+      const dir = args?.dir as string;
+      const extensions = (args?.extensions as string[]) ?? [];
+      const matches = Object.keys(mockFiles)
+        .filter((path) => path.startsWith(dir + "/") && !mockDeleted.has(path))
+        .filter(
+          (path) => extensions.length === 0 || extensions.includes(path.split(".").pop() as string),
+        )
+        .sort()
+        .map((path) => ({ name: path.split("/").pop() as string, path }));
+      return matches.length > 0 ? matches : null;
+    }
     case "image_thumbnail":
       return args?.path as string;
     case "list_directories": {
@@ -583,6 +595,10 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
         throw new Error(`Failed to read ${path}`);
       }
       return mockFiles[path] ?? "";
+    }
+    case "read_text_file_optional": {
+      const path = args?.path as string;
+      return path in mockFiles && !mockDeleted.has(path) ? mockFiles[path] : null;
     }
     case "write_text_file":
       mockFiles[args?.path as string] = args?.content as string;

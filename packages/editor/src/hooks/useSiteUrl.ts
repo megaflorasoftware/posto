@@ -25,11 +25,7 @@ function normalizeUrl(value: string): string | null {
 }
 
 async function readFile(path: string): Promise<string | null> {
-  try {
-    return await invoke<string>("read_text_file", { path });
-  } catch {
-    return null;
-  }
+  return invoke<string | null>("read_text_file_optional", { path });
 }
 
 /** Resolves the site's live URL from, in order of confidence: the Astro
@@ -78,9 +74,14 @@ export function useSiteUrl(root: string | null): string | null {
     }
     let active = true;
     setSiteUrl(null);
-    void resolveSiteUrl(root).then((url) => {
-      if (active) setSiteUrl(url);
-    });
+    void resolveSiteUrl(root)
+      .then((url) => {
+        if (active) setSiteUrl(url);
+      })
+      .catch(() => {
+        // URL discovery is optional, but an unreadable candidate must stop the
+        // search rather than masquerade as an absent file.
+      });
     return () => {
       active = false;
     };

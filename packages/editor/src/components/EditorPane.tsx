@@ -180,9 +180,7 @@ export function EditorPane(props: {
       )}
       {props.configError && (
         <Alert color="yellow" className="config-error">
-          {props.hasAstroFallback
-            ? `.pages.yml is invalid (falling back to Astro collection schemas) — ${props.configError}`
-            : `Form editing disabled: .pages.yml is invalid — ${props.configError}`}
+          {`Schema configuration issue${props.hasAstroFallback ? " (using the last available schemas)" : ""} — ${props.configError}`}
         </Alert>
       )}
       {(props.config?.imageLibraryDiagnostics?.length ?? 0) > 0 && (
