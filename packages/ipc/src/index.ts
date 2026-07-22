@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as tauriOpen } from "@tauri-apps/plugin-dialog";
 import { openPath as tauriOpenPath, openUrl as tauriOpenUrl } from "@tauri-apps/plugin-opener";
+import { createFileDropRouter, type FileDropHandler } from "./fileDropRouter";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 
@@ -259,26 +260,30 @@ export const openImageFiles: () => Promise<string[]> = inTauri
     }
   : () => requireBrowserBackend().openImageFiles();
 
-type FileDropHandler = (paths: string[]) => void;
-const fileDropHandlers: FileDropHandler[] = [];
-let fileDropListenerStarted = false;
+const fileDropRouter = createFileDropRouter();
+let fileDropUnlisten: Promise<() => void> | null = null;
 
 /** Routes native desktop file drops through one shared integration point.
- * The newest mounted surface owns the event, so a modal dropzone takes
- * precedence over the app-wide drop importer behind it. */
-export function onFileDrop(handler: FileDropHandler): () => void {
-  fileDropHandlers.push(handler);
-  if (inTauri && !fileDropListenerStarted) {
-    fileDropListenerStarted = true;
-    void getCurrentWebview().onDragDropEvent((event) => {
+ * The highest-priority surface owns the event; recency breaks priority ties. */
+export function onFileDrop(
+  handler: FileDropHandler,
+  options: { priority: number },
+): () => void {
+  const unregister = fileDropRouter.register(handler, options.priority);
+  if (inTauri && !fileDropUnlisten) {
+    fileDropUnlisten = getCurrentWebview().onDragDropEvent((event) => {
       if (event.payload.type === "drop") {
-        fileDropHandlers[fileDropHandlers.length - 1]?.(event.payload.paths);
+        fileDropRouter.dispatch(event.payload.paths);
       }
     });
   }
   return () => {
-    const index = fileDropHandlers.lastIndexOf(handler);
-    if (index >= 0) fileDropHandlers.splice(index, 1);
+    unregister();
+    if (fileDropRouter.size === 0 && fileDropUnlisten) {
+      const unlisten = fileDropUnlisten;
+      fileDropUnlisten = null;
+      void unlisten.then((stop) => stop());
+    }
   };
 }
 

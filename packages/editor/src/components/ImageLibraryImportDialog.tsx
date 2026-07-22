@@ -86,7 +86,7 @@ export function ImageLibraryImportDialog(props: {
 
   useEffect(() => {
     if (step !== "source") return;
-    return onFileDrop((paths) => void selectSources(paths));
+    return onFileDrop((paths) => void selectSources(paths), { priority: 100 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
