@@ -191,6 +191,8 @@ const mockFiles: Record<string, string> = {
   }),
   "/mock/site/media/portraits/person.yaml": "image: ./person.jpg\nalt: Portrait\n",
   "/mock/site/media/portraits/person.jpg": "[mock image]",
+  "/mock/site/public/images/photo.jpg": "[mock image]",
+  "/mock/site/public/images/nested/logo.png": "[mock image]",
   "/mock/site/src/layouts/BaseLayout.astro": "<html><slot /></html>",
   "/mock/site/src/layouts/PostLayout.astro": "<article><slot /></article>",
   "/mock/site/src/layouts/notes.txt": "not a layout",
@@ -359,6 +361,17 @@ function mockTitle(frontmatter: Record<string, string> | null): string | null {
   return frontmatter?.title ?? frontmatter?.name ?? null;
 }
 
+function listMockDirFiles(dir: string, extensions: string[]) {
+  if (!mockDirectories.has(dir)) throw new Error(`Not a directory: ${dir}`);
+  return Object.keys(mockFiles)
+    .filter((path) => path.startsWith(dir + "/") && !mockDeleted.has(path))
+    .filter(
+      (path) => extensions.length === 0 || extensions.includes(path.split(".").pop() as string),
+    )
+    .sort()
+    .map((path) => ({ name: path.split("/").pop() as string, path }));
+}
+
 async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
   switch (cmd) {
     case "list_files": {
@@ -433,33 +446,13 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     case "list_dir_files": {
       const dir = args?.dir as string;
       const extensions = (args?.extensions as string[]) ?? [];
-      const matches = Object.keys(mockFiles)
-        .filter((path) => path.startsWith(dir + "/") && !mockDeleted.has(path))
-        .filter(
-          (path) => extensions.length === 0 || extensions.includes(path.split(".").pop() as string),
-        )
-        .sort()
-        .map((path) => ({ name: path.split("/").pop() as string, path }));
-      if (matches.length > 0) return matches;
-      if (dir.endsWith("/components")) throw new Error(`Not a directory: ${dir}`);
-      // Media dirs have no mock file entries; serve the fixed image fixtures.
-      return [
-        { name: "photo.jpg", path: `${dir}/photo.jpg` },
-        { name: "logo.png", path: `${dir}/nested/logo.png` },
-      ];
+      return listMockDirFiles(dir, extensions);
     }
     case "list_dir_files_optional": {
       const dir = args?.dir as string;
       const extensions = (args?.extensions as string[]) ?? [];
       if (!mockDirectories.has(dir)) return null;
-      const matches = Object.keys(mockFiles)
-        .filter((path) => path.startsWith(dir + "/") && !mockDeleted.has(path))
-        .filter(
-          (path) => extensions.length === 0 || extensions.includes(path.split(".").pop() as string),
-        )
-        .sort()
-        .map((path) => ({ name: path.split("/").pop() as string, path }));
-      return matches;
+      return listMockDirFiles(dir, extensions);
     }
     case "image_thumbnail":
       return args?.path as string;

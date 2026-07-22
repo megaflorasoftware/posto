@@ -249,6 +249,13 @@ importers:
       '@tauri-apps/plugin-opener':
         specifier: ^2
         version: 2.5.4
+    devDependencies:
+      jsdom:
+        specifier: ^26.1.0
+        version: 26.1.0
+      vitest:
+        specifier: ^3.2.7
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.13.3)(jsdom@26.1.0)(lightningcss@1.33.0)(sugarss@5.0.1(postcss@8.5.20))(yaml@2.9.0)
 
 packages:
 
