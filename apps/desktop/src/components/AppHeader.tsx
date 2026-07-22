@@ -60,7 +60,13 @@ export function AppHeader(props: {
         </Menu>
       </Button.Group>
       {props.projectInfo && (
-        <Tooltip label={props.projectInfo.signals.join(", ") || "No framework markers found"}>
+        <Tooltip
+          label={
+            props.projectInfo.diagnostic ||
+            props.projectInfo.signals.join(", ") ||
+            "No framework markers found"
+          }
+        >
           <span className="project-type-badge">{props.projectInfo.type}</span>
         </Tooltip>
       )}

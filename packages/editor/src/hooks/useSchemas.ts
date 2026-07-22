@@ -182,8 +182,22 @@ export function useSchemas(adapter: ProjectAdapter = astroAdapter) {
     setSourceError("derived", null);
     try {
       const loaded = await selectedAdapter.loadDerivedConfig(dir, ipcProjectIO);
-      commitDerivedConfig(loaded?.config ?? null);
-      return loaded?.config ?? null;
+      if (!loaded) {
+        commitDerivedConfig(null);
+        return null;
+      }
+      const diagnostics = new Map(
+        [...(loaded.config.diagnostics ?? []), ...loaded.diagnostics].map((diagnostic) => [
+          `${diagnostic.feature}:${diagnostic.collection ?? ""}:${diagnostic.code}:${diagnostic.message}`,
+          diagnostic,
+        ]),
+      );
+      const config: PagesConfig = {
+        ...loaded.config,
+        diagnostics: diagnostics.size > 0 ? [...diagnostics.values()] : undefined,
+      };
+      commitDerivedConfig(config);
+      return config;
     } catch (e) {
       setSourceError("derived", e instanceof Error ? e.message : String(e));
       return derivedConfigRef.current;

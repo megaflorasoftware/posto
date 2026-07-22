@@ -59,3 +59,31 @@ test("pages-only projects retain the conventional public media source", async ()
 
   expect(result.current.config.media).toEqual([{ name: "default", input: "public", output: "/" }]);
 });
+
+test("adapter diagnostics are merged into the effective config once", async () => {
+  invokeMock.mockImplementation(async (command) => {
+    if (command === "read_text_file_optional" || command === "list_dir_files_optional") return null;
+    return null;
+  });
+  const diagnostic = {
+    feature: "adapter",
+    code: "fixture",
+    message: "Adapter diagnostic",
+  };
+  const adapter = {
+    ...genericAdapter,
+    async loadDerivedConfig() {
+      return {
+        config: { media: [], content: [], diagnostics: [diagnostic] },
+        diagnostics: [diagnostic],
+      };
+    },
+  };
+  const { result } = renderHook(() => useSchemas(adapter));
+
+  await act(async () => {
+    await result.current.loadSchemas("/site", adapter);
+  });
+
+  expect(result.current.config.diagnostics).toEqual([diagnostic]);
+});

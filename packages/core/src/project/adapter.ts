@@ -1,4 +1,4 @@
-import type { Field, MediaEntry, PagesConfig } from "../pagescms/config";
+import type { Diagnostic, Field, MediaEntry, PagesConfig } from "../pagescms/config";
 import type { ProjectType } from "./detect";
 
 export interface ProjectIO {
@@ -10,12 +10,7 @@ export interface ProjectIO {
   ): Promise<{ name: string; path: string }[] | null>;
 }
 
-export interface ProjectDiagnostic {
-  feature: string;
-  code: string;
-  message: string;
-  collection?: string | null;
-}
+export type ProjectDiagnostic = Diagnostic;
 
 export interface DerivedConfig {
   config: PagesConfig;

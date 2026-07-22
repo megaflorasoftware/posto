@@ -817,6 +817,12 @@ export default function RepoHome({
               </Alert>
             )}
 
+            {projectInfo?.diagnostic && (
+              <Alert color="yellow" variant="light" title="Project adapter fallback">
+                {projectInfo.diagnostic}
+              </Alert>
+            )}
+
             {error && (
               <Alert color="red" variant="light" title="Files could not be loaded">
                 <Stack gap="sm">

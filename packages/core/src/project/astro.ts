@@ -8,7 +8,7 @@ import {
 import { DEFAULT_MEDIA, type Field, type SchemaDiagnostic } from "../pagescms/config";
 import { scalarFrontmatter } from "../pagescms/frontmatterScalars";
 import { PROJECT_MARKERS } from "./detect";
-import type { ProjectAdapter, ProjectDiagnostic, ProjectIO } from "./adapter";
+import type { ProjectAdapter, ProjectIO } from "./adapter";
 
 export { DEFAULT_ASTRO_MEDIA };
 
@@ -30,10 +30,6 @@ const astroComponentBlocks = {
     return `import ${ref.name} from '${relative}';`;
   },
 };
-
-function scannerDiagnostic(value: SchemaDiagnostic): ProjectDiagnostic {
-  return { feature: "derived-config", ...value };
-}
 
 export async function loadAstroDerivedConfig(root: string, io: ProjectIO) {
   const listed = await io.listDirFilesOptional(`${root}/.astro/collections`, ["json"]);
@@ -59,7 +55,7 @@ export async function loadAstroDerivedConfig(root: string, io: ProjectIO) {
   const config = buildAstroConfig(collections, loaders, scannerDiagnostics);
   return {
     config,
-    diagnostics: [...scannerDiagnostics.map(scannerDiagnostic), ...(config.diagnostics ?? [])],
+    diagnostics: config.diagnostics ?? [],
   };
 }
 
