@@ -1,6 +1,6 @@
 ---
 title: "A: colon"
-slug: 'hello:world'
+slug: "hello:world"
 leading_zero: 01
 integer: 12
 decimal: 1.50
@@ -16,4 +16,5 @@ inline_map: { child: value }
 inline_sequence: [first, second]
 plain_with_comment: visible # hidden comment
 ---
+
 Fixture body.

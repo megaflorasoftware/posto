@@ -316,7 +316,8 @@ export type SortComparisonMode = "numeric" | "lexical";
 
 /** Chooses one comparison mode for a complete list, avoiding pairwise mode changes. */
 export function sortComparisonMode(values: string[]): SortComparisonMode {
-  return values.length > 0 && values.every((value) => value !== "" && Number.isFinite(Number(value)))
+  return values.length > 0 &&
+    values.every((value) => value !== "" && Number.isFinite(Number(value)))
     ? "numeric"
     : "lexical";
 }

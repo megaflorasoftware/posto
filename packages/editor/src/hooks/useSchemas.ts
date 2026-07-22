@@ -56,9 +56,9 @@ export function useSchemas() {
   // `.posto/` user preferences, overlaid on the effective config below.
   const [postoConfig, setPostoConfig] = useState<PostoConfig | null>(null);
   const postoConfigRef = useRef<PostoConfig | null>(null);
-  const [configErrors, setConfigErrors] = useState<Partial<Record<"pages" | "astro" | "posto", string>>>(
-    {},
-  );
+  const [configErrors, setConfigErrors] = useState<
+    Partial<Record<"pages" | "astro" | "posto", string>>
+  >({});
 
   function setSourceError(source: "pages" | "astro" | "posto", message: string | null) {
     setConfigErrors((current) => {

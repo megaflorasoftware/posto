@@ -41,9 +41,7 @@ describe("useGitSync concurrency", () => {
       if (command === "publish") return publish.promise;
       return "ok";
     });
-    const { result } = renderHook(() =>
-      useGitSync("/site", { onStatus: vi.fn(), beforeSync }),
-    );
+    const { result } = renderHook(() => useGitSync("/site", { onStatus: vi.fn(), beforeSync }));
 
     let first!: Promise<boolean>;
     let second!: Promise<boolean>;

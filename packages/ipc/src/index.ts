@@ -265,10 +265,7 @@ let fileDropUnlisten: Promise<() => void> | null = null;
 
 /** Routes native desktop file drops through one shared integration point.
  * The highest-priority surface owns the event; recency breaks priority ties. */
-export function onFileDrop(
-  handler: FileDropHandler,
-  options: { priority: number },
-): () => void {
+export function onFileDrop(handler: FileDropHandler, options: { priority: number }): () => void {
   const unregister = fileDropRouter.register(handler, options.priority);
   if (inTauri && !fileDropUnlisten) {
     fileDropUnlisten = getCurrentWebview().onDragDropEvent((event) => {
