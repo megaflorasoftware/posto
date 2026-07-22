@@ -1,4 +1,4 @@
-import { detectProject, type DetectionIO, type ProjectInfo } from "./detect";
+import { projectInfoFromMarkers, type ProjectInfo } from "./detect";
 
 export interface ProjectInventory {
   dir: string;
@@ -45,13 +45,14 @@ const WORKSPACE_MARKERS = new Set([
 export async function scanWorkspace(
   root: string,
   inventory: ProjectInventory[],
-  io: DetectionIO,
 ): Promise<WorkspaceScan> {
-  const rootInfo = await detectProject(root, io);
+  const rootInfo = projectInfoFromMarkers(
+    inventory.find((item) => item.dir === root)?.markers ?? [],
+  );
   const candidates: ProjectCandidate[] = [];
   for (const item of inventory) {
     if (item.dir === root) continue;
-    const info = await detectProject(item.dir, io);
+    const info = projectInfoFromMarkers(item.markers);
     if (info.type !== "generic" || info.hasPagesYml) candidates.push({ dir: item.dir, ...info });
   }
   candidates.sort((a, b) => a.dir.localeCompare(b.dir));

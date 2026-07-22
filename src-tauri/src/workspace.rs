@@ -45,21 +45,52 @@ fn scan_dir(dir: &Path, depth: usize, output: &mut Vec<ProjectInventory>) {
         };
         if kind.is_file() && MARKERS.contains(&name.as_str()) {
             names.push(name.clone());
-            if name == "package.json"
-                && std::fs::read_to_string(entry.path())
+            if name == "package.json" {
+                let package = std::fs::read_to_string(entry.path())
                     .ok()
-                    .and_then(|source| serde_json::from_str::<serde_json::Value>(&source).ok())
-                    .and_then(|value| value.get("workspaces").cloned())
+                    .and_then(|source| serde_json::from_str::<serde_json::Value>(&source).ok());
+                if package
+                    .as_ref()
+                    .and_then(|value| value.get("workspaces"))
                     .is_some()
-            {
-                names.push("package.json#workspaces".to_string());
+                {
+                    names.push("package.json#workspaces".to_string());
+                }
+                for dependency in ["astro", "@11ty/eleventy"] {
+                    let found = ["dependencies", "devDependencies", "peerDependencies"]
+                        .iter()
+                        .any(|group| {
+                            package
+                                .as_ref()
+                                .and_then(|value| value.get(group))
+                                .and_then(|value| value.get(dependency))
+                                .is_some()
+                        });
+                    if found {
+                        names.push(format!("dependency:{dependency}"));
+                    }
+                }
             }
         }
         if kind.is_dir() {
             if name == ".posto" && entry.path().join("index.json").is_file() {
                 names.push(".posto/index.json".to_string());
+                if let Some(project) = std::fs::read_to_string(entry.path().join("index.json"))
+                    .ok()
+                    .and_then(|source| serde_json::from_str::<serde_json::Value>(&source).ok())
+                    .and_then(|value| {
+                        value
+                            .get("project")
+                            .and_then(|value| value.as_str())
+                            .map(str::to_string)
+                    })
+                {
+                    names.push(format!("project:{project}"));
+                }
             } else if name == ".astro" {
                 names.push(".astro".to_string());
+            } else if matches!(name.as_str(), "content" | "archetypes") {
+                names.push(name.clone());
             }
             if depth < MAX_DEPTH
                 && !name.starts_with('.')

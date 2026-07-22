@@ -1,3 +1,5 @@
+import { parsePostoIndex } from "../posto/config";
+
 export const PROJECT_TYPES = ["astro", "eleventy", "hugo", "generic"] as const;
 export type ProjectType = (typeof PROJECT_TYPES)[number];
 
@@ -68,13 +70,7 @@ function dependencies(source: string | null): Set<string> {
 }
 
 function overrideFrom(source: string | null): string | null {
-  if (!source) return null;
-  try {
-    const project = (JSON.parse(source) as { project?: unknown }).project;
-    return typeof project === "string" && project.trim() ? project.trim() : null;
-  } catch {
-    return null;
-  }
+  return source ? (parsePostoIndex(source).project ?? null) : null;
 }
 
 /** Classifies one selected working directory. Rules are ordered by precedence. */
@@ -86,7 +82,7 @@ export async function detectProject(root: string, io: DetectionIO): Promise<Proj
   ]);
   const override = overrideFrom(overrideSource);
   if (override) {
-    const supported = PROJECT_TYPES.includes(override as ProjectType) && override !== "hugo";
+    const supported = PROJECT_TYPES.includes(override as ProjectType);
     return {
       type: supported ? (override as ProjectType) : "generic",
       signals: ["overridden via .posto"],
@@ -151,5 +147,66 @@ export async function detectProject(root: string, io: DetectionIO): Promise<Proj
     };
   }
 
+  return { type: "generic", signals: [], hasPagesYml, hasPostoDir };
+}
+
+/** Classifies evidence returned by the bounded Rust workspace inventory. */
+export function projectInfoFromMarkers(markers: string[]): ProjectInfo {
+  const markerSet = new Set(markers);
+  const override = markers
+    .find((marker) => marker.startsWith("project:"))
+    ?.slice("project:".length);
+  const hasPagesYml = markerSet.has(".pages.yml");
+  const hasPostoDir = markerSet.has(".posto/index.json");
+  if (override) {
+    const supported = PROJECT_TYPES.includes(override as ProjectType);
+    return {
+      type: supported ? (override as ProjectType) : "generic",
+      signals: ["overridden via .posto"],
+      hasPagesYml,
+      hasPostoDir,
+      ...(!supported
+        ? {
+            diagnostic: `project type '${override}' is not supported by this version; treating as generic`,
+          }
+        : {}),
+    };
+  }
+  const astro = [...ASTRO_CONFIGS].find((marker) => markerSet.has(marker));
+  if (astro || markerSet.has("dependency:astro") || markerSet.has(".astro")) {
+    return {
+      type: "astro",
+      signals: [
+        ...(astro ? [astro] : []),
+        ...(markerSet.has("dependency:astro") ? ["astro dependency"] : []),
+        ...(markerSet.has(".astro") ? [".astro directory"] : []),
+      ],
+      hasPagesYml,
+      hasPostoDir,
+    };
+  }
+  const eleventy = [...ELEVENTY_CONFIGS].find((marker) => markerSet.has(marker));
+  if (eleventy || markerSet.has("dependency:@11ty/eleventy")) {
+    return {
+      type: "eleventy",
+      signals: [
+        ...(eleventy ? [eleventy] : []),
+        ...(markerSet.has("dependency:@11ty/eleventy") ? ["@11ty/eleventy dependency"] : []),
+      ],
+      hasPagesYml,
+      hasPostoDir,
+    };
+  }
+  const hugo = [...HUGO_CONFIGS].find((marker) => markerSet.has(marker));
+  const genericHugo = [...GENERIC_HUGO_CONFIGS].find((marker) => markerSet.has(marker));
+  const hugoLayout = !!genericHugo && (markerSet.has("content") || markerSet.has("archetypes"));
+  if (hugo || hugoLayout) {
+    return {
+      type: "hugo",
+      signals: [hugo ?? genericHugo!, hugoLayout ? "Hugo content layout" : "Hugo config"],
+      hasPagesYml,
+      hasPostoDir,
+    };
+  }
   return { type: "generic", signals: [], hasPagesYml, hasPostoDir };
 }

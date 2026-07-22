@@ -220,7 +220,7 @@ function App() {
         return;
       }
       const inventory = await invoke<ProjectInventory[]>("scan_projects", { root: repository });
-      const scan = await scanWorkspace(repository, inventory, ipcProjectIO);
+      const scan = await scanWorkspace(repository, inventory);
       const decision = decideWorkspace(repository, scan);
       if (decision.kind === "choose") {
         setRepoRoot(repository);
@@ -242,7 +242,7 @@ function App() {
     if (!repoRoot) return;
     try {
       const inventory = await invoke<ProjectInventory[]>("scan_projects", { root: repoRoot });
-      const scan = await scanWorkspace(repoRoot, inventory, ipcProjectIO);
+      const scan = await scanWorkspace(repoRoot, inventory);
       setWorkspaceCandidates([{ dir: repoRoot, ...scan.root }, ...scan.candidates]);
     } catch (error) {
       notify(

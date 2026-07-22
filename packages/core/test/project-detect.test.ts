@@ -55,7 +55,7 @@ test("tracks overlays on generic projects", async () => {
   expect(info).toMatchObject({ type: "generic", hasPagesYml: true, hasPostoDir: true });
 });
 
-test("posto overrides detection and unsupported adapters degrade to generic", async () => {
+test("posto can override detection to any registered project type", async () => {
   const info = await detectProject(
     "/site",
     tree({
@@ -64,8 +64,18 @@ test("posto overrides detection and unsupported adapters degrade to generic", as
     }),
   );
   expect(info).toMatchObject({
-    type: "generic",
+    type: "hugo",
     signals: ["overridden via .posto"],
-    diagnostic: "project type 'hugo' is not supported by this version; treating as generic",
+  });
+});
+
+test("unknown posto overrides degrade to generic", async () => {
+  const info = await detectProject(
+    "/site",
+    tree({ "/site/.posto/index.json": JSON.stringify({ project: "jekyll" }) }),
+  );
+  expect(info).toMatchObject({
+    type: "generic",
+    diagnostic: "project type 'jekyll' is not supported by this version; treating as generic",
   });
 });

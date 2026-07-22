@@ -205,7 +205,7 @@ export default function RepoHome({
       }
       try {
         const inventory = await invoke<ProjectInventory[]>("scan_projects", { root: repoRoot });
-        const scan = await scanWorkspace(repoRoot, inventory, ipcProjectIO);
+        const scan = await scanWorkspace(repoRoot, inventory);
         const decision = decideWorkspace(repoRoot, scan);
         const remembered = await invoke<string | null>("get_work_dir", { root: repoRoot });
         if (!remembered && decision.kind === "choose") {
@@ -251,7 +251,7 @@ export default function RepoHome({
   async function openWorkspaceChooser() {
     try {
       const inventory = await invoke<ProjectInventory[]>("scan_projects", { root: repoRoot });
-      const scan = await scanWorkspace(repoRoot, inventory, ipcProjectIO);
+      const scan = await scanWorkspace(repoRoot, inventory);
       setWorkspaceCandidates([{ dir: repoRoot, ...scan.root }, ...scan.candidates]);
       setShowSettings(false);
     } catch (workspaceError) {
