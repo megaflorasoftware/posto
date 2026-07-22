@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, MantineProvider } from "@mantine/core";
+import { Notifications, notifications } from "@mantine/notifications";
 import { invoke, onFsChanged, openDirectory } from "@posto/ipc";
 import { checkForAppUpdate } from "./updater";
 import type { ChangedFile, FileEntry, FileGroup } from "@posto/ipc";
@@ -33,6 +34,7 @@ import { PreviewPane } from "./components/PreviewPane";
 import "@mantine/core/styles.css";
 import "@mantine/tiptap/styles.css";
 import "@mantine/spotlight/styles.css";
+import "@mantine/notifications/styles.css";
 import "@posto/editor/styles.css";
 import "./App.css";
 
@@ -42,10 +44,6 @@ function App() {
   const [recentRoots, setRecentRoots] = useState<string[]>([]);
   // Editor tab choice sticks for the session; Fields is the default when available.
   const [editorTab, setEditorTab] = useState<EditorTab>("fields");
-  // Publish/pull/import status and error messages. The header no longer shows a
-  // status line, so these currently only drive callers that read the setter's
-  // side effects; kept as a single sink so those call sites stay unchanged.
-  const [, setStatus] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
   // Bumped after each successful save so the SEO preview refetches the page.
@@ -56,7 +54,16 @@ function App() {
   rootRef.current = root;
 
   const schemas = useSchemas();
-  const files = useFileGroups((message) => setStatus(message));
+  function notify(message: string, severity: "progress" | "success" | "error") {
+    notifications.show({
+      message,
+      color: severity === "error" ? "red" : severity === "success" ? "green" : "blue",
+      autoClose: severity === "error" ? false : severity === "success" ? 5000 : 3000,
+      withCloseButton: true,
+    });
+  }
+
+  const files = useFileGroups((message) => notify(message, "error"));
   const devServer = useDevServer();
   const deployment = useDeployment(root);
   const siteUrl = useSiteUrl(root);
@@ -110,7 +117,7 @@ function App() {
       if (navigatePreviewRef.current) void preview.navigateForFile(path, content);
     },
     onOpenError(message) {
-      setStatus(message);
+      notify(message, "error");
     },
   });
 
@@ -132,7 +139,8 @@ function App() {
   });
 
   const git = useGitSync(root, {
-    onStatus: setStatus,
+    onStatus: notify,
+    onPublishError: (message) => notify(message, "error"),
     beforeSync: () => currentFile.flushPendingSave(),
     afterPull(dir) {
       // The fs watcher also reacts to git's writes, but refresh explicitly so
@@ -154,7 +162,6 @@ function App() {
     void currentFile.flushPendingSave();
     setRoot(dir);
     currentFile.closeFile();
-    setStatus(null);
     preview.resetRoute();
     void schemas.loadPagesConfig(dir);
     void schemas.loadAstroConfig(dir);
@@ -205,7 +212,7 @@ function App() {
           ?.files.find((file) => file.dataEntry?.id === id);
         if (created) openFile(created);
       } catch (e) {
-        setStatus(String(e));
+        notify(String(e), "error");
       }
       return;
     }
@@ -213,7 +220,7 @@ function App() {
     try {
       await invoke("create_text_file", { path, content });
     } catch (e) {
-      setStatus(String(e));
+      notify(String(e), "error");
       return;
     }
     await refreshGroups(dir);
@@ -248,11 +255,11 @@ function App() {
     const target = from.slice(0, from.lastIndexOf("/") + 1) + filename;
     if (target === from) return true;
     if (files.groupsRef.current.some((group) => group.files.some((file) => file.path === target))) {
-      setStatus(`A file named ${filename} already exists.`);
+      notify(`A file named ${filename} already exists.`, "error");
       return false;
     }
     if (!(await currentFile.renameOpenFile(from, target))) {
-      setStatus(`Could not rename the file to ${filename}.`);
+      notify(`Could not rename the file to ${filename}.`, "error");
       return false;
     }
     void refreshGroups(dir);
@@ -332,7 +339,7 @@ function App() {
       if (file.dataEntry) await deleteDataDocumentEntry(file);
       else await invoke("delete_file", { path: file.path });
     } catch (e) {
-      setStatus(String(e));
+      notify(String(e), "error");
       return;
     }
     if (isOpen) currentFile.closeFile();
@@ -402,6 +409,7 @@ function App() {
 
   return (
     <MantineProvider defaultColorScheme="auto">
+      <Notifications position="bottom-right" />
       <div className="app">
         <AppHeader
           root={root}
@@ -428,7 +436,7 @@ function App() {
             config={config}
             groups={files.groups}
             onImported={() => {
-              setStatus("Image imported. Publish when you are ready.");
+              notify("Image imported. Publish when you are ready.", "success");
               void refreshGroups(root);
             }}
           />
@@ -457,7 +465,7 @@ function App() {
             config={config}
             groups={files.groups}
             onImported={() => void refreshGroups(root)}
-            onError={setStatus}
+            onError={(message) => notify(message, "error")}
           />
         )}
 

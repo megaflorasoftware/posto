@@ -159,7 +159,7 @@ export default function RepoHome({
     onOpenError: setError,
   });
   const git = useGitSync(root, {
-    onStatus: setStatus,
+    onStatus: (message) => setStatus(message),
     beforeSync: () => currentFile.flushPendingSave(),
     afterPull: refreshRepositoryContent,
     // Publish progress lives on the Publish button; only failures surface.
