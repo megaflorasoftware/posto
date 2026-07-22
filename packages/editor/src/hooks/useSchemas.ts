@@ -12,7 +12,7 @@ import {
   type PostoConfig,
 } from "@posto/core/posto/config";
 
-function effectiveConfig(
+export function resolveEffectiveConfig(
   pagesConfig: PagesConfig | null,
   derivedConfig: PagesConfig | null,
   postoConfig: PostoConfig | null,
@@ -203,14 +203,14 @@ export function useSchemas(adapter: ProjectAdapter = astroAdapter) {
       loadDerivedConfig(dir, selectedAdapter),
       loadPostoConfig(dir),
     ]);
-    return effectiveConfig(pages, derived, posto, selectedAdapter.defaultMedia);
+    return resolveEffectiveConfig(pages, derived, posto, selectedAdapter.defaultMedia);
   }
 
   // Effective schema config: `.pages.yml` entries first (higher resolution —
   // labels, media, widget types), Astro collection schemas after them as a
   // fallback. matchEntry's first-match-wins ordering makes the precedence.
   const config = useMemo(
-    () => effectiveConfig(pagesConfig, derivedConfig, postoConfig, adapter.defaultMedia),
+    () => resolveEffectiveConfig(pagesConfig, derivedConfig, postoConfig, adapter.defaultMedia),
     [pagesConfig, derivedConfig, postoConfig, adapter.defaultMedia],
   );
   const configRef = useRef(config);
