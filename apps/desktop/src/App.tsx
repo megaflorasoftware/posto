@@ -272,7 +272,10 @@ function App() {
     if (!path || !entry) return;
     const parsed = parseFile(currentFile.fileContentRef.current);
     const raw = parsed.doc.toJSON() as unknown;
-    if (parsed.error || !raw || typeof raw !== "object" || Array.isArray(raw)) return;
+    if (parsed.error || !raw || typeof raw !== "object" || Array.isArray(raw)) {
+      notify("Fix the file's frontmatter before refreshing its filename.", "error");
+      return;
+    }
     const currentName = path.slice(path.lastIndexOf("/") + 1);
     const next = renamedFilename(template, entry, raw as Record<string, unknown>, currentName);
     if (next) void renameOpenFilename(next);
@@ -405,7 +408,7 @@ function App() {
         ? "pages"
         : schemas.astroConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
           ? "astro"
-          : "pages";
+          : null;
 
   return (
     <MantineProvider defaultColorScheme="auto">
@@ -450,11 +453,9 @@ function App() {
           onRevert={(file) => void revertChange(file)}
           onPublish={(message) => {
             setPublishOpen(false);
-            // A publish pushes to the default branch, which usually kicks off a
-            // deploy action; check for it shortly after so the ring picks up the
-            // new run without waiting for the next poll.
-            void git.publish(message).then(() => {
-              window.setTimeout(() => deployment.refresh(), 3000);
+            const sinceRunId = deployment.latestRun?.id ?? null;
+            void git.publish(message).then((published) => {
+              if (published) deployment.expectNewRun(sinceRunId);
             });
           }}
         />

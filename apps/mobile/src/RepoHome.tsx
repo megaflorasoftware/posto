@@ -334,7 +334,10 @@ export default function RepoHome({
     if (!path || !entry) return;
     const parsed = parseFile(currentFile.fileContentRef.current);
     const raw = parsed.doc.toJSON() as unknown;
-    if (parsed.error || !raw || typeof raw !== "object" || Array.isArray(raw)) return;
+    if (parsed.error || !raw || typeof raw !== "object" || Array.isArray(raw)) {
+      setStatus("Fix the file's frontmatter before refreshing its filename.");
+      return;
+    }
     const currentName = path.slice(path.lastIndexOf("/") + 1);
     const next = renamedFilename(template, entry, raw as Record<string, unknown>, currentName);
     if (next) void renameOpenFilename(next);
@@ -484,7 +487,7 @@ export default function RepoHome({
         ? "pages"
         : schemas.astroConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
           ? "astro"
-          : "pages";
+          : null;
   const openFileName =
     currentFile.dataEntry?.id ?? currentFile.filePath?.split("/").pop() ?? "File";
   const mobileEditorTabs = editorTabsForFile({

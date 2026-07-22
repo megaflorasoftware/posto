@@ -312,13 +312,27 @@ export const LABEL_SORT = "label";
  * ascending and last descending, following the direction like any other
  * value.
  */
-export function compareSortValues(va: string, vb: string, direction: "asc" | "desc"): number {
+export type SortComparisonMode = "numeric" | "lexical";
+
+/** Chooses one comparison mode for a complete list, avoiding pairwise mode changes. */
+export function sortComparisonMode(values: string[]): SortComparisonMode {
+  return values.length > 0 && values.every((value) => value !== "" && Number.isFinite(Number(value)))
+    ? "numeric"
+    : "lexical";
+}
+
+export function compareSortValues(
+  va: string,
+  vb: string,
+  direction: "asc" | "desc",
+  mode: SortComparisonMode = sortComparisonMode([va, vb]),
+): number {
   const na = Number(va);
   const nb = Number(vb);
   const cmp =
-    va !== "" && vb !== "" && Number.isFinite(na) && Number.isFinite(nb)
+    mode === "numeric"
       ? na - nb
-      : va.localeCompare(vb, undefined, { sensitivity: "base", numeric: true });
+      : va.localeCompare(vb, undefined, { sensitivity: "base", numeric: false });
   return direction === "desc" ? -cmp : cmp;
 }
 
@@ -327,7 +341,15 @@ export function compareBySort(
   a: Record<string, string> | null | undefined,
   b: Record<string, string> | null | undefined,
   sort: PostoSort,
+  mode?: SortComparisonMode,
 ): number {
   const name = fieldName(sort.by);
-  return compareSortValues(a?.[name] ?? "", b?.[name] ?? "", sort.direction);
+  return compareSortValues(a?.[name] ?? "", b?.[name] ?? "", sort.direction, mode);
+}
+
+export function sortValue(
+  frontmatter: Record<string, string> | null | undefined,
+  sort: PostoSort,
+): string {
+  return frontmatter?.[fieldName(sort.by)] ?? "";
 }

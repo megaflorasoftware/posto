@@ -45,8 +45,8 @@ describe("useGitSync concurrency", () => {
       useGitSync("/site", { onStatus: vi.fn(), beforeSync }),
     );
 
-    let first!: Promise<void>;
-    let second!: Promise<void>;
+    let first!: Promise<boolean>;
+    let second!: Promise<boolean>;
     act(() => {
       first = result.current.publish("ship it");
       second = result.current.publish("duplicate");

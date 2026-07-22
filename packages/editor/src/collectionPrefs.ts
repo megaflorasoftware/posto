@@ -5,6 +5,8 @@ import {
   compareBySort,
   compareSortValues,
   expandEntryName,
+  sortComparisonMode,
+  sortValue,
 } from "@posto/core/posto/config";
 
 /** Applies the collection's `.posto` preferences to a set of its files:
@@ -25,10 +27,14 @@ export function applyCollectionPrefs(files: FileEntry[], collection: ContentEntr
   if (sort) {
     // Label sort runs after the entry-name expansion above, so it orders by
     // what each entry actually displays as.
+    const values = result.map((file) =>
+      sort.by === LABEL_SORT ? (file.title ?? file.name) : sortValue(file.frontmatter, sort),
+    );
+    const mode = sortComparisonMode(values);
     result = [...result].sort((a, b) =>
       sort.by === LABEL_SORT
-        ? compareSortValues(a.title ?? a.name, b.title ?? b.name, sort.direction)
-        : compareBySort(a.frontmatter, b.frontmatter, sort),
+        ? compareSortValues(a.title ?? a.name, b.title ?? b.name, sort.direction, mode)
+        : compareBySort(a.frontmatter, b.frontmatter, sort, mode),
     );
   }
   if (pinned?.length) {

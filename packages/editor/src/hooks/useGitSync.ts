@@ -149,15 +149,17 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
 
   async function publish(message: string) {
     const dir = rootRef.current;
-    if (!dir || publishingRef.current) return;
+    if (!dir || publishingRef.current) return false;
     publishingRef.current = true;
     const quiet = cb.current.onPublishError !== undefined;
+    let published = false;
     setPublishing(true);
     try {
       await cb.current.beforeSync?.();
       if (!quiet) cb.current.onStatus("Publishing…", "progress");
       try {
         const result = await invoke<string>("publish", { root: dir, message });
+        published = true;
         if (!quiet) cb.current.onStatus(result, "success");
       } catch (e) {
         if (quiet) cb.current.onPublishError?.(`Publish failed: ${errorMessage(e)}`);
@@ -171,6 +173,7 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
       publishingRef.current = false;
       setPublishing(false);
     }
+    return published;
   }
 
   return {
