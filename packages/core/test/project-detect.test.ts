@@ -35,6 +35,18 @@ test("detects reserved Hugo projects", async () => {
   expect(info.type).toBe("hugo");
 });
 
+test("detects Eleventy from its config or dependency", async () => {
+  expect(
+    await detectProject("/site", tree({ "/site/eleventy.config.mjs": "export default {}" })),
+  ).toMatchObject({ type: "eleventy", signals: ["eleventy.config.mjs"] });
+  expect(
+    await detectProject(
+      "/site",
+      tree({ "/site/package.json": '{"devDependencies":{"@11ty/eleventy":"3"}}' }),
+    ),
+  ).toMatchObject({ type: "eleventy", signals: ["@11ty/eleventy dependency"] });
+});
+
 test("tracks overlays on generic projects", async () => {
   const info = await detectProject(
     "/site",

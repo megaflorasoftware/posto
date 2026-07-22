@@ -25,11 +25,33 @@ test("Eleventy supplies a conservative markdown route", () => {
   });
 });
 
+test("Eleventy proves the seam without framework-only capabilities", async () => {
+  expect(eleventyAdapter.capabilities).toEqual({
+    mediaLibraries: false,
+    dataDocuments: false,
+    componentBlocks: null,
+    entryIds: null,
+  });
+  expect(
+    await eleventyAdapter.loadDerivedConfig("/site", {
+      async pathExists() {
+        return false;
+      },
+      async readTextFileOptional() {
+        return null;
+      },
+      async listDirFilesOptional() {
+        return null;
+      },
+    }),
+  ).toBeNull();
+});
+
 test("invalidations return only affected refresh scopes", () => {
   expect(
     invalidationScopesForPaths(astroAdapter, "/site", ["/site/src/content.config.ts"]),
   ).toEqual(new Set(["derivedConfig"]));
-  expect(
-    invalidationScopesForPaths(genericAdapter, "/site", ["/site/astro.config.mjs"]),
-  ).toEqual(new Set(["projectType"]));
+  expect(invalidationScopesForPaths(genericAdapter, "/site", ["/site/astro.config.mjs"])).toEqual(
+    new Set(["projectType"]),
+  );
 });
