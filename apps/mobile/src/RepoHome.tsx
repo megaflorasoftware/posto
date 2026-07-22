@@ -27,6 +27,7 @@ import {
   orderableCollections,
   refreshImageLibraryAssets,
   resolveEditorTab,
+  SchemaDiagnostics,
   sidebarDisplayGroups,
   useCurrentFile,
   useFileGroups,
@@ -877,6 +878,7 @@ export default function RepoHome({
                       Collection settings
                     </button>
                   )}
+                  <SchemaDiagnostics config={schemas.config} />
                 </div>
               )}
             </ScrollArea>

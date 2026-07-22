@@ -6,7 +6,7 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-const loaders = parseLoaderConfig(`
+const { loaders } = parseLoaderConfig(`
 export const imageSchema = ({ image }) => z.object({
   asset: z.object({ source: image(), alt: z.string() }),
 });

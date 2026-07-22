@@ -183,11 +183,6 @@ export function EditorPane(props: {
           {`Schema configuration issue${props.hasAstroFallback ? " (using the last available schemas)" : ""} — ${props.configError}`}
         </Alert>
       )}
-      {(props.config?.imageLibraryDiagnostics?.length ?? 0) > 0 && (
-        <Alert color="yellow" className="config-error">
-          {props.config!.imageLibraryDiagnostics!.map((diagnostic) => diagnostic.message).join(" ")}
-        </Alert>
-      )}
       {!showForm ? (
         rawEditor
       ) : (

@@ -140,7 +140,7 @@ type Props = PostData;
   );
 });
 
-const loaders = parseLoaderConfig(`
+const { loaders } = parseLoaderConfig(`
 const posts = defineCollection({
   loader: glob({ pattern: '**/*.md', base: './src/data/posts' }),
   schema: z.object({ author: reference('customIds') }),

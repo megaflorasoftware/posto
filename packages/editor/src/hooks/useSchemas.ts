@@ -1,6 +1,11 @@
 import { useMemo, useRef, useState } from "react";
 import { invoke } from "@posto/ipc";
-import { parsePagesConfig, type Field, type PagesConfig } from "@posto/core/pagescms/config";
+import {
+  parsePagesConfig,
+  type Field,
+  type PagesConfig,
+  type SchemaDiagnostic,
+} from "@posto/core/pagescms/config";
 import {
   DEFAULT_ASTRO_MEDIA,
   buildAstroConfig,
@@ -33,6 +38,7 @@ function effectiveConfig(
       astroCollections: astroConfig?.astroCollections,
       imageLibraries: astroConfig?.imageLibraries,
       imageLibraryDiagnostics: astroConfig?.imageLibraryDiagnostics,
+      schemaDiagnostics: astroConfig?.schemaDiagnostics,
     },
     postoConfig,
   );
@@ -187,20 +193,21 @@ export function useSchemas() {
       return null;
     }
     let loaders = new Map<string, LoaderInfo>();
+    let scannerDiagnostics: SchemaDiagnostic[] = [];
     for (const configPath of ["/src/content.config.ts", "/src/content/config.ts"]) {
       try {
         const source = await invoke<string | null>("read_text_file_optional", {
           path: dir + configPath,
         });
         if (source === null) continue;
-        loaders = parseLoaderConfig(source);
+        ({ loaders, diagnostics: scannerDiagnostics } = parseLoaderConfig(source));
         break;
       } catch (e) {
         setSourceError("astro", e instanceof Error ? e.message : String(e));
         return astroConfigRef.current;
       }
     }
-    const parsed = buildAstroConfig(collections, loaders);
+    const parsed = buildAstroConfig(collections, loaders, scannerDiagnostics);
     commitAstroConfig(parsed);
     return parsed;
   }

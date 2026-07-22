@@ -55,6 +55,13 @@ export interface AstroImageLibraryDiagnostic {
   message: string;
 }
 
+export interface SchemaDiagnostic {
+  /** Collection name, or null for a project-wide scanner notice. */
+  collection: string | null;
+  code: "custom-loader" | "missing-collections-export" | "missing-collection-config";
+  message: string;
+}
+
 export interface MediaEntry {
   name: string;
   label?: string;
@@ -115,6 +122,7 @@ export interface PagesConfig {
   astroCollections?: AstroCollectionSchema[];
   imageLibraries?: AstroImageLibrary[];
   imageLibraryDiagnostics?: AstroImageLibraryDiagnostic[];
+  schemaDiagnostics?: SchemaDiagnostic[];
 }
 
 // Field types the form knows how to render; anything else falls back to a

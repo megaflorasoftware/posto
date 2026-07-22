@@ -7,6 +7,7 @@ import type {
   ImageLibraryMetadataExtension,
   MediaEntry,
   PagesConfig,
+  SchemaDiagnostic,
 } from "../pagescms/config";
 import { schemaImageFields, type SchemaImageField } from "./schemaAnalysis";
 
@@ -307,8 +308,12 @@ function topLevelObjectProp(block: string, key: string): string | undefined {
  * schema file uses). Anything unparseable simply isn't in the map — callers
  * fall back to the `src/content/<name>` convention.
  */
-export function parseLoaderConfig(source: string): Map<string, LoaderInfo> {
+export function parseLoaderConfig(source: string): {
+  loaders: Map<string, LoaderInfo>;
+  diagnostics: SchemaDiagnostic[];
+} {
   const byVariable = new Map<string, LoaderInfo>();
+  const diagnosticsByVariable = new Map<string, SchemaDiagnostic>();
   const defRegex = /(?:const|let|var)\s+(\w+)\s*=\s*defineCollection\s*\(/g;
   for (let match = defRegex.exec(source); match; match = defRegex.exec(source)) {
     const body = balancedSlice(source, defRegex.lastIndex - 1);
@@ -341,6 +346,11 @@ export function parseLoaderConfig(source: string): Map<string, LoaderInfo> {
       };
     } else if (loaderSource !== undefined) {
       info = { kind: "custom" };
+      diagnosticsByVariable.set(match[1], {
+        collection: match[1],
+        code: "custom-loader",
+        message: `Collection ${match[1]} uses a loader Posto cannot classify, so it is not shown in the sidebar.`,
+      });
     }
     // Schema fields declared as `reference("x")`, possibly wrapped in
     // `z.array(...)`. Keyed by field name across all nesting levels — the
@@ -361,7 +371,21 @@ export function parseLoaderConfig(source: string): Map<string, LoaderInfo> {
 
   const result = new Map<string, LoaderInfo>();
   const exports = source.match(/export\s+const\s+collections\s*=\s*\{([\s\S]*?)\}/);
-  if (!exports) return byVariable; // no export map found; variable names are the best guess
+  if (!exports) {
+    return {
+      loaders: byVariable,
+      diagnostics: [
+        ...diagnosticsByVariable.values(),
+        {
+          collection: null,
+          code: "missing-collections-export",
+          message:
+            "Posto could not find the exported collections map and is matching schemas by variable name.",
+        },
+      ],
+    };
+  }
+  const diagnostics: SchemaDiagnostic[] = [];
   // Entries are either shorthand (`blog`) or `"my-posts": blogVar`.
   const entryRegex = /(?:(["'])([^"']+)\1|(\w+))\s*(?::\s*(\w+))?\s*(?=,|$|\n|\})/g;
   for (let match = entryRegex.exec(exports[1]); match; match = entryRegex.exec(exports[1])) {
@@ -369,9 +393,19 @@ export function parseLoaderConfig(source: string): Map<string, LoaderInfo> {
     const variable = match[4] ?? match[3];
     if (!exported || !variable) continue;
     const info = byVariable.get(variable);
-    if (info) result.set(exported, info);
+    if (info) {
+      result.set(exported, info);
+      const diagnostic = diagnosticsByVariable.get(variable);
+      if (diagnostic) {
+        diagnostics.push({
+          ...diagnostic,
+          collection: exported,
+          message: `Collection ${exported} uses a loader Posto cannot classify, so it is not shown in the sidebar.`,
+        });
+      }
+    }
   }
-  return result;
+  return { loaders: result, diagnostics };
 }
 
 /** Media source used when no `.pages.yml` provides one: Astro's `public` dir. */
@@ -537,9 +571,11 @@ function discoverImageLibraries(
 export function buildAstroConfig(
   collections: { name: string; fields: Field[] }[],
   loaders: Map<string, LoaderInfo>,
+  scannerDiagnostics: SchemaDiagnostic[] = [],
 ): PagesConfig {
   const content: ContentEntry[] = [];
   const discovered = discoverImageLibraries(collections, loaders);
+  const schemaDiagnostics = [...scannerDiagnostics];
   const astroCollections = collections.map(({ name, fields }) => {
     const loader = loaders.get(name);
     return {
@@ -549,6 +585,13 @@ export function buildAstroConfig(
   });
   for (const { name, fields } of collections) {
     const loader = loaders.get(name);
+    if (!loader) {
+      schemaDiagnostics.push({
+        collection: name,
+        code: "missing-collection-config",
+        message: `Collection ${name} has a generated schema but no matching content config entry; Posto is assuming src/content/${name}.`,
+      });
+    }
     if (loader?.kind === "file") {
       const filePath = loader.filePath?.replace(/^\.\//, "").replace(/^\/+/, "");
       const format = filePath?.match(/\.(json|ya?ml|toml)$/i)?.[1].toLowerCase();
@@ -600,5 +643,6 @@ export function buildAstroConfig(
     astroCollections,
     imageLibraries: discovered.libraries,
     imageLibraryDiagnostics: discovered.diagnostics,
+    schemaDiagnostics,
   };
 }
