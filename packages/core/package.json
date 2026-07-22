@@ -8,6 +8,7 @@
     "./github/*": "./src/github/*.ts",
     "./mdx/*": "./src/mdx/*.ts",
     "./pagescms/*": "./src/pagescms/*.ts",
+    "./project/*": "./src/project/*.ts",
     "./posto/*": "./src/posto/*.ts"
   },
   "scripts": {

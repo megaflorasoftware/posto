@@ -50,6 +50,8 @@ export interface PostoCollectionSettings {
 }
 
 export interface PostoConfig {
+  /** Explicit project adapter selection from `.posto/index.json`. */
+  project?: string;
   /** Sidebar order of collections by name; unlisted ones follow. */
   collectionOrder?: string[];
   /** Per-collection settings keyed by collection name. */
@@ -75,7 +77,7 @@ function stringArray(value: unknown): string[] | undefined {
 }
 
 /** Parses `.posto/index.json`; malformed input yields no settings. */
-export function parsePostoIndex(source: string): Pick<PostoConfig, "collectionOrder"> {
+export function parsePostoIndex(source: string): Pick<PostoConfig, "collectionOrder" | "project"> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(source);
@@ -85,7 +87,11 @@ export function parsePostoIndex(source: string): Pick<PostoConfig, "collectionOr
   const doc = asObject(parsed);
   const collections = doc && asObject(doc.collections);
   const order = collections && stringArray(collections.order);
-  return order ? { collectionOrder: order } : {};
+  const project = doc && optionalString(doc.project);
+  return {
+    ...(order ? { collectionOrder: order } : {}),
+    ...(project ? { project } : {}),
+  };
 }
 
 function parseSort(value: unknown): PostoSort | undefined {
