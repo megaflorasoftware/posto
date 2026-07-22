@@ -1,6 +1,11 @@
 import { useMemo, useRef, useState } from "react";
 import { invoke } from "@posto/ipc";
-import { parsePagesConfig, type Field, type PagesConfig } from "@posto/core/pagescms/config";
+import {
+  parsePagesConfig,
+  type Field,
+  type PagesConfig,
+  type SchemaDiagnostic,
+} from "@posto/core/pagescms/config";
 import {
   DEFAULT_ASTRO_MEDIA,
   buildAstroConfig,
@@ -33,6 +38,7 @@ function effectiveConfig(
       astroCollections: astroConfig?.astroCollections,
       imageLibraries: astroConfig?.imageLibraries,
       imageLibraryDiagnostics: astroConfig?.imageLibraryDiagnostics,
+      schemaDiagnostics: astroConfig?.schemaDiagnostics,
     },
     postoConfig,
   );
@@ -42,69 +48,115 @@ function effectiveConfig(
  * schemas as a fallback, merged into one effective config. */
 export function useSchemas() {
   const [pagesConfig, setPagesConfig] = useState<PagesConfig | null>(null);
+  const pagesConfigRef = useRef<PagesConfig | null>(null);
   // Fallback schemas derived from Astro content collections; `.pages.yml`
   // entries take precedence when both describe a folder.
   const [astroConfig, setAstroConfig] = useState<PagesConfig | null>(null);
+  const astroConfigRef = useRef<PagesConfig | null>(null);
   // `.posto/` user preferences, overlaid on the effective config below.
   const [postoConfig, setPostoConfig] = useState<PostoConfig | null>(null);
-  const [configError, setConfigError] = useState<string | null>(null);
+  const postoConfigRef = useRef<PostoConfig | null>(null);
+  const [configErrors, setConfigErrors] = useState<
+    Partial<Record<"pages" | "astro" | "posto", string>>
+  >({});
+
+  function setSourceError(source: "pages" | "astro" | "posto", message: string | null) {
+    setConfigErrors((current) => {
+      const next = { ...current };
+      if (message) next[source] = message;
+      else delete next[source];
+      return next;
+    });
+  }
+
+  function commitPagesConfig(config: PagesConfig | null) {
+    pagesConfigRef.current = config;
+    setPagesConfig(config);
+  }
+
+  function commitAstroConfig(config: PagesConfig | null) {
+    astroConfigRef.current = config;
+    setAstroConfig(config);
+  }
+
+  function commitPostoConfig(config: PostoConfig | null) {
+    postoConfigRef.current = config;
+    setPostoConfig(config);
+  }
 
   async function loadPagesConfig(dir: string): Promise<PagesConfig | null> {
-    setPagesConfig(null);
-    setConfigError(null);
-    let source: string;
+    setSourceError("pages", null);
+    let source: string | null;
     try {
-      source = await invoke<string>("read_text_file", { path: dir + "/.pages.yml" });
-    } catch {
+      source = await invoke<string | null>("read_text_file_optional", {
+        path: dir + "/.pages.yml",
+      });
+    } catch (e) {
+      setSourceError("pages", e instanceof Error ? e.message : String(e));
+      return pagesConfigRef.current;
+    }
+    if (source === null) {
+      commitPagesConfig(null);
       return null; // no config file — form editing simply isn't offered
     }
     try {
       const parsed = parsePagesConfig(source);
-      setPagesConfig(parsed);
+      commitPagesConfig(parsed);
       return parsed;
     } catch (e) {
-      setConfigError(e instanceof Error ? e.message : String(e));
-      return null;
+      setSourceError("pages", e instanceof Error ? e.message : String(e));
+      return pagesConfigRef.current;
     }
   }
 
   // `.posto/` holds user preferences layered over the derived config:
   // `index.json` for workspace settings and `collections/<name>.json` per
-  // collection. Every read is tolerant — a missing directory or malformed
-  // file degrades to defaults, never to an error.
+  // collection. Missing paths and malformed JSON degrade to defaults;
+  // unreadable paths surface an I/O error while preserving the last good
+  // preferences.
   async function loadPostoConfig(dir: string): Promise<PostoConfig | null> {
-    setPostoConfig(null);
+    setSourceError("posto", null);
     const config: PostoConfig = { collections: {} };
+    let indexSource: string | null;
     try {
-      const index = await invoke<string>("read_text_file", { path: `${dir}/${POSTO_INDEX_PATH}` });
-      config.collectionOrder = parsePostoIndex(index).collectionOrder;
-    } catch {
-      // No index file; per-collection settings may still exist.
+      indexSource = await invoke<string | null>("read_text_file_optional", {
+        path: `${dir}/${POSTO_INDEX_PATH}`,
+      });
+    } catch (e) {
+      setSourceError("posto", e instanceof Error ? e.message : String(e));
+      return postoConfigRef.current;
     }
-    let listed: { name: string; path: string }[] = [];
+    if (indexSource !== null) {
+      config.collectionOrder = parsePostoIndex(indexSource).collectionOrder;
+    }
+    let listed: { name: string; path: string }[] | null;
     try {
-      listed = await invoke<{ name: string; path: string }[]>("list_dir_files", {
+      listed = await invoke<{ name: string; path: string }[] | null>("list_dir_files_optional", {
         dir: `${dir}/${POSTO_COLLECTIONS_DIR}`,
         extensions: ["json"],
       });
-    } catch {
-      // No collections directory.
+    } catch (e) {
+      setSourceError("posto", e instanceof Error ? e.message : String(e));
+      return postoConfigRef.current;
     }
-    for (const file of listed) {
+    for (const file of listed ?? []) {
       if (!file.name.endsWith(".json")) continue;
+      let source: string | null;
       try {
-        const settings = parsePostoCollection(
-          await invoke<string>("read_text_file", { path: file.path }),
-        );
-        if (settings) config.collections[file.name.slice(0, -".json".length)] = settings;
-      } catch {
-        // One unreadable file shouldn't take down the rest.
+        source = await invoke<string | null>("read_text_file_optional", { path: file.path });
+      } catch (e) {
+        setSourceError("posto", e instanceof Error ? e.message : String(e));
+        return postoConfigRef.current;
       }
+      if (source === null) continue;
+      const settings = parsePostoCollection(source);
+      if (settings) config.collections[file.name.slice(0, -".json".length)] = settings;
     }
     if (config.collectionOrder || Object.keys(config.collections).length > 0) {
-      setPostoConfig(config);
+      commitPostoConfig(config);
       return config;
     }
+    commitPostoConfig(null);
     return null;
   }
 
@@ -112,14 +164,19 @@ export function useSchemas() {
   // `.astro/collections/` (kept fresh by the dev server posto runs). Those
   // become fallback form schemas for folders `.pages.yml` doesn't cover.
   async function loadAstroConfig(dir: string): Promise<PagesConfig | null> {
-    setAstroConfig(null);
-    let listed: { name: string; path: string }[];
+    setSourceError("astro", null);
+    let listed: { name: string; path: string }[] | null;
     try {
-      listed = await invoke<{ name: string; path: string }[]>("list_dir_files", {
+      listed = await invoke<{ name: string; path: string }[] | null>("list_dir_files_optional", {
         dir: dir + "/.astro/collections",
         extensions: ["json"],
       });
-    } catch {
+    } catch (e) {
+      setSourceError("astro", e instanceof Error ? e.message : String(e));
+      return astroConfigRef.current;
+    }
+    if (listed === null) {
+      commitAstroConfig(null);
       return null; // not an Astro project, or `astro sync` hasn't run yet
     }
     const collections: { name: string; fields: Field[] }[] = [];
@@ -127,29 +184,36 @@ export function useSchemas() {
       if (!file.name.endsWith(".schema.json")) continue;
       const name = file.name.slice(0, -".schema.json".length);
       try {
-        const fields = parseCollectionSchema(
-          name,
-          await invoke<string>("read_text_file", { path: file.path }),
-        );
+        const source = await invoke<string | null>("read_text_file_optional", { path: file.path });
+        if (source === null) continue;
+        const fields = parseCollectionSchema(name, source);
         if (fields && fields.length > 0) collections.push({ name, fields });
-      } catch {
-        // One unreadable schema shouldn't take down the rest.
+      } catch (e) {
+        setSourceError("astro", e instanceof Error ? e.message : String(e));
+        return astroConfigRef.current;
       }
     }
-    if (collections.length === 0) return null;
+    if (collections.length === 0) {
+      commitAstroConfig(null);
+      return null;
+    }
     let loaders = new Map<string, LoaderInfo>();
+    let scannerDiagnostics: SchemaDiagnostic[] = [];
     for (const configPath of ["/src/content.config.ts", "/src/content/config.ts"]) {
       try {
-        loaders = parseLoaderConfig(
-          await invoke<string>("read_text_file", { path: dir + configPath }),
-        );
+        const source = await invoke<string | null>("read_text_file_optional", {
+          path: dir + configPath,
+        });
+        if (source === null) continue;
+        ({ loaders, diagnostics: scannerDiagnostics } = parseLoaderConfig(source));
         break;
-      } catch {
-        // Missing config file — the src/content/<name> convention applies.
+      } catch (e) {
+        setSourceError("astro", e instanceof Error ? e.message : String(e));
+        return astroConfigRef.current;
       }
     }
-    const parsed = buildAstroConfig(collections, loaders);
-    setAstroConfig(parsed);
+    const parsed = buildAstroConfig(collections, loaders, scannerDiagnostics);
+    commitAstroConfig(parsed);
     return parsed;
   }
 
@@ -175,6 +239,7 @@ export function useSchemas() {
   );
   const configRef = useRef(config);
   configRef.current = config;
+  const configError = Object.values(configErrors).join(" ") || null;
 
   return {
     config,

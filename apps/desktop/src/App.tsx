@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, MantineProvider } from "@mantine/core";
+import { Notifications, notifications } from "@mantine/notifications";
 import { invoke, onFsChanged, openDirectory } from "@posto/ipc";
 import { checkForAppUpdate } from "./updater";
 import type { ChangedFile, FileEntry, FileGroup } from "@posto/ipc";
@@ -33,6 +34,7 @@ import { PreviewPane } from "./components/PreviewPane";
 import "@mantine/core/styles.css";
 import "@mantine/tiptap/styles.css";
 import "@mantine/spotlight/styles.css";
+import "@mantine/notifications/styles.css";
 import "@posto/editor/styles.css";
 import "./App.css";
 
@@ -42,10 +44,6 @@ function App() {
   const [recentRoots, setRecentRoots] = useState<string[]>([]);
   // Editor tab choice sticks for the session; Fields is the default when available.
   const [editorTab, setEditorTab] = useState<EditorTab>("fields");
-  // Publish/pull/import status and error messages. The header no longer shows a
-  // status line, so these currently only drive callers that read the setter's
-  // side effects; kept as a single sink so those call sites stay unchanged.
-  const [, setStatus] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
   // Bumped after each successful save so the SEO preview refetches the page.
@@ -56,7 +54,17 @@ function App() {
   rootRef.current = root;
 
   const schemas = useSchemas();
-  const files = useFileGroups((message) => setStatus(message));
+  const notify = useCallback((message: string, severity: "progress" | "success" | "error") => {
+    notifications.show({
+      message,
+      color: severity === "error" ? "red" : severity === "success" ? "green" : "blue",
+      autoClose: severity === "error" ? false : severity === "success" ? 5000 : 3000,
+      withCloseButton: true,
+    });
+  }, []);
+  const notifyError = useCallback((message: string) => notify(message, "error"), [notify]);
+
+  const files = useFileGroups(notifyError);
   const devServer = useDevServer();
   const deployment = useDeployment(root);
   const siteUrl = useSiteUrl(root);
@@ -110,7 +118,7 @@ function App() {
       if (navigatePreviewRef.current) void preview.navigateForFile(path, content);
     },
     onOpenError(message) {
-      setStatus(message);
+      notify(message, "error");
     },
   });
 
@@ -132,7 +140,8 @@ function App() {
   });
 
   const git = useGitSync(root, {
-    onStatus: setStatus,
+    onStatus: notify,
+    onPublishError: notifyError,
     beforeSync: () => currentFile.flushPendingSave(),
     afterPull(dir) {
       // The fs watcher also reacts to git's writes, but refresh explicitly so
@@ -154,7 +163,6 @@ function App() {
     void currentFile.flushPendingSave();
     setRoot(dir);
     currentFile.closeFile();
-    setStatus(null);
     preview.resetRoute();
     void schemas.loadPagesConfig(dir);
     void schemas.loadAstroConfig(dir);
@@ -205,7 +213,7 @@ function App() {
           ?.files.find((file) => file.dataEntry?.id === id);
         if (created) openFile(created);
       } catch (e) {
-        setStatus(String(e));
+        notify(String(e), "error");
       }
       return;
     }
@@ -213,7 +221,7 @@ function App() {
     try {
       await invoke("create_text_file", { path, content });
     } catch (e) {
-      setStatus(String(e));
+      notify(String(e), "error");
       return;
     }
     await refreshGroups(dir);
@@ -248,11 +256,11 @@ function App() {
     const target = from.slice(0, from.lastIndexOf("/") + 1) + filename;
     if (target === from) return true;
     if (files.groupsRef.current.some((group) => group.files.some((file) => file.path === target))) {
-      setStatus(`A file named ${filename} already exists.`);
+      notify(`A file named ${filename} already exists.`, "error");
       return false;
     }
     if (!(await currentFile.renameOpenFile(from, target))) {
-      setStatus(`Could not rename the file to ${filename}.`);
+      notify(`Could not rename the file to ${filename}.`, "error");
       return false;
     }
     void refreshGroups(dir);
@@ -265,7 +273,10 @@ function App() {
     if (!path || !entry) return;
     const parsed = parseFile(currentFile.fileContentRef.current);
     const raw = parsed.doc.toJSON() as unknown;
-    if (parsed.error || !raw || typeof raw !== "object" || Array.isArray(raw)) return;
+    if (parsed.error || !raw || typeof raw !== "object" || Array.isArray(raw)) {
+      notify("Fix the file's frontmatter before refreshing its filename.", "error");
+      return;
+    }
     const currentName = path.slice(path.lastIndexOf("/") + 1);
     const next = renamedFilename(template, entry, raw as Record<string, unknown>, currentName);
     if (next) void renameOpenFilename(next);
@@ -332,7 +343,7 @@ function App() {
       if (file.dataEntry) await deleteDataDocumentEntry(file);
       else await invoke("delete_file", { path: file.path });
     } catch (e) {
-      setStatus(String(e));
+      notify(String(e), "error");
       return;
     }
     if (isOpen) currentFile.closeFile();
@@ -398,10 +409,11 @@ function App() {
         ? "pages"
         : schemas.astroConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
           ? "astro"
-          : "pages";
+          : null;
 
   return (
     <MantineProvider defaultColorScheme="auto">
+      <Notifications position="bottom-right" />
       <div className="app">
         <AppHeader
           root={root}
@@ -428,7 +440,7 @@ function App() {
             config={config}
             groups={files.groups}
             onImported={() => {
-              setStatus("Image imported. Publish when you are ready.");
+              notify("Image imported. Publish when you are ready.", "success");
               void refreshGroups(root);
             }}
           />
@@ -442,11 +454,9 @@ function App() {
           onRevert={(file) => void revertChange(file)}
           onPublish={(message) => {
             setPublishOpen(false);
-            // A publish pushes to the default branch, which usually kicks off a
-            // deploy action; check for it shortly after so the ring picks up the
-            // new run without waiting for the next poll.
-            void git.publish(message).then(() => {
-              window.setTimeout(() => deployment.refresh(), 3000);
+            const sinceRunId = deployment.latestRun?.id ?? null;
+            void git.publish(message).then((published) => {
+              if (published) deployment.expectNewRun(sinceRunId);
             });
           }}
         />
@@ -457,7 +467,7 @@ function App() {
             config={config}
             groups={files.groups}
             onImported={() => void refreshGroups(root)}
-            onError={setStatus}
+            onError={notifyError}
           />
         )}
 

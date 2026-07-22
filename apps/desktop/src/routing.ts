@@ -1,14 +1,4 @@
-function frontmatterSlug(content: string): string | null {
-  const fm = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (!fm) return null;
-  const line = fm[1].split(/\r?\n/).find((l) => l.startsWith("slug:"));
-  if (!line) return null;
-  const value = line
-    .slice("slug:".length)
-    .trim()
-    .replace(/^["']|["']$/g, "");
-  return value || null;
-}
+import { scalarFrontmatter } from "@posto/core/pagescms/frontmatterScalars";
 
 export interface FileRoute {
   route: string;
@@ -52,5 +42,5 @@ export function routeForFile(path: string, content: string): FileRoute | null {
   if (["pages", "components", "layouts", "assets", "styles", "content"].includes(name)) {
     return null;
   }
-  return { route: `/${name}/${frontmatterSlug(content) ?? file}`, certain: false };
+  return { route: `/${name}/${scalarFrontmatter(content)?.slug ?? file}`, certain: false };
 }

@@ -826,6 +826,10 @@
 .sidebar-footer-action:hover {
   color: inherit;
 }
+
+.schema-diagnostics-action {
+  color: var(--mantine-color-yellow-7);
+}
 .image-library-import-dropzone {
   cursor: default;
 }

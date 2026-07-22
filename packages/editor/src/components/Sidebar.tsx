@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { ChevronDown, Plus, SlidersHorizontal } from "lucide-react";
+import { Popover, Stack, Text } from "@mantine/core";
+import { ChevronDown, Plus, SlidersHorizontal, TriangleAlert } from "lucide-react";
 import type { FileEntry, FileGroup } from "@posto/ipc";
 import {
   matchCollectionForDir,
@@ -98,6 +99,37 @@ export function orderableCollections(config: PagesConfig | null): ContentEntry[]
         (a.order ?? Infinity) - (b.order ?? Infinity) ||
         (a.label ?? a.name).localeCompare(b.label ?? b.name, undefined, { sensitivity: "base" }),
     );
+}
+
+export function SchemaDiagnostics({ config }: { config: PagesConfig | null }) {
+  const diagnostics = [
+    ...(config?.schemaDiagnostics ?? []),
+    ...(config?.imageLibraryDiagnostics ?? []),
+  ];
+  if (diagnostics.length === 0) return null;
+  const label = `${diagnostics.length} schema ${diagnostics.length === 1 ? "notice" : "notices"}`;
+  return (
+    <Popover position="right-end" width={340} shadow="md" withArrow>
+      <Popover.Target>
+        <button type="button" className="sidebar-footer-action schema-diagnostics-action">
+          <TriangleAlert size={14} />
+          {label}
+        </button>
+      </Popover.Target>
+      <Popover.Dropdown aria-label={label}>
+        <Stack gap="sm">
+          {diagnostics.map((diagnostic, index) => (
+            <div key={`${diagnostic.collection}:${diagnostic.code}:${index}`}>
+              <Text size="xs" fw={700} c="yellow.7">
+                {diagnostic.collection ?? "Project"}
+              </Text>
+              <Text size="sm">{diagnostic.message}</Text>
+            </div>
+          ))}
+        </Stack>
+      </Popover.Dropdown>
+    </Popover>
+  );
 }
 
 export function Sidebar(props: {
@@ -213,6 +245,7 @@ export function Sidebar(props: {
           Collection settings
         </button>
       )}
+      <SchemaDiagnostics config={config} />
     </aside>
   );
 }

@@ -31,13 +31,65 @@ pub struct FileEntry {
 const FRONTMATTER_TITLE_EXTENSIONS: &[&str] = &["md", "mdx", "markdown"];
 
 fn frontmatter_scalar(value: &str) -> Option<String> {
-    let trimmed = value
-        .trim()
-        .trim_matches('"')
-        .trim_matches('\'')
-        .trim()
-        .to_string();
-    (!trimmed.is_empty()).then_some(trimmed)
+    let trimmed = value.trim();
+    if trimmed.is_empty()
+        || matches!(trimmed, "~" | "null" | "Null" | "NULL" | "|" | ">")
+        || trimmed.starts_with('{')
+        || trimmed.starts_with('[')
+    {
+        return None;
+    }
+
+    if (trimmed.starts_with('"') && trimmed.ends_with('"'))
+        || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
+    {
+        let unquoted = trimmed[1..trimmed.len() - 1].trim().to_string();
+        return (!unquoted.is_empty()).then_some(unquoted);
+    }
+
+    // YAML comments begin at a # preceded by whitespace. Quoted values were
+    // handled above, so a lightweight scan is sufficient for this scalar set.
+    let plain = trimmed
+        .find(" #")
+        .map(|index| &trimmed[..index])
+        .unwrap_or(trimmed)
+        .trim();
+    if plain.is_empty() {
+        return None;
+    }
+    if plain.eq_ignore_ascii_case("true") {
+        return Some("true".to_string());
+    }
+    if plain.eq_ignore_ascii_case("false") {
+        return Some("false".to_string());
+    }
+    if let Some(hexadecimal) = plain.strip_prefix("0x") {
+        if let Ok(number) = i64::from_str_radix(hexadecimal, 16) {
+            return Some(number.to_string());
+        }
+    }
+    if let Some(octal) = plain.strip_prefix("0o") {
+        if let Ok(number) = i64::from_str_radix(octal, 8) {
+            return Some(number.to_string());
+        }
+    }
+
+    let unsigned = plain.trim_start_matches(['+', '-']);
+    let leading_zero_integer = unsigned.len() > 1
+        && unsigned.starts_with('0')
+        && unsigned.chars().all(|character| character.is_ascii_digit());
+    if !leading_zero_integer {
+        if let Ok(integer) = plain.parse::<i64>() {
+            return Some(integer.to_string());
+        }
+        if let Ok(decimal) = plain.parse::<f64>() {
+            if decimal.is_finite() {
+                return Some(decimal.to_string());
+            }
+        }
+    }
+
+    Some(plain.to_string())
 }
 
 /// Extracts top-level `key: value` scalar pairs from a markdown file's
@@ -226,6 +278,22 @@ pub fn list_dir_files(dir: String, extensions: Vec<String>) -> Result<Vec<FileEn
     Ok(files)
 }
 
+/// Lists files when a directory exists. Absence is an expected `None`, while
+/// permission and other I/O failures remain errors the frontend can surface.
+#[tauri::command]
+pub fn list_dir_files_optional(
+    dir: String,
+    extensions: Vec<String>,
+) -> Result<Option<Vec<FileEntry>>, String> {
+    let path = Path::new(&dir);
+    match std::fs::metadata(path) {
+        Ok(metadata) if metadata.is_dir() => list_dir_files(dir, extensions).map(Some),
+        Ok(_) => Err(format!("Not a directory: {dir}")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("Failed to inspect {dir}: {error}")),
+    }
+}
+
 fn cached_image_thumbnail(
     cache_root: &Path,
     source: &Path,
@@ -376,6 +444,17 @@ pub fn list_directories(dir: String) -> Result<Vec<String>, String> {
 #[tauri::command]
 pub fn read_text_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| format!("Failed to read {path}: {e}"))
+}
+
+/// Reads a UTF-8 text file when present. Absence is expected; all other I/O
+/// failures reject so callers never confuse an unreadable config with none.
+#[tauri::command]
+pub fn read_text_file_optional(path: String) -> Result<Option<String>, String> {
+    match std::fs::read_to_string(&path) {
+        Ok(content) => Ok(Some(content)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("Failed to read {path}: {error}")),
+    }
 }
 
 #[tauri::command]
@@ -707,6 +786,58 @@ pub fn write_temp_image(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn optional_reads_only_suppress_not_found() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("config.yml");
+        std::fs::write(&file, "title: hello").unwrap();
+
+        assert_eq!(
+            read_text_file_optional(file.to_string_lossy().to_string()).unwrap(),
+            Some("title: hello".to_string())
+        );
+        assert_eq!(
+            read_text_file_optional(
+                temp.path()
+                    .join("missing.yml")
+                    .to_string_lossy()
+                    .to_string()
+            )
+            .unwrap(),
+            None
+        );
+        assert!(read_text_file_optional(temp.path().to_string_lossy().to_string()).is_err());
+    }
+
+    #[test]
+    fn frontmatter_scalar_scan_matches_typescript_fixture() {
+        let temp = tempfile::tempdir().unwrap();
+        let fixture = temp.path().join("frontmatter-scalars.md");
+        std::fs::write(
+            &fixture,
+            include_str!("../../packages/core/test/fixtures/frontmatter-scalars.md"),
+        )
+        .unwrap();
+
+        let actual = frontmatter_scalars(&fixture, "md").unwrap();
+        let expected = std::collections::BTreeMap::from([
+            ("decimal".to_string(), "1.5".to_string()),
+            ("disabled".to_string(), "false".to_string()),
+            ("enabled".to_string(), "true".to_string()),
+            ("hexadecimal".to_string(), "31".to_string()),
+            ("hexadecimal_uppercase".to_string(), "0X1F".to_string()),
+            ("integer".to_string(), "12".to_string()),
+            ("leading_zero".to_string(), "01".to_string()),
+            ("legacy_boolean".to_string(), "yes".to_string()),
+            ("octal".to_string(), "15".to_string()),
+            ("octal_uppercase".to_string(), "0O17".to_string()),
+            ("plain_with_comment".to_string(), "visible".to_string()),
+            ("slug".to_string(), "hello:world".to_string()),
+            ("title".to_string(), "A: colon".to_string()),
+        ]);
+        assert_eq!(actual, expected);
+    }
 
     #[test]
     fn image_thumbnails_are_bounded_cached_and_revisioned() {

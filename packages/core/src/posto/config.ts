@@ -305,20 +305,38 @@ export function expandEntryName(
  * `fields.<name>`, so the two can't collide. */
 export const LABEL_SORT = "label";
 
+export type SortComparisonMode = "numeric" | "lexical";
+
+/** Chooses one comparison mode for a complete list, avoiding pairwise mode changes. */
+export function sortComparisonMode(values: string[]): SortComparisonMode {
+  const populated = values.filter((value) => value !== "");
+  return populated.length > 0 && populated.every((value) => Number.isFinite(Number(value)))
+    ? "numeric"
+    : "lexical";
+}
+
 /**
- * Ordered comparison of two sort values: numbers compare numerically,
- * everything else lexically (which covers ISO dates). Missing or empty
- * values sort as the empty string — the smallest value, so they land first
- * ascending and last descending, following the direction like any other
- * value.
+ * Ordered comparison of two sort values using the mode selected for the full
+ * list. Lexical mode keeps natural collation for embedded numbers. Missing or
+ * empty values are always smallest, so direction alone determines which end
+ * they occupy.
  */
-export function compareSortValues(va: string, vb: string, direction: "asc" | "desc"): number {
-  const na = Number(va);
-  const nb = Number(vb);
+export function compareSortValues(
+  va: string,
+  vb: string,
+  direction: "asc" | "desc",
+  mode: SortComparisonMode = sortComparisonMode([va, vb]),
+): number {
   const cmp =
-    va !== "" && vb !== "" && Number.isFinite(na) && Number.isFinite(nb)
-      ? na - nb
-      : va.localeCompare(vb, undefined, { sensitivity: "base", numeric: true });
+    va === vb
+      ? 0
+      : va === ""
+        ? -1
+        : vb === ""
+          ? 1
+          : mode === "numeric"
+            ? Number(va) - Number(vb)
+            : va.localeCompare(vb, undefined, { sensitivity: "base", numeric: true });
   return direction === "desc" ? -cmp : cmp;
 }
 
@@ -327,7 +345,15 @@ export function compareBySort(
   a: Record<string, string> | null | undefined,
   b: Record<string, string> | null | undefined,
   sort: PostoSort,
+  mode?: SortComparisonMode,
 ): number {
   const name = fieldName(sort.by);
-  return compareSortValues(a?.[name] ?? "", b?.[name] ?? "", sort.direction);
+  return compareSortValues(a?.[name] ?? "", b?.[name] ?? "", sort.direction, mode);
+}
+
+export function sortValue(
+  frontmatter: Record<string, string> | null | undefined,
+  sort: PostoSort,
+): string {
+  return frontmatter?.[fieldName(sort.by)] ?? "";
 }

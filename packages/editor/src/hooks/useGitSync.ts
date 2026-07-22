@@ -10,7 +10,7 @@ function errorMessage(error: unknown): string {
 
 type Callbacks = {
   /** Status-bar message updates ("Publishing…", results, errors). */
-  onStatus: (message: string | null) => void;
+  onStatus: (message: string, severity: "progress" | "success" | "error") => void;
   /** Flushes pending edits to disk so git sees them. */
   beforeSync?: () => void | Promise<void>;
   /** Runs after a pull rewrote the working tree. */
@@ -29,6 +29,7 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
   const [behindUpstream, setBehindUpstream] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const publishingRef = useRef(false);
   // Whether git reports uncommitted local changes; the header's Publish
   // button is disabled while false. Kept fresh by refreshLocalChanges (run
   // on saves via the fs watcher, deletes, reverts, pulls, …) and publish.
@@ -96,12 +97,12 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
     // Local edits must be on disk so the pull can stash-carry them.
     await cb.current.beforeSync?.();
     setPulling(true);
-    cb.current.onStatus("Fetching changes…");
+    cb.current.onStatus("Fetching changes…", "progress");
     try {
-      cb.current.onStatus(await invoke<string>("pull_upstream", { root: dir }));
+      cb.current.onStatus(await invoke<string>("pull_upstream", { root: dir }), "success");
       setBehindUpstream(false);
     } catch (e) {
-      cb.current.onStatus(`Fetch failed: ${errorMessage(e)}`);
+      cb.current.onStatus(`Fetch failed: ${errorMessage(e)}`, "error");
     } finally {
       await cb.current.afterPull?.(dir);
       setPulling(false);
@@ -148,23 +149,31 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
 
   async function publish(message: string) {
     const dir = rootRef.current;
-    if (!dir) return;
-    await cb.current.beforeSync?.();
+    if (!dir || publishingRef.current) return false;
+    publishingRef.current = true;
     const quiet = cb.current.onPublishError !== undefined;
+    let published = false;
     setPublishing(true);
-    if (!quiet) cb.current.onStatus("Publishing…");
     try {
-      const result = await invoke<string>("publish", { root: dir, message });
-      if (!quiet) cb.current.onStatus(result);
-    } catch (e) {
-      if (quiet) cb.current.onPublishError?.(`Publish failed: ${errorMessage(e)}`);
-      else cb.current.onStatus(`Publish failed: ${errorMessage(e)}`);
+      await cb.current.beforeSync?.();
+      if (!quiet) cb.current.onStatus("Publishing…", "progress");
+      try {
+        const result = await invoke<string>("publish", { root: dir, message });
+        published = true;
+        if (!quiet) cb.current.onStatus(result, "success");
+      } catch (e) {
+        if (quiet) cb.current.onPublishError?.(`Publish failed: ${errorMessage(e)}`);
+        else cb.current.onStatus(`Publish failed: ${errorMessage(e)}`, "error");
+      }
+      // Committing doesn't touch watched files, so refresh the flag directly —
+      // and before clearing `publishing`, so the button lands on "Up to date"
+      // without flashing an enabled "Publish…" in between.
+      await refreshLocalChanges(dir);
+    } finally {
+      publishingRef.current = false;
+      setPublishing(false);
     }
-    // Committing doesn't touch watched files, so refresh the flag directly —
-    // and before clearing `publishing`, so the button lands on "Up to date"
-    // without flashing an enabled "Publish…" in between.
-    await refreshLocalChanges(dir);
-    setPublishing(false);
+    return published;
   }
 
   return {

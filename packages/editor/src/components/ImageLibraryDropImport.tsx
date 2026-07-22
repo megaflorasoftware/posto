@@ -19,16 +19,19 @@ export function ImageLibraryDropImport(props: {
   const libraries = props.config.imageLibraries ?? [];
   useEffect(
     () =>
-      onFileDrop((paths) => {
-        const images = paths.filter((path) => DROPPED_IMAGE.test(path));
-        if (images.length === 0) return;
-        if (libraries.length === 0) {
-          props.onError?.("This project has no editable Astro image library.");
-          return;
-        }
-        setSources(images);
-        setCollection(libraries.length === 1 ? libraries[0].collection : null);
-      }),
+      onFileDrop(
+        (paths) => {
+          const images = paths.filter((path) => DROPPED_IMAGE.test(path));
+          if (images.length === 0) return;
+          if (libraries.length === 0) {
+            props.onError?.("This project has no editable Astro image library.");
+            return;
+          }
+          setSources(images);
+          setCollection(libraries.length === 1 ? libraries[0].collection : null);
+        },
+        { priority: 0 },
+      ),
     [libraries, props.onError],
   );
   const library = libraries.find((candidate) => candidate.collection === collection) ?? null;

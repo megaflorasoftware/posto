@@ -58,6 +58,8 @@ export interface Deployment {
   openVerification: () => void;
   /** Re-fetch runs now — e.g. shortly after a publish triggers a new deploy. */
   refresh: () => void;
+  /** Polls briefly until a run newer than the one present before publish appears. */
+  expectNewRun: (sinceRunId: number | null) => void;
 }
 
 /** GitHub sign-in plus the deployment status of the open site's repo: resolves
@@ -74,7 +76,15 @@ export function useDeployment(root: string | null): Deployment {
   const [now, setNow] = useState(() => Date.now());
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Holds the active poll's fetch so `refresh()` can trigger it off-schedule.
-  const loadRunsRef = useRef<() => void>(() => {});
+  const loadRunsRef = useRef<() => Promise<WorkflowRun[] | null>>(async () => null);
+  const expectationTimers = useRef<number[]>([]);
+  const expectationToken = useRef(0);
+
+  const clearExpectation = useCallback(() => {
+    expectationToken.current++;
+    for (const timer of expectationTimers.current) window.clearTimeout(timer);
+    expectationTimers.current = [];
+  }, []);
 
   // Initial auth status, and the device-code events sign-in emits.
   useEffect(() => {
@@ -109,30 +119,34 @@ export function useDeployment(root: string | null): Deployment {
   useEffect(() => {
     if (!signedIn || !slug) {
       setRuns([]);
-      loadRunsRef.current = () => {};
+      loadRunsRef.current = async () => null;
       return;
     }
     let active = true;
-    const load = () =>
-      invoke<WorkflowRun[]>("list_workflow_runs", {
-        owner: slug.owner,
-        name: slug.name,
-        branch: BRANCH,
-      })
-        .then((next) => {
-          if (!active) return;
-          setRuns(next);
-          setNow(Date.now());
-          setError(null);
-        })
-        .catch((e) => active && setError(message(e)));
+    const load = async (): Promise<WorkflowRun[] | null> => {
+      try {
+        const next = await invoke<WorkflowRun[]>("list_workflow_runs", {
+          owner: slug.owner,
+          name: slug.name,
+          branch: BRANCH,
+        });
+        if (!active) return null;
+        setRuns(next);
+        setNow(Date.now());
+        setError(null);
+        return next;
+      } catch (e) {
+        if (active) setError(message(e));
+        return null;
+      }
+    };
     loadRunsRef.current = load;
     void load();
     const id = window.setInterval(load, POLL_INTERVAL_MS);
     return () => {
       active = false;
       window.clearInterval(id);
-      loadRunsRef.current = () => {};
+      loadRunsRef.current = async () => null;
     };
   }, [signedIn, slug]);
 
@@ -186,6 +200,29 @@ export function useDeployment(root: string | null): Deployment {
   }, [device]);
 
   const refresh = useCallback(() => loadRunsRef.current(), []);
+  const expectNewRun = useCallback(
+    (sinceRunId: number | null) => {
+      clearExpectation();
+      const token = expectationToken.current;
+      for (const delay of [3_000, 8_000, 15_000]) {
+        const timer = window.setTimeout(() => {
+          void loadRunsRef.current().then((next) => {
+            if (token !== expectationToken.current || !next) return;
+            const found =
+              sinceRunId === null ? next.length > 0 : next.some((run) => run.id > sinceRunId);
+            if (found) clearExpectation();
+          });
+        }, delay);
+        expectationTimers.current.push(timer);
+      }
+    },
+    [clearExpectation],
+  );
+
+  useEffect(() => {
+    clearExpectation();
+    return clearExpectation;
+  }, [root, clearExpectation]);
 
   return {
     signedIn,
@@ -206,5 +243,6 @@ export function useDeployment(root: string | null): Deployment {
     openActions,
     openVerification,
     refresh,
+    expectNewRun,
   };
 }
