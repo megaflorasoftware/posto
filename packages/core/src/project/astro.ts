@@ -24,7 +24,9 @@ const astroComponentBlocks = {
   },
   importFor(ref: { name: string; path: string }, documentPath: string) {
     const from = documentPath.slice(0, documentPath.lastIndexOf("/"));
-    const relative = ref.path.startsWith(`${from}/`) ? `./${ref.path.slice(from.length + 1)}` : ref.path;
+    const relative = ref.path.startsWith(`${from}/`)
+      ? `./${ref.path.slice(from.length + 1)}`
+      : ref.path;
     return `import ${ref.name} from '${relative}';`;
   },
 };
@@ -42,7 +44,8 @@ export async function loadAstroDerivedConfig(root: string, io: ProjectIO) {
     const source = await io.readTextFileOptional(file.path);
     if (source === null) continue;
     const fields = parseCollectionSchema(file.name.slice(0, -".schema.json".length), source);
-    if (fields?.length) collections.push({ name: file.name.slice(0, -".schema.json".length), fields });
+    if (fields?.length)
+      collections.push({ name: file.name.slice(0, -".schema.json".length), fields });
   }
   if (collections.length === 0) return null;
   let loaders = new Map<string, LoaderInfo>();
@@ -56,10 +59,7 @@ export async function loadAstroDerivedConfig(root: string, io: ProjectIO) {
   const config = buildAstroConfig(collections, loaders, scannerDiagnostics);
   return {
     config,
-    diagnostics: [
-      ...scannerDiagnostics.map(scannerDiagnostic),
-      ...(config.diagnostics ?? []),
-    ],
+    diagnostics: [...scannerDiagnostics.map(scannerDiagnostic), ...(config.diagnostics ?? [])],
   };
 }
 
@@ -87,12 +87,12 @@ export const astroAdapter: ProjectAdapter = {
         paths: [{ prefix: `${root}/${library.base}/` }],
         refresh: "mediaLibraries" as const,
       })),
-      ...config?.content
+      ...(config?.content
         .filter((entry) => entry.dataFile)
         .map((entry) => ({
           paths: [{ exact: `${root}/${entry.dataFile!.path}` }],
           refresh: "dataDocuments" as const,
-        })) ?? [],
+        })) ?? []),
     ];
   },
   routeForFile(_root, path, content) {

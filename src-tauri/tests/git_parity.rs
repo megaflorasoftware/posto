@@ -283,6 +283,46 @@ fn publish_commits_and_pushes() {
 }
 
 #[test]
+fn monorepo_status_and_publish_are_scoped_to_selected_project() {
+    let f = fixture();
+    write(&f.local, "apps/site/index.md", "site\n");
+    write(&f.local, "apps/sibling/index.md", "sibling\n");
+    commit_all(&f.local, "add workspace");
+    push(&f.local);
+
+    write(&f.local, "apps/site/index.md", "site changed\n");
+    write(&f.local, "apps/sibling/index.md", "sibling changed\n");
+    let client = Client::open(f.local.join("apps/site").to_str().unwrap()).unwrap();
+    let changed = client.changed_files().unwrap();
+    assert_eq!(changed.len(), 1);
+    assert_eq!(changed[0].path, "apps/site/index.md");
+
+    assert_eq!(client.publish("site only").unwrap(), "Published.");
+    assert!(client.changed_files().unwrap().is_empty());
+    assert_eq!(
+        read(&f.local, "apps/sibling/index.md"),
+        "sibling changed\n",
+        "sibling edit stays in the working tree"
+    );
+    let repo = git2::Repository::open(&f.local).unwrap();
+    let head = repo.head().unwrap().peel_to_commit().unwrap();
+    let sibling = head
+        .tree()
+        .unwrap()
+        .get_path(Path::new("apps/sibling/index.md"))
+        .unwrap()
+        .to_object(&repo)
+        .unwrap()
+        .peel_to_blob()
+        .unwrap();
+    assert_eq!(
+        sibling.content(),
+        b"sibling\n",
+        "sibling edit was not committed"
+    );
+}
+
+#[test]
 fn revert_tracked_and_untracked() {
     let f = fixture();
     let client = Client::open(f.local.to_str().unwrap()).unwrap();

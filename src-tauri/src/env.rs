@@ -213,15 +213,45 @@ fn package_manager(root: &Path) -> &'static str {
     }
 }
 
+fn has_workspace_manifest(path: &Path) -> bool {
+    if path.join("pnpm-workspace.yaml").is_file()
+        || path.join("lerna.json").is_file()
+        || path.join("turbo.json").is_file()
+    {
+        return true;
+    }
+    std::fs::read_to_string(path.join("package.json"))
+        .ok()
+        .and_then(|source| serde_json::from_str::<serde_json::Value>(&source).ok())
+        .is_some_and(|package| package.get("workspaces").is_some())
+}
+
+fn dependency_root(path: &Path) -> &Path {
+    let mut current = Some(path);
+    let mut workspace = None;
+    while let Some(dir) = current {
+        if has_workspace_manifest(dir) {
+            workspace = Some(dir);
+        }
+        if dir.join(".git").exists() {
+            break;
+        }
+        current = dir.parent();
+    }
+    workspace.unwrap_or(path)
+}
+
 #[tauri::command]
 pub fn needs_install(root: String) -> bool {
-    let path = Path::new(&root);
+    let selected = Path::new(&root);
+    let path = dependency_root(selected);
     path.join("package.json").exists() && !path.join("node_modules").exists()
 }
 
 #[tauri::command]
 pub async fn install_dependencies(app: tauri::AppHandle, root: String) -> Result<(), String> {
-    let path = Path::new(&root);
+    let selected = Path::new(&root);
+    let path = dependency_root(selected);
     let pm = package_manager(path);
     let output = Command::new(pm)
         .arg("install")

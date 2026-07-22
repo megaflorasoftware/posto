@@ -14,6 +14,7 @@ mod repos;
 mod settings;
 #[cfg(desktop)]
 mod watch;
+mod workspace;
 
 #[cfg(desktop)]
 fn handle_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
@@ -96,6 +97,8 @@ pub fn run() {
         env::install_node,
         env::install_package_manager,
         settings::get_last_root,
+        settings::get_last_selection,
+        settings::get_work_dir,
         settings::get_recent_roots,
         settings::set_last_root,
         git::changed_files,
@@ -103,6 +106,7 @@ pub fn run() {
         git::fetch_upstream,
         git::pull_upstream,
         git::publish,
+        workspace::scan_projects,
         watch::watch_root
     ]);
     #[cfg(mobile)]
@@ -133,6 +137,8 @@ pub fn run() {
                 fs::read_image_bytes,
                 fs::probe_image_is_heif,
                 settings::get_last_root,
+                settings::get_last_selection,
+                settings::get_work_dir,
                 settings::get_recent_roots,
                 settings::set_last_root,
                 git::changed_files,
@@ -140,6 +146,7 @@ pub fn run() {
                 git::fetch_upstream,
                 git::pull_upstream,
                 git::publish,
+                workspace::scan_projects,
                 repos::clone_repo,
                 repos::doctor_repo,
                 repos::list_repos,

@@ -718,6 +718,15 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       return (window as { __mockLastRoute?: string }).__mockLastRoute ?? null;
     case "get_last_root":
       return localStorage.getItem("posto-last-root");
+    case "get_last_selection": {
+      const root = localStorage.getItem("posto-last-root");
+      if (!root) return null;
+      return { root, workDir: localStorage.getItem(`posto-work-dir:${root}`) ?? root };
+    }
+    case "get_work_dir": {
+      const root = args?.root as string;
+      return localStorage.getItem(`posto-work-dir:${root}`);
+    }
     case "get_recent_roots": {
       const raw = localStorage.getItem("posto-recent-roots");
       return raw ? (JSON.parse(raw) as string[]) : [];
@@ -725,11 +734,16 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     case "set_last_root": {
       const root = args?.root as string;
       localStorage.setItem("posto-last-root", root);
+      localStorage.setItem(`posto-work-dir:${root}`, (args?.workDir as string | undefined) ?? root);
       const raw = localStorage.getItem("posto-recent-roots");
       const recents = raw ? (JSON.parse(raw) as string[]) : [];
       const next = [root, ...recents.filter((r) => r !== root)].slice(0, 10);
       localStorage.setItem("posto-recent-roots", JSON.stringify(next));
       return null;
+    }
+    case "scan_projects": {
+      const root = args?.root as string;
+      return [{ dir: root, markers: ["package.json", "astro.config.mjs"] }];
     }
     default:
       throw new Error(`Unknown command: ${cmd}`);

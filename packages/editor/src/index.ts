@@ -16,6 +16,7 @@ export * from "./newFile";
 export * from "./dataEntries";
 export * from "./components/PublishModal";
 export * from "./components/Sidebar";
+export * from "./components/WorkspaceChooser";
 export * from "./hooks/useCurrentFile";
 export * from "./hooks/useFileGroups";
 export * from "./hooks/useGitSync";

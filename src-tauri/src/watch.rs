@@ -37,10 +37,7 @@ fn adapter_ignored(rel: &str, rules: &[IgnoreRule]) -> bool {
         rule.prefix
             .as_ref()
             .is_some_and(|prefix| rel.starts_with(prefix))
-            || rule
-                .glob
-                .as_ref()
-                .is_some_and(|glob| glob == rel)
+            || rule.glob.as_ref().is_some_and(|glob| glob == rel)
     })
 }
 
@@ -68,10 +65,13 @@ pub fn watch_root(
     state: tauri::State<WatchState>,
     root: String,
     ignore_rules: Option<Vec<IgnoreRule>>,
+    extra_paths: Option<Vec<String>>,
 ) -> Result<(), String> {
     use tauri::Emitter;
     let emit_root = root.clone();
     let ignore_rules = ignore_rules.unwrap_or_default();
+    let extra_paths = extra_paths.unwrap_or_default();
+    let emit_extra_paths = extra_paths.clone();
     let mut debouncer = notify_debouncer_mini::new_debouncer(
         Duration::from_millis(500),
         move |result: notify_debouncer_mini::DebounceEventResult| {
@@ -79,7 +79,10 @@ pub fn watch_root(
                 let paths: Vec<String> = events
                     .iter()
                     .map(|event| event.path.to_string_lossy().to_string())
-                    .filter(|path| !watch_ignored(&emit_root, path, &ignore_rules))
+                    .filter(|path| {
+                        emit_extra_paths.iter().any(|extra| extra == path)
+                            || !watch_ignored(&emit_root, path, &ignore_rules)
+                    })
                     .collect();
                 if !paths.is_empty() {
                     let _ = app.emit("fs-changed", paths);
@@ -92,6 +95,15 @@ pub fn watch_root(
         .watcher()
         .watch(Path::new(&root), notify::RecursiveMode::Recursive)
         .map_err(|e| e.to_string())?;
+    for extra in extra_paths {
+        let path = Path::new(&extra);
+        if path.exists() {
+            debouncer
+                .watcher()
+                .watch(path, notify::RecursiveMode::NonRecursive)
+                .map_err(|e| e.to_string())?;
+        }
+    }
     // Assign last: an error above leaves the previous watch running.
     *state.watcher.lock().unwrap() = Some(debouncer);
     Ok(())

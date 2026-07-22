@@ -34,6 +34,7 @@ import {
   useGitSync,
   useSchemas,
   ipcProjectIO,
+  WorkspaceChooser,
   type EditorTab,
 } from "@posto/editor";
 import {
@@ -48,6 +49,12 @@ import { detectProject, type ProjectInfo } from "@posto/core/project/detect";
 import { projectAdapter } from "@posto/core/project/registry";
 import type { ProjectAdapter } from "@posto/core/project/adapter";
 import { invalidationScopesForPaths } from "@posto/core/project/adapter";
+import {
+  decideWorkspace,
+  scanWorkspace,
+  type ProjectCandidate,
+  type ProjectInventory,
+} from "@posto/core/project/workspace";
 import { invoke } from "@posto/ipc";
 import type { ChangedFile, FileEntry, FileGroup, GitHubRepo } from "@posto/ipc";
 import {
@@ -85,12 +92,14 @@ function message(error: unknown): string {
 }
 
 export default function RepoHome({
-  root,
+  root: repoRoot,
   repo,
   onChangeRepo,
   onRedownloadRepo,
   onRemoveRepo,
 }: Props) {
+  const [root, setWorkDir] = useState(repoRoot);
+  const [workspaceCandidates, setWorkspaceCandidates] = useState<ProjectCandidate[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
   const adapter = useMemo(() => projectAdapter(projectInfo?.type ?? "generic"), [projectInfo]);
@@ -189,11 +198,23 @@ export default function RepoHome({
         // Validate/repair the native checkout before any filesystem reads.
         // Running these concurrently caused first-open "Not a directory"
         // errors when the repository registry was still settling.
-        if (repo) await invoke<string>("doctor_repo", { root, expectedUrl: repo.clone_url });
-        const detected = await detectProject(root, ipcProjectIO);
+        if (repo)
+          await invoke<string>("doctor_repo", { root: repoRoot, expectedUrl: repo.clone_url });
+        const inventory = await invoke<ProjectInventory[]>("scan_projects", { root: repoRoot });
+        const scan = await scanWorkspace(repoRoot, inventory, ipcProjectIO);
+        const decision = decideWorkspace(repoRoot, scan);
+        const remembered = await invoke<string | null>("get_work_dir", { root: repoRoot });
+        if (!remembered && decision.kind === "choose") {
+          if (active) setWorkspaceCandidates(decision.candidates);
+          return;
+        }
+        const selectedRoot = remembered ?? (decision.kind === "open" ? decision.workDir : repoRoot);
+        const detected = await detectProject(selectedRoot, ipcProjectIO);
         if (active) {
+          setWorkDir(selectedRoot);
           setProjectInfo(detected);
-          await refreshRepositoryContent(root, projectAdapter(detected.type));
+          await refreshRepositoryContent(selectedRoot, projectAdapter(detected.type));
+          void git.refreshLocalChanges(selectedRoot);
         }
       } catch (checkError) {
         if (active) setRepairError(message(checkError));
@@ -201,13 +222,23 @@ export default function RepoHome({
         if (active) setLoading(false);
       }
     })();
-    void git.refreshLocalChanges(root);
     return () => {
       active = false;
     };
     // The selected root is the only value that should restart initial loading.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [root]);
+  }, [repoRoot]);
+
+  async function chooseWorkspace(candidate: ProjectCandidate | null) {
+    const selectedRoot = candidate?.dir ?? repoRoot;
+    const detected = await detectProject(selectedRoot, ipcProjectIO);
+    setWorkDir(selectedRoot);
+    setProjectInfo(detected);
+    setWorkspaceCandidates(null);
+    void invoke("set_last_root", { root: repoRoot, workDir: selectedRoot });
+    await refreshRepositoryContent(selectedRoot, projectAdapter(detected.type));
+    void git.refreshLocalChanges(selectedRoot);
+  }
 
   const fileCount = useMemo(
     () => files.groups.reduce((total, group) => total + group.files.length, 0),
@@ -502,7 +533,7 @@ export default function RepoHome({
       : schemas.pagesConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
         ? "pages"
         : schemas.derivedConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
-          ? projectInfo?.type ?? null
+          ? (projectInfo?.type ?? null)
           : null;
   const openFileName =
     currentFile.dataEntry?.id ?? currentFile.filePath?.split("/").pop() ?? "File";
@@ -597,7 +628,16 @@ export default function RepoHome({
             </ActionIcon>
           ))}
       </header>
-      {showEditor ? (
+      {workspaceCandidates ? (
+        <main className="mobile-settings-screen">
+          <WorkspaceChooser
+            repoRoot={repoRoot}
+            candidates={workspaceCandidates}
+            onChoose={(candidate) => void chooseWorkspace(candidate)}
+            onBrowse={() => void chooseWorkspace(null)}
+          />
+        </main>
+      ) : showEditor ? (
         <main className="mobile-editor-screen">
           <EditorPane
             root={root}

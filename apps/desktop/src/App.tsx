@@ -10,6 +10,12 @@ import { detectProject, type ProjectInfo } from "@posto/core/project/detect";
 import { projectAdapter } from "@posto/core/project/registry";
 import { invalidationScopesForPaths } from "@posto/core/project/adapter";
 import {
+  decideWorkspace,
+  scanWorkspace,
+  type ProjectCandidate,
+  type ProjectInventory,
+} from "@posto/core/project/workspace";
+import {
   EditorPane,
   ImageLibraryDropImport,
   PublishModal,
@@ -25,6 +31,7 @@ import {
   useSchemas,
   ipcProjectIO,
   useSiteUrl,
+  WorkspaceChooser,
   type EditorTab,
 } from "@posto/editor";
 import { useDevServer } from "./hooks/useDevServer";
@@ -44,6 +51,8 @@ import "./App.css";
 
 function App() {
   const [root, setRoot] = useState<string | null>(null);
+  const [repoRoot, setRepoRoot] = useState<string | null>(null);
+  const [workspaceCandidates, setWorkspaceCandidates] = useState<ProjectCandidate[] | null>(null);
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
   const adapter = useMemo(() => projectAdapter(projectInfo?.type ?? "generic"), [projectInfo]);
   // Recently-opened site roots, newest first (backend caps at 10).
@@ -72,7 +81,7 @@ function App() {
 
   const files = useFileGroups(notifyError);
   const devServer = useDevServer();
-  const deployment = useDeployment(root);
+  const deployment = useDeployment(repoRoot);
   const siteUrl = useSiteUrl(root, adapter);
 
   const currentFile = useCurrentFile({
@@ -162,11 +171,13 @@ function App() {
     await files.refreshDataGroups(dir, schemas.configRef.current);
   }
 
-  async function selectRoot(dir: string) {
+  async function selectRoot(repository: string, dir: string) {
     const detected = await detectProject(dir, ipcProjectIO);
     const selectedAdapter = projectAdapter(detected.type);
     void currentFile.flushPendingSave();
     setRoot(dir);
+    setRepoRoot(repository);
+    setWorkspaceCandidates(null);
     setProjectInfo(detected);
     currentFile.closeFile();
     preview.resetRoute();
@@ -175,8 +186,34 @@ function App() {
     void schemas.loadPostoConfig(dir);
     await refreshGroups(dir);
     void devServer.startServer(dir);
-    void invoke("set_last_root", { root: dir }).then(() => refreshRecentRoots());
-    void invoke("watch_root", { root: dir, ignoreRules: selectedAdapter.watchIgnores() });
+    void invoke("set_last_root", { root: repository, workDir: dir }).then(() =>
+      refreshRecentRoots(),
+    );
+    const extraPaths =
+      repository === dir
+        ? []
+        : ["package.json", "pnpm-workspace.yaml", "lerna.json", "turbo.json"].map(
+            (path) => `${repository}/${path}`,
+          );
+    void invoke("watch_root", {
+      root: dir,
+      ignoreRules: selectedAdapter.watchIgnores(),
+      extraPaths,
+    });
+  }
+
+  async function selectRepository(repository: string) {
+    const inventory = await invoke<ProjectInventory[]>("scan_projects", { root: repository });
+    const scan = await scanWorkspace(repository, inventory, ipcProjectIO);
+    const decision = decideWorkspace(repository, scan);
+    if (decision.kind === "choose") {
+      setRepoRoot(repository);
+      setRoot(null);
+      setProjectInfo(null);
+      setWorkspaceCandidates(decision.candidates);
+      return;
+    }
+    await selectRoot(repository, decision.workDir);
   }
 
   async function refreshRecentRoots() {
@@ -189,7 +226,7 @@ function App() {
 
   async function chooseDirectory() {
     const dir = await openDirectory();
-    if (typeof dir === "string") void selectRoot(dir);
+    if (typeof dir === "string") void selectRepository(dir);
   }
 
   function schemaSources() {
@@ -306,16 +343,22 @@ function App() {
   async function invalidateAdapterPaths(paths: string[]) {
     const dir = rootRef.current;
     if (!dir) return;
-    const scopes = invalidationScopesForPaths(
-      adapter,
-      dir,
-      paths,
-      schemas.configRef.current,
-    );
+    if (
+      repoRoot &&
+      paths.some((path) =>
+        ["package.json", "pnpm-workspace.yaml", "lerna.json", "turbo.json"].some(
+          (marker) => path === `${repoRoot}/${marker}`,
+        ),
+      )
+    ) {
+      await selectRepository(repoRoot);
+      return;
+    }
+    const scopes = invalidationScopesForPaths(adapter, dir, paths, schemas.configRef.current);
     if (scopes.has("projectType")) {
       const detected = await detectProject(dir, ipcProjectIO);
       if (detected.type !== projectInfo?.type) {
-        await selectRoot(dir);
+        await selectRoot(repoRoot ?? dir, dir);
         return;
       }
       setProjectInfo(detected);
@@ -333,8 +376,8 @@ function App() {
     void checkForAppUpdate();
     void refreshRecentRoots();
     void (async () => {
-      const last = await invoke<string | null>("get_last_root");
-      if (last && !rootRef.current) void selectRoot(last);
+      const last = await invoke<{ root: string; workDir: string } | null>("get_last_selection");
+      if (last && !rootRef.current) void selectRoot(last.root, last.workDir);
     })();
     return () => {
       unlistenFs();
@@ -429,7 +472,7 @@ function App() {
       : schemas.pagesConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
         ? "pages"
         : schemas.derivedConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
-          ? projectInfo?.type ?? null
+          ? (projectInfo?.type ?? null)
           : null;
 
   return (
@@ -438,13 +481,14 @@ function App() {
       <div className="app">
         <AppHeader
           root={root}
+          repoRoot={repoRoot}
           projectInfo={projectInfo}
           recentRoots={recentRoots}
           behindUpstream={git.behindUpstream}
           pulling={git.pulling}
           hasLocalChanges={git.hasLocalChanges}
           onChooseDirectory={() => void chooseDirectory()}
-          onSelectRoot={(dir) => void selectRoot(dir)}
+          onSelectRoot={(dir) => void selectRepository(dir)}
           deployment={deployment}
           canOpenMedia={adapter.capabilities.mediaLibraries && !!config?.mediaLibraries?.length}
           onOpenMedia={() => setMediaOpen(true)}
@@ -472,6 +516,9 @@ function App() {
           opened={publishOpen}
           changes={git.changes}
           error={git.changesError}
+          scopeLabel={
+            repoRoot && root && repoRoot !== root ? root.slice(repoRoot.length + 1) : undefined
+          }
           onClose={() => setPublishOpen(false)}
           onRevert={(file) => void revertChange(file)}
           onPublish={(message) => {
@@ -493,7 +540,16 @@ function App() {
           />
         )}
 
-        {!root ? (
+        {workspaceCandidates && repoRoot ? (
+          <div className="empty-state">
+            <WorkspaceChooser
+              repoRoot={repoRoot}
+              candidates={workspaceCandidates}
+              onChoose={(candidate) => void selectRoot(repoRoot, candidate.dir)}
+              onBrowse={() => void chooseDirectory()}
+            />
+          </div>
+        ) : !root ? (
           <div className="empty-state">
             <p>Select the folder that holds your site to get started.</p>
             <Button onClick={() => void chooseDirectory()}>Choose directory</Button>

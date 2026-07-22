@@ -8,6 +8,7 @@ import type { ProjectInfo } from "@posto/core/project/detect";
  * deployment status, and the Publish / Fetch Changes action. */
 export function AppHeader(props: {
   root: string | null;
+  repoRoot: string | null;
   projectInfo: ProjectInfo | null;
   recentRoots: string[];
   behindUpstream: boolean;
@@ -21,10 +22,15 @@ export function AppHeader(props: {
   onFetchChanges: () => void;
   onOpenPublish: () => void;
 }) {
-  const rootName = props.root?.split("/").filter(Boolean).pop() ?? "";
+  const repositoryName = props.repoRoot?.split("/").filter(Boolean).pop() ?? "";
+  const rootName = props.root
+    ? props.repoRoot && props.root !== props.repoRoot
+      ? `${repositoryName} / ${props.root.slice(props.repoRoot.length + 1)}`
+      : (props.root.split("/").filter(Boolean).pop() ?? "")
+    : repositoryName;
   // Dropdown entries for the recent-sites menu; the open site would be a
   // no-op, so it's left out.
-  const recentOptions = props.recentRoots.filter((dir) => dir !== props.root).slice(0, 10);
+  const recentOptions = props.recentRoots.filter((dir) => dir !== props.repoRoot).slice(0, 10);
   return (
     <header className="navbar">
       <Button.Group>
@@ -61,10 +67,7 @@ export function AppHeader(props: {
       <span className="navbar-spacer" />
       {props.root && <DeploymentControl deployment={props.deployment} />}
       {props.root && (
-        <Tooltip
-          label={props.canOpenMedia ? "Media" : "No media libraries found"}
-          openDelay={400}
-        >
+        <Tooltip label={props.canOpenMedia ? "Media" : "No media libraries found"} openDelay={400}>
           <ActionIcon
             size={30}
             variant="subtle"

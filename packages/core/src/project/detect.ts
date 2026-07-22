@@ -93,7 +93,9 @@ export async function detectProject(root: string, io: DetectionIO): Promise<Proj
       hasPagesYml,
       hasPostoDir,
       ...(!supported
-        ? { diagnostic: `project type '${override}' is not supported by this version; treating as generic` }
+        ? {
+            diagnostic: `project type '${override}' is not supported by this version; treating as generic`,
+          }
         : {}),
     };
   }
@@ -101,7 +103,11 @@ export async function detectProject(root: string, io: DetectionIO): Promise<Proj
   const packageSource = await io.readTextFileOptional(join(root, "package.json"));
   const deps = dependencies(packageSource);
   const astroConfig = await firstExisting(root, ASTRO_CONFIGS, io);
-  if (astroConfig || deps.has("astro") || (await io.pathExists(join(root, ".astro"), "directory"))) {
+  if (
+    astroConfig ||
+    deps.has("astro") ||
+    (await io.pathExists(join(root, ".astro"), "directory"))
+  ) {
     return {
       type: "astro",
       signals: [
@@ -136,7 +142,10 @@ export async function detectProject(root: string, io: DetectionIO): Promise<Proj
   if (hugoConfig || hugoLayout) {
     return {
       type: "hugo",
-      signals: [hugoConfig ?? genericHugoConfig!, hugoLayout ? "Hugo content layout" : "Hugo config"],
+      signals: [
+        hugoConfig ?? genericHugoConfig!,
+        hugoLayout ? "Hugo content layout" : "Hugo config",
+      ],
       hasPagesYml,
       hasPostoDir,
     };

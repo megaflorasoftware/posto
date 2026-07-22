@@ -6,7 +6,7 @@ use git2::{
     StashApplyOptions, StashFlags, Status, StatusOptions,
 };
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tauri::Emitter;
 
 use creds::{platform_creds, platform_signature, remote_callbacks};
@@ -55,14 +55,27 @@ fn parse_github_slug(url: &str) -> Option<GitHubSlug> {
 /// `CredentialProvider`.
 pub struct Client {
     repo: Repository,
+    /// Repo-relative subtree selected as the editor's work directory.
+    scope: PathBuf,
 }
 
 impl Client {
     pub fn open(root: &str) -> Result<Client, String> {
         // The chosen directory is not necessarily the repository root.
-        Repository::discover(root)
-            .map(|repo| Client { repo })
-            .map_err(err_str)
+        let repo = Repository::discover(root).map_err(err_str)?;
+        let workdir = repo
+            .workdir()
+            .ok_or_else(|| "Repository has no working directory".to_string())?
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
+        let selected = Path::new(root)
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
+        let scope = selected
+            .strip_prefix(&workdir)
+            .map_err(|_| "Selected directory is outside the repository".to_string())?
+            .to_path_buf();
+        Ok(Client { repo, scope })
     }
 
     fn signature(&self) -> Result<Signature<'static>, String> {
@@ -119,7 +132,7 @@ impl Client {
         (!code.is_empty()).then_some(code)
     }
 
-    fn status_options() -> StatusOptions {
+    fn status_options(&self) -> StatusOptions {
         let mut opts = StatusOptions::new();
         opts.include_untracked(true)
             .recurse_untracked_dirs(true)
@@ -129,13 +142,16 @@ impl Client {
             .renames_head_to_index(false)
             .exclude_submodules(true)
             .update_index(false);
+        if !self.scope.as_os_str().is_empty() {
+            opts.pathspec(&self.scope);
+        }
         opts
     }
 
     pub fn changed_files(&self) -> Result<Vec<ChangedFile>, String> {
         let statuses = self
             .repo
-            .statuses(Some(&mut Self::status_options()))
+            .statuses(Some(&mut self.status_options()))
             .map_err(err_str)?;
         let mut out = Vec::new();
         for entry in statuses.iter() {
@@ -175,7 +191,7 @@ impl Client {
     fn is_dirty(&self) -> Result<bool, String> {
         Ok(!self
             .repo
-            .statuses(Some(&mut Self::status_options()))
+            .statuses(Some(&mut self.status_options()))
             .map_err(err_str)?
             .is_empty())
     }
@@ -191,6 +207,9 @@ impl Client {
         path: &str,
         status_hint: Option<&str>,
     ) -> Result<(), String> {
+        if !self.scope.as_os_str().is_empty() && !Path::new(path).starts_with(&self.scope) {
+            return Err(format!("{path} is outside the selected project"));
+        }
         let untracked = match status_hint {
             Some(status) => status == "??",
             None => {
@@ -439,10 +458,17 @@ impl Client {
         let mut index = self.repo.index().map_err(err_str)?;
         // add_all picks up new/modified files, update_all staged deletions —
         // together they are `git add -A`.
+        let scope = if self.scope.as_os_str().is_empty() {
+            "*".to_string()
+        } else {
+            self.scope.to_string_lossy().to_string()
+        };
         index
-            .add_all(["*"].iter(), IndexAddOption::DEFAULT, None)
+            .add_all([scope.as_str()].iter(), IndexAddOption::DEFAULT, None)
             .map_err(err_str)?;
-        index.update_all(["*"].iter(), None).map_err(err_str)?;
+        index
+            .update_all([scope.as_str()].iter(), None)
+            .map_err(err_str)?;
         index.write().map_err(err_str)?;
         let tree_oid = index.write_tree().map_err(err_str)?;
         let head_commit = self.repo.head().ok().and_then(|h| h.peel_to_commit().ok());

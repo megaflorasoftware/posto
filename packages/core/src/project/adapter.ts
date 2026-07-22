@@ -91,7 +91,10 @@ function matches(path: string, matcher: PathMatcher): boolean {
   if (matcher.exact && path === matcher.exact) return true;
   if (matcher.prefix && path.startsWith(matcher.prefix)) return true;
   if (matcher.glob) {
-    const escaped = matcher.glob.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*\*/g, ".*").replace(/\*/g, "[^/]*");
+    const escaped = matcher.glob
+      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+      .replace(/\*\*/g, ".*")
+      .replace(/\*/g, "[^/]*");
     return new RegExp(`^${escaped}$`).test(path);
   }
   return false;
