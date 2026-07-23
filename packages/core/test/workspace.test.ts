@@ -44,4 +44,7 @@ test("workspace manifests never invalidate a single-project session", () => {
   expect(workspaceLayoutChanged("/repo", "/repo/apps/site", ["/repo/apps/site/package.json"])).toBe(
     false,
   );
+  expect(
+    workspaceLayoutChanged("/repo", "/repo/apps/site", ["/repo/apps/new-site/astro.config.mjs"]),
+  ).toBe(true);
 });

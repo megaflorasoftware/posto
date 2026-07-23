@@ -1,4 +1,5 @@
 import { projectInfoFromMarkers, type ProjectInfo } from "./detect";
+import { PROJECT_MARKERS } from "./detect";
 import { parsePostoIndex } from "../posto/config";
 
 export interface ProjectInventory {
@@ -31,9 +32,14 @@ export function workspaceLayoutChanged(
   paths: string[],
 ): boolean {
   if (repoRoot === workDir) return false;
-  return paths.some((path) =>
-    WORKSPACE_LAYOUT_FILES.some((marker) => path === `${repoRoot}/${marker}`),
-  );
+  return paths.some((path) => {
+    if (!path.startsWith(`${repoRoot}/`) || path.startsWith(`${workDir}/`)) return false;
+    const relative = path.slice(repoRoot.length + 1);
+    if (WORKSPACE_LAYOUT_FILES.some((marker) => relative === marker)) return true;
+    return PROJECT_MARKERS.some(
+      (marker) => relative === marker.path || relative.endsWith(`/${marker.path}`),
+    );
+  });
 }
 
 const WORKSPACE_MARKERS = new Set([

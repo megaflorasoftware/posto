@@ -210,6 +210,7 @@ function App() {
       root: dir,
       ignoreRules: selectedAdapter.watchIgnores(),
       extraPaths,
+      workspaceRoot: repository,
     });
   }
 
@@ -388,12 +389,13 @@ function App() {
     const dir = rootRef.current;
     if (!dir) return;
     if (repoRoot && workspaceLayoutChanged(repoRoot, dir, paths)) {
-      // A manifest edit can add/remove sibling candidates, but the active
-      // project remains valid until its directory disappears. Do not tear
-      // down the open file, preview, or dev server merely to re-decide the
-      // same workDir.
+      const inventory = await invoke<ProjectInventory[]>("scan_projects", { root: repoRoot });
+      const scan = await scanWorkspace(repoRoot, inventory);
+      setWorkspaceCandidates((current) =>
+        current ? [{ dir: repoRoot, ...scan.root }, ...scan.candidates] : current,
+      );
       if (!(await ipcProjectIO.pathExists(dir, "directory"))) {
-        await selectRepository(repoRoot);
+        setWorkspaceCandidates([{ dir: repoRoot, ...scan.root }, ...scan.candidates]);
         return;
       }
     }

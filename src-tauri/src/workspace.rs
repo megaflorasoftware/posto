@@ -1,8 +1,8 @@
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
-const MAX_DEPTH: usize = 3;
-const MARKERS: &[&str] = &[
+pub(crate) const MAX_DEPTH: usize = 3;
+pub(crate) const MARKERS: &[&str] = &[
     "astro.config.mjs",
     "astro.config.ts",
     "astro.config.js",
@@ -24,6 +24,30 @@ const MARKERS: &[&str] = &[
     "lerna.json",
     "turbo.json",
 ];
+
+pub(crate) fn is_project_marker_change(root: &str, changed: &str) -> bool {
+    let Ok(relative) = Path::new(changed).strip_prefix(root) else {
+        return false;
+    };
+    let parts = relative
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>();
+    if parts.is_empty()
+        || parts
+            .iter()
+            .any(|part| matches!(part.as_ref(), "node_modules" | "target" | "dist" | "build"))
+    {
+        return false;
+    }
+    let marker = parts.last().unwrap().as_ref();
+    let ordinary = MARKERS.contains(&marker)
+        || matches!(marker, ".astro" | "content" | "archetypes" | ".posto");
+    let posto_index =
+        parts.len() >= 2 && parts[parts.len() - 2] == ".posto" && marker == "index.json";
+    let project_depth = parts.len().saturating_sub(if posto_index { 2 } else { 1 });
+    project_depth <= MAX_DEPTH && (ordinary || posto_index)
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -156,5 +180,25 @@ mod tests {
             .markers
             .iter()
             .any(|marker| marker.starts_with("project:")));
+    }
+
+    #[test]
+    fn marker_changes_are_bounded_and_skip_dependency_trees() {
+        assert!(is_project_marker_change(
+            "/repo",
+            "/repo/apps/new-site/astro.config.mjs"
+        ));
+        assert!(is_project_marker_change(
+            "/repo",
+            "/repo/packages/site/.posto/index.json"
+        ));
+        assert!(!is_project_marker_change(
+            "/repo",
+            "/repo/a/b/c/d/astro.config.mjs"
+        ));
+        assert!(!is_project_marker_change(
+            "/repo",
+            "/repo/node_modules/theme/astro.config.mjs"
+        ));
     }
 }

@@ -100,12 +100,14 @@ pub fn watch_root(
     root: String,
     ignore_rules: Option<Vec<IgnoreRule>>,
     extra_paths: Option<Vec<String>>,
+    workspace_root: Option<String>,
 ) -> Result<(), String> {
     use tauri::Emitter;
     let emit_root = root.clone();
     let ignore_rules = ignore_rules.unwrap_or_default();
     let extra_paths = extra_paths.unwrap_or_default();
     let emit_extra_paths = extra_paths.clone();
+    let emit_workspace_root = workspace_root.clone();
     let mut debouncer = notify_debouncer_mini::new_debouncer(
         Duration::from_millis(500),
         move |result: notify_debouncer_mini::DebounceEventResult| {
@@ -115,6 +117,9 @@ pub fn watch_root(
                     .map(|event| event.path.to_string_lossy().to_string())
                     .filter(|path| {
                         emit_extra_paths.iter().any(|extra| extra == path)
+                            || emit_workspace_root.as_ref().is_some_and(|workspace| {
+                                crate::workspace::is_project_marker_change(workspace, path)
+                            })
                             || !watch_ignored(&emit_root, path, &ignore_rules)
                     })
                     .collect();
@@ -138,6 +143,14 @@ pub fn watch_root(
             debouncer
                 .watcher()
                 .watch(&path, notify::RecursiveMode::NonRecursive)
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    if let Some(workspace) = workspace_root {
+        if workspace != root {
+            debouncer
+                .watcher()
+                .watch(Path::new(&workspace), notify::RecursiveMode::Recursive)
                 .map_err(|e| e.to_string())?;
         }
     }
