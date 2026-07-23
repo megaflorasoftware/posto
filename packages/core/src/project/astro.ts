@@ -178,7 +178,7 @@ export const astroAdapter: ProjectAdapter = {
         refresh: "derivedConfig",
       },
       {
-        paths: [{ prefix: `${root}/src/components/` }],
+        paths: astroComponentBlocks.componentDirs(root).map((dir) => ({ prefix: `${dir}/` })),
         refresh: "componentSchemas",
       },
       ...PROJECT_MARKERS.map((marker) => ({
