@@ -367,6 +367,35 @@ fn scoped_publish_preserves_staged_sibling_changes() {
 }
 
 #[test]
+fn scoped_pull_stashes_dirty_sibling_changes() {
+    let f = fixture();
+    write(&f.local, "apps/site/index.md", "site\n");
+    write(&f.local, "apps/sibling/index.md", "sibling\n");
+    commit_all(&f.local, "add workspace");
+    push(&f.local);
+    Client::open(f.other.to_str().unwrap())
+        .unwrap()
+        .pull()
+        .unwrap();
+
+    write(&f.local, "apps/sibling/index.md", "local sibling draft\n");
+    server_change(
+        &f,
+        "apps/sibling/index.md",
+        "server sibling\n",
+        "server sibling edit",
+    );
+
+    let mut client = Client::open(f.local.join("apps/site").to_str().unwrap()).unwrap();
+    assert_eq!(client.pull().unwrap(), "Updated from server.");
+    assert_eq!(
+        read(&f.local, "apps/sibling/index.md"),
+        "server sibling\n",
+        "repo-wide pull recovery sees and stashes sibling changes"
+    );
+}
+
+#[test]
 fn revert_tracked_and_untracked() {
     let f = fixture();
     let client = Client::open(f.local.to_str().unwrap()).unwrap();

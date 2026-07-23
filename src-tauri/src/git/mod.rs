@@ -132,7 +132,7 @@ impl Client {
         (!code.is_empty()).then_some(code)
     }
 
-    fn status_options(&self) -> StatusOptions {
+    fn repo_status_options() -> StatusOptions {
         let mut opts = StatusOptions::new();
         opts.include_untracked(true)
             .recurse_untracked_dirs(true)
@@ -142,6 +142,11 @@ impl Client {
             .renames_head_to_index(false)
             .exclude_submodules(true)
             .update_index(false);
+        opts
+    }
+
+    fn scoped_status_options(&self) -> StatusOptions {
+        let mut opts = Self::repo_status_options();
         if !self.scope.as_os_str().is_empty() {
             opts.pathspec(&self.scope);
         }
@@ -151,7 +156,7 @@ impl Client {
     pub fn changed_files(&self) -> Result<Vec<ChangedFile>, String> {
         let statuses = self
             .repo
-            .statuses(Some(&mut self.status_options()))
+            .statuses(Some(&mut self.scoped_status_options()))
             .map_err(err_str)?;
         let mut out = Vec::new();
         for entry in statuses.iter() {
@@ -191,7 +196,7 @@ impl Client {
     fn is_dirty(&self) -> Result<bool, String> {
         Ok(!self
             .repo
-            .statuses(Some(&mut self.status_options()))
+            .statuses(Some(&mut Self::repo_status_options()))
             .map_err(err_str)?
             .is_empty())
     }
