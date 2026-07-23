@@ -120,6 +120,7 @@ export default function RepoHome({
   const [orderOpen, setOrderOpen] = useState(false);
   const [mediaImportOpen, setMediaImportOpen] = useState(false);
   const [componentSchemaVersion, setComponentSchemaVersion] = useState(0);
+  const [siteUrlVersion, setSiteUrlVersion] = useState(0);
   const [importLibrary, setImportLibrary] = useState<MediaLibrary | null>(null);
   const [editorTab, setEditorTab] = useState<EditorTab>("fields");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -163,6 +164,7 @@ export default function RepoHome({
       }
       setWorkspaceCandidates((current) => (current ? candidates : current));
       await redetectProject(dir);
+      setSiteUrlVersion((version) => version + 1);
     } catch (refreshError) {
       setError(`Could not refresh workspace: ${message(refreshError)}`);
     }
@@ -180,6 +182,7 @@ export default function RepoHome({
       }
       if (path === root + "/.pages.yml") void schemas.loadPagesConfig(root);
       const scopes = projectSession.invalidations(root, [path], schemas.configRef.current);
+      if (scopes.has("siteUrl")) setSiteUrlVersion((version) => version + 1);
       if (scopes.has("projectType")) {
         void redetectProject(root);
       } else {
@@ -660,7 +663,13 @@ export default function RepoHome({
         </main>
       ) : showDeployments ? (
         repo ? (
-          <DeploymentStatus owner={repo.owner} name={repo.name} root={root} adapter={adapter} />
+          <DeploymentStatus
+            owner={repo.owner}
+            name={repo.name}
+            root={root}
+            adapter={adapter}
+            siteUrlVersion={siteUrlVersion}
+          />
         ) : (
           <main className="mobile-settings-screen">
             <Text c="dimmed" size="sm">

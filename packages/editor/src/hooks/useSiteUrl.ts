@@ -57,6 +57,7 @@ async function resolveSiteUrl(root: string, adapter: ProjectAdapter): Promise<st
 export function useSiteUrl(
   root: string | null,
   adapter: ProjectAdapter = genericAdapter,
+  version = 0,
 ): string | null {
   const [siteUrl, setSiteUrl] = useState<string | null>(null);
   useEffect(() => {
@@ -77,6 +78,6 @@ export function useSiteUrl(
     return () => {
       active = false;
     };
-  }, [root, adapter]);
+  }, [root, adapter, version]);
   return siteUrl;
 }

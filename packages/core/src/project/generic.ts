@@ -9,10 +9,16 @@ export const genericAdapter: ProjectAdapter = {
     return null;
   },
   invalidations(root) {
-    return PROJECT_MARKERS.map((marker) => ({
-      paths: [{ exact: `${root}/${marker.path}` }],
-      refresh: "projectType" as const,
-    }));
+    return [
+      ...PROJECT_MARKERS.map((marker) => ({
+        paths: [{ exact: `${root}/${marker.path}` }],
+        refresh: "projectType" as const,
+      })),
+      {
+        paths: [{ exact: `${root}/package.json` }, { exact: `${root}/public/CNAME` }],
+        refresh: "siteUrl" as const,
+      },
+    ];
   },
   routeForFile() {
     return null;

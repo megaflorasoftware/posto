@@ -185,6 +185,16 @@ export const astroAdapter: ProjectAdapter = {
         paths: [{ exact: `${root}/${marker.path}` }],
         refresh: "projectType" as const,
       })),
+      {
+        paths: [
+          { exact: `${root}/package.json` },
+          { exact: `${root}/public/CNAME` },
+          ...["mjs", "ts", "js", "mts", "cjs"].map((extension) => ({
+            exact: `${root}/astro.config.${extension}`,
+          })),
+        ],
+        refresh: "siteUrl" as const,
+      },
       ...(config?.mediaLibraries ?? []).map((library) => ({
         paths: [{ prefix: `${root}/${library.base}/` }],
         refresh: "mediaLibraries" as const,

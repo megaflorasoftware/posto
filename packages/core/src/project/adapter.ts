@@ -39,6 +39,7 @@ export type InvalidationScope =
   | "componentSchemas"
   | "mediaLibraries"
   | "dataDocuments"
+  | "siteUrl"
   | "projectType"
   | "workspaceLayout";
 

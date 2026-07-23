@@ -62,16 +62,18 @@ export function DeploymentStatus({
   name,
   root,
   adapter,
+  siteUrlVersion,
 }: {
   owner: string;
   name: string;
   root: string;
   adapter: ProjectAdapter;
+  siteUrlVersion: number;
 }) {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [now, setNow] = useState(() => Date.now());
   const [error, setError] = useState<string | null>(null);
-  const siteUrl = useSiteUrl(root, adapter);
+  const siteUrl = useSiteUrl(root, adapter, siteUrlVersion);
 
   useEffect(() => {
     let active = true;

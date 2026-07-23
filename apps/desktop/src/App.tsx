@@ -67,6 +67,7 @@ function App() {
   // Bumped after each successful save so the SEO preview refetches the page.
   const [saveTick, setSaveTick] = useState(0);
   const [componentSchemaVersion, setComponentSchemaVersion] = useState(0);
+  const [siteUrlVersion, setSiteUrlVersion] = useState(0);
 
   // Latest values for callbacks that outlive the render they were created in.
   const rootRef = useRef(root);
@@ -86,7 +87,7 @@ function App() {
   const files = useFileGroups(notifyError, adapter.capabilities.dataDocuments);
   const devServer = useDevServer();
   const deployment = useDeployment(repoRoot);
-  const siteUrl = useSiteUrl(root, adapter);
+  const siteUrl = useSiteUrl(root, adapter, siteUrlVersion);
 
   const currentFile = useCurrentFile({
     onAfterSave(path, content) {
@@ -399,6 +400,7 @@ function App() {
     }
     if (scopes.has("derivedConfig")) void schemas.loadDerivedConfig(dir, adapter);
     if (scopes.has("componentSchemas")) setComponentSchemaVersion((version) => version + 1);
+    if (scopes.has("siteUrl")) setSiteUrlVersion((version) => version + 1);
     if (scopes.has("dataDocuments")) {
       void files.refreshDataGroups(dir, schemas.configRef.current);
     }

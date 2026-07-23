@@ -73,6 +73,12 @@ test("invalidations return only affected refresh scopes", () => {
   expect(
     invalidationScopesForPaths(astroAdapter, "/site", ["/site/components/callout.astro"]),
   ).toContain("componentSchemas");
+  expect(invalidationScopesForPaths(genericAdapter, "/site", ["/site/public/CNAME"])).toContain(
+    "siteUrl",
+  );
+  expect(invalidationScopesForPaths(astroAdapter, "/site", ["/site/astro.config.mjs"])).toContain(
+    "siteUrl",
+  );
 });
 
 test("glob invalidations preserve recursive wildcard semantics", () => {
