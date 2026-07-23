@@ -214,6 +214,7 @@ export function BodyEditor(props: {
             ipcProjectIO,
             props.config,
           );
+          if (!result) continue;
           for (const name of names) {
             loaded[name] = {
               fields: result.fields,

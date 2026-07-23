@@ -30,12 +30,12 @@ export { DEFAULT_ASTRO_MEDIA };
 
 const astroComponentBlocks = {
   componentDirs(root: string) {
-    return [`${root}/src/components`];
+    return [`${root}/src/components`, `${root}/components`];
   },
   async listComponents(root: string, io: ProjectIO) {
     const components: ComponentRef[] = [];
     for (const dir of this.componentDirs(root)) {
-      const listed = await io.listDirFilesOptional(dir, ["astro"]);
+      const listed = await io.listDirFilesOptional(dir, ["astro", "tsx", "jsx", "vue", "svelte"]);
       for (const file of listed ?? []) {
         components.push({ name: componentNameFromFile(file.name), path: file.path });
       }
@@ -47,6 +47,9 @@ const astroComponentBlocks = {
     io: ProjectIO,
     config: PagesConfig = { media: [], content: [] },
   ) {
+    // Astro owns schemas only for .astro components. Framework islands remain
+    // available in the insertion palette without being parsed as Astro files.
+    if (!ref.path.endsWith(".astro")) return null;
     const source = await io.readTextFileOptional(ref.path);
     if (source === null) {
       return {

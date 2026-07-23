@@ -80,6 +80,7 @@ test("glob invalidations preserve recursive wildcard semantics", () => {
 test("Astro component capabilities provide neutral refs, fields, slots, and imports", async () => {
   const source = astroAdapter.capabilities.componentBlocks!;
   const componentPath = "/site/src/components/callout.astro";
+  const islandPath = "/site/components/counter.tsx";
   const io = {
     async pathExists() {
       return false;
@@ -92,11 +93,16 @@ test("Astro component capabilities provide neutral refs, fields, slots, and impo
     async listDirFilesOptional(dir: string) {
       return dir === "/site/src/components"
         ? [{ name: "callout.astro", path: componentPath }]
-        : null;
+        : dir === "/site/components"
+          ? [{ name: "counter.tsx", path: islandPath }]
+          : null;
     },
   };
   const refs = await source.listComponents("/site", io);
-  expect(refs).toEqual([{ name: "Callout", path: componentPath }]);
+  expect(refs).toEqual([
+    { name: "Callout", path: componentPath },
+    { name: "Counter", path: islandPath },
+  ]);
   expect(await source.componentFields(refs[0], io, { media: [], content: [] })).toMatchObject({
     fields: [
       { name: "title", type: "string", required: true },
@@ -109,4 +115,5 @@ test("Astro component capabilities provide neutral refs, fields, slots, and impo
   expect(source.importFor(refs[0], "/site/src/content/post.mdx")).toBe(
     "import Callout from '../components/callout.astro';",
   );
+  expect(await source.componentFields(refs[1], io, { media: [], content: [] })).toBeNull();
 });

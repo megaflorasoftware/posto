@@ -70,7 +70,7 @@ export interface ComponentSchemaSource {
     diagnostics: ProjectDiagnostic[];
     slots?: string[];
     hasDefaultSlot?: boolean;
-  }>;
+  } | null>;
   importFor(ref: ComponentRef, documentPath: string): string;
 }
 
