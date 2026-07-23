@@ -146,6 +146,17 @@ export default function RepoHome({
     );
   }
 
+  async function redetectProject(dir: string) {
+    try {
+      const detected = await detectProject(dir, ipcProjectIO);
+      const selectedAdapter = projectAdapter(detected.type);
+      setProjectInfo(detected);
+      await refreshRepositoryContent(dir, selectedAdapter);
+    } catch (detectionError) {
+      setError(`Could not inspect project: ${message(detectionError)}`);
+    }
+  }
+
   const currentFile = useCurrentFile({
     onAfterSave(path, content) {
       files.updateSidebarTitle(path, content);
@@ -158,10 +169,14 @@ export default function RepoHome({
       }
       if (path === root + "/.pages.yml") void schemas.loadPagesConfig(root);
       const scopes = invalidationScopesForPaths(adapter, root, [path], schemas.configRef.current);
-      if (scopes.has("derivedConfig")) void schemas.loadDerivedConfig(root, adapter);
-      if (scopes.has("componentSchemas")) setComponentSchemaVersion((version) => version + 1);
-      if (scopes.has("dataDocuments")) {
-        void files.refreshDataGroups(root, schemas.configRef.current);
+      if (scopes.has("projectType")) {
+        void redetectProject(root);
+      } else {
+        if (scopes.has("derivedConfig")) void schemas.loadDerivedConfig(root, adapter);
+        if (scopes.has("componentSchemas")) setComponentSchemaVersion((version) => version + 1);
+        if (scopes.has("dataDocuments")) {
+          void files.refreshDataGroups(root, schemas.configRef.current);
+        }
       }
       // Frontmatter drives template-derived filenames; each (already
       // debounced) save is the moment to bring the name back in line.
@@ -190,7 +205,7 @@ export default function RepoHome({
   const git = useGitSync(root, {
     onStatus: (message) => setStatus(message),
     beforeSync: () => currentFile.flushPendingSave(),
-    afterPull: refreshRepositoryContent,
+    afterPull: redetectProject,
     // Publish progress lives on the Publish button; only failures surface.
     onPublishError: setStatus,
   });
