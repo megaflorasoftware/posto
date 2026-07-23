@@ -109,6 +109,7 @@ function dependencies(source: string | null): Set<string> {
 export async function detectProject(root: string, io: DetectionIO): Promise<ProjectInfo> {
   const [
     hasPagesYml,
+    hasPostoDir,
     postoSource,
     packageSource,
     astroConfig,
@@ -120,6 +121,7 @@ export async function detectProject(root: string, io: DetectionIO): Promise<Proj
     hasArchetypesDir,
   ] = await Promise.all([
     io.pathExists(join(root, markerPath("pages")), "file"),
+    io.pathExists(join(root, markerPath("posto")), "directory"),
     io.readTextFileOptional(join(root, markerPath("posto-index"))),
     io.readTextFileOptional(join(root, markerPath("manifest"))),
     firstExisting(root, ASTRO_CONFIGS, io),
@@ -134,6 +136,7 @@ export async function detectProject(root: string, io: DetectionIO): Promise<Proj
   const override = postoSource ? parsePostoIndex(postoSource).project : undefined;
   return projectInfoFromMarkers([
     ...(hasPagesYml ? [".pages.yml"] : []),
+    ...(hasPostoDir ? [".posto"] : []),
     ...(postoSource !== null ? [".posto/index.json"] : []),
     ...(override ? [`project:${override}`] : []),
     ...(astroConfig ? [astroConfig] : []),
@@ -155,7 +158,7 @@ export function projectInfoFromMarkers(markers: string[]): ProjectInfo {
     .find((marker) => marker.startsWith("project:"))
     ?.slice("project:".length);
   const hasPagesYml = markerSet.has(".pages.yml");
-  const hasPostoDir = markerSet.has(".posto/index.json");
+  const hasPostoDir = markerSet.has(".posto") || markerSet.has(".posto/index.json");
   if (override) {
     const recognized = PROJECT_TYPES.includes(override as ProjectType);
     const type = recognized ? (override as ProjectType) : "generic";

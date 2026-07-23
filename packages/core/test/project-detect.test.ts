@@ -56,6 +56,15 @@ test("tracks overlays on generic projects", async () => {
   expect(info).toMatchObject({ type: "generic", hasPagesYml: true, hasPostoDir: true });
 });
 
+test("tracks posto collection overlays without an index", async () => {
+  const info = await detectProject(
+    "/site",
+    tree({ "/site/.posto/collections/posts.json": '{"displayName":"Posts"}' }),
+  );
+  expect(info).toMatchObject({ type: "generic", hasPostoDir: true });
+  expect(projectInfoFromMarkers([".posto"])).toMatchObject({ hasPostoDir: true });
+});
+
 test("posto can override detection to any registered project type", async () => {
   const info = await detectProject(
     "/site",

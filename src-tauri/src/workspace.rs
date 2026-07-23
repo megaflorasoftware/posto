@@ -75,9 +75,12 @@ fn scan_dir(dir: &Path, depth: usize, output: &mut Vec<ProjectInventory>) {
             }
         }
         if kind.is_dir() {
-            if name == ".posto" && entry.path().join("index.json").is_file() {
-                names.push(".posto/index.json".to_string());
-                posto_index = std::fs::read_to_string(entry.path().join("index.json")).ok();
+            if name == ".posto" {
+                names.push(".posto".to_string());
+                if entry.path().join("index.json").is_file() {
+                    names.push(".posto/index.json".to_string());
+                    posto_index = std::fs::read_to_string(entry.path().join("index.json")).ok();
+                }
             } else if name == ".astro" {
                 names.push(".astro".to_string());
             } else if matches!(name.as_str(), "content" | "archetypes") {
