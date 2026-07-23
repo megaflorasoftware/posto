@@ -100,6 +100,7 @@ export default function RepoHome({
 }: Props) {
   const [root, setWorkDir] = useState(repoRoot);
   const [workspaceCandidates, setWorkspaceCandidates] = useState<ProjectCandidate[] | null>(null);
+  const [workspaceChooserFromSettings, setWorkspaceChooserFromSettings] = useState(false);
   const [loading, setLoading] = useState(true);
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
   const adapter = useMemo(() => projectAdapter(projectInfo?.type ?? "generic"), [projectInfo]);
@@ -215,7 +216,10 @@ export default function RepoHome({
         const decision = decideWorkspace(repoRoot, scan);
         const remembered = await invoke<string | null>("get_work_dir", { root: repoRoot });
         if (!remembered && decision.kind === "choose") {
-          if (active) setWorkspaceCandidates(decision.candidates);
+          if (active) {
+            setWorkspaceChooserFromSettings(false);
+            setWorkspaceCandidates(decision.candidates);
+          }
           return;
         }
         const selectedRoot = remembered ?? (decision.kind === "open" ? decision.workDir : repoRoot);
@@ -246,6 +250,7 @@ export default function RepoHome({
       setWorkDir(selectedRoot);
       setProjectInfo(detected);
       setWorkspaceCandidates(null);
+      setWorkspaceChooserFromSettings(false);
       void invoke("set_last_root", { root: repoRoot, workDir: selectedRoot });
       await refreshRepositoryContent(selectedRoot, projectAdapter(detected.type));
       void git.refreshLocalChanges(selectedRoot);
@@ -258,6 +263,7 @@ export default function RepoHome({
     try {
       const inventory = await invoke<ProjectInventory[]>("scan_projects", { root: repoRoot });
       const scan = await scanWorkspace(repoRoot, inventory);
+      setWorkspaceChooserFromSettings(true);
       setWorkspaceCandidates([{ dir: repoRoot, ...scan.root }, ...scan.candidates]);
       setShowSettings(false);
     } catch (workspaceError) {
@@ -533,6 +539,18 @@ export default function RepoHome({
     onChangeRepo();
   }
 
+  function navigateBack() {
+    if (workspaceCandidates && workspaceChooserFromSettings) {
+      setWorkspaceCandidates(null);
+      setWorkspaceChooserFromSettings(false);
+      setShowSettings(true);
+    } else if (showEditor || showSettings || showDeployments || showMedia) {
+      closeSecondaryView();
+    } else {
+      leaveRepository();
+    }
+  }
+
   function closeMediaImport() {
     setMediaImportOpen(false);
     setImportLibrary(null);
@@ -584,15 +602,7 @@ export default function RepoHome({
     <>
       <header className={`mobile-header${showEditor ? " mobile-editor-header" : ""}`}>
         <Group gap={0} wrap="nowrap" className="mobile-header-title">
-          <ActionIcon
-            variant="subtle"
-            aria-label="Back"
-            onClick={
-              showEditor || showSettings || showDeployments || showMedia
-                ? closeSecondaryView
-                : leaveRepository
-            }
-          >
+          <ActionIcon variant="subtle" aria-label="Back" onClick={navigateBack}>
             <ChevronLeft size={22} />
           </ActionIcon>
           {!showEditor && (
@@ -604,7 +614,9 @@ export default function RepoHome({
                     ? "Media"
                     : showSettings
                       ? "Settings"
-                      : (repo?.name ?? "Repository")}
+                      : workspaceCandidates
+                        ? "Choose project"
+                        : (repo?.name ?? "Repository")}
               </Text>
               {!showDeployments && !showMedia && !showSettings && projectInfo && (
                 <Text size="xs" c="dimmed">
@@ -631,7 +643,7 @@ export default function RepoHome({
             </Tabs.List>
           </Tabs>
         )}
-        {!showEditor && !showSettings && (
+        {!showEditor && !showSettings && !workspaceCandidates && (
           <ActionIcon
             variant="subtle"
             aria-label="Site settings"
