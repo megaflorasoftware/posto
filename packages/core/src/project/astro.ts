@@ -89,16 +89,19 @@ const astroComponentBlocks = {
       mediaLibraries: config.mediaLibraries,
     };
     const definitions = parseAstroProps(source, importedTypes);
-    const fields = definitions.map((definition) => {
+    const fields: Field[] = definitions.map((definition) => {
       const field = astroPropField(definition, typeContext);
-      return (
-        field ?? {
-          name: definition.name,
-          type: "text",
-          required: !definition.optional,
-          options: { mdxRawType: definition.type },
-        }
-      );
+      return field
+        ? {
+            ...field,
+            options: { ...field.options, mdxDeclaredType: definition.type },
+          }
+        : {
+            name: definition.name,
+            type: "text",
+            required: !definition.optional,
+            options: { mdxRawType: definition.type, mdxDeclaredType: definition.type },
+          };
     });
     const propsType = parseAstroPropsType(source, importedTypes);
     if (propsType) {

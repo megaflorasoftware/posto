@@ -194,6 +194,8 @@ function PropsForm(formProps: {
   const fields: Field[] = [];
   for (const field of declaredFields) {
     const rawType = typeof field.options?.mdxRawType === "string" ? field.options.mdxRawType : null;
+    const declaredType =
+      typeof field.options?.mdxDeclaredType === "string" ? field.options.mdxDeclaredType : rawType;
     const value = values[field.name];
     if (!rawType && value !== UNPARSED && valueFits(field, value)) {
       rows.push({ key: field.name, kind: "field", field });
@@ -203,7 +205,7 @@ function PropsForm(formProps: {
         key: field.name,
         kind: "raw",
         propName: field.name,
-        rawType,
+        rawType: declaredType,
         required: field.required === true,
       });
     }

@@ -105,9 +105,18 @@ test("Astro component capabilities provide neutral refs, fields, slots, and impo
   ]);
   expect(await source.componentFields(refs[0], io, { media: [], content: [] })).toMatchObject({
     fields: [
-      { name: "title", type: "string", required: true },
-      { name: "count", type: "number" },
-      { name: "payload", type: "text", options: { mdxRawType: "Date" } },
+      {
+        name: "title",
+        type: "string",
+        required: true,
+        options: { mdxDeclaredType: "string" },
+      },
+      { name: "count", type: "number", options: { mdxDeclaredType: "number" } },
+      {
+        name: "payload",
+        type: "text",
+        options: { mdxRawType: "Date", mdxDeclaredType: "Date" },
+      },
     ],
     slots: ["footer"],
     hasDefaultSlot: true,
