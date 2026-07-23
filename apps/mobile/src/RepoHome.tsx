@@ -133,7 +133,7 @@ export default function RepoHome({
   const [refreshing, setRefreshing] = useState(false);
   const filesViewportRef = useRef<HTMLDivElement>(null);
   const pullStartY = useRef<number | null>(null);
-  const schemas = useSchemas(adapter);
+  const schemas = useSchemas(adapter, ipcProjectIO);
   const files = useFileGroups(setError, adapter.capabilities.dataDocuments);
 
   async function refreshRepositoryContent(dir: string, selectedAdapter?: ProjectAdapter) {

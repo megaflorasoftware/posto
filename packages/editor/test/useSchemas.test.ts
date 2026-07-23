@@ -1,34 +1,44 @@
 // @vitest-environment jsdom
 
 import { act, renderHook } from "@testing-library/react";
-import { invoke } from "@posto/ipc";
-import { beforeEach, expect, test, vi } from "vitest";
+import { expect, test } from "vitest";
 import { useSchemas } from "../src/hooks/useSchemas";
 import { genericAdapter } from "@posto/core/project/generic";
+import type { ProjectIO } from "@posto/core/project/adapter";
 
-vi.mock("@posto/ipc", () => ({ invoke: vi.fn() }));
-
-const invokeMock = vi.mocked(invoke);
-
-beforeEach(() => invokeMock.mockReset());
+function projectIO(input: {
+  read?: (path: string) => string | null;
+  list?: (dir: string) => { name: string; path: string }[] | null;
+}): ProjectIO {
+  return {
+    async pathExists() {
+      return false;
+    },
+    async readTextFileOptional(path) {
+      return input.read?.(path) ?? null;
+    },
+    async listDirFilesOptional(dir) {
+      return input.list?.(dir) ?? null;
+    },
+  };
+}
 
 test("malformed posto JSON is skipped without discarding valid preferences", async () => {
-  invokeMock.mockImplementation(async (command, args) => {
-    if (command === "list_dir_files_optional") {
+  const io = projectIO({
+    list() {
       return [
         { name: "bad.json", path: "/site/.posto/collections/bad.json" },
         { name: "good.json", path: "/site/.posto/collections/good.json" },
       ];
-    }
-    if (command === "read_text_file_optional") {
-      const path = String(args?.path);
+    },
+    read(path) {
       if (path.endsWith("index.json")) return "{ invalid";
       if (path.endsWith("bad.json")) return "{ invalid";
       if (path.endsWith("good.json")) return '{"displayName":"Good"}';
-    }
-    return null;
+      return null;
+    },
   });
-  const { result } = renderHook(() => useSchemas());
+  const { result } = renderHook(() => useSchemas(genericAdapter, io));
 
   let config = null;
   await act(async () => {
@@ -42,16 +52,13 @@ test("malformed posto JSON is skipped without discarding valid preferences", asy
 });
 
 test("pages-only projects retain the conventional public media source", async () => {
-  invokeMock.mockImplementation(async (command, args) => {
-    if (command === "read_text_file_optional") {
-      const path = String(args?.path);
+  const io = projectIO({
+    read(path) {
       if (path.endsWith("/.pages.yml")) return "content: []\n";
       return null;
-    }
-    if (command === "list_dir_files_optional") return null;
-    return null;
+    },
   });
-  const { result } = renderHook(() => useSchemas(genericAdapter));
+  const { result } = renderHook(() => useSchemas(genericAdapter, io));
 
   await act(async () => {
     await result.current.loadSchemas("/site", genericAdapter);
@@ -61,10 +68,7 @@ test("pages-only projects retain the conventional public media source", async ()
 });
 
 test("adapter diagnostics are merged into the effective config once", async () => {
-  invokeMock.mockImplementation(async (command) => {
-    if (command === "read_text_file_optional" || command === "list_dir_files_optional") return null;
-    return null;
-  });
+  const io = projectIO({});
   const diagnostic = {
     feature: "adapter",
     code: "fixture",
@@ -79,7 +83,7 @@ test("adapter diagnostics are merged into the effective config once", async () =
       };
     },
   };
-  const { result } = renderHook(() => useSchemas(adapter));
+  const { result } = renderHook(() => useSchemas(adapter, io));
 
   await act(async () => {
     await result.current.loadSchemas("/site", adapter);

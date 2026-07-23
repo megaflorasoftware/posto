@@ -1,8 +1,6 @@
 import { useMemo, useRef, useState } from "react";
-import { invoke } from "@posto/ipc";
 import { parsePagesConfig, type PagesConfig } from "@posto/core/pagescms/config";
-import type { ProjectAdapter } from "@posto/core/project/adapter";
-import { astroAdapter } from "@posto/core/project/astro";
+import type { ProjectAdapter, ProjectIO } from "@posto/core/project/adapter";
 import {
   POSTO_COLLECTIONS_DIR,
   POSTO_INDEX_PATH,
@@ -11,7 +9,6 @@ import {
   parsePostoIndex,
   type PostoConfig,
 } from "@posto/core/posto/config";
-import { ipcProjectIO } from "../projectIO";
 
 export function resolveEffectiveConfig(
   pagesConfig: PagesConfig | null,
@@ -35,9 +32,11 @@ export function resolveEffectiveConfig(
   );
 }
 
-export function useSchemas(adapter: ProjectAdapter = astroAdapter) {
+export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
   const adapterRef = useRef(adapter);
   adapterRef.current = adapter;
+  const ioRef = useRef(io);
+  ioRef.current = io;
   const [pagesConfig, setPagesConfig] = useState<PagesConfig | null>(null);
   const pagesConfigRef = useRef<PagesConfig | null>(null);
   // Fallback schemas derived from Astro content collections; `.pages.yml`
@@ -79,9 +78,7 @@ export function useSchemas(adapter: ProjectAdapter = astroAdapter) {
     setSourceError("pages", null);
     let source: string | null;
     try {
-      source = await invoke<string | null>("read_text_file_optional", {
-        path: dir + "/.pages.yml",
-      });
+      source = await ioRef.current.readTextFileOptional(dir + "/.pages.yml");
     } catch (e) {
       setSourceError("pages", e instanceof Error ? e.message : String(e));
       return pagesConfigRef.current;
@@ -110,9 +107,7 @@ export function useSchemas(adapter: ProjectAdapter = astroAdapter) {
     const config: PostoConfig = { collections: {} };
     let indexSource: string | null;
     try {
-      indexSource = await invoke<string | null>("read_text_file_optional", {
-        path: `${dir}/${POSTO_INDEX_PATH}`,
-      });
+      indexSource = await ioRef.current.readTextFileOptional(`${dir}/${POSTO_INDEX_PATH}`);
     } catch (e) {
       setSourceError("posto", e instanceof Error ? e.message : String(e));
       return postoConfigRef.current;
@@ -122,10 +117,9 @@ export function useSchemas(adapter: ProjectAdapter = astroAdapter) {
     }
     let listed: { name: string; path: string }[] | null;
     try {
-      listed = await invoke<{ name: string; path: string }[] | null>("list_dir_files_optional", {
-        dir: `${dir}/${POSTO_COLLECTIONS_DIR}`,
-        extensions: ["json"],
-      });
+      listed = await ioRef.current.listDirFilesOptional(`${dir}/${POSTO_COLLECTIONS_DIR}`, [
+        "json",
+      ]);
     } catch (e) {
       setSourceError("posto", e instanceof Error ? e.message : String(e));
       return postoConfigRef.current;
@@ -134,7 +128,7 @@ export function useSchemas(adapter: ProjectAdapter = astroAdapter) {
       if (!file.name.endsWith(".json")) continue;
       let source: string | null;
       try {
-        source = await invoke<string | null>("read_text_file_optional", { path: file.path });
+        source = await ioRef.current.readTextFileOptional(file.path);
       } catch (e) {
         setSourceError("posto", e instanceof Error ? e.message : String(e));
         return postoConfigRef.current;
@@ -157,7 +151,7 @@ export function useSchemas(adapter: ProjectAdapter = astroAdapter) {
   ): Promise<PagesConfig | null> {
     setSourceError("derived", null);
     try {
-      const loaded = await selectedAdapter.loadDerivedConfig(dir, ipcProjectIO);
+      const loaded = await selectedAdapter.loadDerivedConfig(dir, ioRef.current);
       if (!loaded) {
         commitDerivedConfig(null);
         return null;
@@ -212,12 +206,9 @@ export function useSchemas(adapter: ProjectAdapter = astroAdapter) {
     configRef,
     pagesConfig,
     derivedConfig,
-    // Compatibility aliases while app call sites migrate to adapter language.
-    astroConfig: derivedConfig,
     configError,
     loadPagesConfig,
     loadDerivedConfig,
-    loadAstroConfig: loadDerivedConfig,
     loadPostoConfig,
     loadSchemas,
   };

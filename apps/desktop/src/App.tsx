@@ -70,7 +70,7 @@ function App() {
   const rootRef = useRef(root);
   rootRef.current = root;
 
-  const schemas = useSchemas(adapter);
+  const schemas = useSchemas(adapter, ipcProjectIO);
   const notify = useCallback((message: string, severity: "progress" | "success" | "error") => {
     notifications.show({
       message,
