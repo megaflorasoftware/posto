@@ -26,9 +26,14 @@ test("Astro owns its entry id behavior", () => {
 
 test("Eleventy supplies a conservative markdown route", () => {
   expect(eleventyAdapter.routeForFile("/site", "/site/posts/hello.md", "")).toEqual({
-    route: "/posts/hello",
+    route: "/posts/hello/",
     certain: false,
   });
+  expect(eleventyAdapter.routeForFile("/site", "/site/index.md", "")?.route).toBe("/");
+  expect(eleventyAdapter.routeForFile("/site", "/site/posts/index.markdown", "")?.route).toBe(
+    "/posts/",
+  );
+  expect(eleventyAdapter.routeForFile("/site", "/other/post.md", "")).toBeNull();
 });
 
 test("Eleventy proves the seam without framework-only capabilities", async () => {

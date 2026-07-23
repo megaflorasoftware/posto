@@ -38,7 +38,8 @@ export const eleventyAdapter: ProjectAdapter = {
     if (!/\.(?:md|markdown)$/i.test(path) || !path.startsWith(`${root}/`)) return null;
     let rel = path.slice(root.length + 1).replace(/\.(?:md|markdown)$/i, "");
     if (rel === "index" || rel.endsWith("/index")) rel = rel.slice(0, -"index".length);
-    return { route: `/${rel}`.replace(/\/$/, "") || "/", certain: false };
+    const route = `/${rel}`.replace(/\/+/g, "/");
+    return { route: route === "/" ? "/" : `${route.replace(/\/$/, "")}/`, certain: false };
   },
 };
 
