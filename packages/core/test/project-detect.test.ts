@@ -33,6 +33,7 @@ test("detects reserved Hugo projects", async () => {
     tree({ "/site/config.toml": "", "/site/content/post.md": "" }),
   );
   expect(info.type).toBe("hugo");
+  expect(info.diagnostic).toContain("recognized but not implemented");
 });
 
 test("detects Eleventy from its config or dependency", async () => {
@@ -66,6 +67,8 @@ test("posto can override detection to any registered project type", async () => 
   expect(info).toMatchObject({
     type: "hugo",
     signals: ["overridden via .posto"],
+    diagnostic:
+      "project type 'hugo' is recognized but not implemented by this version; using generic behavior",
   });
 });
 

@@ -1,4 +1,5 @@
 import { parsePostoIndex } from "../posto/config";
+import { projectTypeImplemented } from "./support";
 
 export const PROJECT_TYPES = ["astro", "eleventy", "hugo", "generic"] as const;
 export type ProjectType = (typeof PROJECT_TYPES)[number];
@@ -156,17 +157,22 @@ export function projectInfoFromMarkers(markers: string[]): ProjectInfo {
   const hasPagesYml = markerSet.has(".pages.yml");
   const hasPostoDir = markerSet.has(".posto/index.json");
   if (override) {
-    const supported = PROJECT_TYPES.includes(override as ProjectType);
+    const recognized = PROJECT_TYPES.includes(override as ProjectType);
+    const type = recognized ? (override as ProjectType) : "generic";
     return {
-      type: supported ? (override as ProjectType) : "generic",
+      type,
       signals: ["overridden via .posto"],
       hasPagesYml,
       hasPostoDir,
-      ...(!supported
+      ...(!recognized
         ? {
             diagnostic: `project type '${override}' is not supported by this version; treating as generic`,
           }
-        : {}),
+        : !projectTypeImplemented(type)
+          ? {
+              diagnostic: `project type '${type}' is recognized but not implemented by this version; using generic behavior`,
+            }
+          : {}),
     };
   }
   const astro = [...ASTRO_CONFIGS].find((marker) => markerSet.has(marker));
@@ -203,6 +209,8 @@ export function projectInfoFromMarkers(markers: string[]): ProjectInfo {
       signals: [hugo ?? genericHugo!, hugoLayout ? "Hugo content layout" : "Hugo config"],
       hasPagesYml,
       hasPostoDir,
+      diagnostic:
+        "project type 'hugo' is recognized but not implemented by this version; using generic behavior",
     };
   }
   return { type: "generic", signals: [], hasPagesYml, hasPostoDir };
