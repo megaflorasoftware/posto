@@ -10,14 +10,10 @@ export const genericAdapter: ProjectAdapter = {
   },
   invalidations(root) {
     return [
-      ...PROJECT_MARKERS.map((path) => ({
-        paths: [{ exact: `${root}/${path}` }],
+      ...PROJECT_MARKERS.map((marker) => ({
+        paths: [{ exact: `${root}/${marker.path}` }],
         refresh: "projectType" as const,
       })),
-      {
-        paths: [{ exact: `${root}/.astro` }, { prefix: `${root}/.astro/` }],
-        refresh: "projectType",
-      },
     ];
   },
   routeForFile() {

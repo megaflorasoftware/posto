@@ -17,30 +17,65 @@ export interface DetectionIO {
   readTextFileOptional(path: string): Promise<string | null>;
 }
 
-const ASTRO_CONFIGS = [
-  "astro.config.mjs",
-  "astro.config.ts",
-  "astro.config.js",
-  "astro.config.mts",
-  "astro.config.cjs",
-];
-const ELEVENTY_CONFIGS = [
-  ".eleventy.js",
-  "eleventy.config.js",
-  "eleventy.config.cjs",
-  "eleventy.config.mjs",
-];
-const HUGO_CONFIGS = ["hugo.toml", "hugo.yaml", "hugo.json"];
-const GENERIC_HUGO_CONFIGS = ["config.toml", "config.yaml", "config.json"];
+export type ProjectMarkerKind = "file" | "directory";
+type ProjectEvidence =
+  | "astro-config"
+  | "astro-state"
+  | "eleventy-config"
+  | "hugo-config"
+  | "hugo-generic-config"
+  | "hugo-layout"
+  | "manifest"
+  | "pages"
+  | "posto"
+  | "posto-index";
 
-export const PROJECT_MARKERS = [
-  ...ASTRO_CONFIGS,
-  ...ELEVENTY_CONFIGS,
-  ...HUGO_CONFIGS,
-  ...GENERIC_HUGO_CONFIGS,
-  "package.json",
-  ".posto/index.json",
+/** Canonical detection inputs, shared with adapter invalidation rules. */
+export const PROJECT_MARKERS: readonly {
+  path: string;
+  kind: ProjectMarkerKind;
+  evidence: ProjectEvidence;
+}[] = [
+  ...[
+    "astro.config.mjs",
+    "astro.config.ts",
+    "astro.config.js",
+    "astro.config.mts",
+    "astro.config.cjs",
+  ].map((path) => ({ path, kind: "file" as const, evidence: "astro-config" as const })),
+  ...[".eleventy.js", "eleventy.config.js", "eleventy.config.cjs", "eleventy.config.mjs"].map(
+    (path) => ({ path, kind: "file" as const, evidence: "eleventy-config" as const }),
+  ),
+  ...["hugo.toml", "hugo.yaml", "hugo.json"].map((path) => ({
+    path,
+    kind: "file" as const,
+    evidence: "hugo-config" as const,
+  })),
+  ...["config.toml", "config.yaml", "config.json"].map((path) => ({
+    path,
+    kind: "file" as const,
+    evidence: "hugo-generic-config" as const,
+  })),
+  { path: "package.json", kind: "file", evidence: "manifest" },
+  { path: ".pages.yml", kind: "file", evidence: "pages" },
+  { path: ".posto", kind: "directory", evidence: "posto" },
+  { path: ".posto/index.json", kind: "file", evidence: "posto-index" },
+  { path: ".astro", kind: "directory", evidence: "astro-state" },
+  { path: "content", kind: "directory", evidence: "hugo-layout" },
+  { path: "archetypes", kind: "directory", evidence: "hugo-layout" },
 ] as const;
+
+function evidencePaths(evidence: ProjectEvidence): string[] {
+  return PROJECT_MARKERS.filter((marker) => marker.evidence === evidence).map(
+    (marker) => marker.path,
+  );
+}
+
+const ASTRO_CONFIGS = evidencePaths("astro-config");
+const ELEVENTY_CONFIGS = evidencePaths("eleventy-config");
+const HUGO_CONFIGS = evidencePaths("hugo-config");
+const GENERIC_HUGO_CONFIGS = evidencePaths("hugo-generic-config");
+const markerPath = (evidence: ProjectEvidence) => evidencePaths(evidence)[0];
 
 function join(root: string, path: string): string {
   return `${root.replace(/\/$/, "")}/${path}`;
@@ -83,16 +118,16 @@ export async function detectProject(root: string, io: DetectionIO): Promise<Proj
     hasContentDir,
     hasArchetypesDir,
   ] = await Promise.all([
-    io.pathExists(join(root, ".pages.yml"), "file"),
-    io.readTextFileOptional(join(root, ".posto/index.json")),
-    io.readTextFileOptional(join(root, "package.json")),
+    io.pathExists(join(root, markerPath("pages")), "file"),
+    io.readTextFileOptional(join(root, markerPath("posto-index"))),
+    io.readTextFileOptional(join(root, markerPath("manifest"))),
     firstExisting(root, ASTRO_CONFIGS, io),
     firstExisting(root, ELEVENTY_CONFIGS, io),
     firstExisting(root, HUGO_CONFIGS, io),
     firstExisting(root, GENERIC_HUGO_CONFIGS, io),
-    io.pathExists(join(root, ".astro"), "directory"),
-    io.pathExists(join(root, "content"), "directory"),
-    io.pathExists(join(root, "archetypes"), "directory"),
+    io.pathExists(join(root, markerPath("astro-state")), "directory"),
+    io.pathExists(join(root, evidencePaths("hugo-layout")[0]), "directory"),
+    io.pathExists(join(root, evidencePaths("hugo-layout")[1]), "directory"),
   ]);
   const deps = dependencies(packageSource);
   const override = postoSource ? parsePostoIndex(postoSource).project : undefined;

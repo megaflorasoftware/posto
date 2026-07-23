@@ -177,9 +177,12 @@ export const astroAdapter: ProjectAdapter = {
         ],
         refresh: "derivedConfig",
       },
-      { paths: [{ prefix: `${root}/src/components/` }], refresh: "componentSchemas" },
-      ...PROJECT_MARKERS.map((path) => ({
-        paths: [{ exact: `${root}/${path}` }],
+      {
+        paths: [{ prefix: `${root}/src/components/` }],
+        refresh: "componentSchemas",
+      },
+      ...PROJECT_MARKERS.map((marker) => ({
+        paths: [{ exact: `${root}/${marker.path}` }],
         refresh: "projectType" as const,
       })),
       ...(config?.mediaLibraries ?? []).map((library) => ({
