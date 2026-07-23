@@ -267,14 +267,9 @@ export default function RepoHome({
 
   async function browseWorkspace() {
     try {
-      const directories = await invoke<string[]>("list_directories", { dir: repoRoot });
-      const candidates = await Promise.all(
-        [repoRoot, ...directories].map(async (dir) => ({
-          dir,
-          ...(await detectProject(dir, ipcProjectIO)),
-        })),
-      );
-      setWorkspaceCandidates(candidates);
+      const inventory = await invoke<ProjectInventory[]>("scan_projects", { root: repoRoot });
+      const scan = await scanWorkspace(repoRoot, inventory);
+      setWorkspaceCandidates([{ dir: repoRoot, ...scan.root }, ...scan.candidates]);
     } catch (workspaceError) {
       setError(`Could not browse repository: ${message(workspaceError)}`);
     }
