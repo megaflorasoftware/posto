@@ -25,6 +25,17 @@ test("a framework root wins over nested candidates", async () => {
   });
 });
 
+test("workspace classification uses the canonical posto parser", async () => {
+  const scan = await scanWorkspace("/repo", [
+    {
+      dir: "/repo",
+      markers: [".posto/index.json", "astro.config.mjs"],
+      postoIndex: JSON.stringify({ project: "hugo" }),
+    },
+  ]);
+  expect(scan.root).toMatchObject({ type: "hugo", signals: ["overridden via .posto"] });
+});
+
 test("workspace manifests never invalidate a single-project session", () => {
   expect(workspaceLayoutChanged("/repo", "/repo", ["/repo/package.json"])).toBe(false);
   expect(workspaceLayoutChanged("/repo", "/repo/apps/site", ["/repo/pnpm-workspace.yaml"])).toBe(

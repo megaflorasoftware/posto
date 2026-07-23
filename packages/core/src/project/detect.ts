@@ -69,85 +69,47 @@ function dependencies(source: string | null): Set<string> {
   }
 }
 
-function overrideFrom(source: string | null): string | null {
-  return source ? (parsePostoIndex(source).project ?? null) : null;
-}
-
 /** Classifies one selected working directory. Rules are ordered by precedence. */
 export async function detectProject(root: string, io: DetectionIO): Promise<ProjectInfo> {
-  const [hasPagesYml, hasPostoDir, overrideSource] = await Promise.all([
+  const [
+    hasPagesYml,
+    postoSource,
+    packageSource,
+    astroConfig,
+    eleventyConfig,
+    hugoConfig,
+    genericHugoConfig,
+    hasAstroDir,
+    hasContentDir,
+    hasArchetypesDir,
+  ] = await Promise.all([
     io.pathExists(join(root, ".pages.yml"), "file"),
-    io.pathExists(join(root, ".posto"), "directory"),
     io.readTextFileOptional(join(root, ".posto/index.json")),
+    io.readTextFileOptional(join(root, "package.json")),
+    firstExisting(root, ASTRO_CONFIGS, io),
+    firstExisting(root, ELEVENTY_CONFIGS, io),
+    firstExisting(root, HUGO_CONFIGS, io),
+    firstExisting(root, GENERIC_HUGO_CONFIGS, io),
+    io.pathExists(join(root, ".astro"), "directory"),
+    io.pathExists(join(root, "content"), "directory"),
+    io.pathExists(join(root, "archetypes"), "directory"),
   ]);
-  const override = overrideFrom(overrideSource);
-  if (override) {
-    const supported = PROJECT_TYPES.includes(override as ProjectType);
-    return {
-      type: supported ? (override as ProjectType) : "generic",
-      signals: ["overridden via .posto"],
-      hasPagesYml,
-      hasPostoDir,
-      ...(!supported
-        ? {
-            diagnostic: `project type '${override}' is not supported by this version; treating as generic`,
-          }
-        : {}),
-    };
-  }
-
-  const packageSource = await io.readTextFileOptional(join(root, "package.json"));
   const deps = dependencies(packageSource);
-  const astroConfig = await firstExisting(root, ASTRO_CONFIGS, io);
-  if (
-    astroConfig ||
-    deps.has("astro") ||
-    (await io.pathExists(join(root, ".astro"), "directory"))
-  ) {
-    return {
-      type: "astro",
-      signals: [
-        ...(astroConfig ? [astroConfig] : []),
-        ...(deps.has("astro") ? ["astro dependency"] : []),
-        ...((await io.pathExists(join(root, ".astro"), "directory")) ? [".astro directory"] : []),
-      ],
-      hasPagesYml,
-      hasPostoDir,
-    };
-  }
-
-  const eleventyConfig = await firstExisting(root, ELEVENTY_CONFIGS, io);
-  if (eleventyConfig || deps.has("@11ty/eleventy")) {
-    return {
-      type: "eleventy",
-      signals: [
-        ...(eleventyConfig ? [eleventyConfig] : []),
-        ...(deps.has("@11ty/eleventy") ? ["@11ty/eleventy dependency"] : []),
-      ],
-      hasPagesYml,
-      hasPostoDir,
-    };
-  }
-
-  const hugoConfig = await firstExisting(root, HUGO_CONFIGS, io);
-  const genericHugoConfig = await firstExisting(root, GENERIC_HUGO_CONFIGS, io);
-  const hugoLayout =
-    !!genericHugoConfig &&
-    ((await io.pathExists(join(root, "content"), "directory")) ||
-      (await io.pathExists(join(root, "archetypes"), "directory")));
-  if (hugoConfig || hugoLayout) {
-    return {
-      type: "hugo",
-      signals: [
-        hugoConfig ?? genericHugoConfig!,
-        hugoLayout ? "Hugo content layout" : "Hugo config",
-      ],
-      hasPagesYml,
-      hasPostoDir,
-    };
-  }
-
-  return { type: "generic", signals: [], hasPagesYml, hasPostoDir };
+  const override = postoSource ? parsePostoIndex(postoSource).project : undefined;
+  return projectInfoFromMarkers([
+    ...(hasPagesYml ? [".pages.yml"] : []),
+    ...(postoSource !== null ? [".posto/index.json"] : []),
+    ...(override ? [`project:${override}`] : []),
+    ...(astroConfig ? [astroConfig] : []),
+    ...(deps.has("astro") ? ["dependency:astro"] : []),
+    ...(hasAstroDir ? [".astro"] : []),
+    ...(eleventyConfig ? [eleventyConfig] : []),
+    ...(deps.has("@11ty/eleventy") ? ["dependency:@11ty/eleventy"] : []),
+    ...(hugoConfig ? [hugoConfig] : []),
+    ...(genericHugoConfig ? [genericHugoConfig] : []),
+    ...(hasContentDir ? ["content"] : []),
+    ...(hasArchetypesDir ? ["archetypes"] : []),
+  ]);
 }
 
 /** Classifies evidence returned by the bounded Rust workspace inventory. */

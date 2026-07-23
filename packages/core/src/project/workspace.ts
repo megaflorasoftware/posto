@@ -1,8 +1,10 @@
 import { projectInfoFromMarkers, type ProjectInfo } from "./detect";
+import { parsePostoIndex } from "../posto/config";
 
 export interface ProjectInventory {
   dir: string;
   markers: string[];
+  postoIndex?: string;
 }
 
 export interface ProjectCandidate extends ProjectInfo {
@@ -46,13 +48,18 @@ export async function scanWorkspace(
   root: string,
   inventory: ProjectInventory[],
 ): Promise<WorkspaceScan> {
-  const rootInfo = projectInfoFromMarkers(
-    inventory.find((item) => item.dir === root)?.markers ?? [],
-  );
+  const classify = (item: ProjectInventory | undefined) => {
+    const project = item?.postoIndex ? parsePostoIndex(item.postoIndex).project : undefined;
+    return projectInfoFromMarkers([
+      ...(item?.markers ?? []),
+      ...(project ? [`project:${project}`] : []),
+    ]);
+  };
+  const rootInfo = classify(inventory.find((item) => item.dir === root));
   const candidates: ProjectCandidate[] = [];
   for (const item of inventory) {
     if (item.dir === root) continue;
-    const info = projectInfoFromMarkers(item.markers);
+    const info = classify(item);
     if (info.type !== "generic" || info.hasPagesYml) candidates.push({ dir: item.dir, ...info });
   }
   candidates.sort((a, b) => a.dir.localeCompare(b.dir));

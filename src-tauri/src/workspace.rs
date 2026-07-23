@@ -30,6 +30,7 @@ const MARKERS: &[&str] = &[
 pub struct ProjectInventory {
     dir: String,
     markers: Vec<String>,
+    posto_index: Option<String>,
 }
 
 fn scan_dir(dir: &Path, depth: usize, output: &mut Vec<ProjectInventory>) {
@@ -37,6 +38,7 @@ fn scan_dir(dir: &Path, depth: usize, output: &mut Vec<ProjectInventory>) {
         return;
     };
     let mut names = Vec::new();
+    let mut posto_index = None;
     let mut children: Vec<PathBuf> = Vec::new();
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
@@ -75,18 +77,7 @@ fn scan_dir(dir: &Path, depth: usize, output: &mut Vec<ProjectInventory>) {
         if kind.is_dir() {
             if name == ".posto" && entry.path().join("index.json").is_file() {
                 names.push(".posto/index.json".to_string());
-                if let Some(project) = std::fs::read_to_string(entry.path().join("index.json"))
-                    .ok()
-                    .and_then(|source| serde_json::from_str::<serde_json::Value>(&source).ok())
-                    .and_then(|value| {
-                        value
-                            .get("project")
-                            .and_then(|value| value.as_str())
-                            .map(str::to_string)
-                    })
-                {
-                    names.push(format!("project:{project}"));
-                }
+                posto_index = std::fs::read_to_string(entry.path().join("index.json")).ok();
             } else if name == ".astro" {
                 names.push(".astro".to_string());
             } else if matches!(name.as_str(), "content" | "archetypes") {
@@ -106,6 +97,7 @@ fn scan_dir(dir: &Path, depth: usize, output: &mut Vec<ProjectInventory>) {
         output.push(ProjectInventory {
             dir: dir.to_string_lossy().to_string(),
             markers: names,
+            posto_index,
         });
     }
     children.sort();
@@ -135,6 +127,12 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("apps/site")).unwrap();
         std::fs::write(dir.path().join("pnpm-workspace.yaml"), "packages: [apps/*]").unwrap();
         std::fs::write(dir.path().join("apps/site/astro.config.mjs"), "").unwrap();
+        std::fs::create_dir_all(dir.path().join("apps/site/.posto")).unwrap();
+        std::fs::write(
+            dir.path().join("apps/site/.posto/index.json"),
+            r#"{"project":"hugo"}"#,
+        )
+        .unwrap();
         std::fs::create_dir_all(dir.path().join(".hidden/site")).unwrap();
         std::fs::write(dir.path().join(".hidden/site/astro.config.mjs"), "").unwrap();
 
@@ -146,5 +144,14 @@ mod tests {
         assert!(inventory
             .iter()
             .any(|item| item.markers.contains(&"astro.config.mjs".into())));
+        let site = inventory
+            .iter()
+            .find(|item| item.dir.ends_with("apps/site"))
+            .unwrap();
+        assert_eq!(site.posto_index.as_deref(), Some(r#"{"project":"hugo"}"#));
+        assert!(!site
+            .markers
+            .iter()
+            .any(|marker| marker.starts_with("project:")));
     }
 }

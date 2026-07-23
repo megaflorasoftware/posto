@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { detectProject, type DetectionIO } from "../src/project/detect";
+import { detectProject, projectInfoFromMarkers, type DetectionIO } from "../src/project/detect";
 
 function tree(files: Record<string, string | null>): DetectionIO {
   return {
@@ -79,3 +79,50 @@ test("unknown posto overrides degrade to generic", async () => {
     diagnostic: "project type 'jekyll' is not supported by this version; treating as generic",
   });
 });
+
+const parityFixtures: {
+  name: string;
+  files: Record<string, string | null>;
+  markers: string[];
+}[] = [
+  {
+    name: "posto override wins",
+    files: {
+      "/site/.posto/index.json": JSON.stringify({ project: "hugo" }),
+      "/site/astro.config.mjs": "",
+    },
+    markers: [".posto/index.json", "project:hugo", "astro.config.mjs"],
+  },
+  {
+    name: "astro wins over eleventy",
+    files: {
+      "/site/package.json": JSON.stringify({ dependencies: { astro: "5" } }),
+      "/site/eleventy.config.js": "",
+    },
+    markers: ["dependency:astro", "eleventy.config.js"],
+  },
+  {
+    name: "eleventy dependency",
+    files: {
+      "/site/package.json": JSON.stringify({ devDependencies: { "@11ty/eleventy": "3" } }),
+    },
+    markers: ["dependency:@11ty/eleventy"],
+  },
+  {
+    name: "reserved hugo layout",
+    files: { "/site/config.toml": "", "/site/content/post.md": "" },
+    markers: ["config.toml", "content"],
+  },
+  {
+    name: "generic overlays",
+    files: { "/site/.pages.yml": "content: []", "/site/.posto/index.json": "{}" },
+    markers: [".pages.yml", ".posto/index.json"],
+  },
+];
+
+test.each(parityFixtures)(
+  "IO and inventory detection agree for $name",
+  async ({ files, markers }) => {
+    expect(await detectProject("/site", tree(files))).toEqual(projectInfoFromMarkers(markers));
+  },
+);
