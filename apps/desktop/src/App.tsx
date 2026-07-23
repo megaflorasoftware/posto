@@ -192,9 +192,7 @@ function App() {
     setWorkspaceCandidates(null);
     currentFile.closeFile();
     preview.resetRoute();
-    void schemas.loadPagesConfig(dir);
-    void schemas.loadDerivedConfig(dir, selectedAdapter);
-    void schemas.loadPostoConfig(dir);
+    await schemas.loadSchemas(dir, selectedAdapter);
     await refreshGroups(dir);
     void devServer.startServer(dir);
     void invoke("set_last_root", { root: repository, workDir: dir }).then(() =>

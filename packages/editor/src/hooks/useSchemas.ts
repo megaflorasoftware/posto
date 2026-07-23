@@ -33,6 +33,7 @@ export function resolveEffectiveConfig(
 }
 
 export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
+  const generationRef = useRef(0);
   const adapterRef = useRef(adapter);
   adapterRef.current = adapter;
   const ioRef = useRef(io);
@@ -74,25 +75,33 @@ export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
     setPostoConfig(config);
   }
 
-  async function loadPagesConfig(dir: string): Promise<PagesConfig | null> {
-    setSourceError("pages", null);
+  async function loadPagesConfig(
+    dir: string,
+    generation = generationRef.current,
+    commit = true,
+  ): Promise<PagesConfig | null> {
+    if (generation === generationRef.current) setSourceError("pages", null);
     let source: string | null;
     try {
       source = await ioRef.current.readTextFileOptional(dir + "/.pages.yml");
     } catch (e) {
-      setSourceError("pages", e instanceof Error ? e.message : String(e));
+      if (generation === generationRef.current) {
+        setSourceError("pages", e instanceof Error ? e.message : String(e));
+      }
       return pagesConfigRef.current;
     }
     if (source === null) {
-      commitPagesConfig(null);
+      if (commit && generation === generationRef.current) commitPagesConfig(null);
       return null; // no config file — form editing simply isn't offered
     }
     try {
       const parsed = parsePagesConfig(source);
-      commitPagesConfig(parsed);
+      if (commit && generation === generationRef.current) commitPagesConfig(parsed);
       return parsed;
     } catch (e) {
-      setSourceError("pages", e instanceof Error ? e.message : String(e));
+      if (generation === generationRef.current) {
+        setSourceError("pages", e instanceof Error ? e.message : String(e));
+      }
       return pagesConfigRef.current;
     }
   }
@@ -102,14 +111,20 @@ export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
   // collection. Missing paths and malformed JSON degrade to defaults;
   // unreadable paths surface an I/O error while preserving the last good
   // preferences.
-  async function loadPostoConfig(dir: string): Promise<PostoConfig | null> {
-    setSourceError("posto", null);
+  async function loadPostoConfig(
+    dir: string,
+    generation = generationRef.current,
+    commit = true,
+  ): Promise<PostoConfig | null> {
+    if (generation === generationRef.current) setSourceError("posto", null);
     const config: PostoConfig = { collections: {} };
     let indexSource: string | null;
     try {
       indexSource = await ioRef.current.readTextFileOptional(`${dir}/${POSTO_INDEX_PATH}`);
     } catch (e) {
-      setSourceError("posto", e instanceof Error ? e.message : String(e));
+      if (generation === generationRef.current) {
+        setSourceError("posto", e instanceof Error ? e.message : String(e));
+      }
       return postoConfigRef.current;
     }
     if (indexSource !== null) {
@@ -121,7 +136,9 @@ export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
         "json",
       ]);
     } catch (e) {
-      setSourceError("posto", e instanceof Error ? e.message : String(e));
+      if (generation === generationRef.current) {
+        setSourceError("posto", e instanceof Error ? e.message : String(e));
+      }
       return postoConfigRef.current;
     }
     for (const file of listed ?? []) {
@@ -130,7 +147,9 @@ export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
       try {
         source = await ioRef.current.readTextFileOptional(file.path);
       } catch (e) {
-        setSourceError("posto", e instanceof Error ? e.message : String(e));
+        if (generation === generationRef.current) {
+          setSourceError("posto", e instanceof Error ? e.message : String(e));
+        }
         return postoConfigRef.current;
       }
       if (source === null) continue;
@@ -138,22 +157,24 @@ export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
       if (settings) config.collections[file.name.slice(0, -".json".length)] = settings;
     }
     if (config.collectionOrder || Object.keys(config.collections).length > 0) {
-      commitPostoConfig(config);
+      if (commit && generation === generationRef.current) commitPostoConfig(config);
       return config;
     }
-    commitPostoConfig(null);
+    if (commit && generation === generationRef.current) commitPostoConfig(null);
     return null;
   }
 
   async function loadDerivedConfig(
     dir: string,
     selectedAdapter: ProjectAdapter = adapterRef.current,
+    generation = generationRef.current,
+    commit = true,
   ): Promise<PagesConfig | null> {
-    setSourceError("derived", null);
+    if (generation === generationRef.current) setSourceError("derived", null);
     try {
       const loaded = await selectedAdapter.loadDerivedConfig(dir, ioRef.current);
       if (!loaded) {
-        commitDerivedConfig(null);
+        if (commit && generation === generationRef.current) commitDerivedConfig(null);
         return null;
       }
       const diagnostics = new Map(
@@ -166,10 +187,12 @@ export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
         ...loaded.config,
         diagnostics: diagnostics.size > 0 ? [...diagnostics.values()] : undefined,
       };
-      commitDerivedConfig(config);
+      if (commit && generation === generationRef.current) commitDerivedConfig(config);
       return config;
     } catch (e) {
-      setSourceError("derived", e instanceof Error ? e.message : String(e));
+      if (generation === generationRef.current) {
+        setSourceError("derived", e instanceof Error ? e.message : String(e));
+      }
       return derivedConfigRef.current;
     }
   }
@@ -182,11 +205,20 @@ export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
     dir: string,
     selectedAdapter: ProjectAdapter = adapterRef.current,
   ): Promise<PagesConfig> {
+    const generation = ++generationRef.current;
+    commitPagesConfig(null);
+    commitDerivedConfig(null);
+    commitPostoConfig(null);
+    setConfigErrors({});
     const [pages, derived, posto] = await Promise.all([
-      loadPagesConfig(dir),
-      loadDerivedConfig(dir, selectedAdapter),
-      loadPostoConfig(dir),
+      loadPagesConfig(dir, generation, false),
+      loadDerivedConfig(dir, selectedAdapter, generation, false),
+      loadPostoConfig(dir, generation, false),
     ]);
+    if (generation !== generationRef.current) return configRef.current;
+    commitPagesConfig(pages);
+    commitDerivedConfig(derived);
+    commitPostoConfig(posto);
     return resolveEffectiveConfig(pages, derived, posto, selectedAdapter.defaultMedia);
   }
 

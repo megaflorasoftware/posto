@@ -6,6 +6,14 @@ import { useSchemas } from "../src/hooks/useSchemas";
 import { genericAdapter } from "@posto/core/project/generic";
 import type { ProjectIO } from "@posto/core/project/adapter";
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 function projectIO(input: {
   read?: (path: string) => string | null;
   list?: (dir: string) => { name: string; path: string }[] | null;
@@ -90,4 +98,36 @@ test("adapter diagnostics are merged into the effective config once", async () =
   });
 
   expect(result.current.config.diagnostics).toEqual([diagnostic]);
+});
+
+test("an obsolete project load cannot overwrite the active schemas", async () => {
+  const slowPages = deferred<string | null>();
+  const io = projectIO({
+    read(path) {
+      if (path === "/second/.pages.yml")
+        return "content:\n  - name: second\n    path: posts\n    type: collection\n";
+      return null;
+    },
+  });
+  io.readTextFileOptional = async (path) => {
+    if (path === "/first/.pages.yml") return slowPages.promise;
+    if (path === "/second/.pages.yml") {
+      return "content:\n  - name: second\n    path: posts\n    type: collection\n";
+    }
+    return null;
+  };
+  const { result } = renderHook(() => useSchemas(genericAdapter, io));
+
+  let first!: Promise<unknown>;
+  await act(async () => {
+    first = result.current.loadSchemas("/first", genericAdapter);
+    await result.current.loadSchemas("/second", genericAdapter);
+  });
+  expect(result.current.config.content.map((entry) => entry.name)).toEqual(["second"]);
+
+  await act(async () => {
+    slowPages.resolve("content:\n  - name: first\n    path: notes\n    type: collection\n");
+    await first;
+  });
+  expect(result.current.config.content.map((entry) => entry.name)).toEqual(["second"]);
 });
