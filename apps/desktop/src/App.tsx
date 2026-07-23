@@ -620,6 +620,7 @@ function App() {
               <div className="pane editor-pane" style={{ flexBasis: `${preview.split}%` }}>
                 <EditorPane
                   root={root}
+                  projectIO={ipcProjectIO}
                   filePath={currentFile.filePath}
                   fileContent={currentFile.fileContent}
                   saveState={currentFile.saveState}

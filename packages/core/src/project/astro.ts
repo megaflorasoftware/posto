@@ -1,5 +1,4 @@
 import {
-  DEFAULT_ASTRO_MEDIA,
   buildAstroConfig,
   parseCollectionSchema,
   parseLoaderConfig,
@@ -25,8 +24,6 @@ import { astroPropField } from "../mdx/propFields";
 import { PROJECT_MARKERS } from "./detect";
 import type { ComponentRef, ProjectAdapter, ProjectIO } from "./adapter";
 import { pathEntryIds } from "./entryIds";
-
-export { DEFAULT_ASTRO_MEDIA };
 
 const astroComponentBlocks = {
   componentDirs(root: string) {

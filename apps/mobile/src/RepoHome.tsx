@@ -689,6 +689,7 @@ export default function RepoHome({
         <main className="mobile-editor-screen">
           <EditorPane
             root={root}
+            projectIO={ipcProjectIO}
             filePath={currentFile.filePath}
             fileContent={currentFile.fileContent}
             saveState={currentFile.saveState}

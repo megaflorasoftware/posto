@@ -9,8 +9,9 @@ import { DataFormEditor } from "./DataFormEditor";
 import type { SaveState } from "../hooks/useCurrentFile";
 import { FieldTemplateActions } from "./FieldTemplateActions";
 import type { ProjectType } from "@posto/core/project/detect";
-import type { ComponentSchemaSource } from "@posto/core/project/adapter";
+import type { ComponentSchemaSource, ProjectIO } from "@posto/core/project/adapter";
 import type { EntryIdSource } from "@posto/core/project/entryIds";
+import { ProjectIOProvider } from "../projectIO";
 
 export type EditorTab = "fields" | "body" | "raw";
 
@@ -51,6 +52,7 @@ export function contentHasFields(entry: unknown, parsed: ParsedFile): boolean {
  * Fields/Body/Raw tab host around FormEditor / the raw textarea. */
 export function EditorPane(props: {
   root: string;
+  projectIO: ProjectIO;
   filePath: string | null;
   fileContent: string;
   saveState: SaveState;
@@ -177,7 +179,7 @@ export function EditorPane(props: {
   );
 
   return (
-    <>
+    <ProjectIOProvider value={props.projectIO}>
       {(props.filenamePlacement ?? "header") === "header" && (
         <div className="pane-header">
           {filenameReadOnly ? <div className="pane-filename-text">{fileName}</div> : filenameInput}
@@ -248,6 +250,6 @@ export function EditorPane(props: {
           )}
         </Tabs>
       )}
-    </>
+    </ProjectIOProvider>
   );
 }

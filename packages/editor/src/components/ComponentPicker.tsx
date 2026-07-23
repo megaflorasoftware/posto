@@ -4,7 +4,7 @@ import { Spotlight, spotlight } from "@mantine/spotlight";
 import { Blocks, CodeXml } from "lucide-react";
 
 import type { ComponentRef, ComponentSchemaSource } from "@posto/core/project/adapter";
-import { ipcProjectIO } from "../hooks/useSchemas";
+import { useProjectIO } from "../projectIO";
 
 /**
  * Searchable component palette (Mantine Spotlight). Mounted on demand: opens
@@ -20,13 +20,14 @@ export function ComponentPicker(props: {
   onPickHtml: () => void;
 }) {
   const [files, setFiles] = useState<ComponentRef[] | null>(null);
+  const projectIO = useProjectIO();
 
   useEffect(() => {
     spotlight.open();
     let cancelled = false;
     void (async () => {
       try {
-        const list = await props.source.listComponents(props.root, ipcProjectIO);
+        const list = await props.source.listComponents(props.root, projectIO);
         if (!cancelled) setFiles(list);
       } catch {
         if (!cancelled) setFiles([]);
@@ -35,7 +36,7 @@ export function ComponentPicker(props: {
     return () => {
       cancelled = true;
     };
-  }, [props.root, props.source]);
+  }, [projectIO, props.root, props.source]);
 
   const actions = [
     {

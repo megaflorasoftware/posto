@@ -4,10 +4,10 @@ import type {
   ContentEntry,
   Field,
   MediaLibraryMetadataExtension,
-  MediaEntry,
   PagesConfig,
   SchemaDiagnostic,
 } from "../pagescms/config";
+import { DEFAULT_MEDIA } from "../pagescms/config";
 import { schemaImageFields, type SchemaImageField } from "./schemaAnalysis";
 
 // Builds a PagesConfig from Astro content collections, used as a fallback
@@ -407,11 +407,6 @@ export function parseLoaderConfig(source: string): {
   return { loaders: result, diagnostics };
 }
 
-/** Media source used when no `.pages.yml` provides one: Astro's `public` dir. */
-export const DEFAULT_ASTRO_MEDIA: MediaEntry[] = [
-  { name: "default", input: "public", output: "/" },
-];
-
 function normalizePath(base: string): string {
   return base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
 }
@@ -626,7 +621,7 @@ export function buildAstroConfig(
     });
   }
   return {
-    media: DEFAULT_ASTRO_MEDIA,
+    media: DEFAULT_MEDIA,
     content,
     collectionSchemas,
     mediaLibraries: discovered.libraries,

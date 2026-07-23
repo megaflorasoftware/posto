@@ -29,7 +29,7 @@ import {
   mdxNodes,
   type ComponentBlockSchema,
 } from "./MdxNodes";
-import { ipcProjectIO } from "../hooks/useSchemas";
+import { useProjectIO } from "../projectIO";
 
 /** An import statement managed outside the document, with its bindings. */
 interface ManagedImport {
@@ -95,6 +95,7 @@ export function BodyEditor(props: {
   const [componentPickerOpen, setComponentPickerOpen] = useState(false);
   const [schemas, setSchemas] = useState<Record<string, ComponentBlockSchema>>({});
   const [componentDiagnostics, setComponentDiagnostics] = useState<string[]>([]);
+  const projectIO = useProjectIO();
   const configuredMedia = props.configuredMedia
     ? expandMediaEntry(props.configuredMedia, props.templateValues)
     : null;
@@ -217,7 +218,7 @@ export function BodyEditor(props: {
         try {
           const result = await source.componentFields(
             { name: names[0], path: file },
-            ipcProjectIO,
+            projectIO,
             props.config,
           );
           if (!result) continue;
@@ -245,7 +246,14 @@ export function BodyEditor(props: {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [importsKey, props.path, props.componentBlocks, props.componentSchemaVersion, props.config]);
+  }, [
+    importsKey,
+    projectIO,
+    props.path,
+    props.componentBlocks,
+    props.componentSchemaVersion,
+    props.config,
+  ]);
 
   // Inserts the picked component at the cursor and, when it isn't imported
   // yet, adds the import at the top of the document. A cursor inside written

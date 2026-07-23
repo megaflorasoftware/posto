@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { invoke } from "@posto/ipc";
 import { parsePagesConfig, type PagesConfig } from "@posto/core/pagescms/config";
-import type { ProjectAdapter, ProjectIO } from "@posto/core/project/adapter";
+import type { ProjectAdapter } from "@posto/core/project/adapter";
 import { astroAdapter } from "@posto/core/project/astro";
 import {
   POSTO_COLLECTIONS_DIR,
@@ -11,6 +11,7 @@ import {
   parsePostoIndex,
   type PostoConfig,
 } from "@posto/core/posto/config";
+import { ipcProjectIO } from "../projectIO";
 
 export function resolveEffectiveConfig(
   pagesConfig: PagesConfig | null,
@@ -33,31 +34,6 @@ export function resolveEffectiveConfig(
     postoConfig,
   );
 }
-
-/** Schema sources for form editing: `.pages.yml` plus Astro collection
- * schemas as a fallback, merged into one effective config. */
-export const ipcProjectIO: ProjectIO = {
-  async pathExists(path, kind) {
-    if (kind === "directory") {
-      return (
-        (await invoke<unknown[] | null>("list_dir_files_optional", {
-          dir: path,
-          extensions: [],
-        })) !== null
-      );
-    }
-    return (await invoke<string | null>("read_text_file_optional", { path })) !== null;
-  },
-  readTextFileOptional(path) {
-    return invoke<string | null>("read_text_file_optional", { path });
-  },
-  listDirFilesOptional(dir, extensions) {
-    return invoke<{ name: string; path: string }[] | null>("list_dir_files_optional", {
-      dir,
-      extensions,
-    });
-  },
-};
 
 export function useSchemas(adapter: ProjectAdapter = astroAdapter) {
   const adapterRef = useRef(adapter);
