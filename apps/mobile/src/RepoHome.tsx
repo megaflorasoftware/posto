@@ -147,6 +147,27 @@ export default function RepoHome({
     }
   }
 
+  async function refreshAfterPull(dir: string) {
+    try {
+      const scan = await projectSession.scanRepository(repoRoot);
+      const candidates = [{ dir: repoRoot, ...scan.root }, ...scan.candidates];
+      if (!(await ipcProjectIO.pathExists(dir, "directory"))) {
+        currentFile.clearPendingSave();
+        currentFile.closeFile();
+        projectSession.clear();
+        setShowEditor(false);
+        setWorkspaceChooserFromSettings(false);
+        setBrowsingWorkspace(false);
+        setWorkspaceCandidates(candidates);
+        return;
+      }
+      setWorkspaceCandidates((current) => (current ? candidates : current));
+      await redetectProject(dir);
+    } catch (refreshError) {
+      setError(`Could not refresh workspace: ${message(refreshError)}`);
+    }
+  }
+
   const currentFile = useCurrentFile({
     onAfterSave(path, content) {
       files.updateSidebarTitle(path, content);
@@ -195,7 +216,7 @@ export default function RepoHome({
   const git = useGitSync(root, {
     onStatus: (message) => setStatus(message),
     beforeSync: () => currentFile.flushPendingSave(),
-    afterPull: redetectProject,
+    afterPull: refreshAfterPull,
     // Publish progress lives on the Publish button; only failures surface.
     onPublishError: setStatus,
   });
