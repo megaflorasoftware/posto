@@ -114,9 +114,19 @@ const astroComponentBlocks = {
       }
     }
     const slots = parseAstroSlots(source);
+    const diagnostics =
+      definitions.length === 0 && !propsType
+        ? [
+            {
+              feature: "component-blocks",
+              code: "component-props-not-found",
+              message: `Props interface not found in ${ref.path}; existing props remain editable as text.`,
+            },
+          ]
+        : [];
     return {
       fields,
-      diagnostics: [],
+      diagnostics,
       slots: slots.named,
       hasDefaultSlot: slots.hasDefault,
     };

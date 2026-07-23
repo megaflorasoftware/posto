@@ -125,4 +125,17 @@ test("Astro component capabilities provide neutral refs, fields, slots, and impo
     "import Callout from '../components/callout.astro';",
   );
   expect(await source.componentFields(refs[1], io, { media: [], content: [] })).toBeNull();
+
+  const withoutProps = await source.componentFields(
+    { name: "Empty", path: "/site/src/components/empty.astro" },
+    {
+      ...io,
+      async readTextFileOptional() {
+        return "---\nconst title = 'hello';\n---\n<div>{title}</div>";
+      },
+    },
+  );
+  expect(withoutProps?.diagnostics).toMatchObject([
+    { code: "component-props-not-found", feature: "component-blocks" },
+  ]);
 });
