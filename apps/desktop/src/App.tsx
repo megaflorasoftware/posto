@@ -407,8 +407,11 @@ function App() {
     if (scopes.has("mediaLibraries")) void refreshGroups(dir);
   }
 
+  const externalChangesRef = useRef(onExternalChanges);
+  externalChangesRef.current = onExternalChanges;
+
   useEffect(() => {
-    const unlistenFs = onFsChanged(onExternalChanges);
+    const unlistenFs = onFsChanged((paths) => externalChangesRef.current(paths));
     // One update check per app launch, once the UI is up.
     void checkForAppUpdate();
     void refreshRecentRoots();
