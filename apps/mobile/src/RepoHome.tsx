@@ -7,7 +7,6 @@ import {
   Loader,
   ScrollArea,
   Stack,
-  Tabs,
   Text,
 } from "@mantine/core";
 import {
@@ -33,6 +32,7 @@ import {
   useCurrentFile,
   useFileGroups,
   useGitSync,
+  useProjectSession,
   useSchemas,
   ipcProjectIO,
   WorkspaceChooser,
@@ -46,38 +46,27 @@ import {
   type ContentEntry,
 } from "@posto/core/pagescms/config";
 import { parseFile } from "@posto/core/pagescms/frontmatter";
-import { detectProject, type ProjectInfo } from "@posto/core/project/detect";
-import { projectAdapter } from "@posto/core/project/registry";
 import type { ProjectAdapter } from "@posto/core/project/adapter";
-import { invalidationScopesForPaths } from "@posto/core/project/adapter";
-import {
-  decideWorkspace,
-  scanWorkspace,
-  type ProjectCandidate,
-  type ProjectInventory,
-} from "@posto/core/project/workspace";
+import { type ProjectCandidate, type ProjectInventory } from "@posto/core/project/workspace";
 import { invoke } from "@posto/ipc";
 import type { ChangedFile, FileEntry, FileGroup, GitHubRepo } from "@posto/ipc";
 import {
   CloudDownload,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   GitCommitHorizontal,
-  Menu,
   Pin,
   Plus,
   RefreshCw,
   SlidersHorizontal,
-  Trash2,
   TriangleAlert,
 } from "lucide-react";
 import { DeploymentStatus } from "./DeploymentStatus";
 import { MediaLibraryPane } from "./MediaLibraryPane";
-import { useEffect, useMemo, useRef, useState, type TouchEvent as ReactTouchEvent } from "react";
+import { RepoHeader } from "./components/RepoHeader";
+import { RepoSettings } from "./components/RepoSettings";
+import { usePullRefresh } from "./hooks/usePullRefresh";
+import { useEffect, useMemo, useState } from "react";
 
-// Drag distance (after damping) that arms the pull-to-refresh gesture.
-const PULL_REFRESH_THRESHOLD = 60;
 const TRANSIENT_NOTICE_MS = 5_000;
 
 type Props = {
@@ -104,8 +93,13 @@ export default function RepoHome({
   const [workspaceChooserFromSettings, setWorkspaceChooserFromSettings] = useState(false);
   const [browsingWorkspace, setBrowsingWorkspace] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
-  const adapter = useMemo(() => projectAdapter(projectInfo?.type ?? "generic"), [projectInfo]);
+  const projectSession = useProjectSession({
+    io: ipcProjectIO,
+    scanProjects: (repository) => invoke<ProjectInventory[]>("scan_projects", { root: repository }),
+    getRememberedWorkDir: (repository) =>
+      invoke<string | null>("get_work_dir", { root: repository }),
+  });
+  const { projectInfo, adapter } = projectSession;
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
@@ -129,10 +123,6 @@ export default function RepoHome({
   const [importLibrary, setImportLibrary] = useState<MediaLibrary | null>(null);
   const [editorTab, setEditorTab] = useState<EditorTab>("fields");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [pullDistance, setPullDistance] = useState(0);
-  const [refreshing, setRefreshing] = useState(false);
-  const filesViewportRef = useRef<HTMLDivElement>(null);
-  const pullStartY = useRef<number | null>(null);
   const schemas = useSchemas(adapter, ipcProjectIO);
   const files = useFileGroups(setError, adapter.capabilities.dataDocuments);
 
@@ -150,9 +140,7 @@ export default function RepoHome({
 
   async function redetectProject(dir: string) {
     try {
-      const detected = await detectProject(dir, ipcProjectIO);
-      const selectedAdapter = projectAdapter(detected.type);
-      setProjectInfo(detected);
+      const { adapter: selectedAdapter } = await projectSession.activate(dir);
       await refreshRepositoryContent(dir, selectedAdapter);
     } catch (detectionError) {
       setError(`Could not inspect project: ${message(detectionError)}`);
@@ -170,7 +158,7 @@ export default function RepoHome({
         void files.refreshDataGroups(root, schemas.configRef.current);
       }
       if (path === root + "/.pages.yml") void schemas.loadPagesConfig(root);
-      const scopes = invalidationScopesForPaths(adapter, root, [path], schemas.configRef.current);
+      const scopes = projectSession.invalidations(root, [path], schemas.configRef.current);
       if (scopes.has("projectType")) {
         void redetectProject(root);
       } else {
@@ -228,23 +216,19 @@ export default function RepoHome({
         }
       }
       try {
-        const inventory = await invoke<ProjectInventory[]>("scan_projects", { root: repoRoot });
-        const scan = await scanWorkspace(repoRoot, inventory);
-        const decision = decideWorkspace(repoRoot, scan);
-        const remembered = await invoke<string | null>("get_work_dir", { root: repoRoot });
-        if (!remembered && decision.kind === "choose") {
+        const decision = await projectSession.resolveRepository(repoRoot);
+        if (decision.kind === "choose") {
           if (active) {
             setWorkspaceChooserFromSettings(false);
             setWorkspaceCandidates(decision.candidates);
           }
           return;
         }
-        const selectedRoot = remembered ?? (decision.kind === "open" ? decision.workDir : repoRoot);
-        const detected = await detectProject(selectedRoot, ipcProjectIO);
+        const selectedRoot = decision.workDir;
+        const { adapter: selectedAdapter } = await projectSession.activate(selectedRoot);
         if (active) {
           setWorkDir(selectedRoot);
-          setProjectInfo(detected);
-          await refreshRepositoryContent(selectedRoot, projectAdapter(detected.type));
+          await refreshRepositoryContent(selectedRoot, selectedAdapter);
           void git.refreshLocalChanges(selectedRoot);
         }
       } catch (checkError) {
@@ -260,17 +244,16 @@ export default function RepoHome({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoRoot]);
 
-  async function chooseWorkspace(candidate: ProjectCandidate | null) {
+  async function chooseWorkspace(candidate: Pick<ProjectCandidate, "dir"> | null) {
     try {
       const selectedRoot = candidate?.dir ?? repoRoot;
-      const detected = await detectProject(selectedRoot, ipcProjectIO);
+      const { adapter: selectedAdapter } = await projectSession.activate(selectedRoot);
       setWorkDir(selectedRoot);
-      setProjectInfo(detected);
       setWorkspaceCandidates(null);
       setWorkspaceChooserFromSettings(false);
       setBrowsingWorkspace(false);
       void invoke("set_last_root", { root: repoRoot, workDir: selectedRoot });
-      await refreshRepositoryContent(selectedRoot, projectAdapter(detected.type));
+      await refreshRepositoryContent(selectedRoot, selectedAdapter);
       void git.refreshLocalChanges(selectedRoot);
     } catch (chooseError) {
       setError(`Could not inspect project: ${message(chooseError)}`);
@@ -279,8 +262,7 @@ export default function RepoHome({
 
   async function openWorkspaceChooser() {
     try {
-      const inventory = await invoke<ProjectInventory[]>("scan_projects", { root: repoRoot });
-      const scan = await scanWorkspace(repoRoot, inventory);
+      const scan = await projectSession.scanRepository(repoRoot);
       setWorkspaceChooserFromSettings(true);
       setWorkspaceCandidates([{ dir: repoRoot, ...scan.root }, ...scan.candidates]);
       setShowSettings(false);
@@ -295,7 +277,7 @@ export default function RepoHome({
 
   async function chooseBrowsedWorkspace(dir: string) {
     try {
-      await chooseWorkspace({ dir, ...(await detectProject(dir, ipcProjectIO)) });
+      await chooseWorkspace({ dir });
     } catch (workspaceError) {
       setError(`Could not inspect project: ${message(workspaceError)}`);
     }
@@ -487,42 +469,13 @@ export default function RepoHome({
     void git.refreshLocalChanges(root);
   }
 
-  async function refreshFromPull() {
-    setRefreshing(true);
-    try {
-      await Promise.all([
-        git.checkUpstream(),
-        git.refreshLocalChanges(root),
-        refreshRepositoryContent(root),
-      ]);
-    } finally {
-      setRefreshing(false);
-    }
-  }
-
-  function onFilesTouchStart(event: ReactTouchEvent) {
-    if (refreshing || (filesViewportRef.current?.scrollTop ?? 1) > 0) return;
-    pullStartY.current = event.touches[0].clientY;
-  }
-
-  function onFilesTouchMove(event: ReactTouchEvent) {
-    if (pullStartY.current === null) return;
-    if ((filesViewportRef.current?.scrollTop ?? 0) > 0) {
-      pullStartY.current = null;
-      setPullDistance(0);
-      return;
-    }
-    const delta = event.touches[0].clientY - pullStartY.current;
-    // Damped so the indicator trails the finger like the native gesture.
-    setPullDistance(delta > 0 ? Math.min(delta / 2, 90) : 0);
-  }
-
-  function onFilesTouchEnd() {
-    if (pullStartY.current === null) return;
-    pullStartY.current = null;
-    if (pullDistance >= PULL_REFRESH_THRESHOLD) void refreshFromPull();
-    setPullDistance(0);
-  }
+  const pullRefresh = usePullRefresh(async () => {
+    await Promise.all([
+      git.checkUpstream(),
+      git.refreshLocalChanges(root),
+      refreshRepositoryContent(root),
+    ]);
+  });
 
   function closeEditor() {
     const pendingSave = currentFile.flushPendingSave();
@@ -618,82 +571,26 @@ export default function RepoHome({
 
   return (
     <>
-      <header className={`mobile-header${showEditor ? " mobile-editor-header" : ""}`}>
-        <Group gap={0} wrap="nowrap" className="mobile-header-title">
-          <ActionIcon variant="subtle" aria-label="Back" onClick={navigateBack}>
-            <ChevronLeft size={22} />
-          </ActionIcon>
-          {!showEditor && (
-            <Group gap="xs" wrap="nowrap">
-              <Text fw={600} size="sm" truncate>
-                {showDeployments
-                  ? "Deployments"
-                  : showMedia
-                    ? "Media"
-                    : showSettings
-                      ? "Settings"
-                      : workspaceCandidates
-                        ? "Choose project"
-                        : (repo?.name ?? "Repository")}
-              </Text>
-              {!showDeployments && !showMedia && !showSettings && projectInfo && (
-                <Text size="xs" c="dimmed">
-                  {root !== repoRoot ? `${root.slice(repoRoot.length + 1)} · ` : ""}
-                  <span style={{ textTransform: "capitalize" }}>{projectInfo.type}</span>
-                </Text>
-              )}
-            </Group>
-          )}
-        </Group>
-        {showEditor && (
-          <Tabs
-            className="mobile-header-tabs"
-            variant="pills"
-            value={mobileActiveTab}
-            onChange={(value) => setEditorTab(value as EditorTab)}
-          >
-            <Tabs.List justify="center">
-              {mobileEditorTabs.map((tab) => (
-                <Tabs.Tab key={tab} value={tab} tt="capitalize">
-                  {tab}
-                </Tabs.Tab>
-              ))}
-            </Tabs.List>
-          </Tabs>
-        )}
-        {!showEditor && !showSettings && !workspaceCandidates && (
-          <ActionIcon
-            variant="subtle"
-            aria-label="Site settings"
-            title="Site settings"
-            onClick={() => setShowSettings(true)}
-          >
-            <Menu size={20} />
-          </ActionIcon>
-        )}
-        {showEditor &&
-          (confirmingDelete ? (
-            <Button
-              color="red"
-              variant="light"
-              size="compact-md"
-              className="mobile-delete-confirm"
-              onClick={() => void deleteOpenFile()}
-            >
-              Delete?
-            </Button>
-          ) : (
-            <ActionIcon
-              variant="subtle"
-              color="red"
-              aria-label={`Delete ${openFileName}`}
-              title={`Delete ${openFileName}`}
-              onClick={() => setConfirmingDelete(true)}
-            >
-              <Trash2 size={19} />
-            </ActionIcon>
-          ))}
-      </header>
+      <RepoHeader
+        repoName={repo?.name ?? "Repository"}
+        repoRoot={repoRoot}
+        root={root}
+        projectInfo={projectInfo}
+        showEditor={showEditor}
+        showSettings={showSettings}
+        showDeployments={showDeployments}
+        showMedia={showMedia}
+        choosingWorkspace={workspaceCandidates !== null}
+        editorTabs={mobileEditorTabs}
+        activeTab={mobileActiveTab}
+        confirmingDelete={confirmingDelete}
+        openFileName={openFileName}
+        onBack={navigateBack}
+        onTabChange={setEditorTab}
+        onOpenSettings={() => setShowSettings(true)}
+        onRequestDelete={() => setConfirmingDelete(true)}
+        onConfirmDelete={() => void deleteOpenFile()}
+      />
       {workspaceCandidates ? (
         <main className="mobile-settings-screen">
           {browsingWorkspace ? (
@@ -759,88 +656,20 @@ export default function RepoHome({
           />
         </main>
       ) : showSettings ? (
-        <main className="mobile-settings-screen">
-          <Stack gap="xs">
-            {repo && (
-              <button
-                type="button"
-                className="mobile-settings-row mobile-settings-link"
-                onClick={() => setShowDeployments(true)}
-              >
-                <div>
-                  <Text fw={600} size="sm">
-                    Deployments
-                  </Text>
-                  <Text c="dimmed" size="xs">
-                    Live GitHub Actions status
-                  </Text>
-                </div>
-                <ChevronRight size={18} />
-              </button>
-            )}
-            {adapter.capabilities.mediaLibraries && config?.mediaLibraries?.length ? (
-              <button
-                type="button"
-                className="mobile-settings-row mobile-settings-link"
-                onClick={() => setShowMedia(true)}
-              >
-                <div>
-                  <Text fw={600} size="sm">
-                    Media
-                  </Text>
-                  <Text c="dimmed" size="xs">
-                    {`${config.mediaLibraries.length} media ${config.mediaLibraries.length === 1 ? "library" : "libraries"}`}
-                  </Text>
-                </div>
-                <ChevronRight size={18} />
-              </button>
-            ) : (
-              <div className="mobile-settings-row mobile-settings-media-row">
-                <div>
-                  <Text fw={600} size="sm">
-                    Media
-                  </Text>
-                  <Text c="dimmed" size="xs">
-                    No media libraries found
-                  </Text>
-                </div>
-              </div>
-            )}
-            <button
-              type="button"
-              className="mobile-settings-row mobile-settings-link"
-              onClick={() => void openWorkspaceChooser()}
-            >
-              <div>
-                <Text fw={600} size="sm">
-                  Project directory
-                </Text>
-                <Text c="dimmed" size="xs">
-                  {root === repoRoot ? "Repository root" : root.slice(repoRoot.length + 1)}
-                </Text>
-              </div>
-              <ChevronRight size={18} />
-            </button>
-          </Stack>
-          <div className="mobile-settings-danger">
-            <Text c="dimmed" size="xs">
-              Removes this repository's downloaded copy from this device. Unpublished changes will
-              be lost. You can download it again anytime.
-            </Text>
-            <Button
-              fullWidth
-              color="red"
-              variant="light"
-              leftSection={<Trash2 size={18} />}
-              loading={removingRepo}
-              onClick={() =>
-                confirmingRemoveRepo ? void removeRepository() : setConfirmingRemoveRepo(true)
-              }
-            >
-              {confirmingRemoveRepo ? "Tap again to delete from device" : "Delete from device"}
-            </Button>
-          </div>
-        </main>
+        <RepoSettings
+          hasRepository={repo !== null}
+          mediaEnabled={adapter.capabilities.mediaLibraries}
+          mediaLibraryCount={config?.mediaLibraries?.length ?? 0}
+          projectDirectory={root === repoRoot ? "Repository root" : root.slice(repoRoot.length + 1)}
+          removing={removingRepo}
+          confirmingRemove={confirmingRemoveRepo}
+          onOpenDeployments={() => setShowDeployments(true)}
+          onOpenMedia={() => setShowMedia(true)}
+          onOpenProjects={() => void openWorkspaceChooser()}
+          onRemove={() =>
+            confirmingRemoveRepo ? void removeRepository() : setConfirmingRemoveRepo(true)
+          }
+        />
       ) : (
         <main className="repo-home">
           <Stack gap="sm" className="repo-home-notices">
@@ -927,31 +756,32 @@ export default function RepoHome({
 
           <div
             className="repo-files"
-            onTouchStart={onFilesTouchStart}
-            onTouchMove={onFilesTouchMove}
-            onTouchEnd={onFilesTouchEnd}
-            onTouchCancel={onFilesTouchEnd}
+            onTouchStart={pullRefresh.onTouchStart}
+            onTouchMove={pullRefresh.onTouchMove}
+            onTouchEnd={pullRefresh.onTouchEnd}
+            onTouchCancel={pullRefresh.onTouchEnd}
           >
             <div
               className="mobile-refresh-indicator"
               // The indicator tracks the finger directly while dragging; the height
               // transition only smooths the settle after release.
               style={{
-                height: refreshing ? 44 : pullDistance,
-                transition: pullDistance > 0 ? "none" : undefined,
+                height: pullRefresh.refreshing ? 44 : pullRefresh.pullDistance,
+                transition: pullRefresh.pullDistance > 0 ? "none" : undefined,
               }}
-              aria-hidden={!refreshing && pullDistance === 0}
+              aria-hidden={!pullRefresh.refreshing && pullRefresh.pullDistance === 0}
             >
-              {refreshing ? (
+              {pullRefresh.refreshing ? (
                 <Loader size="sm" />
               ) : (
-                <RefreshCw
-                  size={18}
-                  style={{ opacity: Math.min(pullDistance / PULL_REFRESH_THRESHOLD, 1) }}
-                />
+                <RefreshCw size={18} style={{ opacity: pullRefresh.progress }} />
               )}
             </div>
-            <ScrollArea className="repo-files-scroll" type="auto" viewportRef={filesViewportRef}>
+            <ScrollArea
+              className="repo-files-scroll"
+              type="auto"
+              viewportRef={pullRefresh.viewportRef}
+            >
               {loading ? null : fileCount === 0 && !error ? (
                 <Center className="repo-files-state">
                   <Stack align="center" gap="xs">

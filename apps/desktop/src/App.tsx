@@ -6,12 +6,8 @@ import { checkForAppUpdate } from "./updater";
 import type { ChangedFile, FileEntry, FileGroup } from "@posto/ipc";
 import { EMPTY_CONFIG, matchEntry, renamedFilename } from "@posto/core/pagescms/config";
 import { parseFile } from "@posto/core/pagescms/frontmatter";
-import { detectProject, type ProjectInfo } from "@posto/core/project/detect";
-import { projectAdapter } from "@posto/core/project/registry";
-import { invalidationScopesForPaths } from "@posto/core/project/adapter";
+import type { ProjectAdapter } from "@posto/core/project/adapter";
 import {
-  decideWorkspace,
-  scanWorkspace,
   type ProjectCandidate,
   type ProjectInventory,
   workspaceLayoutChanged,
@@ -30,6 +26,7 @@ import {
   useFileGroups,
   useGitSync,
   useSchemas,
+  useProjectSession,
   ipcProjectIO,
   useSiteUrl,
   WorkspaceChooser,
@@ -54,8 +51,13 @@ function App() {
   const [root, setRoot] = useState<string | null>(null);
   const [repoRoot, setRepoRoot] = useState<string | null>(null);
   const [workspaceCandidates, setWorkspaceCandidates] = useState<ProjectCandidate[] | null>(null);
-  const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
-  const adapter = useMemo(() => projectAdapter(projectInfo?.type ?? "generic"), [projectInfo]);
+  const projectSession = useProjectSession({
+    io: ipcProjectIO,
+    scanProjects: (repository) => invoke<ProjectInventory[]>("scan_projects", { root: repository }),
+    getRememberedWorkDir: (repository) =>
+      invoke<string | null>("get_work_dir", { root: repository }),
+  });
+  const { projectInfo, adapter } = projectSession;
   // Recently-opened site roots, newest first (backend caps at 10).
   const [recentRoots, setRecentRoots] = useState<string[]>([]);
   // Editor tab choice sticks for the session; Fields is the default when available.
@@ -174,9 +176,9 @@ function App() {
   }
 
   async function selectRoot(repository: string, dir: string) {
-    let detected: ProjectInfo;
+    let selectedAdapter: ProjectAdapter;
     try {
-      detected = await detectProject(dir, ipcProjectIO);
+      ({ adapter: selectedAdapter } = await projectSession.activate(dir));
     } catch (error) {
       notify(
         `Could not inspect project: ${error instanceof Error ? error.message : String(error)}`,
@@ -184,12 +186,10 @@ function App() {
       );
       return;
     }
-    const selectedAdapter = projectAdapter(detected.type);
     void currentFile.flushPendingSave();
     setRoot(dir);
     setRepoRoot(repository);
     setWorkspaceCandidates(null);
-    setProjectInfo(detected);
     currentFile.closeFile();
     preview.resetRoute();
     void schemas.loadPagesConfig(dir);
@@ -216,18 +216,11 @@ function App() {
 
   async function selectRepository(repository: string) {
     try {
-      const remembered = await invoke<string | null>("get_work_dir", { root: repository });
-      if (remembered) {
-        await selectRoot(repository, remembered);
-        return;
-      }
-      const inventory = await invoke<ProjectInventory[]>("scan_projects", { root: repository });
-      const scan = await scanWorkspace(repository, inventory);
-      const decision = decideWorkspace(repository, scan);
+      const decision = await projectSession.resolveRepository(repository);
       if (decision.kind === "choose") {
         setRepoRoot(repository);
         setRoot(null);
-        setProjectInfo(null);
+        projectSession.clear();
         setWorkspaceCandidates(decision.candidates);
         return;
       }
@@ -243,8 +236,7 @@ function App() {
   async function chooseProjectInRepository() {
     if (!repoRoot) return;
     try {
-      const inventory = await invoke<ProjectInventory[]>("scan_projects", { root: repoRoot });
-      const scan = await scanWorkspace(repoRoot, inventory);
+      const scan = await projectSession.scanRepository(repoRoot);
       setWorkspaceCandidates([{ dir: repoRoot, ...scan.root }, ...scan.candidates]);
     } catch (error) {
       notify(
@@ -389,8 +381,7 @@ function App() {
     const dir = rootRef.current;
     if (!dir) return;
     if (repoRoot && workspaceLayoutChanged(repoRoot, dir, paths)) {
-      const inventory = await invoke<ProjectInventory[]>("scan_projects", { root: repoRoot });
-      const scan = await scanWorkspace(repoRoot, inventory);
+      const scan = await projectSession.scanRepository(repoRoot);
       setWorkspaceCandidates((current) =>
         current ? [{ dir: repoRoot, ...scan.root }, ...scan.candidates] : current,
       );
@@ -399,14 +390,14 @@ function App() {
         return;
       }
     }
-    const scopes = invalidationScopesForPaths(adapter, dir, paths, schemas.configRef.current);
+    const scopes = projectSession.invalidations(dir, paths, schemas.configRef.current);
     if (scopes.has("projectType")) {
-      const detected = await detectProject(dir, ipcProjectIO);
+      const detected = await projectSession.inspect(dir);
       if (detected.type !== projectInfo?.type) {
         await selectRoot(repoRoot ?? dir, dir);
         return;
       }
-      setProjectInfo(detected);
+      projectSession.setProjectInfo(detected);
     }
     if (scopes.has("derivedConfig")) void schemas.loadDerivedConfig(dir, adapter);
     if (scopes.has("componentSchemas")) setComponentSchemaVersion((version) => version + 1);

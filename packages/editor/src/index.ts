@@ -25,4 +25,5 @@ export * from "./hooks/useSchemas";
 export * from "./hooks/useSiteUrl";
 export * from "./hooks/useImageLibraryImport";
 export * from "./hooks/useImageLibraryAssets";
+export * from "./hooks/useProjectSession";
 export * from "./projectIO";
