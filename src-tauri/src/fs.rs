@@ -294,6 +294,23 @@ pub fn list_dir_files_optional(
     }
 }
 
+/// Checks path metadata without reading directory contents. Missing paths are
+/// expected; permissions and other metadata failures remain actionable errors.
+#[tauri::command]
+pub fn path_exists(path: String, kind: Option<String>) -> Result<bool, String> {
+    let metadata = match std::fs::metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(format!("Failed to inspect {path}: {error}")),
+    };
+    match kind.as_deref() {
+        Some("file") => Ok(metadata.is_file()),
+        Some("directory") => Ok(metadata.is_dir()),
+        Some(other) => Err(format!("Unknown path kind: {other}")),
+        None => Ok(true),
+    }
+}
+
 fn cached_image_thumbnail(
     cache_root: &Path,
     source: &Path,

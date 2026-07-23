@@ -5,15 +5,7 @@ import type { ProjectIO } from "@posto/core/project/adapter";
 /** Native project IO used by the app shells and supplied to editor trees. */
 export const ipcProjectIO: ProjectIO = {
   async pathExists(path, kind) {
-    if (kind === "directory") {
-      return (
-        (await invoke<unknown[] | null>("list_dir_files_optional", {
-          dir: path,
-          extensions: [],
-        })) !== null
-      );
-    }
-    return (await invoke<string | null>("read_text_file_optional", { path })) !== null;
+    return invoke<boolean>("path_exists", { path, kind });
   },
   readTextFileOptional(path) {
     return invoke<string | null>("read_text_file_optional", { path });
