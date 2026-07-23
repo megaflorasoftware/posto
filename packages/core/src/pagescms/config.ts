@@ -75,6 +75,8 @@ export interface ContentEntry {
   subfolders?: boolean;
   /** Filename template for new entries (e.g. `{year}-{month}-{day}-{primary}.md`). */
   filename?: string;
+  /** Adapter-provided default used only when `filename` is not configured. */
+  filenameFallback?: string;
   /** Explicit file extension for the collection's entries (no leading dot). */
   extension?: string;
   /** Field named by `view.primary`; the entry's display/primary field. */
@@ -422,14 +424,11 @@ function currentDateTokens(): Record<string, string> {
 
 /**
  * Filename template for the entry's new files: the entry's `filename`
- * setting, else `{primary}.<ext>` for Astro collections (whose entries are
- * just slug-named, with no date-prefix convention), else the Pages CMS
+ * setting, else an adapter-provided fallback, else the Pages CMS
  * date-prefixed default.
  */
-export function entryFilenamePattern(entry: ContentEntry, astro: boolean): string {
-  if (entry.filename) return entry.filename;
-  if (astro) return `{primary}.${collectionExtension(entry) ?? "md"}`;
-  return DEFAULT_FILENAME_PATTERN;
+export function entryFilenamePattern(entry: ContentEntry): string {
+  return entry.filename ?? entry.filenameFallback ?? DEFAULT_FILENAME_PATTERN;
 }
 
 /**

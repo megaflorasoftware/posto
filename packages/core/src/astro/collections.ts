@@ -616,6 +616,7 @@ export function buildAstroConfig(
       subfolders:
         patterns.length > 0 && patterns.every((p) => !p.includes("/")) ? false : undefined,
       extension,
+      filenameFallback: `{primary}.${extension ?? "md"}`,
       fields: resolveReferences(resolveImages(fields, loader?.images), loader?.references, loaders),
       opaqueEntryIds: loader?.customIds || undefined,
     });

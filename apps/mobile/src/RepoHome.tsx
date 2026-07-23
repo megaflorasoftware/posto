@@ -361,11 +361,7 @@ export default function RepoHome({
   }
 
   function schemaSources() {
-    return {
-      config: schemas.configRef.current ?? EMPTY_CONFIG,
-      pagesContent: schemas.pagesConfig?.content ?? [],
-      derivedContent: schemas.derivedConfig?.content ?? [],
-    };
+    return { config: schemas.configRef.current ?? EMPTY_CONFIG };
   }
 
   // "New file" creates immediately — an "Untitled" entry with the
