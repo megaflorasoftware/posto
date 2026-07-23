@@ -2,6 +2,7 @@ export * from "./components/CollectionOrderDialog";
 export * from "./components/CollectionSettingsDialog";
 export * from "./components/CachedImage";
 export * from "./components/Dialog";
+export * from "./components/DirectoryBrowser";
 export * from "./components/AdaptiveSelect";
 export * from "./components/EditorPane";
 export * from "./components/ImageLibraryReferenceField";

@@ -481,6 +481,16 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       }
       return [...directories].sort();
     }
+    case "list_child_directories": {
+      const dir = args?.dir as string;
+      const children = new Set<string>();
+      for (const path of mockDirectories) {
+        if (!path.startsWith(`${dir}/`)) continue;
+        const child = path.slice(dir.length + 1).split("/")[0];
+        if (child) children.add(`${dir}/${child}`);
+      }
+      return [...children].sort();
+    }
     case "read_text_file": {
       const path = args?.path as string;
       // Missing dotfile reads must fail like the real backend so ".pages.yml

@@ -441,6 +441,27 @@ pub fn list_directories(dir: String) -> Result<Vec<String>, String> {
     Ok(directories)
 }
 
+/// Lists only visible immediate child directories. Used by bounded folder
+/// browsers that navigate one level at a time without walking the repository.
+#[tauri::command]
+pub fn list_child_directories(dir: String) -> Result<Vec<String>, String> {
+    let path = Path::new(&dir);
+    if !path.is_dir() {
+        return Err(format!("Not a directory: {dir}"));
+    }
+    let mut directories = std::fs::read_dir(path)
+        .map_err(|error| format!("Failed to read {dir}: {error}"))?
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().to_string();
+            (entry.path().is_dir() && !name.starts_with('.') && !SKIP_DIRS.contains(&name.as_str()))
+                .then(|| entry.path().to_string_lossy().to_string())
+        })
+        .collect::<Vec<_>>();
+    directories.sort();
+    Ok(directories)
+}
+
 #[tauri::command]
 pub fn read_text_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| format!("Failed to read {path}: {e}"))
@@ -892,6 +913,24 @@ mod tests {
         assert!(groups[3].path.ends_with("src/content/blogs"));
 
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn child_directories_are_bounded_to_one_visible_level() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("apps/site/content")).unwrap();
+        std::fs::create_dir_all(dir.path().join("packages/docs")).unwrap();
+        std::fs::create_dir_all(dir.path().join("node_modules/pkg")).unwrap();
+        std::fs::create_dir_all(dir.path().join(".hidden/project")).unwrap();
+
+        let listed = list_child_directories(dir.path().to_string_lossy().to_string()).unwrap();
+        assert_eq!(
+            listed,
+            vec![
+                dir.path().join("apps").to_string_lossy().to_string(),
+                dir.path().join("packages").to_string_lossy().to_string(),
+            ]
+        );
     }
 
     fn import_plan(dir: &Path) -> ImageLibraryImportPlan {

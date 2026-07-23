@@ -14,6 +14,7 @@ import {
   CollectionOrderDialog,
   CollectionSettingsDialog,
   Dialog,
+  DirectoryBrowser,
   EditorPane,
   ImageLibraryImportDialog,
   ImageLibraryList,
@@ -101,6 +102,7 @@ export default function RepoHome({
   const [root, setWorkDir] = useState(repoRoot);
   const [workspaceCandidates, setWorkspaceCandidates] = useState<ProjectCandidate[] | null>(null);
   const [workspaceChooserFromSettings, setWorkspaceChooserFromSettings] = useState(false);
+  const [browsingWorkspace, setBrowsingWorkspace] = useState(false);
   const [loading, setLoading] = useState(true);
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
   const adapter = useMemo(() => projectAdapter(projectInfo?.type ?? "generic"), [projectInfo]);
@@ -266,6 +268,7 @@ export default function RepoHome({
       setProjectInfo(detected);
       setWorkspaceCandidates(null);
       setWorkspaceChooserFromSettings(false);
+      setBrowsingWorkspace(false);
       void invoke("set_last_root", { root: repoRoot, workDir: selectedRoot });
       await refreshRepositoryContent(selectedRoot, projectAdapter(detected.type));
       void git.refreshLocalChanges(selectedRoot);
@@ -287,12 +290,14 @@ export default function RepoHome({
   }
 
   async function browseWorkspace() {
+    setBrowsingWorkspace(true);
+  }
+
+  async function chooseBrowsedWorkspace(dir: string) {
     try {
-      const inventory = await invoke<ProjectInventory[]>("scan_projects", { root: repoRoot });
-      const scan = await scanWorkspace(repoRoot, inventory);
-      setWorkspaceCandidates([{ dir: repoRoot, ...scan.root }, ...scan.candidates]);
+      await chooseWorkspace({ dir, ...(await detectProject(dir, ipcProjectIO)) });
     } catch (workspaceError) {
-      setError(`Could not browse repository: ${message(workspaceError)}`);
+      setError(`Could not inspect project: ${message(workspaceError)}`);
     }
   }
 
@@ -551,7 +556,9 @@ export default function RepoHome({
   }
 
   function navigateBack() {
-    if (workspaceCandidates && workspaceChooserFromSettings) {
+    if (workspaceCandidates && browsingWorkspace) {
+      setBrowsingWorkspace(false);
+    } else if (workspaceCandidates && workspaceChooserFromSettings) {
       setWorkspaceCandidates(null);
       setWorkspaceChooserFromSettings(false);
       setShowSettings(true);
@@ -689,12 +696,20 @@ export default function RepoHome({
       </header>
       {workspaceCandidates ? (
         <main className="mobile-settings-screen">
-          <WorkspaceChooser
-            repoRoot={repoRoot}
-            candidates={workspaceCandidates}
-            onChoose={(candidate) => void chooseWorkspace(candidate)}
-            onBrowse={() => void browseWorkspace()}
-          />
+          {browsingWorkspace ? (
+            <DirectoryBrowser
+              repoRoot={repoRoot}
+              onChoose={(dir) => void chooseBrowsedWorkspace(dir)}
+              onCancel={() => setBrowsingWorkspace(false)}
+            />
+          ) : (
+            <WorkspaceChooser
+              repoRoot={repoRoot}
+              candidates={workspaceCandidates}
+              onChoose={(candidate) => void chooseWorkspace(candidate)}
+              onBrowse={() => void browseWorkspace()}
+            />
+          )}
         </main>
       ) : showEditor ? (
         <main className="mobile-editor-screen">
