@@ -470,8 +470,34 @@ impl Client {
             .update_all([scope.as_str()].iter(), None)
             .map_err(err_str)?;
         index.write().map_err(err_str)?;
-        let tree_oid = index.write_tree().map_err(err_str)?;
         let head_commit = self.repo.head().ok().and_then(|h| h.peel_to_commit().ok());
+        let tree_oid = if self.scope.as_os_str().is_empty() {
+            index.write_tree().map_err(err_str)?
+        } else {
+            // The repository index may already contain staged sibling work.
+            // Build the publish tree from HEAD plus only this selected subtree,
+            // while leaving the real index (and those staged changes) intact.
+            let mut publish_index = git2::Index::new().map_err(err_str)?;
+            if let Some(head) = &head_commit {
+                publish_index
+                    .read_tree(&head.tree().map_err(err_str)?)
+                    .map_err(err_str)?;
+            }
+            if let Err(error) = publish_index.remove_dir(&self.scope, 0) {
+                if error.code() != git2::ErrorCode::NotFound {
+                    return Err(err_str(error));
+                }
+            }
+            let scope = self.scope.to_string_lossy().replace('\\', "/");
+            let prefix = format!("{scope}/");
+            for entry in index.iter() {
+                let path = String::from_utf8_lossy(&entry.path);
+                if path == scope || path.starts_with(&prefix) {
+                    publish_index.add(&entry).map_err(err_str)?;
+                }
+            }
+            publish_index.write_tree_to(&self.repo).map_err(err_str)?
+        };
         if let Some(head_commit) = &head_commit {
             if head_commit.tree_id() == tree_oid {
                 return Ok("Nothing to publish — no local changes.".to_string());

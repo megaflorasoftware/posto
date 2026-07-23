@@ -323,6 +323,50 @@ fn monorepo_status_and_publish_are_scoped_to_selected_project() {
 }
 
 #[test]
+fn scoped_publish_preserves_staged_sibling_changes() {
+    let f = fixture();
+    write(&f.local, "apps/site/index.md", "site\n");
+    write(&f.local, "apps/sibling/index.md", "sibling\n");
+    commit_all(&f.local, "add workspace");
+    push(&f.local);
+
+    write(&f.local, "apps/site/index.md", "site changed\n");
+    write(&f.local, "apps/sibling/index.md", "sibling staged\n");
+    let repo = git2::Repository::open(&f.local).unwrap();
+    let mut index = repo.index().unwrap();
+    index.add_path(Path::new("apps/sibling/index.md")).unwrap();
+    index.write().unwrap();
+
+    let client = Client::open(f.local.join("apps/site").to_str().unwrap()).unwrap();
+    assert_eq!(client.publish("site only").unwrap(), "Published.");
+
+    let repo = git2::Repository::open(&f.local).unwrap();
+    let head = repo.head().unwrap().peel_to_commit().unwrap();
+    let sibling = head
+        .tree()
+        .unwrap()
+        .get_path(Path::new("apps/sibling/index.md"))
+        .unwrap()
+        .to_object(&repo)
+        .unwrap()
+        .peel_to_blob()
+        .unwrap();
+    assert_eq!(
+        sibling.content(),
+        b"sibling\n",
+        "staged sibling was not committed"
+    );
+    let status = repo
+        .status_file(Path::new("apps/sibling/index.md"))
+        .unwrap();
+    assert!(status.is_index_modified(), "staged sibling remains staged");
+    assert!(
+        !status.is_wt_modified(),
+        "sibling working tree still matches its staged content"
+    );
+}
+
+#[test]
 fn revert_tracked_and_untracked() {
     let f = fixture();
     let client = Client::open(f.local.to_str().unwrap()).unwrap();
