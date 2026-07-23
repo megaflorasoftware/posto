@@ -1,0 +1,7 @@
+content:
+  - name: notes
+    type: collection
+    path: notes
+    fields:
+      - name: title
+        type: string
