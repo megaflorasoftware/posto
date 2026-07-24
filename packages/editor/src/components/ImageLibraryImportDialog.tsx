@@ -14,6 +14,7 @@ import {
 } from "@posto/ipc";
 import { useImageLibraryAssets } from "../hooks/useImageLibraryAssets";
 import { useImageLibraryImport } from "../hooks/useImageLibraryImport";
+import type { ImageLibraryImportDraft } from "../hooks/useImageLibraryImport";
 import { editValueAtPath, imageLibraryMetadataFields, valueAtPath } from "../imageLibraryMetadata";
 import { Dialog } from "./Dialog";
 import { CachedImage } from "./CachedImage";
@@ -75,7 +76,11 @@ export function ImageLibraryImportDialog(props: {
    * whose dropzone would just repeat the button that launched this dialog. */
   autoChooseSource?: boolean;
   onClose: () => void;
-  onImported: (result: ImageLibraryImportResult, library: MediaLibrary) => void;
+  onImported: (
+    result: ImageLibraryImportResult,
+    library: MediaLibrary,
+    draft: ImageLibraryImportDraft,
+  ) => void;
   onPublicImported?: (path: string) => void;
 }) {
   const initialSources = props.sourcePaths?.length
@@ -105,7 +110,7 @@ export function ImageLibraryImportDialog(props: {
     root: props.root,
     library: importerLibrary,
     initialSources,
-    onImported: (result) => props.onImported(result, importerLibrary),
+    onImported: (result, draft) => props.onImported(result, importerLibrary, draft),
   });
   const [publicImportPending, setPublicImportPending] = useState(false);
 

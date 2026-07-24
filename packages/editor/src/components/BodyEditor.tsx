@@ -2,13 +2,14 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { Link, RichTextEditor } from "@mantine/tiptap";
 import { Alert, Button, Group, Loader, TextInput } from "@mantine/core";
 import { useEditor } from "@tiptap/react";
+import type { Editor } from "@tiptap/core";
 import type { EditorState, Transaction } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "@tiptap/markdown";
 import { Blocks, CodeXml, Image as ImageIcon } from "lucide-react";
 
-import { assetUrl } from "@posto/ipc";
-import type { FileGroup } from "@posto/ipc";
+import { assetUrl, onFileDrop } from "@posto/ipc";
+import type { FileDropDetails, FileGroup } from "@posto/ipc";
 import {
   expandMediaEntry,
   mediaInputPath,
@@ -40,7 +41,8 @@ import {
   type ComponentBlockSchema,
 } from "./MdxNodes";
 import { useProjectIO } from "../projectIO";
-import { markdownMediaEditorContent } from "../markdownMedia";
+import { markdownMediaEditorContent, type MarkdownMediaPick } from "../markdownMedia";
+import { droppedImagePaths } from "../droppedImages";
 import { resolveImageLibraryLocation } from "@posto/core/project/mediaLibrary";
 import { useImageLibraryAssets } from "../hooks/useImageLibraryAssets";
 import {
@@ -66,7 +68,7 @@ function outputContains(output: string, src: string): boolean {
   return src === prefix || src.startsWith(`${prefix}/`);
 }
 
-interface RichTextDropLocation {
+export interface RichTextDropLocation {
   pos: number;
   left: number;
   top: number;
@@ -89,6 +91,11 @@ interface ImageDropBox {
 
 type RichTextDragSource = MediaDragSource | BodyNodeDragSource;
 
+interface ExternalImageDrop {
+  sources: string[];
+  location: RichTextDropLocation;
+}
+
 const draggableBodyNodeTypes = new Set([
   "image",
   "blockImage",
@@ -97,6 +104,29 @@ const draggableBodyNodeTypes = new Set([
   "htmlBlock",
   "htmlInline",
 ]);
+
+/** Inserts imported media at a previously captured drop position and returns
+ * the next insertion position so multi-image drops retain their source order. */
+export function insertMediaAtLocation(
+  editor: Editor,
+  media: MarkdownMediaPick,
+  location: Pick<RichTextDropLocation, "pos" | "blockBoundary">,
+): number {
+  const imageContent = markdownMediaEditorContent(media);
+  editor
+    .chain()
+    .focus()
+    .insertContentAt(
+      location.pos,
+      location.blockBoundary ? { ...imageContent, type: "blockImage" } : imageContent,
+      { updateSelection: true },
+    )
+    .run();
+  // Both inline and block image nodes are atoms with nodeSize 1. Advancing
+  // explicitly is more reliable than the command's resulting selection,
+  // which ProseMirror may place before a newly inserted block atom.
+  return location.pos + 1;
+}
 
 function inRange(value: number, first: number, second: number, padding = 0): boolean {
   return value >= Math.min(first, second) - padding && value <= Math.max(first, second) + padding;
@@ -443,6 +473,7 @@ export function BodyEditor(props: {
 }) {
   const { mdx, componentBlocksEnabled } = bodyEditorMode(props.mdx, props.componentBlocks);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [externalImageDrop, setExternalImageDrop] = useState<ExternalImageDrop | null>(null);
   const [componentPickerOpen, setComponentPickerOpen] = useState(false);
   const [editingImage, setEditingImage] = useState<EditableImageRequest | null>(null);
   const [schemas, setSchemas] = useState<Record<string, ComponentBlockSchema>>({});
@@ -557,6 +588,7 @@ export function BodyEditor(props: {
 
   const bodyDropContainer = useRef<HTMLDivElement | null>(null);
   const dropLocationRef = useRef<RichTextDropLocation | null>(null);
+  const externalDropLocationRef = useRef<RichTextDropLocation | null>(null);
   const [dropCaret, setDropCaret] = useState<RichTextDropLocation | null>(null);
 
   const dropLocationAtPointer = (
@@ -664,6 +696,38 @@ export function BodyEditor(props: {
     };
   };
 
+  useEffect(() => {
+    const libraries = props.config.mediaLibraries ?? [];
+    if (!editor || libraries.length === 0 || pickerOpen || externalImageDrop) return;
+    const acceptsEditorImageDrop = (paths: string[], details: FileDropDetails) => {
+      const pointer = details.pointer;
+      const container = bodyDropContainer.current;
+      if (!pointer || !container || droppedImagePaths(paths).length === 0) return false;
+      const bounds = container.getBoundingClientRect();
+      const hit = document.elementFromPoint(pointer.x, pointer.y);
+      return (
+        !!hit &&
+        container.contains(hit) &&
+        pointer.x >= bounds.left &&
+        pointer.x <= bounds.right &&
+        pointer.y >= bounds.top &&
+        pointer.y <= bounds.bottom
+      );
+    };
+    return onFileDrop(
+      (paths, details) => {
+        const location = dropLocationAtPointer(details.pointer, null);
+        const sources = droppedImagePaths(paths);
+        if (!location || sources.length === 0) return;
+        externalDropLocationRef.current = location;
+        setExternalImageDrop({ sources, location });
+      },
+      { priority: 50, accepts: acceptsEditorImageDrop },
+    );
+    // dropLocationAtPointer deliberately reads the current editor view and DOM.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, externalImageDrop, pickerOpen, props.config.mediaLibraries, props.path]);
+
   const insertOrMoveImage = (
     media: Parameters<typeof markdownMediaEditorContent>[0],
     details: MediaDropDetails,
@@ -690,15 +754,7 @@ export function BodyEditor(props: {
         return;
       }
     }
-    const imageContent = markdownMediaEditorContent(media);
-    editor
-      .chain()
-      .focus()
-      .insertContentAt(
-        location.pos,
-        location.blockBoundary ? { ...imageContent, type: "blockImage" } : imageContent,
-      )
-      .run();
+    insertMediaAtLocation(editor, media, location);
   };
 
   const moveBodyNode = (source: BodyNodeDragSource, details: BodyNodeDragDetails) => {
@@ -1010,15 +1066,29 @@ export function BodyEditor(props: {
                 />
               )}
             </div>
-            {pickerOpen && (
+            {(pickerOpen || externalImageDrop) && (
               <RichTextImagePickerDialog
                 root={props.root}
                 config={props.config}
                 configuredMedia={props.configuredMedia}
                 templateValues={props.templateValues}
                 groups={props.groups}
-                onClose={() => setPickerOpen(false)}
+                importSourcePaths={externalImageDrop?.sources}
+                onClose={() => {
+                  setPickerOpen(false);
+                  setExternalImageDrop(null);
+                  externalDropLocationRef.current = null;
+                }}
                 onPick={(media) => {
+                  const externalLocation = externalDropLocationRef.current;
+                  if (editor && externalLocation) {
+                    const nextPosition = insertMediaAtLocation(editor, media, externalLocation);
+                    externalDropLocationRef.current = {
+                      ...externalLocation,
+                      pos: nextPosition,
+                    };
+                    return;
+                  }
                   setPickerOpen(false);
                   editor?.chain().focus().insertContent(markdownMediaEditorContent(media)).run();
                 }}

@@ -75,6 +75,8 @@ export function EditorPane(props: {
   onFullscreen?: () => void;
   /** Control rendered before the filename, used by the fullscreen header. */
   headerLeading?: ReactNode;
+  /** Control rendered after the editor actions, used by the fullscreen header. */
+  headerTrailing?: ReactNode;
   hideHeader?: boolean;
   filenamePlacement?: "header" | "fields";
 }) {
@@ -225,6 +227,7 @@ export function EditorPane(props: {
                 <Maximize2 size={13} />
               </ActionIcon>
             )}
+            {props.headerTrailing}
           </div>
         </div>
       )}

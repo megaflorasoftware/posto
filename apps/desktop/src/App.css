@@ -178,7 +178,7 @@ body,
   left: 5.375rem;
 }
 
-.sidebar-collapsed .editor-pane > .pane-header {
+.sidebar-collapsed .editor-pane:not(.fullscreen-editor-pane) > .pane-header {
   padding-left: 7.5rem;
 }
 
@@ -422,6 +422,142 @@ body,
 
 .fullscreen-editor-pane > .pane-header .pane-header-actions {
   margin-left: auto;
+}
+
+.fullscreen-sidebar-toggle {
+  position: absolute;
+  right: 0.75rem;
+}
+
+/* Fullscreen keeps both navigation surfaces above the editor instead of
+   reflowing its centered 760px content column. The 50px rails remain present
+   even while the panels are closed, making either edge a reveal target. */
+.fullscreen-sidebar-rail {
+  position: absolute;
+  z-index: 5;
+  top: 48px;
+  bottom: 0;
+  width: 100px;
+}
+
+.fullscreen-sidebar-rail-left {
+  left: 0;
+}
+
+.fullscreen-sidebar-rail-right {
+  right: 0;
+}
+
+.fullscreen-floating-sidebar {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  width: clamp(236px, calc((100vw - 760px) / 2 - 24px), 320px);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  box-shadow: var(--mantine-shadow-lg);
+  background: var(--mantine-color-body);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease,
+    visibility 120ms;
+}
+
+.fullscreen-sidebar-rail-left .fullscreen-floating-sidebar {
+  left: 12px;
+  transform: translateX(-12px);
+}
+
+.fullscreen-sidebar-rail-right .fullscreen-floating-sidebar {
+  right: 12px;
+  transform: translateX(12px);
+}
+
+.fullscreen-sidebars-open .fullscreen-floating-sidebar,
+.fullscreen-sidebar-rail:hover .fullscreen-floating-sidebar,
+.fullscreen-sidebar-rail:focus-within .fullscreen-floating-sidebar {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+
+.fullscreen-floating-sidebar-header {
+  flex: 0 0 42px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-sizing: border-box;
+  padding: 0 0.75rem;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 600;
+}
+
+.fullscreen-floating-sidebar-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.fullscreen-floating-sidebar-content > .sidebar {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  border-right: 0;
+}
+
+.fullscreen-floating-sidebar-content > .media-drawer {
+  min-width: 0;
+}
+
+.fullscreen-floating-sidebar-content .media-drawer-scroll,
+.fullscreen-floating-sidebar-content .media-drawer-footer {
+  padding: 0.5rem;
+}
+
+.fullscreen-floating-sidebar-content .picker-grid {
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 0.35rem 0.75rem;
+}
+
+/* Below this width the side gaps beside the editor can no longer hold a
+   two-column media grid. Keep the setting intact, hide its button/panels, and
+   still reveal each individual panel from its edge rail. */
+@media (max-width: 79.99rem) {
+  .fullscreen-sidebar-toggle {
+    display: none;
+  }
+
+  .fullscreen-sidebar-rail:not(:hover):not(:focus-within) .fullscreen-floating-sidebar {
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .fullscreen-sidebar-rail-left:not(:hover):not(:focus-within) .fullscreen-floating-sidebar {
+    transform: translateX(-12px);
+  }
+
+  .fullscreen-sidebar-rail-right:not(:hover):not(:focus-within) .fullscreen-floating-sidebar {
+    transform: translateX(12px);
+  }
+}
+
+/* Once the viewport itself is narrower than the editor's 760px content
+   column, reclaim half of each edge rail for the editing surface. */
+@media (max-width: 47.5rem) {
+  .fullscreen-sidebar-rail {
+    width: 50px;
+  }
 }
 
 .fullscreen-editor-pane .body-rich-editor {

@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import type { FieldContext } from "./FieldEditor";
 import { onFileDrop } from "@posto/ipc";
 import { ImageLibraryImportDialog } from "./ImageLibraryImportDialog";
-
-const DROPPED_IMAGE = /\.(?:avif|gif|jpe?g|png|svg|tiff?|webp)$/i;
+import { droppedImagePaths } from "../droppedImages";
 
 export function ImageLibraryDropImport(props: {
   root: string;
@@ -18,7 +17,7 @@ export function ImageLibraryDropImport(props: {
     () =>
       onFileDrop(
         (paths) => {
-          const images = paths.filter((path) => DROPPED_IMAGE.test(path));
+          const images = droppedImagePaths(paths);
           if (images.length === 0) return;
           if (libraries.length === 0) {
             props.onError?.("This project has no editable media library.");

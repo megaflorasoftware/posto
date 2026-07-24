@@ -9,6 +9,7 @@ import {
   bodyEditorMode,
   imageGapLocation,
   imageMoveTransaction,
+  insertMediaAtLocation,
 } from "../src/components/BodyEditor";
 import { EditableBlockImage, EditableImage } from "../src/components/EditableImage";
 import { htmlNodes } from "../src/components/HtmlNodes";
@@ -104,6 +105,34 @@ test("finds the insertion boundary between adjacent images", () => {
     () => true,
   );
   expect(nested).toMatchObject({ pos: 8, top: 140, orientation: "horizontal" });
+});
+
+test("inserts imported images at a captured drop position after the import completes", () => {
+  const editor = new Editor({
+    extensions: [StarterKit, Markdown, EditableBlockImage, EditableImage],
+    content: "Before\n\nAfter",
+    contentType: "markdown",
+  });
+  const capturedPosition = editor.state.doc.child(0).nodeSize;
+  expect(editor.getMarkdown()).toBe("Before\n\nAfter");
+
+  const nextPosition = insertMediaAtLocation(
+    editor,
+    { outputPath: "/images/first.jpg", label: "first.jpg", alt: "First", kind: "image" },
+    { pos: capturedPosition, blockBoundary: true },
+  );
+  insertMediaAtLocation(
+    editor,
+    { outputPath: "/images/second.jpg", label: "second.jpg", alt: "Second", kind: "image" },
+    { pos: nextPosition, blockBoundary: true },
+  );
+
+  const markdown = editor.getMarkdown();
+  expect(markdown.indexOf("Before")).toBeLessThan(markdown.indexOf("![First]"));
+  expect(markdown.indexOf("![First]")).toBeLessThan(markdown.indexOf("![Second]"));
+  expect(markdown.indexOf("![Second]")).toBeLessThan(markdown.indexOf("After"));
+  expect(() => editor.state.doc.check()).not.toThrow();
+  editor.destroy();
 });
 
 test("moves blank-line-separated Markdown images as top-level nodes", () => {

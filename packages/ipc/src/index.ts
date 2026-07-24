@@ -1,9 +1,15 @@
 import { convertFileSrc, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as tauriOpen } from "@tauri-apps/plugin-dialog";
 import { openPath as tauriOpenPath, openUrl as tauriOpenUrl } from "@tauri-apps/plugin-opener";
-import { createFileDropRouter, type FileDropHandler } from "./fileDropRouter";
+import {
+  createFileDropRouter,
+  type FileDropAcceptance,
+  type FileDropHandler,
+} from "./fileDropRouter";
+export type { FileDropDetails } from "./fileDropRouter";
 
 const inTauri = "__TAURI_INTERNALS__" in window;
 
@@ -362,12 +368,22 @@ let fileDropUnlisten: Promise<() => void> | null = null;
 
 /** Routes native desktop file drops through one shared integration point.
  * The highest-priority surface owns the event; recency breaks priority ties. */
-export function onFileDrop(handler: FileDropHandler, options: { priority: number }): () => void {
-  const unregister = fileDropRouter.register(handler, options.priority);
+export function onFileDrop(
+  handler: FileDropHandler,
+  options: { priority: number; accepts?: FileDropAcceptance },
+): () => void {
+  const unregister = fileDropRouter.register(handler, options.priority, options.accepts);
   if (inTauri && !fileDropUnlisten) {
     fileDropUnlisten = getCurrentWebview().onDragDropEvent((event) => {
       if (event.payload.type === "drop") {
-        fileDropRouter.dispatch(event.payload.paths);
+        const { paths, position } = event.payload;
+        void getCurrentWindow()
+          .scaleFactor()
+          .then((scaleFactor) => {
+            const pointer = position.toLogical(scaleFactor);
+            fileDropRouter.dispatch(paths, { pointer: { x: pointer.x, y: pointer.y } });
+          })
+          .catch(() => fileDropRouter.dispatch(paths));
       }
     });
   }
@@ -511,6 +527,15 @@ export function setRepositoryMenuItemsEnabled(
 export function onOpenFullscreenEditor(handler: () => void): () => void {
   if (!inTauri) return () => {};
   const unlisten = listen("open-fullscreen-editor", handler);
+  return () => {
+    void unlisten.then((fn) => fn());
+  };
+}
+
+/** Subscribes to the native View menu's shared sidebar toggle command. */
+export function onToggleSidebar(handler: () => void): () => void {
+  if (!inTauri) return () => {};
+  const unlisten = listen("toggle-sidebar", handler);
   return () => {
     void unlisten.then((fn) => fn());
   };
