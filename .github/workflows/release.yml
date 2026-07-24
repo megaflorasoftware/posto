@@ -89,6 +89,10 @@ jobs:
           set -euo pipefail
           version="${TAG#v}"
           echo "$ARTIFACT_PATHS" | jq -r '.[]' | while read -r path; do
+            # Windows artifact paths use backslashes, and its native jq writes
+            # CRLF. Normalize both before filtering and splitting the path.
+            path="${path%$'\r'}"
+            path="${path//\\//}"
             case "$path" in
               *.dmg|*.exe|*.msi|*.AppImage|*.deb|*.rpm) ;;
               *) continue ;;
