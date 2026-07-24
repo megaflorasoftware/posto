@@ -18,6 +18,7 @@ import { ImageLibraryImportDialog } from "./ImageLibraryImportDialog";
 import { ImageLibraryPickerDialog } from "./ImageLibraryPickerDialog";
 import { CachedImage } from "./CachedImage";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
+import { useMediaDropZone } from "./MediaDragDrop";
 
 export function ImageLibraryReferenceField(props: {
   field: Field;
@@ -130,6 +131,16 @@ export function ImageLibraryReferenceField(props: {
       }, AUTOSAVE_DELAY_MS);
     }
   };
+  const imageDrop = useMediaDropZone({
+    id: `image-library-field:${props.ctx.root}:${props.path.join(".")}`,
+    accepts: (dragged) =>
+      dragged.kind === "image" && dragged.library?.collection === props.library.collection,
+    onDrop: (dragged) => {
+      const entryId = dragged.library?.entryId;
+      if (!entryId) return;
+      void flushMetadata().then(() => props.ctx.edit(props.path, entryId));
+    },
+  });
   const metadataCtx: FieldContext = {
     config: props.ctx.config,
     root: props.ctx.root,
@@ -176,8 +187,9 @@ export function ImageLibraryReferenceField(props: {
       )}
       <div className="image-library-reference-item">
         <button
+          ref={imageDrop.setNodeRef}
           type="button"
-          className="image-library-reference"
+          className={`image-library-reference${imageDrop.isAccepting ? " is-drag-over" : ""}`}
           aria-label={selected ? "Change image" : "Choose image"}
           onClick={() => setPickerOpen(true)}
         >
@@ -216,6 +228,16 @@ export function ImageLibraryReferenceField(props: {
           assets={libraryState.assets}
           directories={libraryState.directories}
           onClose={() => setPickerOpen(false)}
+          onClear={
+            selected
+              ? () => {
+                  void flushMetadata().then(() => {
+                    props.ctx.edit(props.path, undefined);
+                    setPickerOpen(false);
+                  });
+                }
+              : undefined
+          }
           onImport={() => {
             setPickerOpen(false);
             setImportOpen(true);

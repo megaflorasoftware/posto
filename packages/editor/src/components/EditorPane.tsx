@@ -67,6 +67,8 @@ export function EditorPane(props: {
   onRenameFile: (filename: string) => Promise<boolean>;
   onRefreshFilename: (template: string) => void;
   onPostoSaved: () => void;
+  onBeforeMediaChange?: () => Promise<void>;
+  onMediaChanged?: (options?: { silent?: boolean }) => void;
   /** Reveals controls that write repository-level Posto configuration. */
   developerMode?: boolean;
   /** Opens the desktop editor in its distraction-free workspace. */
@@ -269,6 +271,8 @@ export function EditorPane(props: {
             }
             onChange={props.onFormEdit}
             onPostoSaved={developerMode ? props.onPostoSaved : undefined}
+            onBeforeMediaChange={props.onBeforeMediaChange}
+            onMediaChanged={props.onMediaChanged}
           />
         )}
       </div>

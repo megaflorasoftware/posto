@@ -61,6 +61,8 @@ export function FormEditor(props: {
   entryIds: EntryIdSource | null;
   componentSchemaVersion?: number;
   fieldsHeader?: ReactNode;
+  onBeforeMediaChange?: () => Promise<void>;
+  onMediaChanged?: (options?: { silent?: boolean }) => void;
   onChange: (content: string, valid: boolean) => void;
   onPostoSaved?: () => void;
 }) {
@@ -267,6 +269,8 @@ export function FormEditor(props: {
       componentBlocks={props.componentBlocks}
       entryIds={props.entryIds}
       componentSchemaVersion={props.componentSchemaVersion}
+      onBeforeMediaChange={props.onBeforeMediaChange}
+      onMediaChanged={props.onMediaChanged}
       onChange={onBodyEdit}
     />
   ) : (

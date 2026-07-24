@@ -1,10 +1,12 @@
+import { useContext, useId } from "react";
 import { Node } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import { Textarea } from "@mantine/core";
 import { CodeXml } from "lucide-react";
 
 import { BLOCK_HTML_TAGS, scanHtmlElement } from "@posto/core/mdx/mdx";
-import { ComponentPopover } from "./MdxNodes";
+import { ComponentPopover, MdxFieldEnvContext } from "./MdxNodes";
+import { registerBodyNodePosition, useBodyNodeDraggable } from "./MediaDragDrop";
 
 /*
  * Raw HTML preservation for the body editor: elements authored as HTML
@@ -24,10 +26,33 @@ function chipLabel(source: string): string {
 function HtmlChipView(inline: boolean) {
   return function View(props: NodeViewProps) {
     const source = String(props.node.attrs.source ?? "");
+    const dragEnvironment = useContext(MdxFieldEnvContext);
+    const dragId = useId();
+    const label = chipLabel(source);
+    const getPosition = () => {
+      const position = props.getPos();
+      return typeof position === "number" ? position : undefined;
+    };
+    const draggable = useBodyNodeDraggable({
+      id: `body-node:${dragEnvironment.editorId}:${dragId}`,
+      label,
+      source: dragEnvironment.editorId
+        ? {
+            kind: "body-node",
+            editorId: dragEnvironment.editorId,
+            nodeType: props.node.type.name,
+            getPosition,
+          }
+        : null,
+    });
     return (
       <NodeViewWrapper
         as={inline ? "span" : "div"}
-        className={inline ? "mdx-raw-inline" : "html-block"}
+        ref={(element: HTMLElement | null) => {
+          draggable.setNodeRef(element);
+          if (element) registerBodyNodePosition(element, getPosition);
+        }}
+        className={`${inline ? "mdx-raw-inline" : "html-block"} body-draggable-node${draggable.isDragging ? " is-dragging" : ""}`}
       >
         <ComponentPopover
           name="HTML"
@@ -37,9 +62,11 @@ function HtmlChipView(inline: boolean) {
               className="mdx-pill mdx-component-chip"
               title={source}
               onClick={toggle}
+              {...draggable.attributes}
+              {...draggable.listeners}
             >
               <CodeXml size={14} />
-              <span>{chipLabel(source)}</span>
+              <span>{label}</span>
             </button>
           )}
         >

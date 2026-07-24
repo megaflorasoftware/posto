@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Alert, Button, Text } from "@mantine/core";
 import { FolderPlus, MousePointer2, Upload } from "lucide-react";
-import type { MediaLibrary, PagesConfig } from "@posto/core/pagescms/config";
+import { mediaOutputPath, type MediaLibrary, type PagesConfig } from "@posto/core/pagescms/config";
 import {
   CreateImageLibraryFolderDialog,
   DeleteImageLibraryAssetsDialog,
@@ -19,6 +19,8 @@ import {
   refreshImageLibraryAssets,
   useImageLibraryAssets,
   usePublicMediaFiles,
+  markdownMediaKind,
+  publicMediaOutputPath,
 } from "@posto/editor";
 import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
 import type { FileEntry, FileGroup } from "@posto/ipc";
@@ -64,6 +66,29 @@ function LibraryMediaBrowserContent(props: {
           toolbar={props.tabs}
           onDirectoryChange={setCurrentDirectory}
           onEdit={setEditing}
+          onDelete={(asset) => {
+            setSelected(new Set([asset.metadataPath]));
+            setSelectedDirectories(new Set());
+            setDeleting(true);
+          }}
+          dragMedia={(asset) => {
+            if (!asset.imagePath) return null;
+            const input = library.base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
+            const outputPath = mediaOutputPath(
+              props.root,
+              { name: `library:${library.collection}`, input, output: `/${input}` },
+              asset.imagePath,
+            );
+            return outputPath
+              ? {
+                  outputPath,
+                  label: asset.imagePath.split("/").pop() ?? asset.entryId,
+                  kind: "image",
+                  alt: typeof asset.metadata.alt === "string" ? asset.metadata.alt : undefined,
+                  library: { collection: library.collection, entryId: asset.entryId },
+                }
+              : null;
+          }}
           selectionMode={selectionMode}
           selectedAssetIds={selected}
           selectedDirectoryPaths={selectedDirectories}
@@ -267,6 +292,16 @@ function PublicMediaBrowserContent(props: {
           toolbar={props.tabs}
           onDirectoryChange={setCurrentDirectory}
           onEdit={setEditing}
+          onDelete={(file) => {
+            setSelected(new Set([file.path]));
+            setSelectedDirectories(new Set());
+            setDeleting(true);
+          }}
+          dragMedia={(file) => {
+            if (markdownMediaKind(file.path) !== "image") return null;
+            const outputPath = publicMediaOutputPath(props.root, file.path);
+            return outputPath ? { outputPath, label: file.name, kind: "image" } : null;
+          }}
           selectionMode={selectionMode}
           selectedFilePaths={selected}
           selectedDirectoryPaths={selectedDirectories}

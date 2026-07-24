@@ -1,21 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { ActionIcon, Button, NumberInput, Switch, Textarea, TextInput } from "@mantine/core";
 import { Check, GripVertical, Image, Pencil, RefreshCw, X } from "lucide-react";
-import {
-  closestCenter,
-  DndContext,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
 import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
@@ -39,6 +25,7 @@ import { ImagePicker } from "./ImagePicker";
 import { ImageLibraryReferenceField } from "./ImageLibraryReferenceField";
 import { FieldRowsAction, FieldTemplateActions } from "./FieldTemplateActions";
 import { AdaptiveSelect } from "./AdaptiveSelect";
+import { useMediaDropZone, type PostoListDragData } from "./MediaDragDrop";
 
 export interface FieldContext {
   config: PagesConfig;
@@ -416,15 +403,31 @@ function descendantString(value: unknown, path: string[]): string | null {
  * Mantine's DnD examples use). Rows are identified by index: order only
  * changes at drop time, so index ids stay stable for the whole drag.
  */
-function SortableRow(props: { index: number; className: string; children: ReactNode }) {
+function SortableRow(props: {
+  groupId: string;
+  index: number;
+  className: string;
+  onMove: (from: number, to: number) => void;
+  children: ReactNode;
+}) {
+  const id = `${props.groupId}:${props.index}`;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: String(props.index),
+    id,
+    data: {
+      kind: "posto-list-item",
+      groupId: props.groupId,
+      index: props.index,
+      onMove: props.onMove,
+    } satisfies PostoListDragData,
   });
   return (
     <div
       ref={setNodeRef}
       className={`${props.className}${isDragging ? " dragging" : ""}`}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition: isDragging ? undefined : transition,
+      }}
     >
       <span className="drag-handle" title="Drag to reorder" {...attributes} {...listeners}>
         <GripVertical size={14} />
@@ -441,23 +444,11 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
   const itemField: Field = { ...props.field, list: undefined, label: false, required: false };
   const isObjectList = props.field.type === "object";
   const previewImage = imageDescendant(props.field);
+  const sortableGroupId = `field-list:${props.ctx.root}:${props.path.join(".")}`;
 
   // Object-list items collapse to a summary row; existing items start
   // collapsed, newly added ones open for editing.
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
-
-  // Drags start from the handle only (and need 5px of travel), so text
-  // selection and clicks inside item fields keep working.
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-
-  function onDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    moveItem(Number(active.id), Number(over.id));
-  }
 
   function setItemExpanded(index: number, on: boolean) {
     setExpanded((current) => {
@@ -525,7 +516,13 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
   const objectRow = (index: number) => {
     const thumb = thumbPath(index);
     return expanded.has(index) ? (
-      <SortableRow key={index} index={index} className="list-item expanded-item">
+      <SortableRow
+        key={index}
+        groupId={sortableGroupId}
+        index={index}
+        className="list-item expanded-item"
+        onMove={moveItem}
+      >
         <div className="list-item-body">
           <FieldEditor field={itemField} path={[...props.path, index]} ctx={props.ctx} />
         </div>
@@ -542,7 +539,13 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
         </div>
       </SortableRow>
     ) : (
-      <SortableRow key={index} index={index} className="list-item collapsed-item">
+      <SortableRow
+        key={index}
+        groupId={sortableGroupId}
+        index={index}
+        className="list-item collapsed-item"
+        onMove={moveItem}
+      >
         {previewImage &&
           (thumb ? (
             <CachedImage
@@ -589,7 +592,13 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
   };
 
   const scalarRow = (index: number) => (
-    <SortableRow key={index} index={index} className="list-item scalar-item">
+    <SortableRow
+      key={index}
+      groupId={sortableGroupId}
+      index={index}
+      className="list-item scalar-item"
+      onMove={moveItem}
+    >
       <div className="list-item-body">
         <FieldEditor field={itemField} path={[...props.path, index]} ctx={props.ctx} />
       </div>
@@ -611,14 +620,12 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
   return (
     <FieldShell field={props.field} path={props.path} ctx={props.ctx}>
       <div className="list-field">
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-          <SortableContext
-            items={items.map((_item, index) => String(index))}
-            strategy={verticalListSortingStrategy}
-          >
-            {items.map((_item, index) => (isObjectList ? objectRow(index) : scalarRow(index)))}
-          </SortableContext>
-        </DndContext>
+        <SortableContext
+          items={items.map((_item, index) => `${sortableGroupId}:${index}`)}
+          strategy={verticalListSortingStrategy}
+        >
+          {items.map((_item, index) => (isObjectList ? objectRow(index) : scalarRow(index)))}
+        </SortableContext>
         <Button
           size="xs"
           variant="default"
@@ -634,42 +641,82 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
 
 function ImageField(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
   const [pickerOpen, setPickerOpen] = useState(false);
-  const media = resolveMedia(
-    props.ctx.config,
-    props.field,
-    props.ctx.entry,
-    props.ctx.templateValues(),
-  );
+  const values = props.ctx.templateValues();
+  const media = resolveMedia(props.ctx.config, props.field, props.ctx.entry, values);
   const value = asString(props.ctx.value(props.path));
+  const valueMedia = value
+    ? resolveMediaForValue(props.ctx.config, props.field, value, props.ctx.entry, values)
+    : null;
+  const libraryMedia = (props.ctx.config.mediaLibraries ?? []).map((library) => {
+    const input = library.base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
+    return { name: `library:${library.collection}`, input, output: `/${input}` };
+  });
+  let decodedValue = value;
+  try {
+    decodedValue = decodeURIComponent(value);
+  } catch {
+    // Preserve malformed percent escapes so the field remains editable.
+  }
+  const previewPath = value
+    ? ([valueMedia, media, ...props.ctx.config.media, ...libraryMedia]
+        .filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null)
+        .map((candidate) => mediaInputPath(props.ctx.root, candidate, value))
+        .find((candidate): candidate is string => candidate !== null) ??
+      (value.startsWith("/") ? `${props.ctx.root}/public${decodedValue}` : null))
+    : null;
+
+  const imageDrop = useMediaDropZone({
+    id: `image-field:${props.ctx.root}:${props.path.join(".")}`,
+    accepts: (dragged) => dragged.kind === "image",
+    onDrop: (dragged) => props.ctx.edit(props.path, dragged.outputPath),
+  });
 
   return (
-    <div className="image-field">
-      <TextInput size="xs" readOnly placeholder="No image selected" value={value} />
-      <Button size="xs" variant="default" disabled={!media} onClick={() => setPickerOpen(true)}>
-        Browse…
-      </Button>
-      {value && (
-        <ActionIcon
-          variant="subtle"
-          color="gray"
-          size="sm"
-          title="Clear"
-          onClick={() => props.ctx.edit(props.path, undefined)}
-        >
-          <X size={14} />
-        </ActionIcon>
-      )}
-      {pickerOpen && media && (
-        <ImagePicker
-          root={props.ctx.root}
-          media={media}
-          onClose={() => setPickerOpen(false)}
-          onPick={(outputPath) => {
-            setPickerOpen(false);
-            props.ctx.edit(props.path, outputPath);
-          }}
+    <div className="image-field-wrap">
+      <button
+        ref={imageDrop.setNodeRef}
+        type="button"
+        className={`image-field-preview${imageDrop.isAccepting ? " is-drag-over" : ""}`}
+        aria-label={value ? "Change image" : "Choose image"}
+        aria-disabled={!media}
+        onClick={() => media && setPickerOpen(true)}
+      >
+        <CachedImage
+          path={previewPath}
+          alt=""
+          thumbnailWidth={160}
+          thumbnailHeight={160}
+          fallback={<Image size={22} />}
         />
-      )}
+      </button>
+      <div className="image-field">
+        <TextInput size="xs" readOnly placeholder="No image selected" value={value} />
+        <Button size="xs" variant="default" disabled={!media} onClick={() => setPickerOpen(true)}>
+          Browse…
+        </Button>
+        {value && (
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size="sm"
+            title="Clear"
+            onClick={() => props.ctx.edit(props.path, undefined)}
+          >
+            <X size={14} />
+          </ActionIcon>
+        )}
+        {pickerOpen && media && (
+          <ImagePicker
+            root={props.ctx.root}
+            media={media}
+            onClose={() => setPickerOpen(false)}
+            onPick={(outputPath) => {
+              setPickerOpen(false);
+              props.ctx.edit(props.path, outputPath);
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 }
