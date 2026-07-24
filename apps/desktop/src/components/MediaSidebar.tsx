@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Alert, Button, Text } from "@mantine/core";
 import { FolderPlus, Upload } from "lucide-react";
 import { mediaOutputPath, type MediaLibrary, type PagesConfig } from "@posto/core/pagescms/config";
@@ -56,6 +56,7 @@ function LibraryMediaBrowserContent(props: {
   const [deleting, setDeleting] = useState(false);
   const [moving, setMoving] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
+  const paneRef = useRef<HTMLDivElement>(null);
   const library = props.library;
   const state = useImageLibraryAssets(props.root, library);
   const libraryRoot = `${props.root}/${library.base}`;
@@ -141,8 +142,27 @@ function LibraryMediaBrowserContent(props: {
 
   useEffect(() => {
     if (importing) return;
+    const openDirectory = [libraryRoot, currentDirectory].filter(Boolean).join("/");
     const droppedDirectory = (paths: string[], pointer: { x: number; y: number } | null) =>
-      droppedImageDirectory(paths, pointer, libraryRoot, (x, y) => document.elementFromPoint(x, y));
+      droppedImageDirectory(
+        paths,
+        pointer,
+        libraryRoot,
+        (x, y) => document.elementFromPoint(x, y),
+        {
+          directory: openDirectory,
+          contains: (x, y) => {
+            const bounds = paneRef.current?.getBoundingClientRect();
+            return (
+              !!bounds &&
+              x >= bounds.left &&
+              x <= bounds.right &&
+              y >= bounds.top &&
+              y <= bounds.bottom
+            );
+          },
+        },
+      );
     return onFileDrop(
       (paths, details) => {
         const directory = droppedDirectory(paths, details.pointer);
@@ -157,10 +177,10 @@ function LibraryMediaBrowserContent(props: {
         accepts: (paths, details) => droppedDirectory(paths, details.pointer) !== null,
       },
     );
-  }, [importing, libraryRoot]);
+  }, [currentDirectory, importing, libraryRoot]);
 
   return (
-    <div className="media-drawer">
+    <div ref={paneRef} className="media-drawer" data-media-pane-directory={currentDirectory}>
       <div className="media-drawer-scroll">
         {state.error && (
           <Text c="red" size="sm">
@@ -346,6 +366,7 @@ function PublicMediaBrowserContent(props: {
   const [moving, setMoving] = useState(false);
   const [editing, setEditing] = useState<FileEntry | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+  const paneRef = useRef<HTMLDivElement>(null);
   const dragScope = "public";
 
   const importFiles = async () => {
@@ -365,9 +386,26 @@ function PublicMediaBrowserContent(props: {
   };
   useEffect(() => {
     if (importing) return;
+    const openDirectory = [state.publicRoot, currentDirectory].filter(Boolean).join("/");
     const droppedDirectory = (paths: string[], pointer: { x: number; y: number } | null) =>
-      droppedImageDirectory(paths, pointer, state.publicRoot, (x, y) =>
-        document.elementFromPoint(x, y),
+      droppedImageDirectory(
+        paths,
+        pointer,
+        state.publicRoot,
+        (x, y) => document.elementFromPoint(x, y),
+        {
+          directory: openDirectory,
+          contains: (x, y) => {
+            const bounds = paneRef.current?.getBoundingClientRect();
+            return (
+              !!bounds &&
+              x >= bounds.left &&
+              x <= bounds.right &&
+              y >= bounds.top &&
+              y <= bounds.bottom
+            );
+          },
+        },
       );
     return onFileDrop(
       (paths, details) => {
@@ -399,7 +437,7 @@ function PublicMediaBrowserContent(props: {
         accepts: (paths, details) => droppedDirectory(paths, details.pointer) !== null,
       },
     );
-  }, [importing, props.root, state.publicRoot]);
+  }, [currentDirectory, importing, props.root, state.publicRoot]);
   const mediaForFile = (file: FileEntry): MarkdownMediaPick | null => {
     if (markdownMediaKind(file.path) !== "image") return null;
     const outputPath = publicMediaOutputPath(props.root, file.path);
@@ -463,7 +501,7 @@ function PublicMediaBrowserContent(props: {
   };
 
   return (
-    <div className="media-drawer">
+    <div ref={paneRef} className="media-drawer" data-media-pane-directory={currentDirectory}>
       <div className="media-drawer-scroll">
         {(error || state.error) && (
           <Alert color="red" mb="sm">

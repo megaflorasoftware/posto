@@ -114,7 +114,7 @@ export interface PostoListDragData {
   onMove: (from: number, to: number) => void;
 }
 
-const collisionDetection: CollisionDetection = (args) => {
+export const mediaDragCollisionDetection: CollisionDetection = (args) => {
   const activeData = args.active.data.current;
   if (activeData?.kind === "posto-list-item") {
     const groupId = (activeData as unknown as PostoListDragData).groupId;
@@ -143,8 +143,10 @@ const collisionDetection: CollisionDetection = (args) => {
     });
     if (mediaTargets.length === 0) return [];
     const scopedArgs = { ...args, droppableContainers: mediaTargets };
-    const pointerCollisions = pointerWithin(scopedArgs);
-    return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(scopedArgs);
+    // Media targets are intentionally pointer-only. Falling back to the dragged
+    // card's closest target makes large previews and directories activate while
+    // the cursor is still outside their bounds.
+    return pointerWithin(scopedArgs);
   }
   if (activeData?.kind === "posto-body-node") {
     const bodyTargets = args.droppableContainers.filter(
@@ -276,7 +278,7 @@ export function MediaDragDropProvider(props: { children: ReactNode }) {
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={collisionDetection}
+      collisionDetection={mediaDragCollisionDetection}
       onDragStart={(event: DragStartEvent) => {
         const start = pointerFromEvent(event.activatorEvent);
         const source = draggedSource(event.active.data.current);

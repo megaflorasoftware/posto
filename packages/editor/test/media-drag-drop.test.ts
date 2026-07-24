@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   acceptsMediaDrop,
+  mediaDragCollisionDetection,
   type MediaDragItem,
   type MediaDragSelection,
 } from "../src/components/MediaDragDrop";
@@ -15,6 +16,48 @@ function selection(items: MediaDragItem[], media: MarkdownMediaPick[]): MediaDra
 }
 
 describe("media drop categories", () => {
+  test("matches media targets only when the pointer is inside", () => {
+    const rect = { top: 100, left: 100, right: 200, bottom: 200, width: 100, height: 100 };
+    const activeData = {
+      kind: "posto-media",
+      media: [image("one")],
+    };
+    const target = {
+      id: "image-field",
+      key: "image-field",
+      disabled: false,
+      data: {
+        current: {
+          kind: "posto-media-drop",
+          category: "single-image",
+          accepts: () => true,
+          onDrop: () => undefined,
+        },
+      },
+      node: { current: null },
+      rect: { current: rect },
+    };
+    const args = {
+      active: {
+        id: "dragged-image",
+        data: { current: activeData },
+        rect: { current: { initial: rect, translated: rect } },
+      },
+      // Deliberately overlap the dragged card with the target. Only the pointer
+      // should determine whether this is a collision.
+      collisionRect: rect,
+      droppableRects: new Map([[target.id, rect]]),
+      droppableContainers: [target],
+    };
+
+    expect(
+      mediaDragCollisionDetection({ ...args, pointerCoordinates: { x: 50, y: 50 } } as never),
+    ).toEqual([]);
+    expect(
+      mediaDragCollisionDetection({ ...args, pointerCoordinates: { x: 150, y: 150 } } as never),
+    ).toMatchObject([{ id: "image-field" }]);
+  });
+
   test("accepts any non-empty sidebar item group for directory moves", () => {
     const dragged: MediaDragSelection = {
       items: [

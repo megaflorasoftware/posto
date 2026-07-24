@@ -78,3 +78,42 @@ test("resolves image drops only to directories inside the active media root", ()
     ),
   ).toBeNull();
 });
+
+test("prefers a directory card and falls back to the open media pane directory", () => {
+  const target = (path?: string) => () =>
+    ({
+      closest: () => (path ? { getAttribute: () => path } : null),
+    }) as never;
+  const fallback = {
+    directory: "/repo/media/open",
+    contains: (x: number, y: number) => x >= 0 && x <= 300 && y >= 0 && y <= 600,
+  };
+
+  expect(
+    droppedImageDirectory(
+      ["/tmp/portrait.jpg"],
+      { x: 20, y: 40 },
+      "/repo/media",
+      target("/repo/media/open/portraits"),
+      fallback,
+    ),
+  ).toBe("/repo/media/open/portraits");
+  expect(
+    droppedImageDirectory(
+      ["/tmp/portrait.jpg"],
+      { x: 20, y: 40 },
+      "/repo/media",
+      target(),
+      fallback,
+    ),
+  ).toBe("/repo/media/open");
+  expect(
+    droppedImageDirectory(
+      ["/tmp/portrait.jpg"],
+      { x: 500, y: 40 },
+      "/repo/media",
+      target(),
+      fallback,
+    ),
+  ).toBeNull();
+});
