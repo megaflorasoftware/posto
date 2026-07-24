@@ -260,9 +260,13 @@ export function FileMediaBrowser(props: {
                     ? (props.selectedFilePaths?.has(file.path) ?? false)
                     : undefined
                 }
-                onClick={() => {
-                  if (props.selectionMode) props.onToggleFileSelection?.(file);
-                  else if (props.onPick) props.onPick(file);
+                onClick={(event) => {
+                  if (
+                    props.onToggleFileSelection &&
+                    (props.selectionMode || (props.inlineSelection && event.shiftKey))
+                  ) {
+                    props.onToggleFileSelection(file);
+                  } else if (props.onPick) props.onPick(file);
                   else props.onEdit?.(file);
                 }}
                 aria-label={`${action} ${file.name}`}
@@ -275,9 +279,16 @@ export function FileMediaBrowser(props: {
                 className="picker-card"
                 role="button"
                 tabIndex={0}
-                onClick={() => props.onEdit?.(file)}
+                onClick={(event) => {
+                  if (props.inlineSelection && event.shiftKey && props.onToggleFileSelection) {
+                    props.onToggleFileSelection(file);
+                  } else props.onEdit?.(file);
+                }}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") props.onEdit?.(file);
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  if (props.inlineSelection && event.shiftKey && props.onToggleFileSelection) {
+                    props.onToggleFileSelection(file);
+                  } else props.onEdit?.(file);
                 }}
                 aria-label={`${props.onEdit ? "Edit" : "Delete"} ${file.name}`}
               >

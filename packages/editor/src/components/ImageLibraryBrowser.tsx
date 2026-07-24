@@ -235,7 +235,12 @@ export function ImageLibraryBrowser(props: {
                 key={`${asset.entryId}:${asset.metadataPath}`}
                 className="picker-card"
                 disabled={!valid}
-                onClick={() => valid && props.onPick?.(asset)}
+                onClick={(event) => {
+                  if (!valid) return;
+                  if (props.inlineSelection && event.shiftKey && props.onToggleSelection) {
+                    props.onToggleSelection(asset);
+                  } else props.onPick?.(asset);
+                }}
               >
                 {content}
               </button>
@@ -245,9 +250,16 @@ export function ImageLibraryBrowser(props: {
                 className="picker-card"
                 role="button"
                 tabIndex={0}
-                onClick={() => props.onEdit?.(asset)}
+                onClick={(event) => {
+                  if (props.inlineSelection && event.shiftKey && props.onToggleSelection) {
+                    props.onToggleSelection(asset);
+                  } else props.onEdit?.(asset);
+                }}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") props.onEdit?.(asset);
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  if (props.inlineSelection && event.shiftKey && props.onToggleSelection) {
+                    props.onToggleSelection(asset);
+                  } else props.onEdit?.(asset);
                 }}
                 aria-label={`Edit ${asset.entryId.split("/").pop()}`}
               >

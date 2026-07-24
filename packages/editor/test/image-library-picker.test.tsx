@@ -119,6 +119,50 @@ test("selects desktop library assets and directories from inline card actions", 
   expect(openDirectory).not.toHaveBeenCalled();
 });
 
+test("shift-clicks desktop library asset and directory cards to toggle selection", () => {
+  const asset: ImageLibraryAsset = {
+    entryId: "portrait",
+    metadataPath: "/repo/src/content/photos/portrait.yml",
+    imagePath: "/repo/src/content/photos/portrait.jpg",
+    metadata: {},
+    health: ["valid"],
+  };
+  const toggleAsset = vi.fn();
+  const toggleDirectory = vi.fn();
+  const editAsset = vi.fn();
+  const openDirectory = vi.fn();
+  const { container } = render(
+    <MantineProvider forceColorScheme="light">
+      <ImageLibraryBrowser
+        rootDirectory="/repo/src/content/photos"
+        currentDirectory=""
+        directories={["/repo/src/content/photos/albums"]}
+        assets={[asset]}
+        inlineSelection
+        selectedAssetIds={new Set()}
+        selectedDirectoryPaths={new Set()}
+        onDirectoryChange={openDirectory}
+        onToggleSelection={toggleAsset}
+        onToggleDirectorySelection={toggleDirectory}
+        onEdit={editAsset}
+        onDelete={vi.fn()}
+      />
+    </MantineProvider>,
+  );
+
+  fireEvent.click(container.querySelector('.picker-card[aria-label="Edit portrait"]')!, {
+    shiftKey: true,
+  });
+  fireEvent.click(container.querySelector('.picker-directory[aria-label="Open albums"]')!, {
+    shiftKey: true,
+  });
+
+  expect(toggleAsset).toHaveBeenCalledWith(asset);
+  expect(toggleDirectory).toHaveBeenCalledWith("/repo/src/content/photos/albums");
+  expect(editAsset).not.toHaveBeenCalled();
+  expect(openDirectory).not.toHaveBeenCalled();
+});
+
 test("opens a filesystem directory drop directly on image metadata details", () => {
   render(
     <MantineProvider forceColorScheme="light">

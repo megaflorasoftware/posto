@@ -156,6 +156,46 @@ describe("public media", () => {
     expect(openDirectory).not.toHaveBeenCalled();
   });
 
+  test("shift-clicks desktop file and directory cards to toggle selection", () => {
+    const toggleFile = vi.fn();
+    const toggleDirectory = vi.fn();
+    const editFile = vi.fn();
+    const openDirectory = vi.fn();
+    const { container } = render(
+      <MantineProvider forceColorScheme="light">
+        <FileMediaBrowser
+          rootDirectory="/repo/media"
+          currentDirectory=""
+          directories={["/repo/media/albums"]}
+          files={[{ name: "guide.pdf", path: "/repo/media/guide.pdf" }]}
+          inlineSelection
+          selectedFilePaths={new Set()}
+          selectedDirectoryPaths={new Set()}
+          onDirectoryChange={openDirectory}
+          onToggleFileSelection={toggleFile}
+          onToggleDirectorySelection={toggleDirectory}
+          onEdit={editFile}
+          onDelete={vi.fn()}
+        />
+      </MantineProvider>,
+    );
+
+    fireEvent.click(container.querySelector('.picker-card[aria-label="Edit guide.pdf"]')!, {
+      shiftKey: true,
+    });
+    fireEvent.click(container.querySelector('.picker-directory[aria-label="Open albums"]')!, {
+      shiftKey: true,
+    });
+
+    expect(toggleFile).toHaveBeenCalledWith({
+      name: "guide.pdf",
+      path: "/repo/media/guide.pdf",
+    });
+    expect(toggleDirectory).toHaveBeenCalledWith("/repo/media/albums");
+    expect(editFile).not.toHaveBeenCalled();
+    expect(openDirectory).not.toHaveBeenCalled();
+  });
+
   test("enables directory cards as drag sources when they have a categorized payload", () => {
     render(
       <MantineProvider forceColorScheme="light">

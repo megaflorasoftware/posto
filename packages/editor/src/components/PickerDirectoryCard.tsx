@@ -85,9 +85,14 @@ export function PickerDirectoryCard(props: {
         tabIndex={0}
         aria-label={`Open ${props.name}`}
         data-media-directory-path={props.path}
-        onClick={props.onOpen}
+        onClick={(event) => {
+          if (event.shiftKey && props.onToggleSelection) props.onToggleSelection();
+          else props.onOpen();
+        }}
         onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") props.onOpen();
+          if (event.key !== "Enter" && event.key !== " ") return;
+          if (event.shiftKey && props.onToggleSelection) props.onToggleSelection();
+          else props.onOpen();
         }}
       >
         {content}
@@ -102,9 +107,14 @@ export function PickerDirectoryCard(props: {
       className={className}
       aria-pressed={props.selectionMode && !props.parent ? selected : undefined}
       data-media-directory-path={props.path}
-      onClick={() => {
-        if (props.selectionMode && !props.parent) props.onToggleSelection?.();
-        else props.onOpen();
+      onClick={(event) => {
+        if (
+          !props.parent &&
+          props.onToggleSelection &&
+          (props.selectionMode || (props.inlineSelection && event.shiftKey))
+        ) {
+          props.onToggleSelection();
+        } else props.onOpen();
       }}
     >
       {content}
