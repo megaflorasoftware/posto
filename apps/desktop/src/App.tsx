@@ -51,12 +51,19 @@ import {
 import { useDevServer } from "./hooks/useDevServer";
 import { usePreview } from "./hooks/usePreview";
 import { useDeployment } from "./hooks/useDeployment";
-import { AppHeader } from "./components/AppHeader";
 import { DeploymentDrawer } from "./components/DeploymentDrawer";
-import { MediaDrawer } from "./components/MediaDrawer";
+import { MediaSidebar } from "./components/MediaSidebar";
 import { PreviewPane } from "./components/PreviewPane";
 import { RecentProjectsSpotlight } from "./components/RecentProjectsSpotlight";
-import { ChevronLeft, FileText, List } from "lucide-react";
+import {
+  ChevronLeft,
+  FileText,
+  Files,
+  Image as ImageIcon,
+  List,
+  PanelLeftClose,
+  PanelLeftOpen,
+} from "lucide-react";
 
 import "@mantine/core/styles.css";
 import "@mantine/tiptap/styles.css";
@@ -83,7 +90,8 @@ function App() {
   const [publishOpen, setPublishOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [developerMode, setDeveloperMode] = useState(false);
-  const [mediaOpen, setMediaOpen] = useState(false);
+  const [sidebarView, setSidebarView] = useState<"files" | "media">("files");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [fullscreenEditorOpen, setFullscreenEditorOpen] = useState(false);
   const [openFileSpotlightOpen, setOpenFileSpotlightOpen] = useState(false);
   const [recentProjectsSpotlightOpen, setRecentProjectsSpotlightOpen] = useState(false);
@@ -647,27 +655,27 @@ function App() {
     fullscreenActiveTab === "body" && /\.(md|mdx|markdown)$/i.test(currentFile.filePath ?? "");
   const renderFullscreenExit = () => (
     <ActionIcon
-      size={34}
+      size={26}
       variant="subtle"
       color="gray"
       title="Exit fullscreen editor"
       aria-label="Exit fullscreen editor"
       onClick={() => setFullscreenEditorOpen(false)}
     >
-      <ChevronLeft size={20} />
+      <ChevronLeft size={16} />
     </ActionIcon>
   );
   const renderFullscreenViewToggle = () =>
     fullscreenCanToggleFieldsBody ? (
       <ActionIcon
-        size={34}
+        size={26}
         variant="subtle"
         color="gray"
         title={`Show ${fullscreenToggleTarget}`}
         aria-label={`Show ${fullscreenToggleTarget}`}
         onClick={() => setEditorTab(fullscreenToggleTarget)}
       >
-        {fullscreenToggleTarget === "fields" ? <List size={20} /> : <FileText size={20} />}
+        {fullscreenToggleTarget === "fields" ? <List size={16} /> : <FileText size={16} />}
       </ActionIcon>
     ) : null;
 
@@ -739,6 +747,12 @@ function App() {
         onRetry={() => void devServer.startServer(root)}
         onInstall={(steps) => void devServer.runSetup(root, steps)}
         onHome={preview.goHome}
+        deployment={deployment}
+        behindUpstream={git.behindUpstream}
+        pulling={git.pulling}
+        hasLocalChanges={git.hasLocalChanges}
+        onFetchChanges={() => void git.fetchChanges()}
+        onOpenPublish={() => void openPublishModal()}
       />
     ) : null;
 
@@ -770,33 +784,7 @@ function App() {
           />
         )}
 
-        <AppHeader
-          root={root}
-          behindUpstream={git.behindUpstream}
-          pulling={git.pulling}
-          hasLocalChanges={git.hasLocalChanges}
-          deployment={deployment}
-          canOpenMedia={adapter.capabilities.mediaLibraries && !!config?.mediaLibraries?.length}
-          onOpenMedia={() => setMediaOpen(true)}
-          onFetchChanges={() => void git.fetchChanges()}
-          onOpenPublish={() => void openPublishModal()}
-        />
-
         <DeploymentDrawer deployment={deployment} siteUrl={siteUrl} />
-
-        {root && config && (
-          <MediaDrawer
-            opened={mediaOpen}
-            onClose={() => setMediaOpen(false)}
-            root={root}
-            config={config}
-            groups={files.groups}
-            onImported={() => {
-              notify("Image imported. Publish when you are ready.", "success");
-              void refreshGroups(root);
-            }}
-          />
-        )}
 
         <PublishModal
           opened={publishOpen}
@@ -856,30 +844,100 @@ function App() {
           </div>
         ) : (
           <div className="body" ref={preview.bodyEl}>
-            <div className="sidebar-pane" style={{ flexBasis: `${preview.sidebarSplit}%` }}>
-              <Sidebar
-                root={root}
-                groups={files.groups}
-                config={config}
-                activeKey={currentFile.activeKey}
-                onOpen={(file) => openFile(file)}
-                onDelete={(file) => void deleteFile(file)}
-                onNewFile={(group) => void createNewFile(group)}
-                developerMode={developerMode}
-                onPostoSaved={() => void schemas.loadPostoConfig(root)}
-              />
-            </div>
+            {sidebarOpen ? (
+              <>
+                <div className="sidebar-pane" style={{ flexBasis: `${preview.sidebarSplit}%` }}>
+                  <div className="sidebar-header" data-tauri-drag-region>
+                    <ActionIcon
+                      size={26}
+                      variant={sidebarView === "files" ? "light" : "subtle"}
+                      color={sidebarView === "files" ? "blue" : "gray"}
+                      title="Show files"
+                      aria-label="Show files"
+                      onClick={() => setSidebarView("files")}
+                    >
+                      <Files size={16} />
+                    </ActionIcon>
+                    <ActionIcon
+                      size={26}
+                      variant={sidebarView === "media" ? "light" : "subtle"}
+                      color={sidebarView === "media" ? "blue" : "gray"}
+                      title="Show media library"
+                      aria-label="Show media library"
+                      disabled={
+                        !adapter.capabilities.mediaLibraries || !config?.mediaLibraries?.length
+                      }
+                      onClick={() => setSidebarView("media")}
+                    >
+                      <ImageIcon size={16} />
+                    </ActionIcon>
+                    <span className="sidebar-header-spacer" />
+                    <ActionIcon
+                      size={26}
+                      variant="subtle"
+                      color="gray"
+                      title="Hide sidebar"
+                      aria-label="Hide sidebar"
+                      onClick={() => setSidebarOpen(false)}
+                    >
+                      <PanelLeftClose size={16} />
+                    </ActionIcon>
+                  </div>
+                  <div className="sidebar-content">
+                    {sidebarView === "files" ? (
+                      <Sidebar
+                        root={root}
+                        groups={files.groups}
+                        config={config}
+                        activeKey={currentFile.activeKey}
+                        onOpen={(file) => openFile(file)}
+                        onDelete={(file) => void deleteFile(file)}
+                        onNewFile={(group) => void createNewFile(group)}
+                        developerMode={developerMode}
+                        onPostoSaved={() => void schemas.loadPostoConfig(root)}
+                      />
+                    ) : (
+                      <MediaSidebar
+                        root={root}
+                        config={config}
+                        groups={files.groups}
+                        libraries={config.mediaLibraries ?? []}
+                        onImported={() => {
+                          notify("Image imported. Publish when you are ready.", "success");
+                          void refreshGroups(root);
+                        }}
+                      />
+                    )}
+                  </div>
+                </div>
+
+                <div
+                  className="pane-divider"
+                  onPointerDown={(e) => {
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    preview.setSidebarDragging(true);
+                  }}
+                  onPointerMove={preview.onSidebarDividerPointerMove}
+                />
+              </>
+            ) : (
+              <ActionIcon
+                className="sidebar-reopen"
+                size={26}
+                variant="subtle"
+                color="gray"
+                title="Show sidebar"
+                aria-label="Show sidebar"
+                onClick={() => setSidebarOpen(true)}
+              >
+                <PanelLeftOpen size={16} />
+              </ActionIcon>
+            )}
 
             <div
-              className="pane-divider"
-              onPointerDown={(e) => {
-                e.currentTarget.setPointerCapture(e.pointerId);
-                preview.setSidebarDragging(true);
-              }}
-              onPointerMove={preview.onSidebarDividerPointerMove}
-            />
-
-            <div className="panes" ref={preview.panesEl}>
+              className={`panes${sidebarOpen ? "" : " sidebar-collapsed"}`}
+              ref={preview.panesEl}
+            >
               <div
                 className={`pane editor-pane${
                   fullscreenEditorOpen ? " fullscreen-workspace fullscreen-editor-pane" : ""

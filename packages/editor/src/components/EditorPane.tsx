@@ -200,18 +200,18 @@ export function EditorPane(props: {
   return (
     <ProjectIOProvider value={props.projectIO}>
       {!props.hideHeader && (props.filenamePlacement ?? "header") === "header" && (
-        <div className="pane-header">
+        <div className="pane-header" data-tauri-drag-region>
           {filenameReadOnly ? <div className="pane-filename-text">{fileName}</div> : filenameInput}
           {filenameActions}
           {props.onFullscreen && (
             <ActionIcon
-              size={30}
+              size={26}
               variant="default"
               title="Open fullscreen editor"
               aria-label="Open fullscreen editor"
               onClick={props.onFullscreen}
             >
-              <Maximize2 size={14} />
+              <Maximize2 size={13} />
             </ActionIcon>
           )}
         </div>

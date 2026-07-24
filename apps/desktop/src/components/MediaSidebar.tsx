@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Drawer, Select, Text } from "@mantine/core";
+import { Button, Select, Text } from "@mantine/core";
 import { Upload } from "lucide-react";
 import type { MediaLibrary, PagesConfig } from "@posto/core/pagescms/config";
 import {
@@ -13,7 +13,7 @@ import type { FileGroup } from "@posto/ipc";
 /** Browses one library's directories and assets (read-only, like the import
  * picker) with a sticky Import action — the desktop mirror of the mobile
  * settings Media pane. The hook only runs when a library exists. */
-function MediaBrowser(props: {
+function MediaBrowserContent(props: {
   root: string;
   config: PagesConfig;
   groups: FileGroup[];
@@ -82,39 +82,28 @@ function MediaBrowser(props: {
   );
 }
 
-/** Right-side drawer holding the media grid, opened from the header's image
- * button. */
-export function MediaDrawer(props: {
-  opened: boolean;
-  onClose: () => void;
+/** Media-library browser shown as one of the left sidebar's two views. */
+export function MediaSidebar(props: {
   root: string;
   config: PagesConfig;
   groups: FileGroup[];
+  libraries: MediaLibrary[];
   onImported: () => void;
 }) {
-  const libraries = props.config.mediaLibraries ?? [];
+  if (props.libraries.length === 0) {
+    return (
+      <Text c="dimmed" size="sm" p="md">
+        No media libraries found.
+      </Text>
+    );
+  }
   return (
-    <Drawer
-      opened={props.opened}
-      onClose={props.onClose}
-      position="right"
-      size={520}
-      title="Media"
-      classNames={{ content: "media-drawer-content", body: "media-drawer-body" }}
-    >
-      {libraries.length === 0 ? (
-        <Text c="dimmed" size="sm" p="md">
-          No media libraries found.
-        </Text>
-      ) : (
-        <MediaBrowser
-          root={props.root}
-          config={props.config}
-          groups={props.groups}
-          libraries={libraries}
-          onImported={props.onImported}
-        />
-      )}
-    </Drawer>
+    <MediaBrowserContent
+      root={props.root}
+      config={props.config}
+      groups={props.groups}
+      libraries={props.libraries}
+      onImported={props.onImported}
+    />
   );
 }

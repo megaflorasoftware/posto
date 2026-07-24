@@ -34,13 +34,13 @@ export function DeploymentControl({ deployment }: { deployment: Deployment }) {
     return (
       <Tooltip label="Deployment status" openDelay={400}>
         <ActionIcon
-          size={30}
+          size={26}
           variant="subtle"
           color="gray"
           aria-label="Deployment status"
           onClick={deployment.openDrawer}
         >
-          <CirclePlay size={18} />
+          <CirclePlay size={16} />
         </ActionIcon>
       </Tooltip>
     );
@@ -68,7 +68,7 @@ export function DeploymentControl({ deployment }: { deployment: Deployment }) {
         onClick={deployment.openDrawer}
       >
         <RingProgress
-          size={28}
+          size={24}
           thickness={3}
           roundCaps
           sections={[{ value: ring.value, color }]}
