@@ -127,7 +127,7 @@ export default function RepoHome({
   const [componentSchemaVersion, setComponentSchemaVersion] = useState(0);
   const [siteUrlVersion, setSiteUrlVersion] = useState(0);
   const [importLibrary, setImportLibrary] = useState<MediaLibrary | null>(null);
-  const [editorTab, setEditorTab] = useState<EditorTab>("fields");
+  const [editorTab, setEditorTab] = useState<EditorTab>("body");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const schemas = useSchemas(adapter, ipcProjectIO);
   const files = useFileGroups(setError, adapter.capabilities.dataDocuments);

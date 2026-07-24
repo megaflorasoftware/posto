@@ -60,8 +60,8 @@ function App() {
   const { projectInfo, adapter } = projectSession;
   // Recently-opened site roots, newest first (backend caps at 10).
   const [recentRoots, setRecentRoots] = useState<string[]>([]);
-  // Editor tab choice sticks for the session; Fields is the default when available.
-  const [editorTab, setEditorTab] = useState<EditorTab>("fields");
+  // Editor tab choice sticks for the session; Markdown opens on Body by default.
+  const [editorTab, setEditorTab] = useState<EditorTab>("body");
   const [publishOpen, setPublishOpen] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
   // Bumped after each successful save so the SEO preview refetches the page.
