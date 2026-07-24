@@ -23,6 +23,7 @@ function MediaBrowserContent(props: {
   config: PagesConfig;
   groups: FileGroup[];
   libraries: MediaLibrary[];
+  onBeforeChange: () => Promise<void>;
   onChanged: () => void;
 }) {
   const [libraryIndex, setLibraryIndex] = useState(0);
@@ -163,6 +164,7 @@ function MediaBrowserContent(props: {
           config={props.config}
           groups={props.groups}
           asset={editing}
+          onBeforeChange={props.onBeforeChange}
           onClose={() => setEditing(null)}
           onChanged={() => {
             void state.refresh();
@@ -187,12 +189,17 @@ function MediaBrowserContent(props: {
       )}
       {moving && (
         <MoveImageLibraryAssetsDialog
+          root={props.root}
+          library={library}
+          config={props.config}
+          groups={props.groups}
           libraryRoot={libraryRoot}
           directories={state.directories}
           assets={state.assets}
           movingAssets={state.assets.filter((asset) => selected.has(asset.metadataPath))}
           movingDirectories={[...selectedDirectories]}
           onClose={() => setMoving(false)}
+          onBeforeMove={props.onBeforeChange}
           onRefresh={() => void state.refresh()}
           onMoved={() => {
             setSelected(new Set());
@@ -226,6 +233,7 @@ export function MediaSidebar(props: {
   config: PagesConfig;
   groups: FileGroup[];
   libraries: MediaLibrary[];
+  onBeforeChange: () => Promise<void>;
   onChanged: () => void;
 }) {
   if (props.libraries.length === 0) {
@@ -241,6 +249,7 @@ export function MediaSidebar(props: {
       config={props.config}
       groups={props.groups}
       libraries={props.libraries}
+      onBeforeChange={props.onBeforeChange}
       onChanged={props.onChanged}
     />
   );

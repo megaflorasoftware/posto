@@ -589,6 +589,24 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       mockDeleted.add(metadataPath);
       return null;
     }
+    case "rename_image_library_asset": {
+      const imagePath = args?.imagePath as string;
+      const metadataPath = args?.metadataPath as string;
+      const targetImagePath = args?.targetImagePath as string;
+      const targetMetadataPath = args?.targetMetadataPath as string;
+      if (targetImagePath in mockFiles || targetMetadataPath in mockFiles) {
+        throw new Error("An image-library destination already exists");
+      }
+      mockFiles[targetImagePath] = mockFiles[imagePath] ?? "";
+      mockFiles[targetMetadataPath] = args?.serializedMetadata as string;
+      rememberMockPath(targetImagePath);
+      rememberMockPath(targetMetadataPath);
+      delete mockFiles[imagePath];
+      delete mockFiles[metadataPath];
+      mockDeleted.add(imagePath);
+      mockDeleted.add(metadataPath);
+      return null;
+    }
     case "delete_image_library_directory": {
       const directory = args?.directoryPath as string;
       for (const path of Object.keys(mockFiles)) {

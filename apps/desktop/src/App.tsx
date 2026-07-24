@@ -833,9 +833,11 @@ function App() {
                         config={config}
                         groups={files.groups}
                         libraries={config.mediaLibraries ?? []}
+                        onBeforeChange={currentFile.flushPendingSave}
                         onChanged={() => {
                           notify("Media updated. Publish when you are ready.", "success");
                           void refreshGroups(root);
+                          void currentFile.reloadFromDisk();
                         }}
                       />
                     )}

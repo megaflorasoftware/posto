@@ -681,6 +681,58 @@ pub fn move_image_library_asset(
     Ok(())
 }
 
+/// Renames an image and its metadata sidecar together while replacing the
+/// metadata contents (whose relative image field must follow the new name).
+#[tauri::command]
+pub fn rename_image_library_asset(
+    library_root: String,
+    image_path: String,
+    metadata_path: String,
+    target_image_path: String,
+    target_metadata_path: String,
+    serialized_metadata: String,
+) -> Result<(), String> {
+    canonical_root(&library_root)?;
+    let root = Path::new(&library_root);
+    let image = managed_target(root, &image_path, false)?;
+    let metadata = managed_target(root, &metadata_path, false)?;
+    let target_image = managed_target(root, &target_image_path, false)?;
+    let target_metadata = managed_target(root, &target_metadata_path, false)?;
+    if !image.is_file() || !metadata.is_file() {
+        return Err("The image-library entry is incomplete or no longer exists".to_string());
+    }
+    if image == target_image || metadata == target_metadata {
+        return Err("Choose a different filename".to_string());
+    }
+    if target_image.exists() || target_metadata.exists() {
+        return Err("An image-library destination already exists".to_string());
+    }
+
+    let staged_metadata = transaction_temp(&target_metadata, "rename")?;
+    let metadata_backup = transaction_temp(&metadata, "rename-backup")?;
+    if staged_metadata.exists() || metadata_backup.exists() {
+        return Err("A previous image rename is still pending".to_string());
+    }
+    write_new(&staged_metadata, serialized_metadata.as_bytes())?;
+    if let Err(error) = std::fs::rename(&metadata, &metadata_backup) {
+        let _ = std::fs::remove_file(&staged_metadata);
+        return Err(format!("Failed to stage metadata rename: {error}"));
+    }
+    if let Err(error) = std::fs::rename(&image, &target_image) {
+        let _ = std::fs::rename(&metadata_backup, &metadata);
+        let _ = std::fs::remove_file(&staged_metadata);
+        return Err(format!("Failed to rename image: {error}"));
+    }
+    if let Err(error) = std::fs::rename(&staged_metadata, &target_metadata) {
+        let _ = std::fs::rename(&target_image, &image);
+        let _ = std::fs::rename(&metadata_backup, &metadata);
+        let _ = std::fs::remove_file(&staged_metadata);
+        return Err(format!("Failed to rename metadata: {error}"));
+    }
+    let _ = std::fs::remove_file(&metadata_backup);
+    Ok(())
+}
+
 /// Deletes a directory and everything below it, constrained to a media library.
 #[tauri::command]
 pub fn delete_image_library_directory(
@@ -1213,10 +1265,37 @@ mod tests {
         assert!(!image.exists() && !metadata.exists());
         assert!(destination.join("moved.jpg").is_file());
         assert!(destination.join("moved.yml").is_file());
-        assert!(move_image_library_asset(
+        rename_image_library_asset(
             library.to_string_lossy().to_string(),
             destination.join("moved.jpg").to_string_lossy().to_string(),
             destination.join("moved.yml").to_string_lossy().to_string(),
+            destination
+                .join("renamed.jpg")
+                .to_string_lossy()
+                .to_string(),
+            destination
+                .join("renamed.yml")
+                .to_string_lossy()
+                .to_string(),
+            "image: ./renamed.jpg\n".to_string(),
+        )
+        .unwrap();
+        assert!(!destination.join("moved.jpg").exists());
+        assert!(!destination.join("moved.yml").exists());
+        assert_eq!(
+            std::fs::read_to_string(destination.join("renamed.yml")).unwrap(),
+            "image: ./renamed.jpg\n"
+        );
+        assert!(move_image_library_asset(
+            library.to_string_lossy().to_string(),
+            destination
+                .join("renamed.jpg")
+                .to_string_lossy()
+                .to_string(),
+            destination
+                .join("renamed.yml")
+                .to_string_lossy()
+                .to_string(),
             temp.path().to_string_lossy().to_string(),
         )
         .is_err());

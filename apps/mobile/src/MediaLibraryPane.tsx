@@ -22,6 +22,7 @@ export function MediaLibraryPane(props: {
   groups: FileGroup[];
   libraries: MediaLibrary[];
   onImport: (library: MediaLibrary) => void;
+  onBeforeChange: () => Promise<void>;
   onChanged: (library: MediaLibrary) => void;
 }) {
   const [libraryIndex, setLibraryIndex] = useState(0);
@@ -165,6 +166,7 @@ export function MediaLibraryPane(props: {
           config={props.config}
           groups={props.groups}
           asset={editing}
+          onBeforeChange={props.onBeforeChange}
           onClose={() => setEditing(null)}
           onChanged={() => {
             void libraryState.refresh();
@@ -189,12 +191,17 @@ export function MediaLibraryPane(props: {
       )}
       {moving && (
         <MoveImageLibraryAssetsDialog
+          root={props.root}
+          library={library}
+          config={props.config}
+          groups={props.groups}
           libraryRoot={libraryRoot}
           directories={libraryState.directories}
           assets={libraryState.assets}
           movingAssets={libraryState.assets.filter((asset) => selected.has(asset.metadataPath))}
           movingDirectories={[...selectedDirectories]}
           onClose={() => setMoving(false)}
+          onBeforeMove={props.onBeforeChange}
           onRefresh={() => void libraryState.refresh()}
           onMoved={() => {
             setSelected(new Set());

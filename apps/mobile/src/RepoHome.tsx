@@ -699,10 +699,12 @@ export default function RepoHome({
             groups={files.groups}
             libraries={config?.mediaLibraries ?? []}
             onImport={importIntoLibrary}
+            onBeforeChange={currentFile.flushPendingSave}
             onChanged={(library) => {
               setStatus("Media updated. Publish when you are ready.");
               void git.refreshLocalChanges(root);
               void refreshImageLibraryAssets(root, library);
+              void currentFile.reloadFromDisk();
             }}
           />
         </main>
