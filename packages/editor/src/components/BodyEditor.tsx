@@ -784,7 +784,7 @@ export function BodyEditor(props: {
 
   const bodyDrop = useRichTextDropZone({
     id: `body:${props.path}`,
-    acceptsMedia: (media) => media.every((item) => item.kind === "image"),
+    mediaCategory: "image-list",
     onMediaDrop: (media, _event, details) => insertOrMoveImages(media, details),
     onBodyNodeDrop: (source, _event, details) => moveBodyNode(source, details),
   });

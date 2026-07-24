@@ -1,6 +1,11 @@
 import { Folder, FolderUp } from "lucide-react";
 import { CachedImage } from "./CachedImage";
-import { useMediaSidebarDropZone, type MediaSidebarDragSource } from "./MediaDragDrop";
+import {
+  MediaDragPreview,
+  useMediaSidebarDropZone,
+  type MediaDragPayload,
+  type MediaSidebarDragSource,
+} from "./MediaDragDrop";
 import { PickerCardSelection } from "./PickerCardSelection";
 
 export function PickerDirectoryCard(props: {
@@ -15,6 +20,7 @@ export function PickerDirectoryCard(props: {
   onOpen: () => void;
   onToggleSelection?: () => void;
   dropScope?: string;
+  dragPayload?: MediaDragPayload | null;
   onDrop?: (source: MediaSidebarDragSource) => void;
 }) {
   const drop = useMediaSidebarDropZone({
@@ -32,37 +38,42 @@ export function PickerDirectoryCard(props: {
     />
   );
   const previews = props.previewPaths ?? [];
-  const content = (
-    <>
-      {props.parent ? (
-        <span className="picker-card-preview">
-          <FolderUp size={36} />
-        </span>
-      ) : previews.length > 0 ? (
-        <span
-          className="picker-card-preview picker-directory-preview-grid"
-          data-image-count={previews.length}
-        >
+  const preview = props.parent ? (
+    <span className="picker-card-preview">
+      <FolderUp size={36} />
+    </span>
+  ) : (
+    <MediaDragPreview
+      id={`media-directory-source:${props.id}`}
+      media={props.dragPayload?.media}
+      source={props.dragPayload?.source}
+      className={`picker-card-preview${previews.length > 0 ? " picker-directory-preview-grid" : ""}`}
+      dataImageCount={previews.length || undefined}
+    >
+      {previews.length > 0 ? (
+        <>
           {previews.map((path, index) => (
             <CachedImage key={`${path}:${index}`} path={path} alt="" loading="lazy" />
           ))}
           <span className="picker-directory-preview-badge">
             <Folder size={16} />
           </span>
-          {selection}
-        </span>
+        </>
       ) : (
-        <span className="picker-card-preview">
-          <Folder size={36} />
-          {selection}
-        </span>
+        <Folder size={36} />
       )}
+      {selection}
+    </MediaDragPreview>
+  );
+  const content = (
+    <>
+      {preview}
       <span className="picker-item-name">{props.parent ? ".." : props.name}</span>
       <span className="picker-item-path">{props.parent ? "Go up a directory" : "Directory"}</span>
     </>
   );
   const className = `picker-card picker-directory${
-    drop.activeSource ? " is-media-drop-target" : ""
+    drop.isEnabled ? " is-media-drop-target" : ""
   }${drop.isAccepting ? " is-drag-over" : ""}`;
 
   if (props.inlineSelection && !props.parent) {

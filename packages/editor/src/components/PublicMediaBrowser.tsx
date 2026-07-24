@@ -91,6 +91,7 @@ export function FileMediaBrowser(props: {
   /** Enables dragging a file into a Markdown/MDX body. */
   dragMedia?: (file: FileEntry) => MarkdownMediaPick | null;
   dragPayload?: (file: FileEntry) => MediaDragPayload | null;
+  directoryDragPayload?: (directory: string) => MediaDragPayload | null;
   dropScope?: string;
   onDropToDirectory?: (source: MediaSidebarDragSource, directory: string) => void;
   selectionMode?: boolean;
@@ -162,6 +163,9 @@ export function FileMediaBrowser(props: {
                 selectionMode={props.selectionMode}
                 onOpen={openDirectory}
                 onToggleSelection={() => props.onToggleDirectorySelection?.(folder.path)}
+                dragPayload={
+                  !props.selectionMode ? props.directoryDragPayload?.(folder.path) : null
+                }
                 dropScope={props.dropScope}
                 onDrop={
                   props.onDropToDirectory

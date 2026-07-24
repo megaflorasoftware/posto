@@ -133,10 +133,8 @@ export function ImageLibraryReferenceField(props: {
   };
   const imageDrop = useMediaDropZone({
     id: `image-library-field:${props.ctx.root}:${props.path.join(".")}`,
-    accepts: (dragged) =>
-      dragged.length === 1 &&
-      dragged[0]?.kind === "image" &&
-      dragged[0].library?.collection === props.library.collection,
+    category: "single-image",
+    accepts: (dragged) => dragged[0]?.library?.collection === props.library.collection,
     onDrop: (dragged) => {
       const entryId = dragged[0]?.library?.entryId;
       if (!entryId) return;

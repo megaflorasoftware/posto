@@ -59,6 +59,39 @@ test("moves a selected public-media batch and updates Markdown references", asyn
   expect(applyImageLibraryReferenceUpdates).toHaveBeenCalledOnce();
 });
 
+test("moves mixed public-media files and directories as one batch", async () => {
+  const files: FileEntry[] = [
+    { name: "one.jpg", path: "/repo/public/one.jpg" },
+    { name: "two.jpg", path: "/repo/public/albums/two.jpg" },
+  ];
+
+  await moveFileMediaItems({
+    root: "/repo",
+    mediaRoot: "/repo/public",
+    groups: [],
+    directories: ["/repo/public/albums", "/repo/public/archive"],
+    files,
+    movingFiles: [files[0]!],
+    movingDirectories: ["/repo/public/albums"],
+    destinationDirectory: "/repo/public/archive",
+    onBeforeChange: vi.fn().mockResolvedValue(undefined),
+  });
+
+  expect(moveFileMediaItem).toHaveBeenCalledWith({
+    mediaRoot: "/repo/public",
+    path: "/repo/public/one.jpg",
+    destinationDirectory: "/repo/public/archive",
+  });
+  expect(moveFileMediaDirectory).toHaveBeenCalledWith({
+    mediaRoot: "/repo/public",
+    path: "/repo/public/albums",
+    destinationDirectory: "/repo/public/archive",
+  });
+  const replacements = vi.mocked(planMarkdownMediaReferenceUpdates).mock.calls[0]?.[0].replacements;
+  expect(replacements?.get("/one.jpg")).toBe("/archive/one.jpg");
+  expect(replacements?.get("/albums/two.jpg")).toBe("/archive/albums/two.jpg");
+});
+
 test("moves a selected image-library batch and plans entry and image relocations", async () => {
   const library: MediaLibrary = {
     collection: "photos",
@@ -115,4 +148,62 @@ test("moves a selected image-library batch and plans entry and image relocations
     },
   ]);
   expect(applyImageLibraryReferenceUpdates).toHaveBeenCalledOnce();
+});
+
+test("moves mixed image-library assets and directories as one batch", async () => {
+  const library: MediaLibrary = {
+    collection: "photos",
+    base: "src/content/photos",
+    patterns: ["**/*.yml"],
+    metadataExtensions: ["yml"],
+    imageFieldPath: ["image"],
+    fields: [],
+  };
+  const assets: ImageLibraryAsset[] = [
+    {
+      entryId: "one",
+      metadataPath: "/repo/src/content/photos/one.yml",
+      imagePath: "/repo/src/content/photos/one.jpg",
+      metadata: { image: "./one.jpg" },
+      health: ["valid"],
+    },
+    {
+      entryId: "albums/two",
+      metadataPath: "/repo/src/content/photos/albums/two.yml",
+      imagePath: "/repo/src/content/photos/albums/two.jpg",
+      metadata: { image: "./two.jpg" },
+      health: ["valid"],
+    },
+  ];
+
+  await moveImageLibraryItems({
+    root: "/repo",
+    library,
+    config: { media: [], content: [], mediaLibraries: [library] } as PagesConfig,
+    groups: [],
+    libraryRoot: "/repo/src/content/photos",
+    directories: ["/repo/src/content/photos/albums", "/repo/src/content/photos/archive"],
+    assets,
+    movingAssets: [assets[0]!],
+    movingDirectories: ["/repo/src/content/photos/albums"],
+    destinationDirectory: "/repo/src/content/photos/archive",
+    onBeforeMove: vi.fn().mockResolvedValue(undefined),
+  });
+
+  expect(invoke).toHaveBeenCalledWith("move_image_library_asset", {
+    libraryRoot: "/repo/src/content/photos",
+    imagePath: "/repo/src/content/photos/one.jpg",
+    metadataPath: "/repo/src/content/photos/one.yml",
+    destinationDirectory: "/repo/src/content/photos/archive",
+  });
+  expect(invoke).toHaveBeenCalledWith("move_image_library_directory", {
+    libraryRoot: "/repo/src/content/photos",
+    directoryPath: "/repo/src/content/photos/albums",
+    destinationDirectory: "/repo/src/content/photos/archive",
+  });
+  const relocations = vi.mocked(planImageLibraryReferenceUpdates).mock.calls[0]?.[0].relocations;
+  expect(relocations).toMatchObject([
+    { oldEntryId: "one", newEntryId: "archive/one" },
+    { oldEntryId: "albums/two", newEntryId: "archive/albums/two" },
+  ]);
 });

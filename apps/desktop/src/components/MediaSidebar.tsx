@@ -26,6 +26,7 @@ import {
   moveImageLibraryItems,
   publicMediaOutputPath,
   type MarkdownMediaPick,
+  type MediaDragPayload,
   type MediaSidebarDragSource,
 } from "@posto/editor";
 import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
@@ -77,11 +78,44 @@ function LibraryMediaBrowserContent(props: {
         }
       : null;
   };
+  const dragPayload = (input: { asset?: ImageLibraryAsset; directory?: string }) => {
+    const grouped = input.asset
+      ? selected.has(input.asset.metadataPath)
+      : !!input.directory && selectedDirectories.has(input.directory);
+    const draggedAssets = grouped
+      ? state.assets.filter(
+          (asset) => selected.has(asset.metadataPath) && asset.health.includes("valid"),
+        )
+      : input.asset
+        ? [input.asset]
+        : [];
+    const draggedDirectories = grouped
+      ? [...selectedDirectories]
+      : input.directory
+        ? [input.directory]
+        : [];
+    const media = draggedAssets.flatMap((asset) => {
+      const pick = mediaForAsset(asset);
+      return pick ? [pick] : [];
+    });
+    const items = [
+      ...draggedAssets.map((asset) => ({ id: asset.metadataPath, kind: "image" as const })),
+      ...draggedDirectories.map((directory) => ({ id: directory, kind: "directory" as const })),
+    ];
+    return items.length > 0
+      ? ({
+          media,
+          source: { kind: "media-sidebar", scope: dragScope, items },
+        } satisfies MediaDragPayload)
+      : null;
+  };
   const dropIntoDirectory = (source: MediaSidebarDragSource, destinationDirectory: string) => {
-    const movingAssets = state.assets.filter((asset) =>
-      source.itemIds.includes(asset.metadataPath),
-    );
-    if (movingAssets.length === 0) return;
+    const movingIds = new Set(source.items.map((item) => item.id));
+    const movingAssets = state.assets.filter((asset) => movingIds.has(asset.metadataPath));
+    const movingDirectories = source.items
+      .filter((item) => item.kind === "directory")
+      .map((item) => item.id);
+    if (movingAssets.length + movingDirectories.length === 0) return;
     setMoveError(null);
     void moveImageLibraryItems({
       root: props.root,
@@ -92,11 +126,13 @@ function LibraryMediaBrowserContent(props: {
       directories: state.directories,
       assets: state.assets,
       movingAssets,
+      movingDirectories,
       destinationDirectory,
       onBeforeMove: props.onBeforeChange,
     })
       .then(() => {
         setSelected(new Set());
+        setSelectedDirectories(new Set());
         void state.refresh();
         props.onChanged();
       })
@@ -149,28 +185,8 @@ function LibraryMediaBrowserContent(props: {
             setSelectedDirectories(new Set());
             setDeleting(true);
           }}
-          dragPayload={(asset) => {
-            const dragged = selected.has(asset.metadataPath)
-              ? state.assets.filter(
-                  (candidate) =>
-                    selected.has(candidate.metadataPath) && candidate.health.includes("valid"),
-                )
-              : [asset];
-            const media = dragged.flatMap((candidate) => {
-              const pick = mediaForAsset(candidate);
-              return pick ? [pick] : [];
-            });
-            return media.length > 0
-              ? {
-                  media,
-                  source: {
-                    kind: "media-sidebar",
-                    scope: dragScope,
-                    itemIds: dragged.map((candidate) => candidate.metadataPath),
-                  },
-                }
-              : null;
-          }}
+          dragPayload={(asset) => dragPayload({ asset })}
+          directoryDragPayload={(directory) => dragPayload({ directory })}
           dropScope={dragScope}
           onDropToDirectory={dropIntoDirectory}
           inlineSelection
@@ -389,9 +405,42 @@ function PublicMediaBrowserContent(props: {
     const outputPath = publicMediaOutputPath(props.root, file.path);
     return outputPath ? { outputPath, label: file.name, kind: "image" } : null;
   };
+  const dragPayload = (input: { file?: FileEntry; directory?: string }) => {
+    const grouped = input.file
+      ? selected.has(input.file.path)
+      : !!input.directory && selectedDirectories.has(input.directory);
+    const draggedFiles = grouped
+      ? state.files.filter((file) => selected.has(file.path))
+      : input.file
+        ? [input.file]
+        : [];
+    const draggedDirectories = grouped
+      ? [...selectedDirectories]
+      : input.directory
+        ? [input.directory]
+        : [];
+    const media = draggedFiles.flatMap((file) => {
+      const pick = mediaForFile(file);
+      return pick ? [pick] : [];
+    });
+    const items = [
+      ...draggedFiles.map((file) => ({ id: file.path, kind: markdownMediaKind(file.path) })),
+      ...draggedDirectories.map((directory) => ({ id: directory, kind: "directory" as const })),
+    ];
+    return items.length > 0
+      ? ({
+          media,
+          source: { kind: "media-sidebar", scope: dragScope, items },
+        } satisfies MediaDragPayload)
+      : null;
+  };
   const dropIntoDirectory = (source: MediaSidebarDragSource, destinationDirectory: string) => {
-    const movingFiles = state.files.filter((file) => source.itemIds.includes(file.path));
-    if (movingFiles.length === 0) return;
+    const movingIds = new Set(source.items.map((item) => item.id));
+    const movingFiles = state.files.filter((file) => movingIds.has(file.path));
+    const movingDirectories = source.items
+      .filter((item) => item.kind === "directory")
+      .map((item) => item.id);
+    if (movingFiles.length + movingDirectories.length === 0) return;
     setMoveError(null);
     void moveFileMediaItems({
       root: props.root,
@@ -400,11 +449,13 @@ function PublicMediaBrowserContent(props: {
       directories: state.directories,
       files: state.files,
       movingFiles,
+      movingDirectories,
       destinationDirectory,
       onBeforeChange: props.onBeforeChange,
     })
       .then(() => {
         setSelected(new Set());
+        setSelectedDirectories(new Set());
         void state.refresh();
         props.onChanged();
       })
@@ -437,28 +488,8 @@ function PublicMediaBrowserContent(props: {
             setSelectedDirectories(new Set());
             setDeleting(true);
           }}
-          dragPayload={(file) => {
-            const dragged = selected.has(file.path)
-              ? state.files.filter(
-                  (candidate) =>
-                    selected.has(candidate.path) && markdownMediaKind(candidate.path) === "image",
-                )
-              : [file];
-            const media = dragged.flatMap((candidate) => {
-              const pick = mediaForFile(candidate);
-              return pick ? [pick] : [];
-            });
-            return media.length > 0
-              ? {
-                  media,
-                  source: {
-                    kind: "media-sidebar",
-                    scope: dragScope,
-                    itemIds: dragged.map((candidate) => candidate.path),
-                  },
-                }
-              : null;
-          }}
+          dragPayload={(file) => dragPayload({ file })}
+          directoryDragPayload={(directory) => dragPayload({ directory })}
           dropScope={dragScope}
           onDropToDirectory={dropIntoDirectory}
           inlineSelection

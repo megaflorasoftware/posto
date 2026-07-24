@@ -155,4 +155,33 @@ describe("public media", () => {
     expect(toggleDirectory).toHaveBeenCalledWith("/repo/media/albums");
     expect(openDirectory).not.toHaveBeenCalled();
   });
+
+  test("enables directory cards as drag sources when they have a categorized payload", () => {
+    render(
+      <MantineProvider forceColorScheme="light">
+        <FileMediaBrowser
+          rootDirectory="/repo/media"
+          currentDirectory=""
+          directories={["/repo/media/albums"]}
+          files={[]}
+          inlineSelection
+          selectedFilePaths={new Set()}
+          selectedDirectoryPaths={new Set()}
+          onDirectoryChange={vi.fn()}
+          directoryDragPayload={(directory) => ({
+            media: [],
+            source: {
+              kind: "media-sidebar",
+              scope: "public",
+              items: [{ id: directory, kind: "directory" }],
+            },
+          })}
+        />
+      </MantineProvider>,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Open albums" }).querySelector(".is-media-draggable"),
+    ).toBeTruthy();
+  });
 });

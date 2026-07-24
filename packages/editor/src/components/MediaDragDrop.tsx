@@ -16,8 +16,8 @@ import {
   type CollisionDetection,
 } from "@dnd-kit/core";
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
-import { Blocks, Image } from "lucide-react";
-import type { MarkdownMediaPick } from "../markdownMedia";
+import { Blocks, Folder, Image } from "lucide-react";
+import type { MarkdownMediaKind, MarkdownMediaPick } from "../markdownMedia";
 
 export interface BodyImageDragSource {
   kind: "body-image";
@@ -28,10 +28,23 @@ export interface BodyImageDragSource {
 export interface MediaSidebarDragSource {
   kind: "media-sidebar";
   scope: string;
-  itemIds: string[];
+  items: MediaDragItem[];
 }
 
 export type MediaDragSource = BodyImageDragSource | MediaSidebarDragSource;
+
+export interface MediaDragItem {
+  id: string;
+  kind: MarkdownMediaKind | "directory";
+}
+
+export interface MediaDragSelection {
+  media: MarkdownMediaPick[];
+  items: MediaDragItem[];
+  source: MediaDragSource | null;
+}
+
+export type MediaDropCategory = "sidebar-items" | "single-image" | "image-list";
 
 export interface MediaDragPayload {
   media: MarkdownMediaPick[];
@@ -70,19 +83,22 @@ export interface MediaDropDetails {
 
 interface MediaDropData {
   kind: "posto-media-drop";
-  accepts: (media: MarkdownMediaPick[]) => boolean;
+  category: MediaDropCategory;
+  accepts: (selection: MediaDragSelection) => boolean;
   onDrop: (media: MarkdownMediaPick[], event: DragEndEvent, details: MediaDropDetails) => void;
 }
 
 interface MediaSidebarDropData {
   kind: "posto-media-sidebar-drop";
+  category: "sidebar-items";
   accepts: (source: MediaSidebarDragSource) => boolean;
   onDrop: (source: MediaSidebarDragSource, event: DragEndEvent) => void;
 }
 
 interface RichTextDropData {
   kind: "posto-rich-text-drop";
-  acceptsMedia: (media: MarkdownMediaPick[]) => boolean;
+  mediaCategory: MediaDropCategory;
+  acceptsMedia: (selection: MediaDragSelection) => boolean;
   onMediaDrop: (media: MarkdownMediaPick[], event: DragEndEvent, details: MediaDropDetails) => void;
   onBodyNodeDrop: (
     source: BodyNodeDragSource,
@@ -109,12 +125,23 @@ const collisionDetection: CollisionDetection = (args) => {
     return closestCenter({ ...args, droppableContainers: listItems });
   }
   if (activeData?.kind === "posto-media") {
-    const mediaTargets = args.droppableContainers.filter(
-      (container) =>
-        container.data.current?.kind === "posto-media-drop" ||
-        container.data.current?.kind === "posto-media-sidebar-drop" ||
-        container.data.current?.kind === "posto-rich-text-drop",
-    );
+    const selection = draggedSelection(activeData);
+    const mediaTargets = args.droppableContainers.filter((container) => {
+      const data = container.data.current as unknown as
+        | MediaDropData
+        | MediaSidebarDropData
+        | RichTextDropData
+        | undefined;
+      if (data?.kind === "posto-media-drop") return data.accepts(selection);
+      if (data?.kind === "posto-rich-text-drop") return data.acceptsMedia(selection);
+      return (
+        data?.kind === "posto-media-sidebar-drop" &&
+        acceptsMediaDrop(selection, data.category) &&
+        selection.source?.kind === "media-sidebar" &&
+        data.accepts(selection.source)
+      );
+    });
+    if (mediaTargets.length === 0) return [];
     const scopedArgs = { ...args, droppableContainers: mediaTargets };
     const pointerCollisions = pointerWithin(scopedArgs);
     return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(scopedArgs);
@@ -138,13 +165,43 @@ function draggedSource(data: Record<string, unknown> | undefined): MediaDragSour
   return data?.kind === "posto-media" ? ((data as unknown as MediaDragData).source ?? null) : null;
 }
 
+function draggedSelection(data: Record<string, unknown> | undefined): MediaDragSelection {
+  const media = draggedMedia(data);
+  const source = draggedSource(data);
+  return {
+    media,
+    source,
+    items:
+      source?.kind === "media-sidebar"
+        ? source.items
+        : media.map((item) => ({ id: item.outputPath, kind: item.kind })),
+  };
+}
+
+/** Applies the item-count and item-kind rules shared by editor media drop targets. */
+export function acceptsMediaDrop(
+  selection: MediaDragSelection,
+  category: MediaDropCategory,
+): boolean {
+  if (category === "sidebar-items") {
+    return selection.source?.kind === "media-sidebar" && selection.items.length > 0;
+  }
+  const allImages =
+    selection.items.length > 0 &&
+    selection.items.every((item) => item.kind === "image") &&
+    selection.media.length === selection.items.length &&
+    selection.media.every((item) => item.kind === "image");
+  if (!allImages) return false;
+  return category === "image-list" || selection.items.length === 1;
+}
+
 function draggedBodyNode(data: Record<string, unknown> | undefined): BodyNodeDragData | null {
   return data?.kind === "posto-body-node" ? (data as unknown as BodyNodeDragData) : null;
 }
 
 interface MediaDragState {
   activeMedia: MarkdownMediaPick | null;
-  activeMediaCount: number;
+  activeItems: MediaDragItem[];
   activeSource: MediaDragSource | null;
   activeBodyNode: BodyNodeDragData | null;
   pointer: { x: number; y: number } | null;
@@ -152,7 +209,7 @@ interface MediaDragState {
 
 const MediaDragContext = createContext<MediaDragState>({
   activeMedia: null,
-  activeMediaCount: 0,
+  activeItems: [],
   activeSource: null,
   activeBodyNode: null,
   pointer: null,
@@ -171,7 +228,7 @@ function pointerFromEvent(event: Event): { x: number; y: number } | null {
 /** App-level dnd-kit context for sidebar media and editor/field drop zones. */
 export function MediaDragDropProvider(props: { children: ReactNode }) {
   const [activeMedia, setActiveMedia] = useState<MarkdownMediaPick | null>(null);
-  const [activeMediaCount, setActiveMediaCount] = useState(0);
+  const [activeItems, setActiveItems] = useState<MediaDragItem[]>([]);
   const [activeSource, setActiveSource] = useState<MediaDragSource | null>(null);
   const [activeBodyNode, setActiveBodyNode] = useState<BodyNodeDragData | null>(null);
   const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
@@ -198,7 +255,7 @@ export function MediaDragDropProvider(props: { children: ReactNode }) {
     bodyNodeSourcePosition.current = undefined;
     setPointer(null);
     setActiveMedia(null);
-    setActiveMediaCount(0);
+    setActiveItems([]);
     setActiveSource(null);
     setActiveBodyNode(null);
   };
@@ -206,7 +263,7 @@ export function MediaDragDropProvider(props: { children: ReactNode }) {
   // dnd-kit owns the drag lifecycle; keep the actual pointer separately so
   // insertion never depends on the translated dimensions of the drag overlay.
   useEffect(() => {
-    if (!activeMedia && !activeBodyNode) return;
+    if (activeItems.length === 0 && !activeBodyNode) return;
     const updatePointer = (event: PointerEvent) => {
       const next = { x: event.clientX, y: event.clientY };
       livePointer.current = next;
@@ -214,7 +271,7 @@ export function MediaDragDropProvider(props: { children: ReactNode }) {
     };
     window.addEventListener("pointermove", updatePointer);
     return () => window.removeEventListener("pointermove", updatePointer);
-  }, [activeBodyNode, activeMedia]);
+  }, [activeBodyNode, activeItems.length]);
 
   return (
     <DndContext
@@ -231,17 +288,17 @@ export function MediaDragDropProvider(props: { children: ReactNode }) {
           source?.kind === "body-image" ? source.getPosition() : undefined;
         bodyNodeSourcePosition.current = bodyNode?.source.getPosition();
         setPointer(start);
-        const media = draggedMedia(event.active.data.current);
-        setActiveMedia(media[0] ?? null);
-        setActiveMediaCount(media.length);
+        const selection = draggedSelection(event.active.data.current);
+        setActiveMedia(selection.media[0] ?? null);
+        setActiveItems(selection.items);
         setActiveSource(source);
         setActiveBodyNode(bodyNode);
       }}
       onDragMove={(event) => setPointer(pointerForEvent(event))}
       onDragCancel={clearDrag}
       onDragEnd={(event) => {
-        const media = draggedMedia(event.active.data.current);
-        const source = draggedSource(event.active.data.current);
+        const selection = draggedSelection(event.active.data.current);
+        const { media, source } = selection;
         const drop = event.over?.data.current as unknown as
           | MediaDropData
           | MediaSidebarDropData
@@ -253,17 +310,13 @@ export function MediaDragDropProvider(props: { children: ReactNode }) {
           drop.accepts(source)
         ) {
           drop.onDrop(source, event);
-        } else if (media.length > 0 && drop?.kind === "posto-media-drop" && drop.accepts(media)) {
+        } else if (drop?.kind === "posto-media-drop" && drop.accepts(selection)) {
           drop.onDrop(media, event, {
             pointer: pointerForEvent(event),
             source: dragSource.current,
             sourcePosition: dragSourcePosition.current,
           });
-        } else if (
-          media.length > 0 &&
-          drop?.kind === "posto-rich-text-drop" &&
-          drop.acceptsMedia(media)
-        ) {
+        } else if (drop?.kind === "posto-rich-text-drop" && drop.acceptsMedia(selection)) {
           drop.onMediaDrop(media, event, {
             pointer: pointerForEvent(event),
             source: dragSource.current,
@@ -291,14 +344,26 @@ export function MediaDragDropProvider(props: { children: ReactNode }) {
       }}
     >
       <MediaDragContext.Provider
-        value={{ activeMedia, activeMediaCount, activeSource, activeBodyNode, pointer }}
+        value={{ activeMedia, activeItems, activeSource, activeBodyNode, pointer }}
       >
         {props.children}
         <DragOverlay dropAnimation={null}>
-          {activeMedia ? (
+          {activeItems.length > 0 ? (
             <div className="media-drag-overlay">
-              <Image size={18} />
-              <span>{activeMediaCount > 1 ? `${activeMediaCount} images` : activeMedia.label}</span>
+              {activeItems.every((item) => item.kind === "directory") ? (
+                <Folder size={18} />
+              ) : activeItems.every((item) => item.kind === "image") ? (
+                <Image size={18} />
+              ) : (
+                <Blocks size={18} />
+              )}
+              <span>
+                {activeItems.length > 1
+                  ? `${activeItems.length} items`
+                  : activeItems[0]?.kind === "directory"
+                    ? "1 folder"
+                    : (activeMedia?.label ?? "1 item")}
+              </span>
             </div>
           ) : activeBodyNode ? (
             <div className="media-drag-overlay">
@@ -336,13 +401,14 @@ export function useMediaDraggable(input: {
   source?: MediaDragSource;
 }) {
   const media = Array.isArray(input.media) ? input.media : input.media ? [input.media] : [];
+  const enabled =
+    media.length > 0 || (input.source?.kind === "media-sidebar" && input.source.items.length > 0);
   return useDraggable({
     id: input.id,
-    disabled: media.length === 0,
-    data:
-      media.length > 0
-        ? ({ kind: "posto-media", media, source: input.source } satisfies MediaDragData)
-        : {},
+    disabled: !enabled,
+    data: enabled
+      ? ({ kind: "posto-media", media, source: input.source } satisfies MediaDragData)
+      : {},
   });
 }
 
@@ -352,14 +418,18 @@ export function MediaDragPreview(props: {
   media: MarkdownMediaPick | MarkdownMediaPick[] | null | undefined;
   source?: MediaDragSource;
   className: string;
+  dataImageCount?: number;
   children: ReactNode;
 }) {
   const draggable = useMediaDraggable({ id: props.id, media: props.media, source: props.source });
-  const enabled = Array.isArray(props.media) ? props.media.length > 0 : !!props.media;
+  const enabled =
+    (Array.isArray(props.media) ? props.media.length > 0 : !!props.media) ||
+    (props.source?.kind === "media-sidebar" && props.source.items.length > 0);
   return (
     <span
       ref={draggable.setNodeRef}
       className={`${props.className}${enabled ? " is-media-draggable" : ""}${draggable.isDragging ? " is-dragging" : ""}`}
+      data-image-count={props.dataImageCount}
       {...draggable.attributes}
       {...draggable.listeners}
     >
@@ -370,23 +440,28 @@ export function MediaDragPreview(props: {
 
 export function useMediaDropZone(input: {
   id: string;
-  accepts: (media: MarkdownMediaPick[]) => boolean;
+  category: MediaDropCategory;
+  accepts?: (media: MarkdownMediaPick[]) => boolean;
   onDrop: (media: MarkdownMediaPick[], event: DragEndEvent, details: MediaDropDetails) => void;
 }) {
   const drag = useContext(MediaDragContext);
+  const accepts = (selection: MediaDragSelection) =>
+    acceptsMediaDrop(selection, input.category) && (input.accepts?.(selection.media) ?? true);
   const droppable = useDroppable({
     id: input.id,
     data: {
       kind: "posto-media-drop",
-      accepts: input.accepts,
+      category: input.category,
+      accepts,
       onDrop: input.onDrop,
     } satisfies MediaDropData,
   });
-  const media = draggedMedia(droppable.active?.data.current);
+  const selection = draggedSelection(droppable.active?.data.current);
   return {
     setNodeRef: droppable.setNodeRef,
     isOver: droppable.isOver,
-    isAccepting: droppable.isOver && media.length > 0 && input.accepts(media),
+    isEnabled: accepts(selection),
+    isAccepting: droppable.isOver && accepts(selection),
     pointer: drag.pointer,
     activeMedia: drag.activeMedia,
     activeSource: drag.activeSource,
@@ -403,22 +478,30 @@ export function useMediaSidebarDropZone(input: {
     id: input.id,
     data: {
       kind: "posto-media-sidebar-drop",
+      category: "sidebar-items",
       accepts: input.accepts,
       onDrop: input.onDrop,
     } satisfies MediaSidebarDropData,
   });
   const source = draggedSource(droppable.active?.data.current);
+  const selection = draggedSelection(droppable.active?.data.current);
+  const isEnabled =
+    acceptsMediaDrop(selection, "sidebar-items") &&
+    source?.kind === "media-sidebar" &&
+    input.accepts(source);
   return {
     setNodeRef: droppable.setNodeRef,
     isOver: droppable.isOver,
-    isAccepting: droppable.isOver && source?.kind === "media-sidebar" && input.accepts(source),
+    isEnabled,
+    isAccepting: droppable.isOver && isEnabled,
     activeSource: drag.activeSource?.kind === "media-sidebar" ? drag.activeSource : null,
   };
 }
 
 export function useRichTextDropZone(input: {
   id: string;
-  acceptsMedia: (media: MarkdownMediaPick[]) => boolean;
+  mediaCategory: MediaDropCategory;
+  acceptsMedia?: (media: MarkdownMediaPick[]) => boolean;
   onMediaDrop: (media: MarkdownMediaPick[], event: DragEndEvent, details: MediaDropDetails) => void;
   onBodyNodeDrop: (
     source: BodyNodeDragSource,
@@ -427,22 +510,25 @@ export function useRichTextDropZone(input: {
   ) => void;
 }) {
   const drag = useContext(MediaDragContext);
+  const acceptsMedia = (selection: MediaDragSelection) =>
+    acceptsMediaDrop(selection, input.mediaCategory) &&
+    (input.acceptsMedia?.(selection.media) ?? true);
   const droppable = useDroppable({
     id: input.id,
     data: {
       kind: "posto-rich-text-drop",
-      acceptsMedia: input.acceptsMedia,
+      mediaCategory: input.mediaCategory,
+      acceptsMedia,
       onMediaDrop: input.onMediaDrop,
       onBodyNodeDrop: input.onBodyNodeDrop,
     } satisfies RichTextDropData,
   });
-  const media = draggedMedia(droppable.active?.data.current);
+  const selection = draggedSelection(droppable.active?.data.current);
   const bodyNode = draggedBodyNode(droppable.active?.data.current);
   return {
     setNodeRef: droppable.setNodeRef,
     isOver: droppable.isOver,
-    isAccepting:
-      droppable.isOver && ((media.length > 0 && input.acceptsMedia(media)) || !!bodyNode),
+    isAccepting: droppable.isOver && (acceptsMedia(selection) || !!bodyNode),
     pointer: drag.pointer,
     activeMedia: drag.activeMedia,
     activeMediaSource: drag.activeSource,

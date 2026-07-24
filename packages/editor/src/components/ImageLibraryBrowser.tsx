@@ -57,6 +57,7 @@ export function ImageLibraryBrowser(props: {
   /** Enables dragging an asset into a Markdown/MDX body. */
   dragMedia?: (asset: ImageLibraryAsset) => MarkdownMediaPick | null;
   dragPayload?: (asset: ImageLibraryAsset) => MediaDragPayload | null;
+  directoryDragPayload?: (directory: string) => MediaDragPayload | null;
   dropScope?: string;
   onDropToDirectory?: (source: MediaSidebarDragSource, directory: string) => void;
   selectionMode?: boolean;
@@ -128,6 +129,9 @@ export function ImageLibraryBrowser(props: {
                 selectionMode={props.selectionMode}
                 onOpen={openDirectory}
                 onToggleSelection={() => props.onToggleDirectorySelection?.(folder.path)}
+                dragPayload={
+                  !props.selectionMode ? props.directoryDragPayload?.(folder.path) : null
+                }
                 dropScope={props.dropScope}
                 onDrop={
                   props.onDropToDirectory

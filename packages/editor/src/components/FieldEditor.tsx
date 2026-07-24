@@ -667,7 +667,7 @@ function ImageField(props: { field: Field; path: ValuePath; ctx: FieldContext })
 
   const imageDrop = useMediaDropZone({
     id: `image-field:${props.ctx.root}:${props.path.join(".")}`,
-    accepts: (dragged) => dragged.length === 1 && dragged[0]?.kind === "image",
+    category: "single-image",
     onDrop: (dragged) => props.ctx.edit(props.path, dragged[0]?.outputPath),
   });
 
