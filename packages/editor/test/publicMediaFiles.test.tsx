@@ -2,6 +2,7 @@
 
 import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
+import { MantineProvider } from "@mantine/core";
 import { describe, expect, test, vi } from "vitest";
 import type { MediaLibrary } from "@posto/core/pagescms/config";
 import { MediaLibraryTabs, PUBLIC_MEDIA_TAB } from "../src/components/MediaLibraryTabs";
@@ -9,6 +10,19 @@ import { FileMediaBrowser } from "../src/components/PublicMediaBrowser";
 import { isPublicMediaFile } from "../src/hooks/usePublicMediaFiles";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
+Object.defineProperty(window, "matchMedia", {
+  writable: true,
+  value: vi.fn().mockImplementation((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
+});
 
 function library(collection: string): MediaLibrary {
   return {
@@ -90,17 +104,19 @@ describe("public media", () => {
     const onEdit = vi.fn();
     const file = { name: "guide.pdf", path: "/repo/media/guide.pdf" };
     render(
-      <FileMediaBrowser
-        rootDirectory="/repo/media"
-        currentDirectory=""
-        directories={[]}
-        files={[file]}
-        onDirectoryChange={vi.fn()}
-        onEdit={onEdit}
-      />,
+      <MantineProvider forceColorScheme="light">
+        <FileMediaBrowser
+          rootDirectory="/repo/media"
+          currentDirectory=""
+          directories={[]}
+          files={[file]}
+          onDirectoryChange={vi.fn()}
+          onEdit={onEdit}
+        />
+      </MantineProvider>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit guide.pdf" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit guide.pdf" })[0]);
     expect(onEdit).toHaveBeenCalledWith(file);
   });
 });

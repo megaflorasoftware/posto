@@ -1,7 +1,10 @@
 import type { ReactNode } from "react";
-import { Folder, FolderUp, Pencil } from "lucide-react";
+import { ActionIcon } from "@mantine/core";
+import { Folder, FolderUp, Pencil, Trash2 } from "lucide-react";
 import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
 import { CachedImage } from "./CachedImage";
+import type { MarkdownMediaPick } from "../markdownMedia";
+import { MediaDragPreview } from "./MediaDragDrop";
 
 function normalize(path: string): string {
   return path.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -44,6 +47,9 @@ export function ImageLibraryBrowser(props: {
   onDirectoryChange: (directory: string) => void;
   onPick?: (asset: ImageLibraryAsset) => void;
   onEdit?: (asset: ImageLibraryAsset) => void;
+  onDelete?: (asset: ImageLibraryAsset) => void;
+  /** Enables dragging an asset into a Markdown/MDX body. */
+  dragMedia?: (asset: ImageLibraryAsset) => MarkdownMediaPick | null;
   selectionMode?: boolean;
   selectedAssetIds?: Set<string>;
   selectedDirectoryPaths?: Set<string>;
@@ -146,13 +152,19 @@ export function ImageLibraryBrowser(props: {
           {assets.map((asset) => {
             const valid = asset.health.includes("valid");
             const alt = typeof asset.metadata.alt === "string" ? asset.metadata.alt : asset.entryId;
+            const dragMedia = valid ? props.dragMedia?.(asset) : null;
             const content = (
               <>
-                <span className="picker-card-preview">
+                <MediaDragPreview
+                  id={`image-library:${asset.metadataPath}`}
+                  media={!props.selectionMode ? dragMedia : null}
+                  className="picker-card-preview"
+                >
                   <CachedImage
                     path={asset.imagePath}
                     alt={alt}
                     loading="lazy"
+                    draggable={false}
                     fallback={<span className="picker-card-noimg">No preview</span>}
                   />
                   {props.selectionMode && (
@@ -161,12 +173,51 @@ export function ImageLibraryBrowser(props: {
                       aria-hidden="true"
                     />
                   )}
-                  {props.onEdit && valid && !props.selectionMode && (
-                    <span className="picker-card-edit" aria-hidden="true">
-                      <Pencil size={22} />
+                  {(props.onEdit || props.onDelete) && valid && !props.selectionMode && (
+                    <span className="picker-card-actions">
+                      {props.onEdit && (
+                        <ActionIcon
+                          className="picker-card-edit-action"
+                          variant="filled"
+                          color="dark"
+                          size="md"
+                          title={`Edit ${asset.entryId.split("/").pop()}`}
+                          aria-label={`Edit ${asset.entryId.split("/").pop()}`}
+                          onPointerDown={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                          }}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            props.onEdit?.(asset);
+                          }}
+                        >
+                          <Pencil size={18} />
+                        </ActionIcon>
+                      )}
+                      {props.onDelete && (
+                        <ActionIcon
+                          className="picker-card-delete-action"
+                          variant="filled"
+                          color="red"
+                          size="md"
+                          title={`Delete ${asset.entryId.split("/").pop()}`}
+                          aria-label={`Delete ${asset.entryId.split("/").pop()}`}
+                          onPointerDown={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                          }}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            props.onDelete?.(asset);
+                          }}
+                        >
+                          <Trash2 size={16} />
+                        </ActionIcon>
+                      )}
                     </span>
                   )}
-                </span>
+                </MediaDragPreview>
                 <span className="picker-item-name">{asset.entryId.split("/").pop()}</span>
                 {!valid && <span className="picker-item-path">{asset.health.join(", ")}</span>}
               </>
@@ -192,16 +243,20 @@ export function ImageLibraryBrowser(props: {
               >
                 {content}
               </button>
-            ) : props.onEdit && valid ? (
-              <button
-                type="button"
+            ) : (props.onEdit || props.onDelete) && valid ? (
+              <div
                 key={`${asset.entryId}:${asset.metadataPath}`}
                 className="picker-card"
+                role="button"
+                tabIndex={0}
                 onClick={() => props.onEdit?.(asset)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") props.onEdit?.(asset);
+                }}
                 aria-label={`Edit ${asset.entryId.split("/").pop()}`}
               >
                 {content}
-              </button>
+              </div>
             ) : (
               <div
                 key={`${asset.entryId}:${asset.metadataPath}`}

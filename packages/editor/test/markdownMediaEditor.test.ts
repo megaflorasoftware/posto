@@ -3,11 +3,11 @@
 import React from "react";
 import { afterEach, describe, expect, test } from "vitest";
 import { Editor } from "@tiptap/core";
-import Image from "@tiptap/extension-image";
 import { Markdown } from "@tiptap/markdown";
 import StarterKit from "@tiptap/starter-kit";
 import { Link } from "@mantine/tiptap";
 import { htmlNodes } from "../src/components/HtmlNodes";
+import { EditableImage } from "../src/components/EditableImage";
 import { markdownMediaEditorContent, type MarkdownMediaPick } from "../src/markdownMedia";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
@@ -20,7 +20,7 @@ function renderPick(pick: MarkdownMediaPick): string {
       StarterKit.configure({ link: false, underline: false }),
       Link,
       Markdown,
-      Image.configure({ inline: true }),
+      EditableImage,
       ...htmlNodes,
     ],
     content: "",

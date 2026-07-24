@@ -28,6 +28,7 @@ import {
 import {
   EditorPane,
   ImageLibraryDropImport,
+  MediaDragDropProvider,
   OpenFileSpotlight,
   PublishModal,
   Sidebar,
@@ -660,6 +661,14 @@ function App() {
         onRenameFile={renameOpenFilename}
         onRefreshFilename={refreshFilenameTemplate}
         onPostoSaved={() => void schemas.loadPostoConfig(root)}
+        onBeforeMediaChange={currentFile.flushPendingSave}
+        onMediaChanged={(options) => {
+          if (!options?.silent) {
+            notify("Media updated. Publish when you are ready.", "success");
+          }
+          void refreshGroups(root);
+          void currentFile.reloadFromDisk();
+        }}
         developerMode={developerMode}
         onFullscreen={withFullscreenButton ? () => setFullscreenEditorOpen(true) : undefined}
         headerLeading={fullscreen ? renderFullscreenExit() : undefined}
@@ -684,6 +693,7 @@ function App() {
         deployment={deployment}
         behindUpstream={git.behindUpstream}
         pulling={git.pulling}
+        publishing={git.publishing}
         hasLocalChanges={git.hasLocalChanges}
         onFetchChanges={() => void git.fetchChanges()}
         onOpenPublish={() => void openPublishModal()}
@@ -692,212 +702,214 @@ function App() {
 
   return (
     <MantineProvider defaultColorScheme="auto">
-      <Notifications position="bottom-right" />
-      <div className="app">
-        {openFileSpotlightOpen && root && (
-          <OpenFileSpotlight
-            root={root}
-            groups={files.groups}
-            config={config}
-            onClose={() => setOpenFileSpotlightOpen(false)}
-            onOpen={(file) => {
-              setOpenFileSpotlightOpen(false);
-              openFile(file);
-            }}
-          />
-        )}
-        {recentProjectsSpotlightOpen && (
-          <RecentProjectsSpotlight
-            roots={recentRoots}
-            currentRoot={repoRoot}
-            onClose={() => setRecentProjectsSpotlightOpen(false)}
-            onOpen={(repository) => {
-              setRecentProjectsSpotlightOpen(false);
-              void selectRepository(repository);
-            }}
-          />
-        )}
+      <MediaDragDropProvider>
+        <Notifications position="bottom-right" />
+        <div className="app">
+          {openFileSpotlightOpen && root && (
+            <OpenFileSpotlight
+              root={root}
+              groups={files.groups}
+              config={config}
+              onClose={() => setOpenFileSpotlightOpen(false)}
+              onOpen={(file) => {
+                setOpenFileSpotlightOpen(false);
+                openFile(file);
+              }}
+            />
+          )}
+          {recentProjectsSpotlightOpen && (
+            <RecentProjectsSpotlight
+              roots={recentRoots}
+              currentRoot={repoRoot}
+              onClose={() => setRecentProjectsSpotlightOpen(false)}
+              onOpen={(repository) => {
+                setRecentProjectsSpotlightOpen(false);
+                void selectRepository(repository);
+              }}
+            />
+          )}
 
-        <DeploymentDrawer deployment={deployment} siteUrl={siteUrl} />
+          <DeploymentDrawer deployment={deployment} siteUrl={siteUrl} />
 
-        <PublishModal
-          opened={publishOpen}
-          changes={git.changes}
-          error={git.changesError}
-          scopeLabel={
-            repoRoot && root && repoRoot !== root ? root.slice(repoRoot.length + 1) : undefined
-          }
-          onClose={() => setPublishOpen(false)}
-          onRevert={(file) => void revertChange(file)}
-          onPublish={(message) => {
-            setPublishOpen(false);
-            const sinceRunId = deployment.latestRun?.id ?? null;
-            void git.publish(message).then((published) => {
-              if (published) deployment.expectNewRun(sinceRunId);
-            });
-          }}
-        />
-
-        <Modal opened={settingsOpen} onClose={() => setSettingsOpen(false)} title="Settings">
-          <Switch
-            label="Enable developer mode"
-            checked={developerMode}
-            onChange={(event) => {
-              const enabled = event.currentTarget.checked;
-              setDeveloperMode(enabled);
-              void invoke("set_developer_mode", { enabled }).catch((error) => {
-                setDeveloperMode(!enabled);
-                notify(`Could not save settings: ${String(error)}`, "error");
+          <PublishModal
+            opened={publishOpen}
+            changes={git.changes}
+            error={git.changesError}
+            scopeLabel={
+              repoRoot && root && repoRoot !== root ? root.slice(repoRoot.length + 1) : undefined
+            }
+            onClose={() => setPublishOpen(false)}
+            onRevert={(file) => void revertChange(file)}
+            onPublish={(message) => {
+              setPublishOpen(false);
+              const sinceRunId = deployment.latestRun?.id ?? null;
+              void git.publish(message).then((published) => {
+                if (published) deployment.expectNewRun(sinceRunId);
               });
             }}
           />
-        </Modal>
 
-        {root && config && (
-          <ImageLibraryDropImport
-            root={root}
-            config={config}
-            groups={files.groups}
-            onImported={() => void refreshGroups(root)}
-            onError={notifyError}
-          />
-        )}
-
-        {workspaceCandidates && repoRoot ? (
-          <div className="empty-state">
-            <WorkspaceChooser
-              repoRoot={repoRoot}
-              candidates={workspaceCandidates}
-              onChoose={(candidate) => void selectRoot(repoRoot, candidate.dir)}
-              onBrowse={() => void browseWithinRepository()}
+          <Modal opened={settingsOpen} onClose={() => setSettingsOpen(false)} title="Settings">
+            <Switch
+              label="Enable developer mode"
+              checked={developerMode}
+              onChange={(event) => {
+                const enabled = event.currentTarget.checked;
+                setDeveloperMode(enabled);
+                void invoke("set_developer_mode", { enabled }).catch((error) => {
+                  setDeveloperMode(!enabled);
+                  notify(`Could not save settings: ${String(error)}`, "error");
+                });
+              }}
             />
-          </div>
-        ) : !root ? (
-          <div className="empty-state">
-            <p>Open a repository from the File menu to get started.</p>
-            <Button onClick={() => void chooseDirectory()}>Choose directory</Button>
-          </div>
-        ) : (
-          <div className="body" ref={preview.bodyEl}>
-            {sidebarOpen ? (
-              <>
-                <div className="sidebar-pane" style={{ flexBasis: `${preview.sidebarSplit}%` }}>
-                  <div className="sidebar-header" data-tauri-drag-region>
-                    <ActionIcon
-                      size={26}
-                      variant={sidebarView === "files" ? "light" : "subtle"}
-                      color={sidebarView === "files" ? "blue" : "gray"}
-                      title="Show files"
-                      aria-label="Show files"
-                      onClick={() => setSidebarView("files")}
-                    >
-                      <Files size={16} />
-                    </ActionIcon>
-                    <ActionIcon
-                      size={26}
-                      variant={sidebarView === "media" ? "light" : "subtle"}
-                      color={sidebarView === "media" ? "blue" : "gray"}
-                      title="Show media library"
-                      aria-label="Show media library"
-                      disabled={!config}
-                      onClick={() => setSidebarView("media")}
-                    >
-                      <ImageIcon size={16} />
-                    </ActionIcon>
-                    <span className="sidebar-header-spacer" />
-                    <ActionIcon
-                      size={26}
-                      variant="subtle"
-                      color="gray"
-                      title="Hide sidebar"
-                      aria-label="Hide sidebar"
-                      onClick={() => setSidebarOpen(false)}
-                    >
-                      <PanelLeftClose size={16} />
-                    </ActionIcon>
+          </Modal>
+
+          {root && config && (
+            <ImageLibraryDropImport
+              root={root}
+              config={config}
+              groups={files.groups}
+              onImported={() => void refreshGroups(root)}
+              onError={notifyError}
+            />
+          )}
+
+          {workspaceCandidates && repoRoot ? (
+            <div className="empty-state">
+              <WorkspaceChooser
+                repoRoot={repoRoot}
+                candidates={workspaceCandidates}
+                onChoose={(candidate) => void selectRoot(repoRoot, candidate.dir)}
+                onBrowse={() => void browseWithinRepository()}
+              />
+            </div>
+          ) : !root ? (
+            <div className="empty-state">
+              <p>Open a repository from the File menu to get started.</p>
+              <Button onClick={() => void chooseDirectory()}>Choose directory</Button>
+            </div>
+          ) : (
+            <div className="body" ref={preview.bodyEl}>
+              {sidebarOpen ? (
+                <>
+                  <div className="sidebar-pane" style={{ flexBasis: `${preview.sidebarSplit}%` }}>
+                    <div className="sidebar-header" data-tauri-drag-region>
+                      <ActionIcon
+                        size={26}
+                        variant={sidebarView === "files" ? "light" : "subtle"}
+                        color={sidebarView === "files" ? "blue" : "gray"}
+                        title="Show files"
+                        aria-label="Show files"
+                        onClick={() => setSidebarView("files")}
+                      >
+                        <Files size={16} />
+                      </ActionIcon>
+                      <ActionIcon
+                        size={26}
+                        variant={sidebarView === "media" ? "light" : "subtle"}
+                        color={sidebarView === "media" ? "blue" : "gray"}
+                        title="Show media library"
+                        aria-label="Show media library"
+                        disabled={!config}
+                        onClick={() => setSidebarView("media")}
+                      >
+                        <ImageIcon size={16} />
+                      </ActionIcon>
+                      <span className="sidebar-header-spacer" />
+                      <ActionIcon
+                        size={26}
+                        variant="subtle"
+                        color="gray"
+                        title="Hide sidebar"
+                        aria-label="Hide sidebar"
+                        onClick={() => setSidebarOpen(false)}
+                      >
+                        <PanelLeftClose size={16} />
+                      </ActionIcon>
+                    </div>
+                    <div className="sidebar-content">
+                      {sidebarView === "files" ? (
+                        <Sidebar
+                          root={root}
+                          groups={files.groups}
+                          config={config}
+                          activeKey={currentFile.activeKey}
+                          onOpen={(file) => openFile(file)}
+                          onDelete={(file) => void deleteFile(file)}
+                          onNewFile={(group) => void createNewFile(group)}
+                          developerMode={developerMode}
+                          onPostoSaved={() => void schemas.loadPostoConfig(root)}
+                        />
+                      ) : (
+                        <MediaSidebar
+                          root={root}
+                          config={config}
+                          groups={files.groups}
+                          libraries={config.mediaLibraries ?? []}
+                          onBeforeChange={currentFile.flushPendingSave}
+                          onChanged={(options) => {
+                            if (!options?.silent) {
+                              notify("Media updated. Publish when you are ready.", "success");
+                            }
+                            void refreshGroups(root);
+                            void currentFile.reloadFromDisk();
+                          }}
+                        />
+                      )}
+                    </div>
                   </div>
-                  <div className="sidebar-content">
-                    {sidebarView === "files" ? (
-                      <Sidebar
-                        root={root}
-                        groups={files.groups}
-                        config={config}
-                        activeKey={currentFile.activeKey}
-                        onOpen={(file) => openFile(file)}
-                        onDelete={(file) => void deleteFile(file)}
-                        onNewFile={(group) => void createNewFile(group)}
-                        developerMode={developerMode}
-                        onPostoSaved={() => void schemas.loadPostoConfig(root)}
-                      />
-                    ) : (
-                      <MediaSidebar
-                        root={root}
-                        config={config}
-                        groups={files.groups}
-                        libraries={config.mediaLibraries ?? []}
-                        onBeforeChange={currentFile.flushPendingSave}
-                        onChanged={(options) => {
-                          if (!options?.silent) {
-                            notify("Media updated. Publish when you are ready.", "success");
-                          }
-                          void refreshGroups(root);
-                          void currentFile.reloadFromDisk();
-                        }}
-                      />
-                    )}
-                  </div>
+
+                  <div
+                    className="pane-divider"
+                    onPointerDown={(e) => {
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                      preview.setSidebarDragging(true);
+                    }}
+                    onPointerMove={preview.onSidebarDividerPointerMove}
+                  />
+                </>
+              ) : (
+                <ActionIcon
+                  className="sidebar-reopen"
+                  size={26}
+                  variant="subtle"
+                  color="gray"
+                  title="Show sidebar"
+                  aria-label="Show sidebar"
+                  onClick={() => setSidebarOpen(true)}
+                >
+                  <PanelLeftOpen size={16} />
+                </ActionIcon>
+              )}
+
+              <div
+                className={`panes${sidebarOpen ? "" : " sidebar-collapsed"}`}
+                ref={preview.panesEl}
+              >
+                <div
+                  className={`pane editor-pane${
+                    fullscreenEditorOpen ? " fullscreen-workspace fullscreen-editor-pane" : ""
+                  }`}
+                  style={{ flexBasis: `${preview.split}%` }}
+                >
+                  {renderEditorPane(!fullscreenEditorOpen, fullscreenEditorOpen)}
                 </div>
 
                 <div
                   className="pane-divider"
                   onPointerDown={(e) => {
                     e.currentTarget.setPointerCapture(e.pointerId);
-                    preview.setSidebarDragging(true);
+                    preview.setDragging(true);
                   }}
-                  onPointerMove={preview.onSidebarDividerPointerMove}
+                  onPointerMove={preview.onDividerPointerMove}
                 />
-              </>
-            ) : (
-              <ActionIcon
-                className="sidebar-reopen"
-                size={26}
-                variant="subtle"
-                color="gray"
-                title="Show sidebar"
-                aria-label="Show sidebar"
-                onClick={() => setSidebarOpen(true)}
-              >
-                <PanelLeftOpen size={16} />
-              </ActionIcon>
-            )}
 
-            <div
-              className={`panes${sidebarOpen ? "" : " sidebar-collapsed"}`}
-              ref={preview.panesEl}
-            >
-              <div
-                className={`pane editor-pane${
-                  fullscreenEditorOpen ? " fullscreen-workspace fullscreen-editor-pane" : ""
-                }`}
-                style={{ flexBasis: `${preview.split}%` }}
-              >
-                {renderEditorPane(!fullscreenEditorOpen, fullscreenEditorOpen)}
+                {renderPreviewPane()}
               </div>
-
-              <div
-                className="pane-divider"
-                onPointerDown={(e) => {
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                  preview.setDragging(true);
-                }}
-                onPointerMove={preview.onDividerPointerMove}
-              />
-
-              {renderPreviewPane()}
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      </MediaDragDropProvider>
     </MantineProvider>
   );
 }

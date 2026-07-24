@@ -1,6 +1,6 @@
 import { createTheme, MantineProvider } from "@mantine/core";
 import { Notifications } from "@mantine/notifications";
-import { DialogVariantProvider } from "@posto/editor";
+import { DialogVariantProvider, MediaDragDropProvider } from "@posto/editor";
 import {
   closeInAppBrowser,
   invoke,
@@ -292,42 +292,44 @@ export default function App() {
   return (
     <MantineProvider defaultColorScheme="auto" theme={mobileTheme}>
       <Notifications position="top-center" />
-      <DialogVariantProvider variant="drawer">
-        <Onboarding
-          stage={stage}
-          user={user}
-          device={device}
-          repos={repos}
-          downloaded={downloaded}
-          roots={roots}
-          selectedRepo={selectedRepo}
-          readyRoot={readyRoot}
-          progress={progress}
-          error={error}
-          developerMode={developerMode}
-          onSignIn={() => void signIn()}
-          onOpenAppSettings={() => setSettingsOpen(true)}
-          onOpenVerification={() => device && void openUrlInApp(device.verification_uri)}
-          onChooseRepo={(repo) => void chooseRepo(repo)}
-          onRetryRepos={() => void loadRepos()}
-          onRetryClone={() => selectedRepo && void chooseRepo(selectedRepo)}
-          onCancelClone={() => {
-            setError(null);
-            setStage("repos");
-          }}
-          onRedownloadRepo={(repo, root) => redownloadRepo(repo, root)}
-          onRemoveRepo={(root) => removeRepo(root)}
-          onChangeRepo={() => setStage("repos")}
-        />
-        <AppSettings
-          opened={settingsOpen}
-          developerMode={developerMode}
-          signingOut={signingOut}
-          onClose={() => setSettingsOpen(false)}
-          onDeveloperModeChange={updateDeveloperMode}
-          onSignOut={() => void signOut()}
-        />
-      </DialogVariantProvider>
+      <MediaDragDropProvider>
+        <DialogVariantProvider variant="drawer">
+          <Onboarding
+            stage={stage}
+            user={user}
+            device={device}
+            repos={repos}
+            downloaded={downloaded}
+            roots={roots}
+            selectedRepo={selectedRepo}
+            readyRoot={readyRoot}
+            progress={progress}
+            error={error}
+            developerMode={developerMode}
+            onSignIn={() => void signIn()}
+            onOpenAppSettings={() => setSettingsOpen(true)}
+            onOpenVerification={() => device && void openUrlInApp(device.verification_uri)}
+            onChooseRepo={(repo) => void chooseRepo(repo)}
+            onRetryRepos={() => void loadRepos()}
+            onRetryClone={() => selectedRepo && void chooseRepo(selectedRepo)}
+            onCancelClone={() => {
+              setError(null);
+              setStage("repos");
+            }}
+            onRedownloadRepo={(repo, root) => redownloadRepo(repo, root)}
+            onRemoveRepo={(root) => removeRepo(root)}
+            onChangeRepo={() => setStage("repos")}
+          />
+          <AppSettings
+            opened={settingsOpen}
+            developerMode={developerMode}
+            signingOut={signingOut}
+            onClose={() => setSettingsOpen(false)}
+            onDeveloperModeChange={updateDeveloperMode}
+            onSignOut={() => void signOut()}
+          />
+        </DialogVariantProvider>
+      </MediaDragDropProvider>
     </MantineProvider>
   );
 }

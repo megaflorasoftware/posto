@@ -10,6 +10,7 @@ export * from "./components/ImageLibraryPickerDialog";
 export * from "./components/ImageLibraryImportDialog";
 export * from "./components/ImageLibraryBrowser";
 export * from "./components/MediaLibraryTabs";
+export * from "./components/MediaDragDrop";
 export * from "./components/PublicMediaBrowser";
 export * from "./components/FileMediaManageDialogs";
 export * from "./components/ImageLibraryManageDialogs";

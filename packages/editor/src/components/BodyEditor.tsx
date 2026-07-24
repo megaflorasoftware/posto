@@ -1,16 +1,18 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, RichTextEditor } from "@mantine/tiptap";
+import { Alert, Button, Group, Loader, TextInput } from "@mantine/core";
 import { useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import Image from "@tiptap/extension-image";
 import { Markdown } from "@tiptap/markdown";
-import { Blocks, CodeXml, Paperclip } from "lucide-react";
+import { Blocks, CodeXml, Image as ImageIcon } from "lucide-react";
 
 import { assetUrl } from "@posto/ipc";
 import type { FileGroup } from "@posto/ipc";
 import {
   expandMediaEntry,
   mediaInputPath,
+  mediaOutputPath,
+  type MediaLibrary,
   type ContentEntry,
   type MediaEntry,
   type PagesConfig,
@@ -19,6 +21,9 @@ import { importInfo, resolveImportPath, splitLeadingImports } from "@posto/core/
 import type { ComponentRef, ComponentSchemaSource } from "@posto/core/project/adapter";
 import type { EntryIdSource } from "@posto/core/project/entryIds";
 import { ComponentPicker } from "./ComponentPicker";
+import { Dialog } from "./Dialog";
+import { EditableImage, EditableImageContext, type EditableImageRequest } from "./EditableImage";
+import { ImageLibraryEditDialog } from "./ImageLibraryManageDialogs";
 import { htmlNodes } from "./HtmlNodes";
 import { RichTextImagePickerDialog } from "./RichTextImagePickerDialog";
 import {
@@ -30,6 +35,109 @@ import {
 } from "./MdxNodes";
 import { useProjectIO } from "../projectIO";
 import { markdownMediaEditorContent } from "../markdownMedia";
+import { resolveImageLibraryLocation } from "@posto/core/project/mediaLibrary";
+import { useImageLibraryAssets } from "../hooks/useImageLibraryAssets";
+import { useMediaDropZone, type MediaDropDetails } from "./MediaDragDrop";
+
+function normalizedMediaPath(path: string): string {
+  return path.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
+}
+
+function defaultLibraryMedia(library: MediaLibrary): MediaEntry {
+  const input = normalizedMediaPath(library.base);
+  return { name: `library:${library.collection}`, input, output: `/${input}` };
+}
+
+function outputContains(output: string, src: string): boolean {
+  const prefix = `/${normalizedMediaPath(output)}`;
+  return src === prefix || src.startsWith(`${prefix}/`);
+}
+
+function StandaloneImageEditDialog(props: { request: EditableImageRequest; onClose: () => void }) {
+  const [src, setSrc] = useState(props.request.src);
+  const [alt, setAlt] = useState(props.request.alt);
+  return (
+    <Dialog opened onClose={props.onClose} title="Edit image" size="sm">
+      <TextInput
+        label="Image path"
+        value={src}
+        onChange={(event) => setSrc(event.currentTarget.value)}
+      />
+      <TextInput
+        mt="sm"
+        label="Alternative text"
+        value={alt}
+        onChange={(event) => setAlt(event.currentTarget.value)}
+      />
+      <Group justify="flex-end" mt="md">
+        <Button variant="default" onClick={props.onClose}>
+          Cancel
+        </Button>
+        <Button
+          disabled={src.trim() === ""}
+          onClick={() => {
+            props.request.update({ src: src.trim(), alt: alt.trim() });
+            props.onClose();
+          }}
+        >
+          Save changes
+        </Button>
+      </Group>
+    </Dialog>
+  );
+}
+
+function LibraryImageEditDialog(props: {
+  root: string;
+  library: MediaLibrary;
+  media: MediaEntry;
+  request: EditableImageRequest;
+  config: PagesConfig;
+  groups: FileGroup[];
+  onBeforeChange: () => Promise<void>;
+  onChanged: (options?: { silent?: boolean }) => void;
+  onClose: () => void;
+}) {
+  const state = useImageLibraryAssets(props.root, props.library);
+  const asset = state.assets.find(
+    (candidate) =>
+      !!candidate.imagePath &&
+      mediaOutputPath(props.root, props.media, candidate.imagePath) === props.request.src,
+  );
+
+  if (state.loading) {
+    return (
+      <Dialog opened onClose={props.onClose} title="Edit image" size="sm">
+        <div className="body-image-edit-loading">
+          <Loader size="sm" />
+        </div>
+      </Dialog>
+    );
+  }
+  if (state.error) {
+    return (
+      <Dialog opened onClose={props.onClose} title="Edit image" size="sm">
+        <Alert color="red">Could not read image library: {state.error}</Alert>
+      </Dialog>
+    );
+  }
+  if (!asset) return <StandaloneImageEditDialog request={props.request} onClose={props.onClose} />;
+  return (
+    <ImageLibraryEditDialog
+      root={props.root}
+      library={props.library}
+      config={props.config}
+      groups={props.groups}
+      asset={asset}
+      onBeforeChange={props.onBeforeChange}
+      onClose={props.onClose}
+      onChanged={(options) => {
+        void state.refresh();
+        props.onChanged(options);
+      }}
+    />
+  );
+}
 
 /** An import statement managed outside the document, with its bindings. */
 interface ManagedImport {
@@ -94,11 +202,16 @@ export function BodyEditor(props: {
   componentSchemaVersion?: number;
   toolbarLeading?: ReactNode;
   toolbarTrailing?: ReactNode;
+  /** Flushes the open document before a library edit rewrites references. */
+  onBeforeMediaChange?: () => Promise<void>;
+  /** Refreshes shell state after a library-backed image changes. */
+  onMediaChanged?: (options?: { silent?: boolean }) => void;
   onChange: (markdown: string) => void;
 }) {
   const { mdx, componentBlocksEnabled } = bodyEditorMode(props.mdx, props.componentBlocks);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [componentPickerOpen, setComponentPickerOpen] = useState(false);
+  const [editingImage, setEditingImage] = useState<EditableImageRequest | null>(null);
   const [schemas, setSchemas] = useState<Record<string, ComponentBlockSchema>>({});
   const projectIO = useProjectIO();
   const configuredMedia = props.configuredMedia
@@ -174,11 +287,7 @@ export function BodyEditor(props: {
       Markdown,
       // Inline like markdown images; src attr keeps the stored output path,
       // only the rendered <img> is rewritten to a loadable URL.
-      Image.configure({ inline: true }).extend({
-        renderHTML({ HTMLAttributes }) {
-          return ["img", { ...HTMLAttributes, src: resolveRef.current(HTMLAttributes.src) }];
-        },
-      }),
+      EditableImage,
       // HTML preservation applies to .md and .mdx alike: authored tags like
       // <kbd> round-trip as chips instead of being stripped.
       ...htmlNodes,
@@ -209,6 +318,70 @@ export function BodyEditor(props: {
       props.onChange(markdown);
     },
   });
+
+  const bodyDropContainer = useRef<HTMLDivElement | null>(null);
+  const [dropCaret, setDropCaret] = useState<{
+    pos: number;
+    left: number;
+    top: number;
+    height: number;
+  } | null>(null);
+
+  const positionAtPointer = (pointer: MediaDropDetails["pointer"]): number | null => {
+    if (!editor || !pointer) return null;
+    return editor.view.posAtCoords({ left: pointer.x, top: pointer.y })?.pos ?? null;
+  };
+
+  const insertOrMoveImage = (
+    media: Parameters<typeof markdownMediaEditorContent>[0],
+    details: MediaDropDetails,
+  ) => {
+    if (!editor) return;
+    const target = positionAtPointer(details.pointer) ?? editor.state.selection.from;
+    const source = details.source;
+    if (source?.kind === "body-image" && source.editorId === props.path) {
+      const sourcePosition = source.getPosition();
+      const node =
+        typeof sourcePosition === "number" ? editor.state.doc.nodeAt(sourcePosition) : null;
+      if (typeof sourcePosition === "number" && node?.type.name === "image") {
+        if (target >= sourcePosition && target <= sourcePosition + node.nodeSize) return;
+        const transaction = editor.state.tr.delete(sourcePosition, sourcePosition + node.nodeSize);
+        const mappedTarget = transaction.mapping.map(target);
+        transaction.replaceRangeWith(mappedTarget, mappedTarget, node).scrollIntoView();
+        editor.view.focus();
+        editor.view.dispatch(transaction);
+        return;
+      }
+    }
+    editor.chain().focus().insertContentAt(target, markdownMediaEditorContent(media)).run();
+  };
+
+  const bodyDrop = useMediaDropZone({
+    id: `body:${props.path}`,
+    accepts: (media) => media.kind === "image",
+    onDrop: (media, _event, details) => insertOrMoveImage(media, details),
+  });
+
+  useLayoutEffect(() => {
+    const container = bodyDropContainer.current;
+    const position = positionAtPointer(bodyDrop.pointer);
+    if (!editor || !container || !bodyDrop.isAccepting || position === null) {
+      setDropCaret(null);
+      return;
+    }
+    try {
+      const coordinates = editor.view.coordsAtPos(position);
+      const bounds = container.getBoundingClientRect();
+      setDropCaret({
+        pos: position,
+        left: coordinates.left - bounds.left,
+        top: coordinates.top - bounds.top,
+        height: Math.max(coordinates.bottom - coordinates.top, 18),
+      });
+    } catch {
+      setDropCaret(null);
+    }
+  }, [editor, bodyDrop.isAccepting, bodyDrop.pointer?.x, bodyDrop.pointer?.y]);
 
   // External content changes (raw-tab edits while this file stays open):
   // replace the document without emitting an update.
@@ -340,6 +513,26 @@ export function BodyEditor(props: {
       .run();
   }
 
+  const expandedConfiguredMedia = props.configuredMedia
+    ? expandMediaEntry(props.configuredMedia, props.templateValues)
+    : null;
+  const configuredLibrary = expandedConfiguredMedia
+    ? resolveImageLibraryLocation(props.config.mediaLibraries ?? [], expandedConfiguredMedia.input)
+    : null;
+  const libraryImage = editingImage
+    ? ([
+        ...(configuredLibrary && expandedConfiguredMedia
+          ? [{ library: configuredLibrary.library, media: expandedConfiguredMedia }]
+          : []),
+        ...(props.config.mediaLibraries ?? []).map((library) => ({
+          library,
+          media: defaultLibraryMedia(library),
+        })),
+      ]
+        .sort((left, right) => right.media.output.length - left.media.output.length)
+        .find((candidate) => outputContains(candidate.media.output, editingImage.src)) ?? null)
+    : null;
+
   return (
     // Component-card node views render through portals inside the content
     // element, so these providers reach them.
@@ -354,107 +547,155 @@ export function BodyEditor(props: {
           templateValues: props.templateValues,
         }}
       >
-        <RichTextEditor
-          editor={editor}
-          className="body-rich-editor"
-          // The scroll chain needs a class on every wrapper between the root and
-          // the ProseMirror element; Mantine's generated names aren't stable.
-          classNames={{ Typography: "body-rich-typography", content: "body-rich-content" }}
+        <EditableImageContext.Provider
+          value={{
+            editorId: props.path,
+            resolveSrc: (src) => resolveRef.current(src),
+            edit: setEditingImage,
+          }}
         >
-          <RichTextEditor.Toolbar>
-            {props.toolbarLeading && (
-              <div className="body-rich-toolbar-edge">{props.toolbarLeading}</div>
-            )}
-            <div className="body-rich-toolbar-controls">
-              <RichTextEditor.ControlsGroup>
-                <RichTextEditor.H1 />
-                <RichTextEditor.H2 />
-                <RichTextEditor.H3 />
-                <RichTextEditor.H4 />
-              </RichTextEditor.ControlsGroup>
-              <RichTextEditor.ControlsGroup>
-                <RichTextEditor.Bold />
-                <RichTextEditor.Italic />
-                <RichTextEditor.Strikethrough />
-              </RichTextEditor.ControlsGroup>
-              <RichTextEditor.ControlsGroup>
-                <RichTextEditor.BulletList />
-                <RichTextEditor.OrderedList />
-                <RichTextEditor.Blockquote />
-                <RichTextEditor.CodeBlock />
-                <RichTextEditor.Hr />
-              </RichTextEditor.ControlsGroup>
-              <RichTextEditor.ControlsGroup>
-                <RichTextEditor.Link />
-                <RichTextEditor.Unlink />
-                <RichTextEditor.Control
-                  title="Insert media"
-                  aria-label="Insert media"
-                  onClick={() => setPickerOpen(true)}
-                >
-                  <Paperclip size={16} />
-                </RichTextEditor.Control>
-                <RichTextEditor.Control
-                  title="Insert HTML"
-                  aria-label="Insert HTML"
-                  onClick={insertHtml}
-                >
-                  <CodeXml size={16} />
-                </RichTextEditor.Control>
-                {mdx && componentBlocksEnabled && (
+          <RichTextEditor
+            editor={editor}
+            className="body-rich-editor"
+            // The scroll chain needs a class on every wrapper between the root and
+            // the ProseMirror element; Mantine's generated names aren't stable.
+            classNames={{ Typography: "body-rich-typography", content: "body-rich-content" }}
+          >
+            <RichTextEditor.Toolbar>
+              {props.toolbarLeading && (
+                <div className="body-rich-toolbar-edge">{props.toolbarLeading}</div>
+              )}
+              <div className="body-rich-toolbar-controls">
+                <RichTextEditor.ControlsGroup>
+                  <RichTextEditor.H1 />
+                  <RichTextEditor.H2 />
+                  <RichTextEditor.H3 />
+                  <RichTextEditor.H4 />
+                </RichTextEditor.ControlsGroup>
+                <RichTextEditor.ControlsGroup>
+                  <RichTextEditor.Bold />
+                  <RichTextEditor.Italic />
+                  <RichTextEditor.Strikethrough />
+                </RichTextEditor.ControlsGroup>
+                <RichTextEditor.ControlsGroup>
+                  <RichTextEditor.BulletList />
+                  <RichTextEditor.OrderedList />
+                  <RichTextEditor.Blockquote />
+                  <RichTextEditor.CodeBlock />
+                  <RichTextEditor.Hr />
+                </RichTextEditor.ControlsGroup>
+                <RichTextEditor.ControlsGroup>
+                  <RichTextEditor.Link />
+                  <RichTextEditor.Unlink />
                   <RichTextEditor.Control
-                    title="Insert component"
-                    aria-label="Insert component"
-                    onClick={() => setComponentPickerOpen(true)}
+                    title="Insert media"
+                    aria-label="Insert media"
+                    onClick={() => setPickerOpen(true)}
                   >
-                    <Blocks size={16} />
+                    <ImageIcon size={16} />
                   </RichTextEditor.Control>
-                )}
-              </RichTextEditor.ControlsGroup>
-              <RichTextEditor.ControlsGroup>
-                <RichTextEditor.Undo />
-                <RichTextEditor.Redo />
-              </RichTextEditor.ControlsGroup>
-            </div>
-            {props.toolbarTrailing && (
-              <div className="body-rich-toolbar-edge" aria-hidden={!props.toolbarTrailing}>
-                {props.toolbarTrailing}
+                  <RichTextEditor.Control
+                    title="Insert HTML"
+                    aria-label="Insert HTML"
+                    onClick={insertHtml}
+                  >
+                    <CodeXml size={16} />
+                  </RichTextEditor.Control>
+                  {mdx && componentBlocksEnabled && (
+                    <RichTextEditor.Control
+                      title="Insert component"
+                      aria-label="Insert component"
+                      onClick={() => setComponentPickerOpen(true)}
+                    >
+                      <Blocks size={16} />
+                    </RichTextEditor.Control>
+                  )}
+                </RichTextEditor.ControlsGroup>
+                <RichTextEditor.ControlsGroup>
+                  <RichTextEditor.Undo />
+                  <RichTextEditor.Redo />
+                </RichTextEditor.ControlsGroup>
               </div>
+              {props.toolbarTrailing && (
+                <div className="body-rich-toolbar-edge" aria-hidden={!props.toolbarTrailing}>
+                  {props.toolbarTrailing}
+                </div>
+              )}
+            </RichTextEditor.Toolbar>
+            <div
+              ref={(node) => {
+                bodyDropContainer.current = node;
+                bodyDrop.setNodeRef(node);
+              }}
+              className="body-rich-scroll"
+            >
+              <RichTextEditor.Content />
+              {dropCaret && (
+                <span
+                  className="body-rich-drop-caret"
+                  data-position={dropCaret.pos}
+                  style={{
+                    left: dropCaret.left,
+                    top: dropCaret.top,
+                    height: dropCaret.height,
+                  }}
+                  aria-hidden="true"
+                />
+              )}
+            </div>
+            {pickerOpen && (
+              <RichTextImagePickerDialog
+                root={props.root}
+                config={props.config}
+                configuredMedia={props.configuredMedia}
+                templateValues={props.templateValues}
+                groups={props.groups}
+                onClose={() => setPickerOpen(false)}
+                onPick={(media) => {
+                  setPickerOpen(false);
+                  editor?.chain().focus().insertContent(markdownMediaEditorContent(media)).run();
+                }}
+              />
             )}
-          </RichTextEditor.Toolbar>
-          <div className="body-rich-scroll">
-            <RichTextEditor.Content />
-          </div>
-          {pickerOpen && (
-            <RichTextImagePickerDialog
-              root={props.root}
-              config={props.config}
-              configuredMedia={props.configuredMedia}
-              templateValues={props.templateValues}
-              groups={props.groups}
-              onClose={() => setPickerOpen(false)}
-              onPick={(media) => {
-                setPickerOpen(false);
-                editor?.chain().focus().insertContent(markdownMediaEditorContent(media)).run();
-              }}
-            />
-          )}
-          {componentPickerOpen && componentBlocksEnabled && props.componentBlocks && (
-            <ComponentPicker
-              root={props.root}
-              source={props.componentBlocks}
-              onClose={() => setComponentPickerOpen(false)}
-              onPick={(file) => {
-                setComponentPickerOpen(false);
-                insertComponent(file);
-              }}
-              onPickHtml={() => {
-                setComponentPickerOpen(false);
-                insertHtml();
-              }}
-            />
-          )}
-        </RichTextEditor>
+            {componentPickerOpen && componentBlocksEnabled && props.componentBlocks && (
+              <ComponentPicker
+                root={props.root}
+                source={props.componentBlocks}
+                onClose={() => setComponentPickerOpen(false)}
+                onPick={(file) => {
+                  setComponentPickerOpen(false);
+                  insertComponent(file);
+                }}
+                onPickHtml={() => {
+                  setComponentPickerOpen(false);
+                  insertHtml();
+                }}
+              />
+            )}
+          </RichTextEditor>
+          {editingImage &&
+            (libraryImage ? (
+              <LibraryImageEditDialog
+                root={props.root}
+                library={libraryImage.library}
+                media={libraryImage.media}
+                request={editingImage}
+                config={props.config}
+                groups={props.groups}
+                onBeforeChange={props.onBeforeMediaChange ?? (async () => undefined)}
+                onChanged={(options) => {
+                  props.onMediaChanged?.(options);
+                  setEditingImage(null);
+                }}
+                onClose={() => setEditingImage(null)}
+              />
+            ) : (
+              <StandaloneImageEditDialog
+                request={editingImage}
+                onClose={() => setEditingImage(null)}
+              />
+            ))}
+        </EditableImageContext.Provider>
       </MdxFieldEnvContext.Provider>
     </MdxSchemaContext.Provider>
   );

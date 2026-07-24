@@ -7,6 +7,8 @@ export interface MarkdownMediaPick {
   label: string;
   kind: MarkdownMediaKind;
   alt?: string;
+  /** Present when the image came from a metadata-backed media library. */
+  library?: { collection: string; entryId: string };
 }
 
 const IMAGE_EXTENSIONS = new Set([

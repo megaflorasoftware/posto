@@ -27,6 +27,7 @@ export function PreviewPane(props: {
   deployment: Deployment;
   behindUpstream: boolean;
   pulling: boolean;
+  publishing: boolean;
   hasLocalChanges: boolean;
   onFetchChanges: () => void;
   onOpenPublish: () => void;
@@ -70,6 +71,7 @@ export function PreviewPane(props: {
           <Button
             className="preview-header-action"
             size="compact-sm"
+            loading={props.publishing}
             disabled={!props.hasLocalChanges}
             onClick={props.onOpenPublish}
           >

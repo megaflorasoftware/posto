@@ -1,8 +1,20 @@
 import type { ReactNode } from "react";
-import { File, FileAudio, FileText, FileVideo, Folder, FolderUp, Pencil } from "lucide-react";
+import { ActionIcon } from "@mantine/core";
+import {
+  File,
+  FileAudio,
+  FileText,
+  FileVideo,
+  Folder,
+  FolderUp,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import type { FileEntry } from "@posto/ipc";
 import { markdownMediaKind } from "../markdownMedia";
 import { CachedImage } from "./CachedImage";
+import type { MarkdownMediaPick } from "../markdownMedia";
+import { MediaDragPreview } from "./MediaDragDrop";
 
 function normalize(path: string): string {
   return path.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -39,12 +51,17 @@ export function FileMediaPlaceholder(props: { path: string; size?: number }) {
   return <File size={size} />;
 }
 
-export function FileMediaPreview(props: { file: FileEntry; loading?: "eager" | "lazy" }) {
+export function FileMediaPreview(props: {
+  file: FileEntry;
+  loading?: "eager" | "lazy";
+  draggable?: boolean;
+}) {
   return markdownMediaKind(props.file.path) === "image" ? (
     <CachedImage
       path={props.file.path}
       alt={props.file.name}
       loading={props.loading}
+      draggable={props.draggable}
       fallback={<FileMediaPlaceholder path={props.file.path} />}
     />
   ) : (
@@ -73,6 +90,9 @@ export function FileMediaBrowser(props: {
   onDirectoryChange: (directory: string) => void;
   onPick?: (file: FileEntry) => void;
   onEdit?: (file: FileEntry) => void;
+  onDelete?: (file: FileEntry) => void;
+  /** Enables dragging a file into a Markdown/MDX body. */
+  dragMedia?: (file: FileEntry) => MarkdownMediaPick | null;
   selectionMode?: boolean;
   selectedFilePaths?: Set<string>;
   selectedDirectoryPaths?: Set<string>;
@@ -173,22 +193,66 @@ export function FileMediaBrowser(props: {
             );
           })}
           {files.map((file) => {
+            const dragMedia = props.selectionMode ? null : (props.dragMedia?.(file) ?? null);
             const content = (
               <>
-                <span className="picker-card-preview">
-                  <FileMediaPreview file={file} loading="lazy" />
+                <MediaDragPreview
+                  id={`file-media:${file.path}`}
+                  media={dragMedia}
+                  className="picker-card-preview"
+                >
+                  <FileMediaPreview file={file} loading="lazy" draggable={false} />
                   {props.selectionMode && (
                     <span
                       className={`picker-card-selection${props.selectedFilePaths?.has(file.path) ? " is-selected" : ""}`}
                       aria-hidden="true"
                     />
                   )}
-                  {props.onEdit && !props.selectionMode && (
-                    <span className="picker-card-edit" aria-hidden="true">
-                      <Pencil size={22} />
+                  {(props.onEdit || props.onDelete) && !props.selectionMode && (
+                    <span className="picker-card-actions">
+                      {props.onEdit && (
+                        <ActionIcon
+                          className="picker-card-edit-action"
+                          variant="filled"
+                          color="dark"
+                          size="md"
+                          title={`Edit ${file.name}`}
+                          aria-label={`Edit ${file.name}`}
+                          onPointerDown={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                          }}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            props.onEdit?.(file);
+                          }}
+                        >
+                          <Pencil size={18} />
+                        </ActionIcon>
+                      )}
+                      {props.onDelete && (
+                        <ActionIcon
+                          className="picker-card-delete-action"
+                          variant="filled"
+                          color="red"
+                          size="md"
+                          title={`Delete ${file.name}`}
+                          aria-label={`Delete ${file.name}`}
+                          onPointerDown={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                          }}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            props.onDelete?.(file);
+                          }}
+                        >
+                          <Trash2 size={16} />
+                        </ActionIcon>
+                      )}
                     </span>
                   )}
-                </span>
+                </MediaDragPreview>
                 <span className="picker-item-name">{file.name}</span>
               </>
             );
@@ -199,7 +263,7 @@ export function FileMediaBrowser(props: {
                 : props.onEdit
                   ? "Edit"
                   : null;
-            return action ? (
+            return props.selectionMode || (action && !(props.onEdit || props.onDelete)) ? (
               <button
                 type="button"
                 key={file.path}
@@ -218,6 +282,20 @@ export function FileMediaBrowser(props: {
               >
                 {content}
               </button>
+            ) : props.onEdit || props.onDelete ? (
+              <div
+                key={file.path}
+                className="picker-card"
+                role="button"
+                tabIndex={0}
+                onClick={() => props.onEdit?.(file)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") props.onEdit?.(file);
+                }}
+                aria-label={`${props.onEdit ? "Edit" : "Delete"} ${file.name}`}
+              >
+                {content}
+              </div>
             ) : (
               <div key={file.path} className="picker-card picker-card-static">
                 {content}

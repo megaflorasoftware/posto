@@ -698,6 +698,12 @@ export default function RepoHome({
             onRenameFile={renameOpenFilename}
             onRefreshFilename={refreshFilenameTemplate}
             onPostoSaved={() => void schemas.loadPostoConfig(root)}
+            onBeforeMediaChange={currentFile.flushPendingSave}
+            onMediaChanged={(options) => {
+              if (!options?.silent) setStatus("Media updated. Publish when you are ready.");
+              void git.refreshLocalChanges(root);
+              void currentFile.reloadFromDisk();
+            }}
             developerMode={developerMode}
             filenamePlacement="fields"
           />
