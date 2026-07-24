@@ -1,39 +1,55 @@
 ---
 title: Editing a site
-description: The editor layout, the Fields/Body/Raw tabs, typed frontmatter, and typed components.
+description: Navigate the desktop workspace, edit structured content, use rich-text tools, and open the raw source when needed.
 ---
 
-Posto edits the Markdown and content files in a website's repository. The form controls it shows are generated from the site's own content schema — where that schema comes from depends on the site: [Astro content collections](/frameworks/astro/getting-started/), a [Pages CMS `.pages.yml`](/frameworks/pages-cms/getting-started/), or both.
+Posto edits files in the site's repository and saves changes automatically. For Markdown and MDX files, frontmatter fields and body content appear in one continuous editor. The controls come from the site's [Astro content collections](/frameworks/astro/getting-started/), [Pages CMS `.pages.yml`](/frameworks/pages-cms/getting-started/), or both.
 
-## The editor layout
+## The desktop workspace
 
-On the desktop app the window has two panes:
+The desktop app has three resizable panes:
 
-- **Left — the editor.** The current file, with a sidebar listing the site's editable files grouped by collection or folder.
-- **Right — the preview.** The site running locally. Selecting a file moves the preview to its page; clicking a link in the preview opens the corresponding file. The divider between the panes can be dragged to resize them.
+- **Files and media** — switch between the site's editable files and its media libraries. The sidebar can be hidden with **View → Toggle Sidebar** or `Cmd/Ctrl + \`.
+- **Editor** — edit the selected file's structured fields and body. Changes save automatically as you type.
+- **Preview** — use the running site or inspect its search and social metadata. See [Previewing a site](/features/previewing-a-site/).
 
-The mobile app has no preview pane. The editor fills the screen, and you switch between the file list and the editor.
+The mobile app fills the screen with one view at a time. Switch between the file list, editor, media, and repository controls from the app's navigation.
 
-Edits save automatically as you type; there is no save action.
+On desktop, **File → Open File** (`Cmd/Ctrl + O`) opens a searchable list of the files currently shown in the sidebar. **File → Open Recent** (`Cmd/Ctrl + Shift + O`) switches repositories.
 
-## The Fields, Body, and Raw tabs
+## The content editor
 
-A file shows up to three tabs, depending on its type:
+For a Markdown or MDX file, the visual editor places frontmatter controls above the body:
 
-- **Fields** — a form for the file's frontmatter (the metadata block at the top of a Markdown file). Each field is a control chosen from the site's schema: text input, number input, switch, date picker, dropdown, image picker, and so on.
-- **Body** — a rich-text editor for the main content of a Markdown file. It supports bold, italic, strikethrough, headings, lists, links, blockquotes, code, horizontal rules, and inline images.
-- **Raw** — the file's stored source, edited as plain text.
+- **Frontmatter fields** use the site's schema to choose the right control: text or number input, toggle, date picker, dropdown, image picker, nested field group, or repeatable list.
+- **Body content** uses a rich-text editor with headings, emphasis, lists, links, blockquotes, code, horizontal rules, images, and supported embedded media.
 
-Posto selects a starting tab based on the file's contents and keeps your selection as you move between files. Files with no schema and no frontmatter (for example a stylesheet) show only the Raw view.
+Posto chooses the starting view from the file type. Files without a visual editor open as raw text. If Markdown frontmatter has a YAML syntax error, Posto also opens the raw source so you can repair it.
+
+## Working with rich content
+
+Use the body toolbar to insert images and, in MDX files, components discovered from the site. Images, components, and supported HTML blocks can be dragged to a new position. Components can also be reordered within a component slot or moved into a compatible nested slot.
+
+Media can be dragged from the sidebar into the body. Dropping several items inserts them in order. You can also drop image files from your computer at a specific position; Posto imports them into the site before inserting them. See [Managing site media](/features/managing-site-media/) for the available libraries and file actions.
 
 ## Typed frontmatter
 
-The Fields tab is generated from the site's content schema. If the schema defines a post with a title, a publish date, an optional cover image, and a draft flag, the form shows a text input, a date picker, an image picker, and a switch. Constraints in the schema — required fields, length limits, allowed values — are enforced as you edit.
+The site's schema supplies both the controls and their validation. For example, a post with a title, publish date, optional cover image, and draft flag gets a text input, date picker, image picker, and toggle. Required fields, length limits, and allowed values are checked as you edit.
 
-For Astro sites this comes from [content collections](https://docs.astro.build/en/guides/content-collections/). Posto reads the existing definitions; there is nothing to configure separately.
+For Astro sites, these controls come from [content collections](https://docs.astro.build/en/guides/content-collections/). Posto reads the existing definitions; no duplicate schema is required.
 
 ## Typed components
 
-In `.mdx` files, you can insert the site's components into the body from a component palette. Posto inserts the component's tag and adds the matching `import` statement. A component's props are rendered as form fields, using the same controls as frontmatter, so they can be set without editing JSX.
+In `.mdx` files, the component palette lists supported site components. Selecting one inserts its tag and matching `import` statement. Posto renders recognized component props as form fields, so content editors do not need to edit JSX.
 
-This uses Astro's [components](https://docs.astro.build/en/basics/astro-components/) and [MDX](https://docs.astro.build/en/guides/integrations-guide/mdx/) support. See [Components and MDX](/frameworks/astro/components-and-mdx/) for how components and their props are detected.
+See [Components and MDX](/frameworks/astro/components-and-mdx/) for component discovery, supported prop types, and drag behavior.
+
+## Fullscreen editing
+
+Select the expand control in the editor header, or use **View → Toggle Fullscreen Editor** (`Cmd/Ctrl + Shift + F`), to focus on the editor. In fullscreen mode, the sidebar control (`Cmd/Ctrl + \`) opens the file and media sidebars around the editor.
+
+## Developer mode and raw source
+
+Enable developer mode in **Settings** (`Cmd/Ctrl + ,`) to reveal the raw-source control and project-level Posto configuration tools. These tools can change collection labels and ordering, pin or sort entries, and add field or filename templates. Posto stores those presentation preferences in the project's `.posto/` directory so collaborators share them.
+
+Raw editing is an escape hatch: it changes the stored file directly and does not provide schema controls or rich-text safeguards. It remains available automatically when a file cannot be edited visually.

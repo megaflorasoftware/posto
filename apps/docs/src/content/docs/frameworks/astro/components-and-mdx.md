@@ -1,15 +1,16 @@
 ---
 title: Components and MDX
-description: How Posto inserts components into MDX and maps their props to fields, including unsupported prop types.
+description: Discover and insert Astro components, edit recognized props, and reorder component blocks in MDX.
 ---
 
-In `.mdx` files, Posto can insert the site's components into the body and render their props as form fields. This uses Astro's [components](https://docs.astro.build/en/basics/astro-components/) and [MDX](https://docs.astro.build/en/guides/integrations-guide/mdx/) support.
+In `.mdx` files, Posto can insert site components and render recognized props as form fields. The underlying file remains standard Astro [MDX](https://docs.astro.build/en/guides/integrations-guide/mdx/) using the site's own [components](https://docs.astro.build/en/basics/astro-components/).
 
 ## How it works
 
-- **Discovery.** Posto lists components from `src/components`, then `components`, with the extensions `.astro`, `.tsx`, `.jsx`, `.vue`, and `.svelte`.
+- **Discovery.** Posto looks in `src/components` and then `components` for `.astro`, `.tsx`, `.jsx`, `.vue`, and `.svelte` files.
 - **Insertion.** Choosing a component from the palette inserts its tag into the body and adds the matching `import` statement. Imports for inserted components are managed by Posto.
-- **Props.** Posto reads the component's declared props and renders them as form fields, using the same controls as collection fields.
+- **Props.** Posto reads declared props and renders recognized types with the same controls used for collection fields.
+- **Reordering.** Drag a component card to move it in the body. Components in slots can be reordered within the slot, and compatible blocks can be moved into nested slots.
 
 ## Supported prop types
 
@@ -37,11 +38,11 @@ const { title, variant = "note", dismissible = false } = Astro.props;
 
 ## Not supported
 
-Some prop types have no form control. For these, Posto renders a raw expression input, so the prop is still editable as code:
+Some prop types do not have a dedicated form control. Posto keeps them editable as raw expressions:
 
 - **Generics** and type parameters
 - **Imported or externally-defined types** not visible inline
 - **Arbitrary object shapes** and complex or mapped types
 - **Functions** and other non-data props
 
-Component and prop parsing is a static scan tuned for typical content components, not a full TypeScript type-checker. Unusual formatting can cause a prop to fall back to the raw input rather than a typed control; it does not fail otherwise.
+Component and prop parsing is a static scan, not a full TypeScript type-check. Unusual declarations can fall back to a raw input instead of a typed control without preventing the component from being edited.

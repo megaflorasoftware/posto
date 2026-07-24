@@ -1,36 +1,30 @@
 ---
 title: What is Posto?
-description: An overview of Posto — an editor for static, Markdown-based websites, with typed forms built from a site's own schema.
+description: What Posto edits, which sites it supports, and how its desktop and mobile apps differ.
 ---
 
-Posto is an editor for static, Markdown-based websites. It edits the files in a site's own repository: non-programmers can update a site that was built for them, and developers get a faster way to make frequent content changes. It runs as a desktop app (with a live preview) and a mobile app.
-
-:::caution[Pre-alpha software] Posto is pre-alpha. Expect bugs and incomplete features, and use it at your own risk. The macOS build is currently unsigned, so after installing you'll need to clear the quarantine flag:
-
-```sh
-xattr -d com.apple.quarantine /Applications/Posto.app/
-```
-
-:::
+Posto edits static, Markdown-based websites directly in their Git repositories. It gives non-programmers structured controls for routine updates and gives developers a faster path through frequent content changes. The desktop app includes a live preview; the mobile app focuses on editing and publishing from GitHub.
 
 ## What sites work with Posto?
 
-Posto works on a Git repository of content files. How much it can do depends on how the site describes its content:
+Posto can open any Git repository that contains editable content files. The site's schema determines how much structure Posto can add to the editing experience:
 
 - **Astro sites** get the deepest support. Posto generates typed editing forms from the site's [content collections](https://docs.astro.build/en/guides/content-collections/), inserts the site's own components into MDX, and manages image collections as [media libraries](/frameworks/astro/media-libraries/). See [Getting started with Astro](/frameworks/astro/getting-started/).
-- **Any static site** — Hugo, Jekyll, Eleventy, or anything else that stores content as files — works by describing its content in a [Pages CMS](https://pagescms.org) `.pages.yml` file. See [Getting started with Pages CMS](/frameworks/pages-cms/getting-started/).
-- **Everything else** still opens: Markdown files get the rich-text body editor and an untyped frontmatter form, and other files can be edited as raw text. You just don't get the typed forms.
+- **Other static-site frameworks** — including Hugo, Jekyll, and Eleventy — can get typed forms from a [Pages CMS](https://pagescms.org) `.pages.yml` file. See [Getting started with Pages CMS](/frameworks/pages-cms/getting-started/).
+- **Repositories without a supported schema** still open. Markdown files get a rich-text body editor and controls inferred from their frontmatter; other file types open as raw text.
 
-These aren't alternatives. An Astro site can also carry a `.pages.yml` to add what Astro's schemas can't express — field labels, media directories, dropdown option labels. When both are present, `.pages.yml` takes precedence and Astro collections fill the gaps.
+Astro and Pages CMS configuration can work together. An Astro site can use `.pages.yml` for editor details that Zod schemas do not express, such as field labels, media directories, and labels for dropdown options. Where both describe the same content, `.pages.yml` takes precedence and Astro fills the gaps.
+
+If a repository contains several sites, Posto asks which project directory to open. Editing, preview setup, and publishing then stay scoped to that project.
 
 ## Desktop and mobile
 
-- **Desktop** (macOS, Windows, Linux) is the full experience: it sets up the site's local environment, runs the dev server, and shows a live preview beside the editor. It works on a repository already on your computer — clone it with Git first; Posto doesn't clone for you yet.
-- **Mobile** is for editing on the go: sign in to GitHub and clone a site with one tap. There is no preview or dev server, so typed forms rely on schema files committed to the repository (the Astro guide [covers this](/frameworks/astro/getting-started/#recommended-gitignore)). Mobile builds aren't distributed yet — this page will link to them when they are.
+- **Desktop** (macOS, Windows, Linux) sets up the site's local environment, runs the development server, and shows a live preview beside the editor. Open a repository already on your computer; if it exists only on GitHub, clone it with Git or a Git client first.
+- **Mobile** lets you sign in to GitHub and clone a repository in the app. It does not run a development server or show a preview, so typed Astro forms rely on schema files committed to the repository. The Astro guide [explains what to commit](/frameworks/astro/getting-started/#recommended-gitignore). Mobile builds are not distributed yet.
 
 ## Where to start
 
-- Download Posto from the [home page](/) or the latest [GitHub release](https://github.com/megaflorasoftware/posto/releases/latest).
+- Follow the [installation guide](/install/) to get Posto for macOS, Windows, or Linux.
 - New to Posto? Start with [Opening your first site](/getting-started/).
 - Setting up a site to edit with Posto? See [Getting started with Astro](/frameworks/astro/getting-started/) or [Getting started with Pages CMS](/frameworks/pages-cms/getting-started/).
 - The source is on [GitHub](https://github.com/megaflorasoftware/posto).

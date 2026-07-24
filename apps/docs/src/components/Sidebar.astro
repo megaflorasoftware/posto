@@ -1,0 +1,117 @@
+---
+import { Icon } from "@astrojs/starlight/components";
+import MobileMenuFooter from "virtual:starlight/components/MobileMenuFooter";
+import SidebarPersister from "@astrojs/starlight/components/SidebarPersister.astro";
+import SidebarSublist from "@astrojs/starlight/components/SidebarSublist.astro";
+import type { StarlightRouteData } from "@astrojs/starlight/route-data";
+
+type SidebarEntry = StarlightRouteData["sidebar"][number];
+type SidebarGroup = Extract<SidebarEntry, { type: "group" }>;
+
+const audienceLabels = new Set(["Editors", "Developers"]);
+const { sidebar } = Astro.locals.starlightRoute;
+const audiences = sidebar.filter(
+  (entry): entry is SidebarGroup =>
+    entry.type === "group" && audienceLabels.has(entry.label),
+);
+
+function containsCurrentPage(entry: SidebarEntry): boolean {
+  return entry.type === "link"
+    ? entry.isCurrent
+    : entry.entries.some(containsCurrentPage);
+}
+
+function firstLink(entry: SidebarEntry): string | undefined {
+  if (entry.type === "link") return entry.href;
+  for (const child of entry.entries) {
+    const href = firstLink(child);
+    if (href) return href;
+  }
+}
+
+const activeAudience =
+  audiences.find(containsCurrentPage) ??
+  audiences.find(({ label }) => label === "Editors") ??
+  audiences[0];
+---
+
+<SidebarPersister>
+  <nav class="audience-switcher" aria-label="Documentation audience">
+    {
+      audiences.map((audience) => {
+        const isActive = audience === activeAudience;
+        const href = firstLink(audience);
+        const icon = audience.label === "Editors" ? "pencil" : "code-branch";
+
+        return href ? (
+          <a
+            href={href}
+            class:list={{ "audience-link": true, active: isActive }}
+            aria-current={isActive ? "true" : undefined}
+          >
+            <Icon name={icon} size="1.25rem" />
+            <span>{audience.label}</span>
+          </a>
+        ) : null;
+      })
+    }
+  </nav>
+
+  {activeAudience && <SidebarSublist sublist={activeAudience.entries} />}
+</SidebarPersister>
+
+<div class="md:sl-hidden">
+  <MobileMenuFooter />
+</div>
+
+<style>
+  @layer starlight.core {
+    .audience-switcher {
+      display: grid;
+      gap: 0.25rem;
+      margin-block-end: 1.5rem;
+      padding: 0.5rem;
+      border: 1px solid var(--sl-color-hairline-light);
+      border-radius: 0.75rem;
+      background: var(--sl-color-bg-inline-code);
+    }
+
+    .audience-link {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      min-height: 2.75rem;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid transparent;
+      border-radius: 0.5rem;
+      color: var(--sl-color-gray-2);
+      font-size: var(--sl-text-base);
+      font-weight: 600;
+      line-height: 1.25;
+      text-decoration: none;
+      transition:
+        color 0.15s ease,
+        border-color 0.15s ease,
+        background-color 0.15s ease;
+    }
+
+    .audience-link:hover,
+    .audience-link:focus-visible {
+      color: var(--sl-color-white);
+    }
+
+    .audience-link.active {
+      border-color: var(--sl-color-hairline-light);
+      background: var(--sl-color-bg);
+      color: var(--sl-color-text-accent);
+      box-shadow: 0 1px 2px color-mix(in srgb, var(--sl-color-black) 12%, transparent);
+    }
+
+    @media (min-width: 50rem) {
+      .audience-link {
+        min-height: 2.5rem;
+        font-size: var(--sl-text-sm);
+      }
+    }
+  }
+</style>

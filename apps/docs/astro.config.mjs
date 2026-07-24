@@ -7,6 +7,13 @@ export default defineConfig({
   integrations: [
     starlight({
       title: "Posto",
+      components: {
+        Sidebar: "./src/components/Sidebar.astro",
+      },
+      logo: {
+        src: "../desktop/public/icon.png",
+        alt: "Posto app logo",
+      },
       social: [
         {
           icon: "github",
@@ -15,74 +22,102 @@ export default defineConfig({
         },
       ],
       sidebar: [
-        { label: "What is Posto?", slug: "what-is-posto" },
-        { label: "Opening your first site", slug: "getting-started" },
         {
-          label: "Features",
-          items: [
-            { label: "Editing a site", slug: "features/editing-a-site" },
-            { label: "Previewing a site", slug: "features/previewing-a-site" },
-            { label: "Publishing a site", slug: "features/publishing-a-site" },
-            {
-              label: "Managing site media",
-              slug: "features/managing-site-media",
-            },
-            {
-              label: "Environment setup",
-              slug: "features/environment-setup",
-            },
-          ],
-        },
-        {
-          label: "Using Posto with Astro",
+          label: "Editors",
           items: [
             {
               label: "Getting started",
-              slug: "frameworks/astro/getting-started",
+              items: [
+                { label: "What is Posto?", slug: "what-is-posto" },
+                { label: "Install Posto", slug: "install" },
+                {
+                  label: "Opening your first site",
+                  slug: "getting-started",
+                },
+              ],
             },
             {
-              label: "Typed collections",
-              slug: "frameworks/astro/typed-collections",
+              label: "Using Posto",
+              items: [
+                {
+                  label: "Editing a site",
+                  slug: "features/editing-a-site",
+                },
+                {
+                  label: "Previewing a site",
+                  slug: "features/previewing-a-site",
+                },
+                {
+                  label: "Publishing a site",
+                  slug: "features/publishing-a-site",
+                },
+                {
+                  label: "Managing site media",
+                  slug: "features/managing-site-media",
+                },
+                {
+                  label: "Environment setup",
+                  slug: "features/environment-setup",
+                },
+              ],
             },
             {
-              label: "Media libraries",
-              slug: "frameworks/astro/media-libraries",
-            },
-            {
-              label: "Components and MDX",
-              slug: "frameworks/astro/components-and-mdx",
+              label: "Deployments",
+              items: [
+                {
+                  label: "Tracking GitHub deployments",
+                  slug: "deployment/github/tracking-deployment-status",
+                },
+              ],
             },
           ],
         },
         {
-          label: "Using Posto with Pages CMS",
+          label: "Developers",
           items: [
             {
-              label: "Getting started",
-              slug: "frameworks/pages-cms/getting-started",
+              label: "Astro sites",
+              items: [
+                {
+                  label: "Getting started",
+                  slug: "frameworks/astro/getting-started",
+                },
+                {
+                  label: "Typed collections",
+                  slug: "frameworks/astro/typed-collections",
+                },
+                {
+                  label: "Media libraries",
+                  slug: "frameworks/astro/media-libraries",
+                },
+                {
+                  label: "Components and MDX",
+                  slug: "frameworks/astro/components-and-mdx",
+                },
+              ],
             },
             {
-              label: "Typed collections",
-              slug: "frameworks/pages-cms/typed-collections",
+              label: "Pages CMS sites",
+              items: [
+                {
+                  label: "Getting started",
+                  slug: "frameworks/pages-cms/getting-started",
+                },
+                {
+                  label: "Typed collections",
+                  slug: "frameworks/pages-cms/typed-collections",
+                },
+                {
+                  label: "Media libraries",
+                  slug: "frameworks/pages-cms/media-libraries",
+                },
+              ],
             },
             {
-              label: "Media libraries",
-              slug: "frameworks/pages-cms/media-libraries",
+              label: "Contributing to Posto",
+              items: [{ autogenerate: { directory: "development" } }],
             },
           ],
-        },
-        {
-          label: "Deploying with GitHub",
-          items: [
-            {
-              label: "Tracking deployment status",
-              slug: "deployment/github/tracking-deployment-status",
-            },
-          ],
-        },
-        {
-          label: "Contributing",
-          items: [{ autogenerate: { directory: "development" } }],
         },
       ],
     }),

@@ -1,23 +1,23 @@
 ---
 title: Typed collections
-description: How Posto maps Astro content collections and Zod schemas to editing forms, including what is not supported.
+description: See how Astro loaders and Zod schemas map to collections, controls, and validation in Posto.
 ---
 
-Each [content collection](https://docs.astro.build/en/guides/content-collections/) becomes an editable group in Posto, and each field in the collection's Zod schema becomes a form control. This page describes the mapping.
+Each supported [content collection](https://docs.astro.build/en/guides/content-collections/) becomes a group in Posto, and each field in its Zod schema becomes a form control. The mappings below determine how entries appear in the editor.
 
-## Loaders → collections
+## How loaders become collections
 
 A collection's [loader](https://docs.astro.build/en/guides/content-collections/#loading-data-with-loaders) determines how Posto presents it:
 
-- **`glob()`** — a folder-backed collection. The loader's `base` sets the folder; its `pattern` sets the file type (`**/*.md` → Markdown) and whether subfolders are used. Each entry is one Markdown or MDX file.
+- **`glob()`** — a folder-backed collection. The loader's `base` sets the folder, while `pattern` sets the file type (`**/*.md` selects Markdown) and whether subfolders are included. Each entry is one file.
 - **`file()`** — a single-file data collection. One JSON, YAML, or TOML file holds many entries, edited one at a time.
 - **Custom loaders** are not editable and do not appear as a collection.
 
 Entry IDs follow Astro's default `generateId` (the frontmatter `slug`, otherwise the base-relative path slugified), so the filenames Posto manages match the site's URLs.
 
-## Zod schema → form fields
+## How Zod schemas become form fields
 
-Posto reads Astro's generated JSON Schema, so what matters is how each Zod type is represented there. The common cases:
+Posto reads Astro's generated JSON Schema. These common Zod types produce dedicated controls:
 
 | Zod schema                         | Posto field                                        |
 | ---------------------------------- | -------------------------------------------------- |
@@ -53,7 +53,7 @@ If a schema is built dynamically or in a way the scanner cannot follow, these fi
 
 ## Not supported
 
-These edit and validate correctly, but render as a plain **text** field rather than a specific control:
+These schemas still edit and validate, but render as plain text rather than a specialized control:
 
 - **Unions of different types**, e.g. `z.union([z.string(), z.number()])`.
 - **`z.custom()`, `z.any()`, `z.unknown()`**, and other schemas with no concrete shape.

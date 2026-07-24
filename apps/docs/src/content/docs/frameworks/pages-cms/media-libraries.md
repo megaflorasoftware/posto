@@ -1,13 +1,13 @@
 ---
 title: Media libraries
-description: Media sources in .pages.yml and how image fields use them.
+description: Configure public media sources in .pages.yml and connect them to image fields.
 ---
 
-In Pages CMS, media is configured with a `media` source that maps a directory in the repository to the path the site serves it from. Image fields draw from these sources.
+In Pages CMS, a `media` source maps a repository directory to the public path served by the site. Posto uses these sources for image fields. Media stored under `public/` also appears in the **Public** media browser.
 
 ## Media sources
 
-A `media` source has an `input` (the directory in the repository) and an `output` (the path stored in content and served by the site). If `output` is omitted, Posto derives it from `input`, stripping a leading `public/` (since a site's `public` folder is served from the root).
+A media source has an `input`, the directory in the repository, and an `output`, the path stored in content and served by the site. If `output` is omitted, Posto derives it from `input` and removes a leading `public/` because that folder is served from the site root.
 
 ```yaml
 # .pages.yml
@@ -29,11 +29,11 @@ media:
     output: /files
 ```
 
-A collection can also set its own `media` source, which takes precedence over the global list for that collection's image fields.
+A collection can define its own `media` source. That source takes precedence over the global list for image fields in the collection.
 
 ## Image fields
 
-An `image` field presents an image picker that browses the relevant media source and stores the selected file's `output` path in the content.
+An `image` field opens the relevant media source and stores the selected file's `output` path in the content.
 
 ```yaml
 fields:
@@ -43,4 +43,6 @@ fields:
 
 ## Reusable image metadata
 
-The reusable-metadata media libraries described in [Managing site media](/features/managing-site-media/) — where an image is paired with its alt text and other metadata — are an Astro-specific feature, derived from a content collection's shape. See [Astro — Media libraries](/frameworks/astro/media-libraries/). Pages CMS `media` sources provide the image directories and pickers, but not the paired-metadata model.
+Pages CMS media sources provide public directories and image pickers, but they do not pair an image with reusable metadata. That model is detected from specially shaped Astro collections; see [Astro media libraries](/frameworks/astro/media-libraries/).
+
+Use the general [media guide](/features/managing-site-media/) to learn how to import, create folders, move or rename files, update recognized references, and drag media into content.
