@@ -72,6 +72,8 @@ export function ImageLibraryImportDialog(props: {
   sourcePath?: string;
   sourcePaths?: string[];
   initialFolder?: string;
+  /** The caller already chose a destination, so begin with per-image metadata. */
+  skipLocationSelection?: boolean;
   /** Open the device picker immediately instead of showing the source step,
    * whose dropzone would just repeat the button that launched this dialog. */
   autoChooseSource?: boolean;
@@ -99,7 +101,9 @@ export function ImageLibraryImportDialog(props: {
       : "";
   const libraryRoot = `${props.root}/${importerLibrary.base}`;
   const browserRoot = rootFolder ? `${libraryRoot}/${rootFolder}` : libraryRoot;
-  const [step, setStep] = useState<ImportStep>(initialSources.length ? "location" : "source");
+  const [step, setStep] = useState<ImportStep>(
+    initialSources.length ? (props.skipLocationSelection ? "details" : "location") : "source",
+  );
   const [currentDirectory, setCurrentDirectory] = useState("");
   const metadataFields = useMemo(
     () => imageLibraryMetadataFields(importerLibrary),
@@ -110,6 +114,7 @@ export function ImageLibraryImportDialog(props: {
     root: props.root,
     library: importerLibrary,
     initialSources,
+    initialFolder: props.skipLocationSelection ? rootFolder : undefined,
     onImported: (result, draft) => props.onImported(result, importerLibrary, draft),
   });
   const [publicImportPending, setPublicImportPending] = useState(false);

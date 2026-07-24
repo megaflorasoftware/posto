@@ -20,6 +20,7 @@ export * from "./components/FileList";
 export * from "./components/OpenFileSpotlight";
 export * from "./newFile";
 export * from "./dataEntries";
+export * from "./droppedImages";
 export * from "./components/PublishModal";
 export * from "./components/Sidebar";
 export * from "./components/WorkspaceChooser";

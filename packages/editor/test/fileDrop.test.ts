@@ -1,5 +1,6 @@
 import { expect, test, vi } from "vitest";
 import { createFileDropRouter } from "../../ipc/src/fileDropRouter";
+import { droppedImageDirectory } from "../src/droppedImages";
 
 test("routes drops to the highest priority regardless of mount order", () => {
   const router = createFileDropRouter();
@@ -44,4 +45,36 @@ test("routes a positioned drop to the highest-priority accepting surface", () =>
 
   router.dispatch(["outside.jpg"], { pointer: { x: 840, y: 320 } });
   expect(app).toHaveBeenCalledWith(["outside.jpg"], { pointer: { x: 840, y: 320 } });
+});
+
+test("resolves image drops only to directories inside the active media root", () => {
+  const target = (path: string) => () =>
+    ({
+      closest: () => ({ getAttribute: () => path }),
+    }) as never;
+
+  expect(
+    droppedImageDirectory(
+      ["/tmp/portrait.jpg", "/tmp/notes.txt"],
+      { x: 20, y: 40 },
+      "/repo/media",
+      target("/repo/media/portraits"),
+    ),
+  ).toBe("/repo/media/portraits");
+  expect(
+    droppedImageDirectory(
+      ["/tmp/portrait.jpg"],
+      { x: 20, y: 40 },
+      "/repo/media",
+      target("/repo/public"),
+    ),
+  ).toBeNull();
+  expect(
+    droppedImageDirectory(
+      ["/tmp/notes.txt"],
+      { x: 20, y: 40 },
+      "/repo/media",
+      target("/repo/media/portraits"),
+    ),
+  ).toBeNull();
 });

@@ -56,9 +56,10 @@ export function useImageLibraryImport(input: {
   root: string;
   library: MediaLibrary;
   initialSources?: string[];
+  initialFolder?: string;
   onImported?: (result: ImageLibraryImportResult, draft: ImageLibraryImportDraft) => void;
 }) {
-  const [folder, setFolder] = useState("");
+  const [folder, setFolder] = useState(input.initialFolder ?? "");
   const [drafts, setDrafts] = useState<ImageLibraryImportDraft[]>(() =>
     (input.initialSources ?? []).map((path) => makeDraft(path, input.library)),
   );

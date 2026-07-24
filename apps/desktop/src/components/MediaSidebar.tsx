@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Alert, Button, Text } from "@mantine/core";
 import { FolderPlus, Upload } from "lucide-react";
 import { mediaOutputPath, type MediaLibrary, type PagesConfig } from "@posto/core/pagescms/config";
@@ -16,6 +16,8 @@ import {
   PUBLIC_MEDIA_TAB,
   PublicMediaBrowser,
   chooseAndImportPublicMedia,
+  droppedImageDirectory,
+  droppedImagePaths,
   refreshImageLibraryAssets,
   useImageLibraryAssets,
   usePublicMediaFiles,
@@ -27,7 +29,7 @@ import {
   type MediaSidebarDragSource,
 } from "@posto/editor";
 import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
-import type { FileEntry, FileGroup } from "@posto/ipc";
+import { importPublicMediaFile, onFileDrop, type FileEntry, type FileGroup } from "@posto/ipc";
 
 /** Browses one library's directories and assets (read-only, like the import
  * picker) with a sticky Import action — the desktop mirror of the mobile
@@ -42,7 +44,10 @@ function LibraryMediaBrowserContent(props: {
   onChanged: (options?: { silent?: boolean }) => void;
 }) {
   const [currentDirectory, setCurrentDirectory] = useState("");
-  const [importing, setImporting] = useState(false);
+  const [importing, setImporting] = useState<{
+    sources?: string[];
+    folder?: string;
+  } | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [editing, setEditing] = useState<ImageLibraryAsset | null>(null);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
@@ -97,6 +102,26 @@ function LibraryMediaBrowserContent(props: {
       })
       .catch((caught) => setMoveError(caught instanceof Error ? caught.message : String(caught)));
   };
+
+  useEffect(() => {
+    if (importing) return;
+    const droppedDirectory = (paths: string[], pointer: { x: number; y: number } | null) =>
+      droppedImageDirectory(paths, pointer, libraryRoot, (x, y) => document.elementFromPoint(x, y));
+    return onFileDrop(
+      (paths, details) => {
+        const directory = droppedDirectory(paths, details.pointer);
+        if (!directory) return;
+        setImporting({
+          sources: droppedImagePaths(paths),
+          folder: directory.slice(libraryRoot.length).replace(/^\/+/, ""),
+        });
+      },
+      {
+        priority: 60,
+        accepts: (paths, details) => droppedDirectory(paths, details.pointer) !== null,
+      },
+    );
+  }, [importing, libraryRoot]);
 
   return (
     <div className="media-drawer">
@@ -200,7 +225,7 @@ function LibraryMediaBrowserContent(props: {
             >
               New folder
             </Button>
-            <Button fullWidth leftSection={<Upload size={16} />} onClick={() => setImporting(true)}>
+            <Button fullWidth leftSection={<Upload size={16} />} onClick={() => setImporting({})}>
               Import images
             </Button>
           </div>
@@ -272,7 +297,10 @@ function LibraryMediaBrowserContent(props: {
           libraries={props.config.mediaLibraries ?? [library]}
           config={props.config}
           groups={props.groups}
-          onClose={() => setImporting(false)}
+          sourcePaths={importing.sources}
+          initialFolder={importing.folder}
+          skipLocationSelection={!!importing.sources?.length}
+          onClose={() => setImporting(null)}
           onImported={(_result, importedLibrary) => {
             void refreshImageLibraryAssets(props.root, importedLibrary);
             props.onChanged();
@@ -319,6 +347,43 @@ function PublicMediaBrowserContent(props: {
       setImporting(false);
     }
   };
+  useEffect(() => {
+    if (importing) return;
+    const droppedDirectory = (paths: string[], pointer: { x: number; y: number } | null) =>
+      droppedImageDirectory(paths, pointer, state.publicRoot, (x, y) =>
+        document.elementFromPoint(x, y),
+      );
+    return onFileDrop(
+      (paths, details) => {
+        const directory = droppedDirectory(paths, details.pointer);
+        if (!directory) return;
+        setImporting(true);
+        setError(null);
+        const relativeDirectory = directory.slice(state.publicRoot.length).replace(/^\/+/, "");
+        void (async () => {
+          try {
+            for (const sourceFilePath of droppedImagePaths(paths)) {
+              await importPublicMediaFile({
+                repositoryRoot: props.root,
+                sourceFilePath,
+                directory: relativeDirectory,
+              });
+            }
+            await state.refresh();
+            props.onChanged();
+          } catch (caught) {
+            setError(caught instanceof Error ? caught.message : String(caught));
+          } finally {
+            setImporting(false);
+          }
+        })();
+      },
+      {
+        priority: 60,
+        accepts: (paths, details) => droppedDirectory(paths, details.pointer) !== null,
+      },
+    );
+  }, [importing, props.root, state.publicRoot]);
   const mediaForFile = (file: FileEntry): MarkdownMediaPick | null => {
     if (markdownMediaKind(file.path) !== "image") return null;
     const outputPath = publicMediaOutputPath(props.root, file.path);

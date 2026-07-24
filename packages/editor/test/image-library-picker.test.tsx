@@ -7,6 +7,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import type { MediaLibrary } from "@posto/core/pagescms/config";
 import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
 import { ImageLibraryBrowser } from "../src/components/ImageLibraryBrowser";
+import { ImageLibraryImportDialog } from "../src/components/ImageLibraryImportDialog";
 import { ImageLibraryPickerDialog } from "../src/components/ImageLibraryPickerDialog";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
@@ -25,7 +26,14 @@ Object.defineProperty(window, "matchMedia", {
 });
 
 vi.mock("@posto/ipc", () => ({
+  importImageLibraryAsset: vi.fn(),
+  importPublicMediaFile: vi.fn(),
+  invoke: vi.fn().mockResolvedValue([]),
+  onFileDrop: vi.fn().mockReturnValue(() => undefined),
+  onFsChanged: vi.fn().mockReturnValue(() => undefined),
+  openImageFiles: vi.fn().mockResolvedValue([]),
   openPath: vi.fn(),
+  prepareImageSources: vi.fn(async (paths: string[]) => paths),
   thumbnailUrl: vi.fn().mockResolvedValue(null),
 }));
 
@@ -109,4 +117,29 @@ test("selects desktop library assets and directories from inline card actions", 
   expect(toggleAsset).toHaveBeenCalledWith(asset);
   expect(toggleDirectory).toHaveBeenCalledWith("/repo/src/content/photos/albums");
   expect(openDirectory).not.toHaveBeenCalled();
+});
+
+test("opens a filesystem directory drop directly on image metadata details", () => {
+  render(
+    <MantineProvider forceColorScheme="light">
+      <ImageLibraryImportDialog
+        root="/repo"
+        library={library}
+        config={{ media: [], content: [], mediaLibraries: [library] }}
+        groups={[]}
+        sourcePaths={["/tmp/portrait.jpg"]}
+        initialFolder="albums/portraits"
+        skipLocationSelection
+        onClose={vi.fn()}
+        onImported={vi.fn()}
+      />
+    </MantineProvider>,
+  );
+
+  expect((screen.getByLabelText("Filename (framework ID)") as HTMLInputElement).value).toBe(
+    "portrait",
+  );
+  expect(screen.getByText("Importing into albums/portraits")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Import image" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Choose location" })).toBeNull();
 });
