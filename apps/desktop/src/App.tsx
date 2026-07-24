@@ -10,6 +10,7 @@ import {
   onOpenRepository,
   onOpenSettings,
   onOpenSiblingProject,
+  onToggleSidebar,
   openDirectory,
   setOpenFileMenuEnabled,
   setFullscreenEditorMenuEnabled,
@@ -55,6 +56,7 @@ import { PreviewPane } from "./components/PreviewPane";
 import { RecentProjectsSpotlight } from "./components/RecentProjectsSpotlight";
 import {
   ChevronLeft,
+  Columns3,
   Files,
   Image as ImageIcon,
   PanelLeftClose,
@@ -89,6 +91,7 @@ function App() {
   const [sidebarView, setSidebarView] = useState<"files" | "media">("files");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [fullscreenEditorOpen, setFullscreenEditorOpen] = useState(false);
+  const [fullscreenSidebarOpen, setFullscreenSidebarOpen] = useState(false);
   const [openFileSpotlightOpen, setOpenFileSpotlightOpen] = useState(false);
   const [recentProjectsSpotlightOpen, setRecentProjectsSpotlightOpen] = useState(false);
   // Bumped after each successful save so the SEO preview refetches the page.
@@ -99,6 +102,8 @@ function App() {
   // Latest values for callbacks that outlive the render they were created in.
   const rootRef = useRef(root);
   rootRef.current = root;
+  const fullscreenEditorOpenRef = useRef(fullscreenEditorOpen);
+  fullscreenEditorOpenRef.current = fullscreenEditorOpen;
   const selectionGenerationRef = useRef(0);
 
   const schemas = useSchemas(adapter, ipcProjectIO);
@@ -482,7 +487,14 @@ function App() {
       void chooseProjectInRepositoryRef.current();
     });
     const unlistenFullscreenEditor = onOpenFullscreenEditor(() => {
-      if (currentFile.filePathRef.current) setFullscreenEditorOpen(true);
+      if (rootRef.current) setFullscreenEditorOpen((open) => !open);
+    });
+    const unlistenToggleSidebar = onToggleSidebar(() => {
+      if (fullscreenEditorOpenRef.current) {
+        setFullscreenSidebarOpen((open) => !open);
+      } else {
+        setSidebarOpen((open) => !open);
+      }
     });
     // One update check per app launch, once the UI is up.
     void checkForAppUpdate();
@@ -505,6 +517,7 @@ function App() {
       unlistenOpenRecent();
       unlistenOpenSiblingProject();
       unlistenFullscreenEditor();
+      unlistenToggleSidebar();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -599,14 +612,28 @@ function App() {
           ? (projectInfo?.type ?? null)
           : null;
 
+  // The native View menu owns these accelerators in Tauri. Keep the Vite/browser
+  // development experience equivalent without firing twice in the desktop shell.
   useEffect(() => {
-    if (!fullscreenEditorOpen) return;
-    const exitOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setFullscreenEditorOpen(false);
+    if ("__TAURI_INTERNALS__" in window) return;
+    const handleViewShortcut = (event: KeyboardEvent) => {
+      const command = event.metaKey || event.ctrlKey;
+      if (event.key === "\\" && command && !event.altKey) {
+        event.preventDefault();
+        if (fullscreenEditorOpenRef.current) {
+          setFullscreenSidebarOpen((open) => !open);
+        } else {
+          setSidebarOpen((open) => !open);
+        }
+      }
+      if (event.key.toLowerCase() === "f" && command && event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        if (rootRef.current) setFullscreenEditorOpen((open) => !open);
+      }
     };
-    window.addEventListener("keydown", exitOnEscape);
-    return () => window.removeEventListener("keydown", exitOnEscape);
-  }, [fullscreenEditorOpen]);
+    window.addEventListener("keydown", handleViewShortcut);
+    return () => window.removeEventListener("keydown", handleViewShortcut);
+  }, []);
 
   useEffect(() => {
     if (!root) setOpenFileSpotlightOpen(false);
@@ -621,8 +648,8 @@ function App() {
   }, [recentRoots, repoRoot, projectSession.hasMultipleProjects, notifyError]);
 
   useEffect(() => {
-    void setFullscreenEditorMenuEnabled(currentFile.filePath !== null).catch(notifyError);
-  }, [currentFile.filePath, notifyError]);
+    void setFullscreenEditorMenuEnabled(root !== null).catch(notifyError);
+  }, [root, notifyError]);
 
   const renderFullscreenExit = () => (
     <ActionIcon
@@ -636,6 +663,57 @@ function App() {
       <ChevronLeft size={16} />
     </ActionIcon>
   );
+  const renderFullscreenSidebarToggle = () => (
+    <ActionIcon
+      className="fullscreen-sidebar-toggle"
+      size={26}
+      variant="subtle"
+      color="gray"
+      title={`${fullscreenSidebarOpen ? "Hide" : "Show"} sidebars (Cmd/Ctrl + \\)`}
+      aria-label={`${fullscreenSidebarOpen ? "Hide" : "Show"} sidebars`}
+      aria-pressed={fullscreenSidebarOpen}
+      onClick={(event) => {
+        event.currentTarget.blur();
+        setFullscreenSidebarOpen((open) => !open);
+      }}
+    >
+      <Columns3 size={16} />
+    </ActionIcon>
+  );
+
+  const renderFileSidebar = () =>
+    root ? (
+      <Sidebar
+        root={root}
+        groups={files.groups}
+        config={config}
+        activeKey={currentFile.activeKey}
+        onOpen={(file) => openFile(file)}
+        onDelete={(file) => void deleteFile(file)}
+        onNewFile={(group) => void createNewFile(group)}
+        developerMode={developerMode}
+        onPostoSaved={() => void schemas.loadPostoConfig(root)}
+      />
+    ) : null;
+
+  const renderMediaSidebar = () =>
+    root && config ? (
+      <MediaSidebar
+        root={root}
+        config={config}
+        groups={files.groups}
+        libraries={config.mediaLibraries ?? []}
+        onBeforeChange={currentFile.flushPendingSave}
+        onChanged={(options) => {
+          if (!options?.silent) {
+            notify("Media updated. Publish when you are ready.", "success");
+          }
+          void refreshGroups(root);
+          void currentFile.reloadFromDisk();
+        }}
+      />
+    ) : null;
+
   const renderEditorPane = (withFullscreenButton = false, fullscreen = false) =>
     root ? (
       <EditorPane
@@ -672,6 +750,7 @@ function App() {
         developerMode={developerMode}
         onFullscreen={withFullscreenButton ? () => setFullscreenEditorOpen(true) : undefined}
         headerLeading={fullscreen ? renderFullscreenExit() : undefined}
+        headerTrailing={fullscreen ? renderFullscreenSidebarToggle() : undefined}
       />
     ) : null;
 
@@ -790,97 +869,71 @@ function App() {
             </div>
           ) : (
             <div className="body" ref={preview.bodyEl}>
-              {sidebarOpen ? (
-                <>
-                  <div className="sidebar-pane" style={{ flexBasis: `${preview.sidebarSplit}%` }}>
-                    <div className="sidebar-header" data-tauri-drag-region>
-                      <ActionIcon
-                        size={26}
-                        variant={sidebarView === "files" ? "light" : "subtle"}
-                        color={sidebarView === "files" ? "blue" : "gray"}
-                        title="Show files"
-                        aria-label="Show files"
-                        onClick={() => setSidebarView("files")}
-                      >
-                        <Files size={16} />
-                      </ActionIcon>
-                      <ActionIcon
-                        size={26}
-                        variant={sidebarView === "media" ? "light" : "subtle"}
-                        color={sidebarView === "media" ? "blue" : "gray"}
-                        title="Show media library"
-                        aria-label="Show media library"
-                        disabled={!config}
-                        onClick={() => setSidebarView("media")}
-                      >
-                        <ImageIcon size={16} />
-                      </ActionIcon>
-                      <span className="sidebar-header-spacer" />
-                      <ActionIcon
-                        size={26}
-                        variant="subtle"
-                        color="gray"
-                        title="Hide sidebar"
-                        aria-label="Hide sidebar"
-                        onClick={() => setSidebarOpen(false)}
-                      >
-                        <PanelLeftClose size={16} />
-                      </ActionIcon>
+              {!fullscreenEditorOpen &&
+                (sidebarOpen ? (
+                  <>
+                    <div className="sidebar-pane" style={{ flexBasis: `${preview.sidebarSplit}%` }}>
+                      <div className="sidebar-header" data-tauri-drag-region>
+                        <ActionIcon
+                          size={26}
+                          variant={sidebarView === "files" ? "light" : "subtle"}
+                          color={sidebarView === "files" ? "blue" : "gray"}
+                          title="Show files"
+                          aria-label="Show files"
+                          onClick={() => setSidebarView("files")}
+                        >
+                          <Files size={16} />
+                        </ActionIcon>
+                        <ActionIcon
+                          size={26}
+                          variant={sidebarView === "media" ? "light" : "subtle"}
+                          color={sidebarView === "media" ? "blue" : "gray"}
+                          title="Show media library"
+                          aria-label="Show media library"
+                          disabled={!config}
+                          onClick={() => setSidebarView("media")}
+                        >
+                          <ImageIcon size={16} />
+                        </ActionIcon>
+                        <span className="sidebar-header-spacer" />
+                        <ActionIcon
+                          size={26}
+                          variant="subtle"
+                          color="gray"
+                          title="Hide sidebar"
+                          aria-label="Hide sidebar"
+                          onClick={() => setSidebarOpen(false)}
+                        >
+                          <PanelLeftClose size={16} />
+                        </ActionIcon>
+                      </div>
+                      <div className="sidebar-content">
+                        {sidebarView === "files" ? renderFileSidebar() : renderMediaSidebar()}
+                      </div>
                     </div>
-                    <div className="sidebar-content">
-                      {sidebarView === "files" ? (
-                        <Sidebar
-                          root={root}
-                          groups={files.groups}
-                          config={config}
-                          activeKey={currentFile.activeKey}
-                          onOpen={(file) => openFile(file)}
-                          onDelete={(file) => void deleteFile(file)}
-                          onNewFile={(group) => void createNewFile(group)}
-                          developerMode={developerMode}
-                          onPostoSaved={() => void schemas.loadPostoConfig(root)}
-                        />
-                      ) : (
-                        <MediaSidebar
-                          root={root}
-                          config={config}
-                          groups={files.groups}
-                          libraries={config.mediaLibraries ?? []}
-                          onBeforeChange={currentFile.flushPendingSave}
-                          onChanged={(options) => {
-                            if (!options?.silent) {
-                              notify("Media updated. Publish when you are ready.", "success");
-                            }
-                            void refreshGroups(root);
-                            void currentFile.reloadFromDisk();
-                          }}
-                        />
-                      )}
-                    </div>
-                  </div>
 
-                  <div
-                    className="pane-divider"
-                    onPointerDown={(e) => {
-                      e.currentTarget.setPointerCapture(e.pointerId);
-                      preview.setSidebarDragging(true);
-                    }}
-                    onPointerMove={preview.onSidebarDividerPointerMove}
-                  />
-                </>
-              ) : (
-                <ActionIcon
-                  className="sidebar-reopen"
-                  size={26}
-                  variant="subtle"
-                  color="gray"
-                  title="Show sidebar"
-                  aria-label="Show sidebar"
-                  onClick={() => setSidebarOpen(true)}
-                >
-                  <PanelLeftOpen size={16} />
-                </ActionIcon>
-              )}
+                    <div
+                      className="pane-divider"
+                      onPointerDown={(e) => {
+                        e.currentTarget.setPointerCapture(e.pointerId);
+                        preview.setSidebarDragging(true);
+                      }}
+                      onPointerMove={preview.onSidebarDividerPointerMove}
+                    />
+                  </>
+                ) : (
+                  <ActionIcon
+                    className="sidebar-reopen"
+                    size={26}
+                    variant="subtle"
+                    color="gray"
+                    title="Show sidebar"
+                    aria-label="Show sidebar"
+                    onClick={() => setSidebarOpen(true)}
+                  >
+                    <PanelLeftOpen size={16} />
+                  </ActionIcon>
+                ))}
 
               <div
                 className={`panes${sidebarOpen ? "" : " sidebar-collapsed"}`}
@@ -888,11 +941,51 @@ function App() {
               >
                 <div
                   className={`pane editor-pane${
-                    fullscreenEditorOpen ? " fullscreen-workspace fullscreen-editor-pane" : ""
+                    fullscreenEditorOpen
+                      ? ` fullscreen-workspace fullscreen-editor-pane${
+                          fullscreenSidebarOpen ? " fullscreen-sidebars-open" : ""
+                        }${currentFile.filePath ? "" : " fullscreen-no-file"}`
+                      : ""
                   }`}
                   style={{ flexBasis: `${preview.split}%` }}
                 >
                   {renderEditorPane(!fullscreenEditorOpen, fullscreenEditorOpen)}
+                  {fullscreenEditorOpen && (
+                    <>
+                      <div className="fullscreen-sidebar-rail fullscreen-sidebar-rail-left">
+                        <div
+                          className="fullscreen-floating-sidebar"
+                          role="complementary"
+                          aria-label="Files sidebar"
+                        >
+                          <div className="fullscreen-floating-sidebar-header">
+                            <Files size={16} />
+                            <span>Files</span>
+                          </div>
+                          <div className="fullscreen-floating-sidebar-content">
+                            {renderFileSidebar()}
+                          </div>
+                        </div>
+                      </div>
+                      {config && (
+                        <div className="fullscreen-sidebar-rail fullscreen-sidebar-rail-right">
+                          <div
+                            className="fullscreen-floating-sidebar"
+                            role="complementary"
+                            aria-label="Media sidebar"
+                          >
+                            <div className="fullscreen-floating-sidebar-header">
+                              <ImageIcon size={16} />
+                              <span>Media</span>
+                            </div>
+                            <div className="fullscreen-floating-sidebar-content">
+                              {renderMediaSidebar()}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
 
                 <div

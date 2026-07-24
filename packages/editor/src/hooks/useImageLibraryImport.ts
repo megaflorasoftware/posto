@@ -56,9 +56,10 @@ export function useImageLibraryImport(input: {
   root: string;
   library: MediaLibrary;
   initialSources?: string[];
-  onImported?: (result: ImageLibraryImportResult) => void;
+  initialFolder?: string;
+  onImported?: (result: ImageLibraryImportResult, draft: ImageLibraryImportDraft) => void;
 }) {
-  const [folder, setFolder] = useState("");
+  const [folder, setFolder] = useState(input.initialFolder ?? "");
   const [drafts, setDrafts] = useState<ImageLibraryImportDraft[]>(() =>
     (input.initialSources ?? []).map((path) => makeDraft(path, input.library)),
   );
@@ -148,7 +149,7 @@ export function useImageLibraryImport(input: {
           serializedMetadata: operation.serializedMetadata,
           entryId: operation.entryId,
         });
-        input.onImported?.(result);
+        input.onImported?.(result, draft);
         imported += 1;
       }
       return true;

@@ -35,10 +35,11 @@ function LibraryGrid(props: {
   config: PagesConfig;
   groups: FileGroup[];
   toolbar: ReactNode;
+  importSourcePaths?: string[];
   onClose: () => void;
   onPick: (media: MarkdownMediaPick) => void;
 }) {
-  const [importOpen, setImportOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(() => !!props.importSourcePaths?.length);
   const state = useImageLibraryAssets(props.root, props.library);
   const assets = state.assets.filter((asset) =>
     imageLibraryContainsAsset(props.library, props.root, asset, props.subset),
@@ -51,9 +52,13 @@ function LibraryGrid(props: {
       libraries={props.libraries}
       config={props.config}
       groups={props.groups}
+      sourcePaths={props.importSourcePaths}
       initialFolder={props.subset}
-      onClose={() => setImportOpen(false)}
-      onImported={(result, importedLibrary) => {
+      onClose={() => {
+        setImportOpen(false);
+        if (props.importSourcePaths?.length) props.onClose();
+      }}
+      onImported={(result, importedLibrary, draft) => {
         void refreshImageLibraryAssets(props.root, importedLibrary);
         const media =
           importedLibrary.collection === props.library.collection
@@ -65,6 +70,7 @@ function LibraryGrid(props: {
             outputPath: output,
             label: result.imagePath.split("/").pop() ?? "image",
             kind: "image",
+            alt: typeof draft.metadata.alt === "string" ? draft.metadata.alt : undefined,
           });
         }
       }}
@@ -180,6 +186,8 @@ export function RichTextImagePickerDialog(props: {
   configuredMedia: MediaEntry | null;
   templateValues: Record<string, unknown>;
   groups: FileGroup[];
+  /** Immediately opens the import flow for files dropped onto the editor. */
+  importSourcePaths?: string[];
   onClose: () => void;
   onPick: (media: MarkdownMediaPick) => void;
 }) {
@@ -192,7 +200,11 @@ export function RichTextImagePickerDialog(props: {
     : null;
   const [selectedCollection, setSelectedCollection] = useState(
     configured?.library.collection ??
-      (props.configuredMedia ? PUBLIC_MEDIA_TAB : (libraries[0]?.collection ?? PUBLIC_MEDIA_TAB)),
+      (props.importSourcePaths?.length
+        ? (libraries[0]?.collection ?? PUBLIC_MEDIA_TAB)
+        : props.configuredMedia
+          ? PUBLIC_MEDIA_TAB
+          : (libraries[0]?.collection ?? PUBLIC_MEDIA_TAB)),
   );
   const selected = libraries.find((library) => library.collection === selectedCollection) ?? null;
   const effectiveSelection = selected ? selectedCollection : PUBLIC_MEDIA_TAB;
@@ -218,6 +230,7 @@ export function RichTextImagePickerDialog(props: {
         config={props.config}
         groups={props.groups}
         toolbar={toolbar}
+        importSourcePaths={props.importSourcePaths}
         onClose={props.onClose}
         onPick={props.onPick}
       />

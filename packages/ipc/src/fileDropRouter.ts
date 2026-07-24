@@ -1,6 +1,16 @@
-export type FileDropHandler = (paths: string[]) => void;
+export interface FileDropDetails {
+  pointer: { x: number; y: number } | null;
+}
 
-type Registration = { handler: FileDropHandler; priority: number; sequence: number };
+export type FileDropHandler = (paths: string[], details: FileDropDetails) => void;
+export type FileDropAcceptance = (paths: string[], details: FileDropDetails) => boolean;
+
+type Registration = {
+  handler: FileDropHandler;
+  accepts?: FileDropAcceptance;
+  priority: number;
+  sequence: number;
+};
 
 /** Priority router kept separate from the native listener for deterministic tests. */
 export function createFileDropRouter() {
@@ -10,16 +20,17 @@ export function createFileDropRouter() {
     get size() {
       return registrations.length;
     },
-    register(handler: FileDropHandler, priority: number): () => void {
-      const registration = { handler, priority, sequence: sequence++ };
+    register(handler: FileDropHandler, priority: number, accepts?: FileDropAcceptance): () => void {
+      const registration = { handler, accepts, priority, sequence: sequence++ };
       registrations.push(registration);
       return () => {
         const index = registrations.indexOf(registration);
         if (index >= 0) registrations.splice(index, 1);
       };
     },
-    dispatch(paths: string[]): void {
+    dispatch(paths: string[], details: FileDropDetails = { pointer: null }): void {
       registrations
+        .filter((registration) => registration.accepts?.(paths, details) ?? true)
         .reduce<Registration | null>(
           (best, candidate) =>
             !best ||
@@ -29,7 +40,7 @@ export function createFileDropRouter() {
               : best,
           null,
         )
-        ?.handler(paths);
+        ?.handler(paths, details);
     },
   };
 }

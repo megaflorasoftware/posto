@@ -1,10 +1,17 @@
 import type { ReactNode } from "react";
 import { ActionIcon } from "@mantine/core";
-import { Folder, FolderUp, Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
 import { CachedImage } from "./CachedImage";
 import type { MarkdownMediaPick } from "../markdownMedia";
-import { MediaDragPreview } from "./MediaDragDrop";
+import {
+  MediaDragPreview,
+  type MediaDragPayload,
+  type MediaSidebarDragSource,
+} from "./MediaDragDrop";
+import { PickerCardSelection } from "./PickerCardSelection";
+import { PickerDirectoryCard } from "./PickerDirectoryCard";
+import { useShiftPressed } from "../hooks/useShiftPressed";
 
 function normalize(path: string): string {
   return path.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -48,14 +55,22 @@ export function ImageLibraryBrowser(props: {
   onPick?: (asset: ImageLibraryAsset) => void;
   onEdit?: (asset: ImageLibraryAsset) => void;
   onDelete?: (asset: ImageLibraryAsset) => void;
+  hideActions?: boolean;
   /** Enables dragging an asset into a Markdown/MDX body. */
   dragMedia?: (asset: ImageLibraryAsset) => MarkdownMediaPick | null;
+  dragPayload?: (asset: ImageLibraryAsset) => MediaDragPayload | null;
+  directoryDragPayload?: (directory: string) => MediaDragPayload | null;
+  dropScope?: string;
+  onDropToDirectory?: (source: MediaSidebarDragSource, directory: string) => void;
   selectionMode?: boolean;
+  /** Shows a per-card selection action without switching the whole grid into selection mode. */
+  inlineSelection?: boolean;
   selectedAssetIds?: Set<string>;
   selectedDirectoryPaths?: Set<string>;
   onToggleSelection?: (asset: ImageLibraryAsset) => void;
   onToggleDirectorySelection?: (directory: string) => void;
 }) {
+  const shiftPressed = useShiftPressed();
   const root = normalize(props.rootDirectory);
   const current = props.currentDirectory ? `${root}/${props.currentDirectory}` : root;
   const folders = props.directories
@@ -81,83 +96,65 @@ export function ImageLibraryBrowser(props: {
       ) : (
         <div className="picker-grid">
           {props.currentDirectory && (
-            <button
-              type="button"
-              className="picker-card picker-directory"
-              onClick={() => props.onDirectoryChange(parent(props.currentDirectory))}
-            >
-              <span className="picker-card-preview">
-                <FolderUp size={36} />
-              </span>
-              <span className="picker-item-name">..</span>
-              <span className="picker-item-path">Go up a directory</span>
-            </button>
+            <PickerDirectoryCard
+              id={`${root}:parent:${props.currentDirectory}`}
+              name=".."
+              path={[root, parent(props.currentDirectory)].filter(Boolean).join("/")}
+              parent
+              onOpen={() => props.onDirectoryChange(parent(props.currentDirectory))}
+              dropScope={props.dropScope}
+              onDrop={
+                props.onDropToDirectory
+                  ? (source) =>
+                      props.onDropToDirectory?.(
+                        source,
+                        [root, parent(props.currentDirectory)].filter(Boolean).join("/"),
+                      )
+                  : undefined
+              }
+            />
           )}
           {folders.map((folder) => {
             const previews = directoryPreviewImages(folder.path, props.assets);
+            const openDirectory = () =>
+              props.onDirectoryChange(
+                props.currentDirectory ? `${props.currentDirectory}/${folder.name}` : folder.name,
+              );
             return (
-              <button
-                type="button"
-                className="picker-card picker-directory"
+              <PickerDirectoryCard
                 key={folder.path}
-                aria-pressed={
-                  props.selectionMode
-                    ? (props.selectedDirectoryPaths?.has(folder.path) ?? false)
+                id={folder.path}
+                name={folder.name}
+                path={folder.path}
+                previewPaths={previews}
+                selected={props.selectedDirectoryPaths?.has(folder.path)}
+                inlineSelection={props.inlineSelection}
+                selectionMode={props.selectionMode}
+                onOpen={openDirectory}
+                onToggleSelection={() => props.onToggleDirectorySelection?.(folder.path)}
+                dragPayload={
+                  !props.selectionMode ? props.directoryDragPayload?.(folder.path) : null
+                }
+                dropScope={props.dropScope}
+                onDrop={
+                  props.onDropToDirectory
+                    ? (source) => props.onDropToDirectory?.(source, folder.path)
                     : undefined
                 }
-                onClick={() => {
-                  if (props.selectionMode) props.onToggleDirectorySelection?.(folder.path);
-                  else
-                    props.onDirectoryChange(
-                      props.currentDirectory
-                        ? `${props.currentDirectory}/${folder.name}`
-                        : folder.name,
-                    );
-                }}
-              >
-                {previews.length > 0 ? (
-                  <span
-                    className="picker-card-preview picker-directory-preview-grid"
-                    data-image-count={previews.length}
-                  >
-                    {previews.map((path, index) => (
-                      <CachedImage key={`${path}:${index}`} path={path} alt="" loading="lazy" />
-                    ))}
-                    <span className="picker-directory-preview-badge">
-                      <Folder size={16} />
-                    </span>
-                    {props.selectionMode && (
-                      <span
-                        className={`picker-card-selection${props.selectedDirectoryPaths?.has(folder.path) ? " is-selected" : ""}`}
-                        aria-hidden="true"
-                      />
-                    )}
-                  </span>
-                ) : (
-                  <span className="picker-card-preview">
-                    <Folder size={36} />
-                    {props.selectionMode && (
-                      <span
-                        className={`picker-card-selection${props.selectedDirectoryPaths?.has(folder.path) ? " is-selected" : ""}`}
-                        aria-hidden="true"
-                      />
-                    )}
-                  </span>
-                )}
-                <span className="picker-item-name">{folder.name}</span>
-                <span className="picker-item-path">Directory</span>
-              </button>
+              />
             );
           })}
           {assets.map((asset) => {
             const valid = asset.health.includes("valid");
             const alt = typeof asset.metadata.alt === "string" ? asset.metadata.alt : asset.entryId;
             const dragMedia = valid ? props.dragMedia?.(asset) : null;
+            const dragPayload = valid ? props.dragPayload?.(asset) : null;
             const content = (
               <>
                 <MediaDragPreview
                   id={`image-library:${asset.metadataPath}`}
-                  media={!props.selectionMode ? dragMedia : null}
+                  media={!props.selectionMode ? (dragPayload?.media ?? dragMedia) : null}
+                  source={dragPayload?.source}
                   className="picker-card-preview"
                 >
                   <CachedImage
@@ -167,56 +164,62 @@ export function ImageLibraryBrowser(props: {
                     draggable={false}
                     fallback={<span className="picker-card-noimg">No preview</span>}
                   />
-                  {props.selectionMode && (
-                    <span
-                      className={`picker-card-selection${props.selectedAssetIds?.has(asset.metadataPath) ? " is-selected" : ""}`}
-                      aria-hidden="true"
+                  {valid && (props.selectionMode || props.inlineSelection) && (
+                    <PickerCardSelection
+                      selected={props.selectedAssetIds?.has(asset.metadataPath) ?? false}
+                      interactive={props.inlineSelection}
+                      label={asset.entryId.split("/").pop() ?? asset.entryId}
+                      onToggle={() => props.onToggleSelection?.(asset)}
                     />
                   )}
-                  {(props.onEdit || props.onDelete) && valid && !props.selectionMode && (
-                    <span className="picker-card-actions">
-                      {props.onEdit && (
-                        <ActionIcon
-                          className="picker-card-edit-action"
-                          variant="filled"
-                          color="dark"
-                          size="md"
-                          title={`Edit ${asset.entryId.split("/").pop()}`}
-                          aria-label={`Edit ${asset.entryId.split("/").pop()}`}
-                          onPointerDown={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                          }}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            props.onEdit?.(asset);
-                          }}
-                        >
-                          <Pencil size={18} />
-                        </ActionIcon>
-                      )}
-                      {props.onDelete && (
-                        <ActionIcon
-                          className="picker-card-delete-action"
-                          variant="filled"
-                          color="red"
-                          size="md"
-                          title={`Delete ${asset.entryId.split("/").pop()}`}
-                          aria-label={`Delete ${asset.entryId.split("/").pop()}`}
-                          onPointerDown={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                          }}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            props.onDelete?.(asset);
-                          }}
-                        >
-                          <Trash2 size={16} />
-                        </ActionIcon>
-                      )}
-                    </span>
-                  )}
+                  {(props.onEdit || props.onDelete) &&
+                    valid &&
+                    !props.selectionMode &&
+                    !props.hideActions &&
+                    !shiftPressed && (
+                      <span className="picker-card-actions">
+                        {props.onEdit && (
+                          <ActionIcon
+                            className="picker-card-edit-action"
+                            variant="filled"
+                            color="dark"
+                            size="md"
+                            title={`Edit ${asset.entryId.split("/").pop()}`}
+                            aria-label={`Edit ${asset.entryId.split("/").pop()}`}
+                            onPointerDown={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              props.onEdit?.(asset);
+                            }}
+                          >
+                            <Pencil size={18} />
+                          </ActionIcon>
+                        )}
+                        {props.onDelete && (
+                          <ActionIcon
+                            className="picker-card-delete-action"
+                            variant="filled"
+                            color="red"
+                            size="md"
+                            title={`Delete ${asset.entryId.split("/").pop()}`}
+                            aria-label={`Delete ${asset.entryId.split("/").pop()}`}
+                            onPointerDown={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              props.onDelete?.(asset);
+                            }}
+                          >
+                            <Trash2 size={16} />
+                          </ActionIcon>
+                        )}
+                      </span>
+                    )}
                 </MediaDragPreview>
                 <span className="picker-item-name">{asset.entryId.split("/").pop()}</span>
                 {!valid && <span className="picker-item-path">{asset.health.join(", ")}</span>}
@@ -239,7 +242,12 @@ export function ImageLibraryBrowser(props: {
                 key={`${asset.entryId}:${asset.metadataPath}`}
                 className="picker-card"
                 disabled={!valid}
-                onClick={() => valid && props.onPick?.(asset)}
+                onClick={(event) => {
+                  if (!valid) return;
+                  if (props.inlineSelection && event.shiftKey && props.onToggleSelection) {
+                    props.onToggleSelection(asset);
+                  } else props.onPick?.(asset);
+                }}
               >
                 {content}
               </button>
@@ -249,9 +257,16 @@ export function ImageLibraryBrowser(props: {
                 className="picker-card"
                 role="button"
                 tabIndex={0}
-                onClick={() => props.onEdit?.(asset)}
+                onClick={(event) => {
+                  if (props.inlineSelection && event.shiftKey && props.onToggleSelection) {
+                    props.onToggleSelection(asset);
+                  } else props.onEdit?.(asset);
+                }}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") props.onEdit?.(asset);
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  if (props.inlineSelection && event.shiftKey && props.onToggleSelection) {
+                    props.onToggleSelection(asset);
+                  } else props.onEdit?.(asset);
                 }}
                 aria-label={`Edit ${asset.entryId.split("/").pop()}`}
               >

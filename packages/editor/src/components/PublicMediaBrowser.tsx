@@ -1,20 +1,18 @@
 import type { ReactNode } from "react";
 import { ActionIcon } from "@mantine/core";
-import {
-  File,
-  FileAudio,
-  FileText,
-  FileVideo,
-  Folder,
-  FolderUp,
-  Pencil,
-  Trash2,
-} from "lucide-react";
+import { File, FileAudio, FileText, FileVideo, Pencil, Trash2 } from "lucide-react";
 import type { FileEntry } from "@posto/ipc";
 import { markdownMediaKind } from "../markdownMedia";
 import { CachedImage } from "./CachedImage";
 import type { MarkdownMediaPick } from "../markdownMedia";
-import { MediaDragPreview } from "./MediaDragDrop";
+import {
+  MediaDragPreview,
+  type MediaDragPayload,
+  type MediaSidebarDragSource,
+} from "./MediaDragDrop";
+import { PickerCardSelection } from "./PickerCardSelection";
+import { PickerDirectoryCard } from "./PickerDirectoryCard";
+import { useShiftPressed } from "../hooks/useShiftPressed";
 
 function normalize(path: string): string {
   return path.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -91,14 +89,22 @@ export function FileMediaBrowser(props: {
   onPick?: (file: FileEntry) => void;
   onEdit?: (file: FileEntry) => void;
   onDelete?: (file: FileEntry) => void;
+  hideActions?: boolean;
   /** Enables dragging a file into a Markdown/MDX body. */
   dragMedia?: (file: FileEntry) => MarkdownMediaPick | null;
+  dragPayload?: (file: FileEntry) => MediaDragPayload | null;
+  directoryDragPayload?: (directory: string) => MediaDragPayload | null;
+  dropScope?: string;
+  onDropToDirectory?: (source: MediaSidebarDragSource, directory: string) => void;
   selectionMode?: boolean;
+  /** Shows a per-card selection action without switching the whole grid into selection mode. */
+  inlineSelection?: boolean;
   selectedFilePaths?: Set<string>;
   selectedDirectoryPaths?: Set<string>;
   onToggleFileSelection?: (file: FileEntry) => void;
   onToggleDirectorySelection?: (directory: string) => void;
 }) {
+  const shiftPressed = useShiftPressed();
   const root = normalize(props.rootDirectory);
   const current = props.currentDirectory ? `${root}/${props.currentDirectory}` : root;
   const folders = props.directories
@@ -124,134 +130,121 @@ export function FileMediaBrowser(props: {
       ) : (
         <div className="picker-grid">
           {props.currentDirectory && (
-            <button
-              type="button"
-              className="picker-card picker-directory"
-              onClick={() => props.onDirectoryChange(parent(props.currentDirectory))}
-            >
-              <span className="picker-card-preview">
-                <FolderUp size={36} />
-              </span>
-              <span className="picker-item-name">..</span>
-              <span className="picker-item-path">Go up a directory</span>
-            </button>
+            <PickerDirectoryCard
+              id={`${root}:parent:${props.currentDirectory}`}
+              name=".."
+              path={[root, parent(props.currentDirectory)].filter(Boolean).join("/")}
+              parent
+              onOpen={() => props.onDirectoryChange(parent(props.currentDirectory))}
+              dropScope={props.dropScope}
+              onDrop={
+                props.onDropToDirectory
+                  ? (source) =>
+                      props.onDropToDirectory?.(
+                        source,
+                        [root, parent(props.currentDirectory)].filter(Boolean).join("/"),
+                      )
+                  : undefined
+              }
+            />
           )}
           {folders.map((folder) => {
             const previews = directoryPreviewImages(folder.path, props.files);
+            const openDirectory = () =>
+              props.onDirectoryChange(
+                props.currentDirectory ? `${props.currentDirectory}/${folder.name}` : folder.name,
+              );
             return (
-              <button
-                type="button"
-                className="picker-card picker-directory"
+              <PickerDirectoryCard
                 key={folder.path}
-                aria-pressed={
-                  props.selectionMode
-                    ? (props.selectedDirectoryPaths?.has(folder.path) ?? false)
+                id={folder.path}
+                name={folder.name}
+                path={folder.path}
+                previewPaths={previews}
+                selected={props.selectedDirectoryPaths?.has(folder.path)}
+                inlineSelection={props.inlineSelection}
+                selectionMode={props.selectionMode}
+                onOpen={openDirectory}
+                onToggleSelection={() => props.onToggleDirectorySelection?.(folder.path)}
+                dragPayload={
+                  !props.selectionMode ? props.directoryDragPayload?.(folder.path) : null
+                }
+                dropScope={props.dropScope}
+                onDrop={
+                  props.onDropToDirectory
+                    ? (source) => props.onDropToDirectory?.(source, folder.path)
                     : undefined
                 }
-                onClick={() => {
-                  if (props.selectionMode) props.onToggleDirectorySelection?.(folder.path);
-                  else
-                    props.onDirectoryChange(
-                      props.currentDirectory
-                        ? `${props.currentDirectory}/${folder.name}`
-                        : folder.name,
-                    );
-                }}
-              >
-                {previews.length > 0 ? (
-                  <span
-                    className="picker-card-preview picker-directory-preview-grid"
-                    data-image-count={previews.length}
-                  >
-                    {previews.map((path, index) => (
-                      <CachedImage key={`${path}:${index}`} path={path} alt="" loading="lazy" />
-                    ))}
-                    <span className="picker-directory-preview-badge">
-                      <Folder size={16} />
-                    </span>
-                    {props.selectionMode && (
-                      <span
-                        className={`picker-card-selection${props.selectedDirectoryPaths?.has(folder.path) ? " is-selected" : ""}`}
-                        aria-hidden="true"
-                      />
-                    )}
-                  </span>
-                ) : (
-                  <span className="picker-card-preview">
-                    <Folder size={36} />
-                    {props.selectionMode && (
-                      <span
-                        className={`picker-card-selection${props.selectedDirectoryPaths?.has(folder.path) ? " is-selected" : ""}`}
-                        aria-hidden="true"
-                      />
-                    )}
-                  </span>
-                )}
-                <span className="picker-item-name">{folder.name}</span>
-                <span className="picker-item-path">Directory</span>
-              </button>
+              />
             );
           })}
           {files.map((file) => {
             const dragMedia = props.selectionMode ? null : (props.dragMedia?.(file) ?? null);
+            const dragPayload = props.selectionMode ? null : props.dragPayload?.(file);
             const content = (
               <>
                 <MediaDragPreview
                   id={`file-media:${file.path}`}
-                  media={dragMedia}
+                  media={dragPayload?.media ?? dragMedia}
+                  source={dragPayload?.source}
                   className="picker-card-preview"
                 >
                   <FileMediaPreview file={file} loading="lazy" draggable={false} />
-                  {props.selectionMode && (
-                    <span
-                      className={`picker-card-selection${props.selectedFilePaths?.has(file.path) ? " is-selected" : ""}`}
-                      aria-hidden="true"
+                  {(props.selectionMode || props.inlineSelection) && (
+                    <PickerCardSelection
+                      selected={props.selectedFilePaths?.has(file.path) ?? false}
+                      interactive={props.inlineSelection}
+                      label={file.name}
+                      onToggle={() => props.onToggleFileSelection?.(file)}
                     />
                   )}
-                  {(props.onEdit || props.onDelete) && !props.selectionMode && (
-                    <span className="picker-card-actions">
-                      {props.onEdit && (
-                        <ActionIcon
-                          className="picker-card-edit-action"
-                          variant="filled"
-                          color="dark"
-                          size="md"
-                          title={`Edit ${file.name}`}
-                          aria-label={`Edit ${file.name}`}
-                          onPointerDown={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                          }}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            props.onEdit?.(file);
-                          }}
-                        >
-                          <Pencil size={18} />
-                        </ActionIcon>
-                      )}
-                      {props.onDelete && (
-                        <ActionIcon
-                          className="picker-card-delete-action"
-                          variant="filled"
-                          color="red"
-                          size="md"
-                          title={`Delete ${file.name}`}
-                          aria-label={`Delete ${file.name}`}
-                          onPointerDown={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                          }}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            props.onDelete?.(file);
-                          }}
-                        >
-                          <Trash2 size={16} />
-                        </ActionIcon>
-                      )}
-                    </span>
-                  )}
+                  {(props.onEdit || props.onDelete) &&
+                    !props.selectionMode &&
+                    !props.hideActions &&
+                    !shiftPressed && (
+                      <span className="picker-card-actions">
+                        {props.onEdit && (
+                          <ActionIcon
+                            className="picker-card-edit-action"
+                            variant="filled"
+                            color="dark"
+                            size="md"
+                            title={`Edit ${file.name}`}
+                            aria-label={`Edit ${file.name}`}
+                            onPointerDown={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              props.onEdit?.(file);
+                            }}
+                          >
+                            <Pencil size={18} />
+                          </ActionIcon>
+                        )}
+                        {props.onDelete && (
+                          <ActionIcon
+                            className="picker-card-delete-action"
+                            variant="filled"
+                            color="red"
+                            size="md"
+                            title={`Delete ${file.name}`}
+                            aria-label={`Delete ${file.name}`}
+                            onPointerDown={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              props.onDelete?.(file);
+                            }}
+                          >
+                            <Trash2 size={16} />
+                          </ActionIcon>
+                        )}
+                      </span>
+                    )}
                 </MediaDragPreview>
                 <span className="picker-item-name">{file.name}</span>
               </>
@@ -273,9 +266,13 @@ export function FileMediaBrowser(props: {
                     ? (props.selectedFilePaths?.has(file.path) ?? false)
                     : undefined
                 }
-                onClick={() => {
-                  if (props.selectionMode) props.onToggleFileSelection?.(file);
-                  else if (props.onPick) props.onPick(file);
+                onClick={(event) => {
+                  if (
+                    props.onToggleFileSelection &&
+                    (props.selectionMode || (props.inlineSelection && event.shiftKey))
+                  ) {
+                    props.onToggleFileSelection(file);
+                  } else if (props.onPick) props.onPick(file);
                   else props.onEdit?.(file);
                 }}
                 aria-label={`${action} ${file.name}`}
@@ -288,9 +285,16 @@ export function FileMediaBrowser(props: {
                 className="picker-card"
                 role="button"
                 tabIndex={0}
-                onClick={() => props.onEdit?.(file)}
+                onClick={(event) => {
+                  if (props.inlineSelection && event.shiftKey && props.onToggleFileSelection) {
+                    props.onToggleFileSelection(file);
+                  } else props.onEdit?.(file);
+                }}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") props.onEdit?.(file);
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  if (props.inlineSelection && event.shiftKey && props.onToggleFileSelection) {
+                    props.onToggleFileSelection(file);
+                  } else props.onEdit?.(file);
                 }}
                 aria-label={`${props.onEdit ? "Edit" : "Delete"} ${file.name}`}
               >

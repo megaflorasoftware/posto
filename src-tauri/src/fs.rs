@@ -345,12 +345,7 @@ fn cached_image_thumbnail(
 
     std::fs::create_dir_all(&cache_directory)
         .map_err(|error| format!("Could not create thumbnail cache: {error}"))?;
-    let image = image::ImageReader::open(source)
-        .map_err(|error| format!("Could not open {}: {error}", source.display()))?
-        .with_guessed_format()
-        .map_err(|error| format!("Could not identify {}: {error}", source.display()))?
-        .decode()
-        .map_err(|error| format!("Could not decode {}: {error}", source.display()))?;
+    let (image, _) = decode_oriented_image(source)?;
     image
         .thumbnail(max_width, max_height)
         .save_with_format(&destination, image::ImageFormat::Png)
@@ -375,6 +370,33 @@ fn cached_image_thumbnail(
     }
     prune_thumbnail_cache(&cache_directory);
     Ok(destination)
+}
+
+fn decode_oriented_image(
+    source: &Path,
+) -> Result<(image::DynamicImage, image::ImageFormat), String> {
+    use image::ImageDecoder;
+
+    let reader = image::ImageReader::open(source)
+        .map_err(|error| format!("Could not open {}: {error}", source.display()))?
+        .with_guessed_format()
+        .map_err(|error| format!("Could not identify {}: {error}", source.display()))?;
+    let format = reader
+        .format()
+        .ok_or_else(|| format!("Could not identify image format for {}", source.display()))?;
+    let mut decoder = reader
+        .into_decoder()
+        .map_err(|error| format!("Could not decode {}: {error}", source.display()))?;
+    let orientation = decoder.orientation().map_err(|error| {
+        format!(
+            "Could not read orientation for {}: {error}",
+            source.display()
+        )
+    })?;
+    let mut image = image::DynamicImage::from_decoder(decoder)
+        .map_err(|error| format!("Could not decode {}: {error}", source.display()))?;
+    image.apply_orientation(orientation);
+    Ok((image, format))
 }
 
 fn prune_thumbnail_cache(directory: &Path) {
@@ -1364,6 +1386,32 @@ mod tests {
         assert_ne!(first, revised);
         assert_eq!(image::image_dimensions(&revised).unwrap(), (120, 240));
         assert!(!first.exists(), "superseded revisions should be removed");
+    }
+
+    #[test]
+    fn image_thumbnails_apply_exif_orientation_for_import_previews() {
+        let source_dir = tempfile::tempdir().unwrap();
+        let cache_dir = tempfile::tempdir().unwrap();
+        let source = source_dir.path().join("portrait.jpg");
+        image::RgbImage::from_pixel(2, 3, image::Rgb([25, 100, 200]))
+            .save(&source)
+            .unwrap();
+
+        // EXIF orientation 6 means the stored pixels should display 90° clockwise.
+        let exif_orientation_6: [u8; 36] = [
+            0xff, 0xe1, 0x00, 0x22, b'E', b'x', b'i', b'f', 0x00, 0x00, b'I', b'I', 0x2a, 0x00,
+            0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00,
+            0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
+        let encoded = std::fs::read(&source).unwrap();
+        let mut oriented = Vec::with_capacity(encoded.len() + exif_orientation_6.len());
+        oriented.extend_from_slice(&encoded[..2]);
+        oriented.extend_from_slice(&exif_orientation_6);
+        oriented.extend_from_slice(&encoded[2..]);
+        std::fs::write(&source, oriented).unwrap();
+
+        let preview = cached_image_thumbnail(cache_dir.path(), &source, 3, 3).unwrap();
+        assert_eq!(image::image_dimensions(preview).unwrap(), (3, 2));
     }
 
     #[test]

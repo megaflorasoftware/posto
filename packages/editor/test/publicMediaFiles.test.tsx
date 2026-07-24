@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MantineProvider } from "@mantine/core";
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import type { MediaLibrary } from "@posto/core/pagescms/config";
 import { MediaLibraryTabs, PUBLIC_MEDIA_TAB } from "../src/components/MediaLibraryTabs";
 import { FileMediaBrowser } from "../src/components/PublicMediaBrowser";
@@ -23,6 +23,8 @@ Object.defineProperty(window, "matchMedia", {
     dispatchEvent: vi.fn(),
   })),
 });
+
+afterEach(cleanup);
 
 function library(collection: string): MediaLibrary {
   return {
@@ -118,5 +120,141 @@ describe("public media", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Edit guide.pdf" })[0]);
     expect(onEdit).toHaveBeenCalledWith(file);
+  });
+
+  test("selects desktop files and directories from inline card actions", () => {
+    const toggleFile = vi.fn();
+    const toggleDirectory = vi.fn();
+    const openDirectory = vi.fn();
+    render(
+      <MantineProvider forceColorScheme="light">
+        <FileMediaBrowser
+          rootDirectory="/repo/media"
+          currentDirectory=""
+          directories={["/repo/media/albums"]}
+          files={[{ name: "guide.pdf", path: "/repo/media/guide.pdf" }]}
+          inlineSelection
+          selectedFilePaths={new Set()}
+          selectedDirectoryPaths={new Set()}
+          onDirectoryChange={openDirectory}
+          onToggleFileSelection={toggleFile}
+          onToggleDirectorySelection={toggleDirectory}
+          onEdit={vi.fn()}
+          onDelete={vi.fn()}
+        />
+      </MantineProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Select guide.pdf" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select albums" }));
+
+    expect(toggleFile).toHaveBeenCalledWith({
+      name: "guide.pdf",
+      path: "/repo/media/guide.pdf",
+    });
+    expect(toggleDirectory).toHaveBeenCalledWith("/repo/media/albums");
+    expect(openDirectory).not.toHaveBeenCalled();
+  });
+
+  test("shift-clicks desktop file and directory cards to toggle selection", () => {
+    const toggleFile = vi.fn();
+    const toggleDirectory = vi.fn();
+    const editFile = vi.fn();
+    const openDirectory = vi.fn();
+    const { container } = render(
+      <MantineProvider forceColorScheme="light">
+        <FileMediaBrowser
+          rootDirectory="/repo/media"
+          currentDirectory=""
+          directories={["/repo/media/albums"]}
+          files={[{ name: "guide.pdf", path: "/repo/media/guide.pdf" }]}
+          inlineSelection
+          selectedFilePaths={new Set()}
+          selectedDirectoryPaths={new Set()}
+          onDirectoryChange={openDirectory}
+          onToggleFileSelection={toggleFile}
+          onToggleDirectorySelection={toggleDirectory}
+          onEdit={editFile}
+          onDelete={vi.fn()}
+        />
+      </MantineProvider>,
+    );
+
+    fireEvent.click(container.querySelector('.picker-card[aria-label="Edit guide.pdf"]')!, {
+      shiftKey: true,
+    });
+    fireEvent.click(container.querySelector('.picker-directory[aria-label="Open albums"]')!, {
+      shiftKey: true,
+    });
+
+    expect(toggleFile).toHaveBeenCalledWith({
+      name: "guide.pdf",
+      path: "/repo/media/guide.pdf",
+    });
+    expect(toggleDirectory).toHaveBeenCalledWith("/repo/media/albums");
+    expect(editFile).not.toHaveBeenCalled();
+    expect(openDirectory).not.toHaveBeenCalled();
+  });
+
+  test("hides card edit actions while Shift is held or a selection is active", () => {
+    const renderBrowser = (hideActions = false) =>
+      render(
+        <MantineProvider forceColorScheme="light">
+          <FileMediaBrowser
+            rootDirectory="/repo/media"
+            currentDirectory=""
+            directories={[]}
+            files={[{ name: "photo.jpg", path: "/repo/media/photo.jpg" }]}
+            inlineSelection
+            hideActions={hideActions}
+            selectedFilePaths={new Set(hideActions ? ["/repo/media/photo.jpg"] : [])}
+            selectedDirectoryPaths={new Set()}
+            onDirectoryChange={vi.fn()}
+            onToggleFileSelection={vi.fn()}
+            onEdit={vi.fn()}
+            onDelete={vi.fn()}
+          />
+        </MantineProvider>,
+      );
+
+    const first = renderBrowser();
+    expect(screen.getByRole("button", { name: "Delete photo.jpg" })).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Shift" });
+    expect(screen.queryByRole("button", { name: "Delete photo.jpg" })).toBeNull();
+    fireEvent.keyUp(window, { key: "Shift" });
+    expect(screen.getByRole("button", { name: "Delete photo.jpg" })).toBeTruthy();
+    first.unmount();
+
+    renderBrowser(true);
+    expect(screen.queryByRole("button", { name: "Delete photo.jpg" })).toBeNull();
+  });
+
+  test("enables directory cards as drag sources when they have a categorized payload", () => {
+    render(
+      <MantineProvider forceColorScheme="light">
+        <FileMediaBrowser
+          rootDirectory="/repo/media"
+          currentDirectory=""
+          directories={["/repo/media/albums"]}
+          files={[]}
+          inlineSelection
+          selectedFilePaths={new Set()}
+          selectedDirectoryPaths={new Set()}
+          onDirectoryChange={vi.fn()}
+          directoryDragPayload={(directory) => ({
+            media: [],
+            source: {
+              kind: "media-sidebar",
+              scope: "public",
+              items: [{ id: directory, kind: "directory" }],
+            },
+          })}
+        />
+      </MantineProvider>,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Open albums" }).querySelector(".is-media-draggable"),
+    ).toBeTruthy();
   });
 });

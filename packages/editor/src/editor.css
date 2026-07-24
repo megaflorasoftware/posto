@@ -963,6 +963,17 @@ button.picker-card:focus-visible .picker-card-preview,
   color: var(--mantine-color-dimmed);
 }
 
+.picker-directory.is-media-drop-target .picker-card-preview {
+  border-style: dashed;
+}
+
+.picker-directory.is-drag-over .picker-card-preview {
+  border-style: solid;
+  border-color: var(--mantine-primary-color-filled);
+  background: var(--mantine-primary-color-light);
+  box-shadow: 0 0 0 2px var(--mantine-primary-color-light);
+}
+
 .picker-card-preview {
   position: relative;
   display: flex;
@@ -1041,16 +1052,17 @@ button.picker-card:focus-visible .picker-card-preview,
 
 .picker-card-actions .mantine-ActionIcon-root {
   position: absolute;
-  top: 0.4rem;
   pointer-events: auto;
   box-shadow: var(--mantine-shadow-sm);
 }
 
 .picker-card-edit-action {
-  left: 0.4rem;
+  top: 0.4rem;
+  right: 0.4rem;
 }
 
 .picker-card-delete-action {
+  bottom: 0.4rem;
   right: 0.4rem;
 }
 
@@ -1068,13 +1080,32 @@ button.picker-card:focus-visible .picker-card-preview,
 .picker-card-selection {
   position: absolute;
   top: 0.45rem;
-  right: 0.45rem;
+  left: 0.45rem;
   width: 1.25rem;
   height: 1.25rem;
+  padding: 0;
   border: 2px solid white;
   border-radius: 50%;
   background: rgb(0 0 0 / 28%);
   box-shadow: 0 0 0 1px rgb(0 0 0 / 18%);
+}
+
+.picker-card-selection.is-inline {
+  z-index: 1;
+  cursor: pointer;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .picker-card-selection.is-inline {
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+
+  .picker-card:hover .picker-card-selection.is-inline,
+  .picker-card:focus-within .picker-card-selection.is-inline,
+  .picker-card-selection.is-inline.is-selected {
+    opacity: 1;
+  }
 }
 
 .picker-card-selection.is-selected {

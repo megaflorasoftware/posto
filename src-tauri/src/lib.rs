@@ -21,6 +21,8 @@ const SETTINGS_MENU_ID: &str = "settings";
 #[cfg(desktop)]
 const FULLSCREEN_EDITOR_MENU_ID: &str = "fullscreen-editor";
 #[cfg(desktop)]
+const TOGGLE_SIDEBAR_MENU_ID: &str = "toggle-sidebar";
+#[cfg(desktop)]
 const OPEN_FILE_MENU_ID: &str = "open-file";
 #[cfg(desktop)]
 const OPEN_REPOSITORY_MENU_ID: &str = "open-repository";
@@ -180,10 +182,13 @@ pub fn run() {
                     .enabled(false)
                     .build(app)?;
             let fullscreen_editor =
-                MenuItemBuilder::with_id(FULLSCREEN_EDITOR_MENU_ID, "Fullscreen Editor")
+                MenuItemBuilder::with_id(FULLSCREEN_EDITOR_MENU_ID, "Toggle Fullscreen Editor")
                     .accelerator("CmdOrCtrl+Shift+F")
                     .enabled(false)
                     .build(app)?;
+            let toggle_sidebar = MenuItemBuilder::with_id(TOGGLE_SIDEBAR_MENU_ID, "Toggle Sidebar")
+                .accelerator("CmdOrCtrl+\\")
+                .build(app)?;
 
             #[cfg(target_os = "macos")]
             {
@@ -202,12 +207,13 @@ pub fn run() {
                 if view_menu.text()? == "View" {
                     has_view_menu = true;
                     let separator = PredefinedMenuItem::separator(app)?;
-                    view_menu.prepend_items(&[&fullscreen_editor, &separator])?;
+                    view_menu.prepend_items(&[&toggle_sidebar, &fullscreen_editor, &separator])?;
                     break;
                 }
             }
             if !has_view_menu {
-                let view_menu = Submenu::with_items(app, "View", true, &[&fullscreen_editor])?;
+                let view_menu =
+                    Submenu::with_items(app, "View", true, &[&toggle_sidebar, &fullscreen_editor])?;
                 menu.append(&view_menu)?;
             }
 
@@ -290,6 +296,9 @@ pub fn run() {
             }
             if event.id().as_ref() == FULLSCREEN_EDITOR_MENU_ID {
                 let _ = app.emit("open-fullscreen-editor", ());
+            }
+            if event.id().as_ref() == TOGGLE_SIDEBAR_MENU_ID {
+                let _ = app.emit("toggle-sidebar", ());
             }
         });
     #[cfg(desktop)]

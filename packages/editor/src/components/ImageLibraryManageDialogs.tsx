@@ -19,8 +19,8 @@ import {
 import {
   applyImageLibraryReferenceUpdates,
   planImageLibraryReferenceUpdates,
-  type ImageLibraryRelocation,
 } from "../imageLibraryReferences";
+import { moveImageLibraryItems } from "../mediaMoves";
 import { CachedImage } from "./CachedImage";
 import { Dialog } from "./Dialog";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
@@ -209,152 +209,20 @@ export function MoveImageLibraryAssetsDialog(props: {
     setPending(true);
     setError(null);
     const destinationDirectory = [props.libraryRoot, currentDirectory].filter(Boolean).join("/");
-    const basename = (path: string) => path.slice(path.lastIndexOf("/") + 1);
-    const dirname = (path: string) => path.slice(0, path.lastIndexOf("/"));
-    const assetTargets = props.movingAssets.map((asset) => ({
-      asset,
-      imagePath: `${destinationDirectory}/${basename(asset.imagePath ?? "")}`,
-      metadataPath: `${destinationDirectory}/${basename(asset.metadataPath)}`,
-    }));
-    const directoryTargets = movingDirectories.map((directoryPath) => ({
-      directoryPath,
-      target: `${destinationDirectory}/${basename(directoryPath)}`,
-    }));
-    const relocationFor = (asset: ImageLibraryAsset): ImageLibraryRelocation | null => {
-      if (!asset.imagePath) return null;
-      const direct = assetTargets.find(
-        (operation) => operation.asset.metadataPath === asset.metadataPath,
-      );
-      let newImagePath: string;
-      let newMetadataPath: string;
-      if (direct) {
-        newImagePath = direct.imagePath;
-        newMetadataPath = direct.metadataPath;
-      } else {
-        const directory = directoryTargets.find(
-          (operation) =>
-            asset.metadataPath.startsWith(`${operation.directoryPath}/`) &&
-            asset.imagePath?.startsWith(`${operation.directoryPath}/`),
-        );
-        if (!directory) return null;
-        newImagePath = `${directory.target}${asset.imagePath.slice(directory.directoryPath.length)}`;
-        newMetadataPath = `${directory.target}${asset.metadataPath.slice(directory.directoryPath.length)}`;
-      }
-      return {
-        oldEntryId: asset.entryId,
-        newEntryId: pathEntryId(newMetadataPath.slice(props.libraryRoot.length + 1)),
-        oldImagePath: asset.imagePath,
-        newImagePath,
-        newAlt: metadataAlt(asset.metadata),
-      };
-    };
     try {
-      const existingPaths = new Set(
-        props.assets.flatMap((asset) =>
-          asset.imagePath ? [asset.imagePath, asset.metadataPath] : [asset.metadataPath],
-        ),
-      );
-      const sourcePaths = new Set(
-        props.movingAssets.flatMap((asset) =>
-          asset.imagePath ? [asset.imagePath, asset.metadataPath] : [asset.metadataPath],
-        ),
-      );
-      const targetPaths = new Set<string>();
-      for (const asset of props.movingAssets) {
-        if (!asset.imagePath) throw new Error(`${asset.entryId} has no image to move.`);
-        const targets = [asset.imagePath, asset.metadataPath].map(
-          (path) => `${destinationDirectory}/${path.split("/").pop()}`,
-        );
-        if (targets.some((path) => sourcePaths.has(path))) {
-          throw new Error("One or more selected images are already in that folder.");
-        }
-        if (
-          targets.some(
-            (path) => targetPaths.has(path) || (existingPaths.has(path) && !sourcePaths.has(path)),
-          )
-        ) {
-          throw new Error("A file with that name already exists in the destination folder.");
-        }
-        targets.forEach((path) => targetPaths.add(path));
-      }
-      const directoryTargetPaths = new Set<string>();
-      for (const directoryPath of movingDirectories) {
-        if (
-          destinationDirectory === directoryPath ||
-          destinationDirectory.startsWith(`${directoryPath}/`)
-        ) {
-          throw new Error("A folder cannot be moved into itself.");
-        }
-        const target = `${destinationDirectory}/${directoryPath.split("/").pop()}`;
-        if (target === directoryPath) {
-          throw new Error("One or more selected folders are already in that folder.");
-        }
-        if (
-          directoryTargetPaths.has(target) ||
-          props.directories.some(
-            (directory) =>
-              directory === target &&
-              !movingDirectories.some(
-                (movingDirectory) =>
-                  directory === movingDirectory || directory.startsWith(`${movingDirectory}/`),
-              ),
-          )
-        ) {
-          throw new Error("A folder with that name already exists in the destination folder.");
-        }
-        directoryTargetPaths.add(target);
-      }
-      await props.onBeforeMove();
-      const relocations = props.assets.flatMap((asset) => {
-        const relocation = relocationFor(asset);
-        return relocation ? [relocation] : [];
-      });
-      const referencePlan = await planImageLibraryReferenceUpdates({
+      await moveImageLibraryItems({
         root: props.root,
+        library: props.library,
         config: props.config,
         groups: props.groups,
-        library: props.library,
-        relocations,
+        libraryRoot: props.libraryRoot,
+        directories: props.directories,
+        assets: props.assets,
+        movingAssets: props.movingAssets,
+        movingDirectories,
+        destinationDirectory,
+        onBeforeMove: props.onBeforeMove,
       });
-      const completedAssets: typeof assetTargets = [];
-      const completedDirectories: typeof directoryTargets = [];
-      try {
-        for (const operation of assetTargets) {
-          await invoke("move_image_library_asset", {
-            libraryRoot: props.libraryRoot,
-            imagePath: operation.asset.imagePath,
-            metadataPath: operation.asset.metadataPath,
-            destinationDirectory,
-          });
-          completedAssets.push(operation);
-        }
-        for (const operation of directoryTargets) {
-          await invoke("move_image_library_directory", {
-            libraryRoot: props.libraryRoot,
-            directoryPath: operation.directoryPath,
-            destinationDirectory,
-          });
-          completedDirectories.push(operation);
-        }
-        await applyImageLibraryReferenceUpdates(referencePlan);
-      } catch (caught) {
-        for (const operation of completedDirectories.reverse()) {
-          await invoke("move_image_library_directory", {
-            libraryRoot: props.libraryRoot,
-            directoryPath: operation.target,
-            destinationDirectory: dirname(operation.directoryPath),
-          }).catch(() => undefined);
-        }
-        for (const operation of completedAssets.reverse()) {
-          await invoke("move_image_library_asset", {
-            libraryRoot: props.libraryRoot,
-            imagePath: operation.imagePath,
-            metadataPath: operation.metadataPath,
-            destinationDirectory: dirname(operation.asset.metadataPath),
-          }).catch(() => undefined);
-        }
-        throw caught;
-      }
       props.onMoved();
       props.onClose();
     } catch (caught) {
@@ -589,7 +457,6 @@ export function ImageLibraryEditDialog(props: {
       setDeleting(false);
     }
   };
-
   return (
     <Dialog opened onClose={props.onClose} title={`Edit ${filename}`} size="xl">
       {error && (
