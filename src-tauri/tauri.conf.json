@@ -13,6 +13,8 @@
     "windows": [
       {
         "title": "Posto",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
         "width": 2400,
         "height": 1350
       }
@@ -21,9 +23,7 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": [
-          "**"
-        ]
+        "scope": ["**"]
       }
     }
   },

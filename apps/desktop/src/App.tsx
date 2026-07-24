@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActionIcon, Button, MantineProvider } from "@mantine/core";
+import { ActionIcon, MantineProvider } from "@mantine/core";
 import { Notifications, notifications } from "@mantine/notifications";
 import {
   invoke,
   onFsChanged,
   onOpenFullscreenEditor,
+  onOpenRecent,
+  onOpenRepository,
+  onOpenSiblingProject,
   openDirectory,
   setFullscreenEditorMenuEnabled,
+  setRepositoryMenuItemsEnabled,
 } from "@posto/ipc";
 import { checkForAppUpdate } from "./updater";
 import type { ChangedFile, FileEntry, FileGroup } from "@posto/ipc";
@@ -47,6 +51,7 @@ import { AppHeader } from "./components/AppHeader";
 import { DeploymentDrawer } from "./components/DeploymentDrawer";
 import { MediaDrawer } from "./components/MediaDrawer";
 import { PreviewPane } from "./components/PreviewPane";
+import { RecentProjectsSpotlight } from "./components/RecentProjectsSpotlight";
 import { ChevronLeft, FileText, List } from "lucide-react";
 
 import "@mantine/core/styles.css";
@@ -74,6 +79,7 @@ function App() {
   const [publishOpen, setPublishOpen] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
   const [fullscreenEditorOpen, setFullscreenEditorOpen] = useState(false);
+  const [recentProjectsSpotlightOpen, setRecentProjectsSpotlightOpen] = useState(false);
   // Bumped after each successful save so the SEO preview refetches the page.
   const [saveTick, setSaveTick] = useState(0);
   const [componentSchemaVersion, setComponentSchemaVersion] = useState(0);
@@ -459,9 +465,20 @@ function App() {
 
   const externalChangesRef = useRef(onExternalChanges);
   externalChangesRef.current = onExternalChanges;
+  const chooseDirectoryRef = useRef(chooseDirectory);
+  chooseDirectoryRef.current = chooseDirectory;
+  const chooseProjectInRepositoryRef = useRef(chooseProjectInRepository);
+  chooseProjectInRepositoryRef.current = chooseProjectInRepository;
 
   useEffect(() => {
     const unlistenFs = onFsChanged((paths) => externalChangesRef.current(paths));
+    const unlistenOpenRepository = onOpenRepository(() => {
+      void chooseDirectoryRef.current();
+    });
+    const unlistenOpenRecent = onOpenRecent(() => setRecentProjectsSpotlightOpen(true));
+    const unlistenOpenSiblingProject = onOpenSiblingProject(() => {
+      void chooseProjectInRepositoryRef.current();
+    });
     const unlistenFullscreenEditor = onOpenFullscreenEditor(() => {
       if (currentFile.filePathRef.current) setFullscreenEditorOpen(true);
     });
@@ -479,6 +496,9 @@ function App() {
     })();
     return () => {
       unlistenFs();
+      unlistenOpenRepository();
+      unlistenOpenRecent();
+      unlistenOpenSiblingProject();
       unlistenFullscreenEditor();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -584,6 +604,13 @@ function App() {
   }, [fullscreenEditorOpen]);
 
   useEffect(() => {
+    const hasRecent = recentRoots.some((repository) => repository !== repoRoot);
+    void setRepositoryMenuItemsEnabled(hasRecent, projectSession.hasMultipleProjects).catch(
+      notifyError,
+    );
+  }, [recentRoots, repoRoot, projectSession.hasMultipleProjects, notifyError]);
+
+  useEffect(() => {
     void setFullscreenEditorMenuEnabled(currentFile.filePath !== null).catch(notifyError);
   }, [currentFile.filePath, notifyError]);
 
@@ -629,17 +656,23 @@ function App() {
     <MantineProvider defaultColorScheme="auto">
       <Notifications position="bottom-right" />
       <div className="app">
+        {recentProjectsSpotlightOpen && (
+          <RecentProjectsSpotlight
+            roots={recentRoots}
+            currentRoot={repoRoot}
+            onClose={() => setRecentProjectsSpotlightOpen(false)}
+            onOpen={(repository) => {
+              setRecentProjectsSpotlightOpen(false);
+              void selectRepository(repository);
+            }}
+          />
+        )}
+
         <AppHeader
           root={root}
-          repoRoot={repoRoot}
-          canSwitchProject={projectSession.hasMultipleProjects}
-          recentRoots={recentRoots}
           behindUpstream={git.behindUpstream}
           pulling={git.pulling}
           hasLocalChanges={git.hasLocalChanges}
-          onChooseDirectory={() => void chooseDirectory()}
-          onSelectRoot={(dir) => void selectRepository(dir)}
-          onSwitchProject={() => void chooseProjectInRepository()}
           deployment={deployment}
           canOpenMedia={adapter.capabilities.mediaLibraries && !!config?.mediaLibraries?.length}
           onOpenMedia={() => setMediaOpen(true)}
@@ -702,8 +735,7 @@ function App() {
           </div>
         ) : !root ? (
           <div className="empty-state">
-            <p>Select the folder that holds your site to get started.</p>
-            <Button onClick={() => void chooseDirectory()}>Choose directory</Button>
+            <p>Open a repository from the File menu to get started.</p>
           </div>
         ) : (
           <div className="body">
@@ -732,9 +764,7 @@ function App() {
                       <div className="body-rich-toolbar-edge">{renderFullscreenExit()}</div>
                       <div className="body-rich-toolbar-controls" />
                       {fullscreenCanToggleFieldsBody && (
-                        <div className="body-rich-toolbar-edge">
-                          {renderFullscreenViewToggle()}
-                        </div>
+                        <div className="body-rich-toolbar-edge">{renderFullscreenViewToggle()}</div>
                       )}
                     </div>
                   )}
@@ -780,9 +810,7 @@ function App() {
                     fullscreenEditorOpen
                       ? (filenameControl) => (
                           <div className="fullscreen-plain-toolbar">
-                            <div className="body-rich-toolbar-edge">
-                              {renderFullscreenExit()}
-                            </div>
+                            <div className="body-rich-toolbar-edge">{renderFullscreenExit()}</div>
                             <div className="body-rich-toolbar-controls">
                               <div className="fullscreen-fields-filename">{filenameControl}</div>
                             </div>

@@ -18,6 +18,57 @@ mod workspace;
 
 #[cfg(target_os = "macos")]
 const FULLSCREEN_EDITOR_MENU_ID: &str = "fullscreen-editor";
+#[cfg(target_os = "macos")]
+const OPEN_REPOSITORY_MENU_ID: &str = "open-repository";
+#[cfg(target_os = "macos")]
+const OPEN_RECENT_MENU_ID: &str = "open-recent";
+#[cfg(target_os = "macos")]
+const OPEN_SIBLING_PROJECT_MENU_ID: &str = "open-sibling-project";
+
+#[cfg(desktop)]
+#[tauri::command]
+fn set_repository_menu_items_enabled(
+    app: tauri::AppHandle,
+    has_recent: bool,
+    can_open_sibling: bool,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::menu::MenuItemKind;
+
+        let menu = app
+            .menu()
+            .ok_or_else(|| "application menu is unavailable".to_string())?;
+        for item in menu.items().map_err(|error| error.to_string())? {
+            let MenuItemKind::Submenu(submenu) = item else {
+                continue;
+            };
+            if submenu.text().map_err(|error| error.to_string())? != "File" {
+                continue;
+            }
+            let Some(MenuItemKind::MenuItem(recent)) = submenu.get(OPEN_RECENT_MENU_ID) else {
+                return Err("open recent menu item is unavailable".to_string());
+            };
+            let Some(MenuItemKind::MenuItem(sibling)) = submenu.get(OPEN_SIBLING_PROJECT_MENU_ID)
+            else {
+                return Err("open sibling project menu item is unavailable".to_string());
+            };
+            recent
+                .set_enabled(has_recent)
+                .map_err(|error| error.to_string())?;
+            return sibling
+                .set_enabled(can_open_sibling)
+                .map_err(|error| error.to_string());
+        }
+        Err("File menu is unavailable".to_string())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, has_recent, can_open_sibling);
+        Ok(())
+    }
+}
 
 #[cfg(desktop)]
 #[tauri::command]
@@ -108,6 +159,16 @@ pub fn run() {
                     .accelerator("Cmd+Shift+F")
                     .enabled(false)
                     .build(app)?;
+            let open_repository =
+                MenuItemBuilder::with_id(OPEN_REPOSITORY_MENU_ID, "Open Repository…").build(app)?;
+            let open_recent = MenuItemBuilder::with_id(OPEN_RECENT_MENU_ID, "Open Recent…")
+                .accelerator("Cmd+Shift+O")
+                .enabled(false)
+                .build(app)?;
+            let open_sibling =
+                MenuItemBuilder::with_id(OPEN_SIBLING_PROJECT_MENU_ID, "Open Sibling Project…")
+                    .enabled(false)
+                    .build(app)?;
             for item in menu.items()? {
                 let MenuItemKind::Submenu(view_menu) = item else {
                     continue;
@@ -118,6 +179,21 @@ pub fn run() {
                     break;
                 }
             }
+            for item in menu.items()? {
+                let MenuItemKind::Submenu(file_menu) = item else {
+                    continue;
+                };
+                if file_menu.text()? == "File" {
+                    let separator = PredefinedMenuItem::separator(app)?;
+                    file_menu.prepend_items(&[
+                        &open_repository,
+                        &open_recent,
+                        &open_sibling,
+                        &separator,
+                    ])?;
+                    break;
+                }
+            }
             Ok(menu)
         })
         .on_menu_event(|app, event| {
@@ -125,6 +201,15 @@ pub fn run() {
 
             if event.id().as_ref() == FULLSCREEN_EDITOR_MENU_ID {
                 let _ = app.emit("open-fullscreen-editor", ());
+            }
+            if event.id().as_ref() == OPEN_REPOSITORY_MENU_ID {
+                let _ = app.emit("open-repository", ());
+            }
+            if event.id().as_ref() == OPEN_RECENT_MENU_ID {
+                let _ = app.emit("open-recent", ());
+            }
+            if event.id().as_ref() == OPEN_SIBLING_PROJECT_MENU_ID {
+                let _ = app.emit("open-sibling-project", ());
             }
         });
     #[cfg(desktop)]
@@ -174,6 +259,7 @@ pub fn run() {
         git::publish,
         workspace::scan_projects,
         watch::watch_root,
+        set_repository_menu_items_enabled,
         set_fullscreen_editor_menu_enabled
     ]);
     #[cfg(mobile)]

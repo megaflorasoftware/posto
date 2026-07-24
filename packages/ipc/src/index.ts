@@ -352,6 +352,40 @@ export function onFsChanged(handler: (paths: string[]) => void): () => void {
   };
 }
 
+/** Subscribes to the native File menu's repository-opening commands. */
+export function onOpenRepository(handler: () => void): () => void {
+  if (!inTauri) return () => {};
+  const unlisten = listen("open-repository", handler);
+  return () => {
+    void unlisten.then((fn) => fn());
+  };
+}
+
+export function onOpenRecent(handler: () => void): () => void {
+  if (!inTauri) return () => {};
+  const unlisten = listen("open-recent", handler);
+  return () => {
+    void unlisten.then((fn) => fn());
+  };
+}
+
+export function onOpenSiblingProject(handler: () => void): () => void {
+  if (!inTauri) return () => {};
+  const unlisten = listen("open-sibling-project", handler);
+  return () => {
+    void unlisten.then((fn) => fn());
+  };
+}
+
+/** Keeps repository commands in sync with the current app session. */
+export function setRepositoryMenuItemsEnabled(
+  hasRecent: boolean,
+  canOpenSibling: boolean,
+): Promise<void> {
+  if (!inTauri) return Promise.resolve();
+  return invoke("set_repository_menu_items_enabled", { hasRecent, canOpenSibling });
+}
+
 /** Subscribes to the native View menu's fullscreen-editor command. */
 export function onOpenFullscreenEditor(handler: () => void): () => void {
   if (!inTauri) return () => {};

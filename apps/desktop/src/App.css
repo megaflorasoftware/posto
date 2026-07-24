@@ -15,12 +15,26 @@ body,
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.5rem 0.75rem;
+  min-height: 52px;
+  padding: 0.375rem 0.75rem;
+  box-sizing: border-box;
   border-bottom: 1px solid var(--mantine-color-default-border);
+  background: var(--mantine-color-body);
+  user-select: none;
 }
 
 .navbar-spacer {
   flex: 1;
+}
+
+/* Same footprint and fallback transition as the mobile repository picker. */
+.recent-project-favicon {
+  display: block;
+  width: 2.125rem;
+  height: 2.125rem;
+  border-radius: var(--mantine-radius-sm);
+  object-fit: cover;
+  background: var(--mantine-color-default);
 }
 
 /* Mantine's drawer content is itself the scroller; make it a full-height flex
