@@ -568,6 +568,185 @@ pub fn delete_file(path: String) -> Result<(), String> {
     std::fs::remove_file(&path).map_err(|e| format!("Failed to delete {path}: {e}"))
 }
 
+/// Creates one visible directory inside a media library. Both the library root
+/// and the requested parent must already exist, which keeps this command
+/// narrowly scoped to the folder currently shown by the media browser.
+#[tauri::command]
+pub fn create_image_library_directory(
+    library_root: String,
+    directory_path: String,
+) -> Result<(), String> {
+    canonical_root(&library_root)?;
+    reject_hidden(&directory_path)?;
+    let target = managed_target(Path::new(&library_root), &directory_path, false)?;
+    std::fs::create_dir(&target).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            format!("Folder already exists: {}", target.display())
+        } else {
+            format!("Failed to create folder {}: {error}", target.display())
+        }
+    })
+}
+
+/// Deletes an image-library entry and its image together after verifying that
+/// both paths are files contained by the declared library root.
+#[tauri::command]
+pub fn delete_image_library_asset(
+    library_root: String,
+    image_path: String,
+    metadata_path: String,
+) -> Result<(), String> {
+    canonical_root(&library_root)?;
+    let root = Path::new(&library_root);
+    let image = managed_target(root, &image_path, false)?;
+    let metadata = managed_target(root, &metadata_path, false)?;
+    if !image.is_file() || !metadata.is_file() {
+        return Err("The image-library entry is incomplete or no longer exists".to_string());
+    }
+
+    // Move both files aside first so a failure cannot leave a half-deleted
+    // entry. Once both renames succeed, removing the temporary files commits.
+    let image_tmp = transaction_temp(&image, "delete")?;
+    let metadata_tmp = transaction_temp(&metadata, "delete")?;
+    if image_tmp.exists() || metadata_tmp.exists() {
+        return Err("A previous image deletion is still pending".to_string());
+    }
+    std::fs::rename(&image, &image_tmp)
+        .map_err(|error| format!("Failed to stage image deletion: {error}"))?;
+    if let Err(error) = std::fs::rename(&metadata, &metadata_tmp) {
+        let _ = std::fs::rename(&image_tmp, &image);
+        return Err(format!("Failed to stage metadata deletion: {error}"));
+    }
+    if let Err(error) = std::fs::remove_file(&image_tmp) {
+        let _ = std::fs::rename(&image_tmp, &image);
+        let _ = std::fs::rename(&metadata_tmp, &metadata);
+        return Err(format!("Failed to delete image: {error}"));
+    }
+    std::fs::remove_file(&metadata_tmp)
+        .map_err(|error| format!("Failed to delete metadata: {error}"))
+}
+
+/// Moves an image-library entry and its image into an existing directory in
+/// the same library. The pair is rolled back if the second rename fails.
+#[tauri::command]
+pub fn move_image_library_asset(
+    library_root: String,
+    image_path: String,
+    metadata_path: String,
+    destination_directory: String,
+) -> Result<(), String> {
+    canonical_root(&library_root)?;
+    let root = Path::new(&library_root);
+    let image = managed_target(root, &image_path, false)?;
+    let metadata = managed_target(root, &metadata_path, false)?;
+    let destination_probe = Path::new(&destination_directory).join(".posto-destination");
+    let destination_probe = managed_target(root, &destination_probe.to_string_lossy(), false)?;
+    let destination = destination_probe
+        .parent()
+        .ok_or_else(|| "Invalid destination folder".to_string())?;
+    if !destination.is_dir() {
+        return Err(format!(
+            "Not a destination folder: {}",
+            destination.display()
+        ));
+    }
+    if !image.is_file() || !metadata.is_file() {
+        return Err("The image-library entry is incomplete or no longer exists".to_string());
+    }
+    let target_image = destination.join(
+        image
+            .file_name()
+            .ok_or_else(|| "Invalid image filename".to_string())?,
+    );
+    let target_metadata = destination.join(
+        metadata
+            .file_name()
+            .ok_or_else(|| "Invalid metadata filename".to_string())?,
+    );
+    if target_image == image && target_metadata == metadata {
+        return Err("The image is already in that folder".to_string());
+    }
+    if target_image.exists() || target_metadata.exists() {
+        return Err(format!(
+            "A file with that name already exists in {}",
+            destination.display()
+        ));
+    }
+    std::fs::rename(&image, &target_image)
+        .map_err(|error| format!("Failed to move image: {error}"))?;
+    if let Err(error) = std::fs::rename(&metadata, &target_metadata) {
+        let _ = std::fs::rename(&target_image, &image);
+        return Err(format!("Failed to move metadata: {error}"));
+    }
+    Ok(())
+}
+
+/// Deletes a directory and everything below it, constrained to a media library.
+#[tauri::command]
+pub fn delete_image_library_directory(
+    library_root: String,
+    directory_path: String,
+) -> Result<(), String> {
+    canonical_root(&library_root)?;
+    let root = Path::new(&library_root);
+    let probe = Path::new(&directory_path).join(".posto-directory");
+    let probe = managed_target(root, &probe.to_string_lossy(), false)?;
+    let directory = probe
+        .parent()
+        .ok_or_else(|| "Invalid media directory".to_string())?;
+    let canonical_root = canonical_root(&library_root)?;
+    let canonical_directory = std::fs::canonicalize(directory)
+        .map_err(|error| format!("Invalid media directory: {error}"))?;
+    if canonical_directory == canonical_root || !canonical_directory.starts_with(&canonical_root) {
+        return Err("The media library root cannot be deleted".to_string());
+    }
+    std::fs::remove_dir_all(&canonical_directory)
+        .map_err(|error| format!("Failed to delete folder {}: {error}", directory.display()))
+}
+
+/// Moves a whole directory into an existing directory in the same library.
+#[tauri::command]
+pub fn move_image_library_directory(
+    library_root: String,
+    directory_path: String,
+    destination_directory: String,
+) -> Result<(), String> {
+    canonical_root(&library_root)?;
+    let root = Path::new(&library_root);
+    let source_probe = Path::new(&directory_path).join(".posto-source");
+    let source_probe = managed_target(root, &source_probe.to_string_lossy(), false)?;
+    let source = source_probe
+        .parent()
+        .ok_or_else(|| "Invalid source folder".to_string())?;
+    let destination_probe = Path::new(&destination_directory).join(".posto-destination");
+    let destination_probe = managed_target(root, &destination_probe.to_string_lossy(), false)?;
+    let destination = destination_probe
+        .parent()
+        .ok_or_else(|| "Invalid destination folder".to_string())?;
+    let canonical_root = canonical_root(&library_root)?;
+    let canonical_source =
+        std::fs::canonicalize(source).map_err(|error| format!("Invalid source folder: {error}"))?;
+    let canonical_destination = std::fs::canonicalize(destination)
+        .map_err(|error| format!("Invalid destination folder: {error}"))?;
+    if canonical_source == canonical_root {
+        return Err("The media library root cannot be moved".to_string());
+    }
+    if canonical_destination == canonical_source
+        || canonical_destination.starts_with(&canonical_source)
+    {
+        return Err("A folder cannot be moved into itself".to_string());
+    }
+    let name = canonical_source
+        .file_name()
+        .ok_or_else(|| "Invalid source folder name".to_string())?;
+    let target = canonical_destination.join(name);
+    if target.exists() {
+        return Err(format!("Folder already exists: {}", target.display()));
+    }
+    std::fs::rename(&canonical_source, &target)
+        .map_err(|error| format!("Failed to move folder: {error}"))
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImageLibraryImportPlan {
@@ -984,6 +1163,94 @@ mod tests {
         let collision = import_plan(temp.path());
         assert!(execute_image_library_import(collision, None).is_err());
         assert_eq!(std::fs::read(&image).unwrap(), b"image");
+    }
+
+    #[test]
+    fn media_management_creates_folders_and_deletes_pairs_inside_the_library() {
+        let temp = tempfile::tempdir().unwrap();
+        let library = temp.path().join("src/data/images");
+        std::fs::create_dir_all(&library).unwrap();
+        let folder = library.join("portraits");
+        create_image_library_directory(
+            library.to_string_lossy().to_string(),
+            folder.to_string_lossy().to_string(),
+        )
+        .unwrap();
+        assert!(folder.is_dir());
+        assert!(create_image_library_directory(
+            library.to_string_lossy().to_string(),
+            temp.path().join("outside").to_string_lossy().to_string(),
+        )
+        .is_err());
+
+        let image = folder.join("photo.jpg");
+        let metadata = folder.join("photo.yml");
+        std::fs::write(&image, b"image").unwrap();
+        std::fs::write(&metadata, "image: ./photo.jpg\n").unwrap();
+        delete_image_library_asset(
+            library.to_string_lossy().to_string(),
+            image.to_string_lossy().to_string(),
+            metadata.to_string_lossy().to_string(),
+        )
+        .unwrap();
+        assert!(!image.exists() && !metadata.exists());
+
+        let source = library.join("source");
+        let destination = library.join("destination");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&destination).unwrap();
+        let image = source.join("moved.jpg");
+        let metadata = source.join("moved.yml");
+        std::fs::write(&image, b"image").unwrap();
+        std::fs::write(&metadata, "image: ./moved.jpg\n").unwrap();
+        move_image_library_asset(
+            library.to_string_lossy().to_string(),
+            image.to_string_lossy().to_string(),
+            metadata.to_string_lossy().to_string(),
+            destination.to_string_lossy().to_string(),
+        )
+        .unwrap();
+        assert!(!image.exists() && !metadata.exists());
+        assert!(destination.join("moved.jpg").is_file());
+        assert!(destination.join("moved.yml").is_file());
+        assert!(move_image_library_asset(
+            library.to_string_lossy().to_string(),
+            destination.join("moved.jpg").to_string_lossy().to_string(),
+            destination.join("moved.yml").to_string_lossy().to_string(),
+            temp.path().to_string_lossy().to_string(),
+        )
+        .is_err());
+
+        let album = library.join("album");
+        let archive = library.join("archive");
+        std::fs::create_dir_all(album.join("nested")).unwrap();
+        std::fs::create_dir_all(&archive).unwrap();
+        std::fs::write(album.join("nested/photo.jpg"), b"image").unwrap();
+        move_image_library_directory(
+            library.to_string_lossy().to_string(),
+            album.to_string_lossy().to_string(),
+            archive.to_string_lossy().to_string(),
+        )
+        .unwrap();
+        let moved_album = archive.join("album");
+        assert!(moved_album.join("nested/photo.jpg").is_file());
+        assert!(move_image_library_directory(
+            library.to_string_lossy().to_string(),
+            moved_album.to_string_lossy().to_string(),
+            moved_album.join("nested").to_string_lossy().to_string(),
+        )
+        .is_err());
+        delete_image_library_directory(
+            library.to_string_lossy().to_string(),
+            moved_album.to_string_lossy().to_string(),
+        )
+        .unwrap();
+        assert!(!moved_album.exists());
+        assert!(delete_image_library_directory(
+            library.to_string_lossy().to_string(),
+            library.to_string_lossy().to_string(),
+        )
+        .is_err());
     }
 
     #[test]

@@ -695,8 +695,15 @@ export default function RepoHome({
         <main className="mobile-media-screen">
           <MediaLibraryPane
             root={root}
+            config={config!}
+            groups={files.groups}
             libraries={config?.mediaLibraries ?? []}
             onImport={importIntoLibrary}
+            onChanged={(library) => {
+              setStatus("Media updated. Publish when you are ready.");
+              void git.refreshLocalChanges(root);
+              void refreshImageLibraryAssets(root, library);
+            }}
           />
         </main>
       ) : showSettings ? (

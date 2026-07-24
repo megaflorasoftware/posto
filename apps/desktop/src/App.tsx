@@ -833,8 +833,8 @@ function App() {
                         config={config}
                         groups={files.groups}
                         libraries={config.mediaLibraries ?? []}
-                        onImported={() => {
-                          notify("Image imported. Publish when you are ready.", "success");
+                        onChanged={() => {
+                          notify("Media updated. Publish when you are ready.", "success");
                           void refreshGroups(root);
                         }}
                       />

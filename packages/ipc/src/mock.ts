@@ -552,6 +552,76 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       mockDeleted.add(path);
       return null;
     }
+    case "create_image_library_directory": {
+      const path = args?.directoryPath as string;
+      if ((path.split("/").pop() ?? "").startsWith(".")) {
+        throw new Error(`Refusing to create a hidden folder: ${path}`);
+      }
+      if (mockDirectories.has(path)) throw new Error(`Folder already exists: ${path}`);
+      mockDirectories.add(path);
+      return null;
+    }
+    case "delete_image_library_asset": {
+      const imagePath = args?.imagePath as string;
+      const metadataPath = args?.metadataPath as string;
+      delete mockFiles[imagePath];
+      delete mockFiles[metadataPath];
+      mockDeleted.add(imagePath);
+      mockDeleted.add(metadataPath);
+      return null;
+    }
+    case "move_image_library_asset": {
+      const imagePath = args?.imagePath as string;
+      const metadataPath = args?.metadataPath as string;
+      const destination = args?.destinationDirectory as string;
+      const targetImage = `${destination}/${imagePath.split("/").pop()}`;
+      const targetMetadata = `${destination}/${metadataPath.split("/").pop()}`;
+      if (targetImage in mockFiles || targetMetadata in mockFiles) {
+        throw new Error(`A file with that name already exists in ${destination}`);
+      }
+      mockFiles[targetImage] = mockFiles[imagePath] ?? "";
+      mockFiles[targetMetadata] = mockFiles[metadataPath] ?? "";
+      rememberMockPath(targetImage);
+      rememberMockPath(targetMetadata);
+      delete mockFiles[imagePath];
+      delete mockFiles[metadataPath];
+      mockDeleted.add(imagePath);
+      mockDeleted.add(metadataPath);
+      return null;
+    }
+    case "delete_image_library_directory": {
+      const directory = args?.directoryPath as string;
+      for (const path of Object.keys(mockFiles)) {
+        if (path.startsWith(`${directory}/`)) {
+          delete mockFiles[path];
+          mockDeleted.add(path);
+        }
+      }
+      for (const path of Array.from(mockDirectories)) {
+        if (path === directory || path.startsWith(`${directory}/`)) mockDirectories.delete(path);
+      }
+      return null;
+    }
+    case "move_image_library_directory": {
+      const directory = args?.directoryPath as string;
+      const destination = args?.destinationDirectory as string;
+      const target = `${destination}/${directory.split("/").pop()}`;
+      if (mockDirectories.has(target)) throw new Error(`Folder already exists: ${target}`);
+      for (const path of Object.keys(mockFiles)) {
+        if (!path.startsWith(`${directory}/`)) continue;
+        const moved = `${target}${path.slice(directory.length)}`;
+        mockFiles[moved] = mockFiles[path];
+        rememberMockPath(moved);
+        delete mockFiles[path];
+        mockDeleted.add(path);
+      }
+      for (const path of Array.from(mockDirectories)) {
+        if (path !== directory && !path.startsWith(`${directory}/`)) continue;
+        mockDirectories.delete(path);
+        mockDirectories.add(`${target}${path.slice(directory.length)}`);
+      }
+      return null;
+    }
     case "import_image_library_asset": {
       const plan = args?.plan as ImageLibraryImportRequest;
       if (plan.destinationImagePath in mockFiles || plan.destinationMetadataPath in mockFiles) {

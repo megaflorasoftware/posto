@@ -704,8 +704,20 @@
   overflow-y: auto;
 }
 
-.image-library-browser-path {
+.image-library-browser-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 1.75rem;
   margin-bottom: 0.5rem;
+}
+
+.image-library-browser-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--mantine-color-dimmed);
   font-family: var(--mantine-font-family-monospace);
   font-size: var(--mantine-font-size-xs);
@@ -783,6 +795,7 @@
 }
 
 .picker-card-preview {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -793,6 +806,64 @@
   border-radius: 4px;
   background: var(--mantine-color-default-hover);
   overflow: hidden;
+}
+
+.picker-card-edit {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  background: rgb(0 0 0 / 35%);
+  opacity: 1;
+  transition: opacity 120ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .picker-card-edit {
+    opacity: 0;
+  }
+
+  .picker-card:hover .picker-card-edit,
+  .picker-card:focus-visible .picker-card-edit {
+    opacity: 1;
+  }
+}
+
+.picker-card-selection {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 2px solid white;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 28%);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 18%);
+}
+
+.picker-card-selection.is-selected {
+  border-color: var(--mantine-primary-color-filled);
+  background: var(--mantine-primary-color-filled);
+}
+
+.picker-card-selection.is-selected::after {
+  content: "";
+  position: absolute;
+  left: 0.31rem;
+  top: 0.12rem;
+  width: 0.3rem;
+  height: 0.55rem;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.media-selection-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
 }
 
 .picker-card-preview img {

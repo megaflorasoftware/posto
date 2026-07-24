@@ -459,7 +459,7 @@ input {
   overflow: visible;
 }
 
-.mobile-media-pane .image-library-browser-path,
+.mobile-media-pane .image-library-browser-header,
 .mobile-media-pane .mantine-Select-root {
   padding: var(--mantine-spacing-xs) var(--mantine-spacing-xs) 0;
 }

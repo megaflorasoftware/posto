@@ -3,11 +3,16 @@ import { Button, Select, Text } from "@mantine/core";
 import { Upload } from "lucide-react";
 import type { MediaLibrary, PagesConfig } from "@posto/core/pagescms/config";
 import {
+  CreateImageLibraryFolderDialog,
+  DeleteImageLibraryAssetsDialog,
   ImageLibraryBrowser,
+  ImageLibraryEditDialog,
   ImageLibraryImportDialog,
+  MoveImageLibraryAssetsDialog,
   refreshImageLibraryAssets,
   useImageLibraryAssets,
 } from "@posto/editor";
+import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
 import type { FileGroup } from "@posto/ipc";
 
 /** Browses one library's directories and assets (read-only, like the import
@@ -18,11 +23,18 @@ function MediaBrowserContent(props: {
   config: PagesConfig;
   groups: FileGroup[];
   libraries: MediaLibrary[];
-  onImported: () => void;
+  onChanged: () => void;
 }) {
   const [libraryIndex, setLibraryIndex] = useState(0);
   const [currentDirectory, setCurrentDirectory] = useState("");
   const [importing, setImporting] = useState(false);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [editing, setEditing] = useState<ImageLibraryAsset | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [selectedDirectories, setSelectedDirectories] = useState<Set<string>>(() => new Set());
+  const [deleting, setDeleting] = useState(false);
+  const [moving, setMoving] = useState(false);
   const library = props.libraries[libraryIndex] ?? props.libraries[0];
   const state = useImageLibraryAssets(props.root, library);
   const libraryRoot = `${props.root}/${library.base}`;
@@ -43,6 +55,9 @@ function MediaBrowserContent(props: {
             onChange={(value) => {
               setLibraryIndex(Number(value ?? 0));
               setCurrentDirectory("");
+              setSelectionMode(false);
+              setSelected(new Set());
+              setSelectedDirectories(new Set());
             }}
           />
         )}
@@ -57,14 +72,120 @@ function MediaBrowserContent(props: {
             directories={state.directories}
             assets={state.assets}
             onDirectoryChange={setCurrentDirectory}
+            onCreateFolder={() => setCreatingFolder(true)}
+            onEdit={setEditing}
+            selectionMode={selectionMode}
+            selectedAssetIds={selected}
+            selectedDirectoryPaths={selectedDirectories}
+            onStartSelection={() => {
+              setSelected(new Set());
+              setSelectedDirectories(new Set());
+              setSelectionMode((current) => !current);
+            }}
+            onToggleSelection={(asset) =>
+              setSelected((current) => {
+                const next = new Set(current);
+                if (next.has(asset.metadataPath)) next.delete(asset.metadataPath);
+                else next.add(asset.metadataPath);
+                return next;
+              })
+            }
+            onToggleDirectorySelection={(directory) => {
+              setSelectedDirectories((current) => {
+                const next = new Set(current);
+                if (next.has(directory)) next.delete(directory);
+                else {
+                  for (const selectedDirectory of next) {
+                    if (selectedDirectory.startsWith(`${directory}/`))
+                      next.delete(selectedDirectory);
+                  }
+                  next.add(directory);
+                }
+                return next;
+              });
+              setSelected(
+                (current) =>
+                  new Set(
+                    [...current].filter(
+                      (metadataPath) => !metadataPath.startsWith(`${directory}/`),
+                    ),
+                  ),
+              );
+            }}
           />
         )}
       </div>
       <div className="media-drawer-footer">
-        <Button fullWidth leftSection={<Upload size={16} />} onClick={() => setImporting(true)}>
-          Import images
-        </Button>
+        {selected.size + selectedDirectories.size > 0 ? (
+          <div className="media-selection-actions">
+            <Button fullWidth variant="default" onClick={() => setMoving(true)}>
+              Move items
+            </Button>
+            <Button fullWidth color="red" onClick={() => setDeleting(true)}>
+              Delete items
+            </Button>
+          </div>
+        ) : (
+          <Button fullWidth leftSection={<Upload size={16} />} onClick={() => setImporting(true)}>
+            Import images
+          </Button>
+        )}
       </div>
+      {creatingFolder && (
+        <CreateImageLibraryFolderDialog
+          libraryRoot={libraryRoot}
+          currentDirectory={currentDirectory}
+          onClose={() => setCreatingFolder(false)}
+          onCreated={() => void state.refresh()}
+        />
+      )}
+      {editing && (
+        <ImageLibraryEditDialog
+          root={props.root}
+          library={library}
+          config={props.config}
+          groups={props.groups}
+          asset={editing}
+          onClose={() => setEditing(null)}
+          onChanged={() => {
+            void state.refresh();
+            props.onChanged();
+          }}
+        />
+      )}
+      {deleting && (
+        <DeleteImageLibraryAssetsDialog
+          libraryRoot={libraryRoot}
+          assets={state.assets.filter((asset) => selected.has(asset.metadataPath))}
+          directories={[...selectedDirectories]}
+          onClose={() => setDeleting(false)}
+          onDeleted={() => {
+            setSelected(new Set());
+            setSelectedDirectories(new Set());
+            setSelectionMode(false);
+            void state.refresh();
+            props.onChanged();
+          }}
+        />
+      )}
+      {moving && (
+        <MoveImageLibraryAssetsDialog
+          libraryRoot={libraryRoot}
+          directories={state.directories}
+          assets={state.assets}
+          movingAssets={state.assets.filter((asset) => selected.has(asset.metadataPath))}
+          movingDirectories={[...selectedDirectories]}
+          onClose={() => setMoving(false)}
+          onRefresh={() => void state.refresh()}
+          onMoved={() => {
+            setSelected(new Set());
+            setSelectedDirectories(new Set());
+            setSelectionMode(false);
+            void state.refresh();
+            props.onChanged();
+          }}
+        />
+      )}
       {importing && (
         <ImageLibraryImportDialog
           root={props.root}
@@ -74,7 +195,7 @@ function MediaBrowserContent(props: {
           onClose={() => setImporting(false)}
           onImported={() => {
             void refreshImageLibraryAssets(props.root, library);
-            props.onImported();
+            props.onChanged();
           }}
         />
       )}
@@ -88,7 +209,7 @@ export function MediaSidebar(props: {
   config: PagesConfig;
   groups: FileGroup[];
   libraries: MediaLibrary[];
-  onImported: () => void;
+  onChanged: () => void;
 }) {
   if (props.libraries.length === 0) {
     return (
@@ -103,7 +224,7 @@ export function MediaSidebar(props: {
       config={props.config}
       groups={props.groups}
       libraries={props.libraries}
-      onImported={props.onImported}
+      onChanged={props.onChanged}
     />
   );
 }

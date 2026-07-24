@@ -10,6 +10,7 @@ export * from "./components/ImageLibraryPickerDialog";
 export * from "./components/ImageLibraryImportDialog";
 export * from "./components/ImageLibraryList";
 export * from "./components/ImageLibraryBrowser";
+export * from "./components/ImageLibraryManageDialogs";
 export * from "./components/RichTextImagePickerDialog";
 export * from "./components/ImageLibraryDropImport";
 export * from "./components/FileList";
