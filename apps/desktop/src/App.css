@@ -189,42 +189,38 @@ body,
   overflow: auto;
 }
 
-.sidebar details {
-  margin-top: 0.5rem;
+.file-tree {
+  padding-block: 0.25rem;
 }
 
-.sidebar-group-children {
-  margin-left: 0.6rem;
-  padding-left: 0.35rem;
-  border-left: 1px solid var(--mantine-color-default-border);
-}
-
-/* Heading rows lay out as `label … [+] [chevron]`; the native disclosure
-   marker is hidden in favor of the right-aligned chevron. */
-.sidebar summary {
+.file-tree-directory {
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  padding: 0.25rem 0.25rem;
+  min-height: 28px;
+  padding-block: 0.25rem;
+  padding-inline-end: 0.25rem;
   font-weight: 600;
   font-size: 0.8rem;
   color: var(--mantine-color-dimmed);
-  cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
-  list-style: none;
 }
 
-.sidebar summary::-webkit-details-marker {
-  display: none;
-}
-
-.group-label {
+.file-tree-directory-label {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.file-tree-chevron {
+  flex-shrink: 0;
+  color: var(--mantine-color-dimmed);
+  transition: transform 120ms ease;
+}
+
+.file-tree-chevron[data-expanded] {
+  transform: rotate(90deg);
 }
 
 .group-action {
@@ -245,16 +241,6 @@ body,
 .group-action:hover {
   background: var(--mantine-color-default-hover);
   color: inherit;
-}
-
-.group-chevron {
-  flex-shrink: 0;
-  color: var(--mantine-color-dimmed);
-  transition: transform 120ms ease;
-}
-
-.sidebar details:not([open]) > summary .group-chevron {
-  transform: rotate(-90deg);
 }
 
 .file-item {

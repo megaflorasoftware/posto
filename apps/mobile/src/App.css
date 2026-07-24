@@ -310,19 +310,7 @@ input {
   font-size: 0.85rem;
 }
 
-.mobile-document-list details {
-  width: 100%;
-  min-width: 0;
-  margin-top: var(--mantine-spacing-xs);
-}
-
-.mobile-group-children {
-  margin-left: 0.75rem;
-  padding-left: 0.25rem;
-  border-left: 1px solid var(--mantine-color-default-border);
-}
-
-.mobile-document-list summary {
+.mobile-file-tree-directory {
   width: 100%;
   min-width: 0;
   min-height: 44px;
@@ -334,16 +322,9 @@ input {
   font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
-  list-style: none;
-  user-select: none;
-  -webkit-user-select: none;
 }
 
-.mobile-document-list summary::-webkit-details-marker {
-  display: none;
-}
-
-.mobile-group-label {
+.mobile-file-tree .file-tree-directory-label {
   min-width: 0;
   flex: 1;
   overflow: hidden;
@@ -351,17 +332,26 @@ input {
   white-space: nowrap;
 }
 
-.mobile-group-chevron {
+.mobile-file-tree .file-tree-chevron {
   flex-shrink: 0;
+  color: var(--mantine-color-dimmed);
   transition: transform 120ms ease;
+}
+
+.mobile-file-tree .file-tree-chevron[data-expanded] {
+  transform: rotate(90deg);
 }
 
 .mobile-group-action {
   flex-shrink: 0;
 }
 
-.mobile-document-list details:not([open]) > summary .mobile-group-chevron {
-  transform: rotate(-90deg);
+.mobile-file-tree [role="treeitem"]:not([data-level="1"])::before {
+  top: 22px;
+}
+
+.mobile-file-tree [role="group"] > [role="treeitem"]:last-child::after {
+  height: 22px;
 }
 
 .mobile-file-item {

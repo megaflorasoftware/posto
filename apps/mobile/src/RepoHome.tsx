@@ -1,5 +1,4 @@
 import {
-  ActionIcon,
   Alert,
   Button,
   Center,
@@ -19,7 +18,6 @@ import {
   ImageLibraryImportDialog,
   PublishModal,
   buildNewFile,
-  canCreateFileInGroup,
   createDataDocumentEntry,
   deleteDataDocumentEntry,
   editorTabsForFile,
@@ -36,7 +34,7 @@ import {
   useSchemas,
   ipcProjectIO,
   WorkspaceChooser,
-  type DisplayGroupNode,
+  FileTree,
   type EditorTab,
 } from "@posto/editor";
 import {
@@ -63,10 +61,7 @@ import type {
 } from "@posto/ipc";
 import {
   CloudDownload,
-  ChevronDown,
   GitCommitHorizontal,
-  Pin,
-  Plus,
   RefreshCw,
   SlidersHorizontal,
   TriangleAlert,
@@ -79,102 +74,6 @@ import { usePullRefresh } from "./hooks/usePullRefresh";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const TRANSIENT_NOTICE_MS = 5_000;
-
-function MobileDirectory(props: {
-  node: DisplayGroupNode;
-  root: string;
-  developerMode: boolean;
-  onOpen: (file: FileEntry) => void;
-  onNewFile: (group: FileGroup) => void;
-  onSettings: (collection: ContentEntry, files: FileEntry[]) => void;
-}) {
-  const { node } = props;
-  const { group, collection, exact } = node;
-
-  if (!group.label) {
-    return (
-      <div>
-        {group.files.map((file) => (
-          <button
-            className="mobile-file-item"
-            key={file.key ?? file.path}
-            title={file.name}
-            onClick={() => props.onOpen(file)}
-          >
-            {file.title ?? file.name}
-          </button>
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <details open={node.defaultOpen}>
-      <summary>
-        <span className="mobile-group-label" title={group.label}>
-          {group.label}
-        </span>
-        {canCreateFileInGroup(props.root, group) && (
-          <ActionIcon
-            className="mobile-group-action"
-            variant="subtle"
-            color="gray"
-            aria-label={`New file in ${group.label}`}
-            title="New file"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              props.onNewFile(group);
-            }}
-          >
-            <Plus size={16} />
-          </ActionIcon>
-        )}
-        {props.developerMode && collection && exact && (
-          <ActionIcon
-            className="mobile-group-action"
-            variant="subtle"
-            color="gray"
-            aria-label={`Settings for ${group.label}`}
-            title="Collection settings"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              props.onSettings(collection, group.files);
-            }}
-          >
-            <SlidersHorizontal size={16} />
-          </ActionIcon>
-        )}
-        <ChevronDown size={14} className="mobile-group-chevron" />
-      </summary>
-      {group.files.map((file) => (
-        <button
-          className="mobile-file-item"
-          key={file.key ?? file.path}
-          title={file.name}
-          onClick={() => props.onOpen(file)}
-        >
-          {file.title ?? file.name}
-          {collection?.pinned?.includes(file.name) && (
-            <Pin size={13} className="mobile-file-pin" aria-label="Pinned" />
-          )}
-        </button>
-      ))}
-      {node.children.length > 0 && (
-        <div className="mobile-group-children">
-          {node.children.map((child) => (
-            <MobileDirectory
-              key={`${child.group.kind ?? ""}:${child.group.path}`}
-              {...props}
-              node={child}
-            />
-          ))}
-        </div>
-      )}
-    </details>
-  );
-}
 
 type Props = {
   root: string;
@@ -976,19 +875,18 @@ export default function RepoHome({
                 </Center>
               ) : (
                 <div className="mobile-document-list">
-                  {displayTree.map((node) => (
-                    <MobileDirectory
-                      key={`${node.group.kind ?? ""}:${node.group.path}`}
-                      node={node}
-                      root={root}
-                      developerMode={developerMode}
-                      onOpen={(file) => void openFile(file)}
-                      onNewFile={(group) => void createNewFile(group)}
-                      onSettings={(collection, groupFiles) =>
-                        setSettingsFor({ collection, files: groupFiles })
-                      }
-                    />
-                  ))}
+                  <FileTree
+                    root={root}
+                    nodes={displayTree}
+                    activeKey={currentFile.activeKey}
+                    variant="mobile"
+                    developerMode={developerMode}
+                    onOpen={(file) => void openFile(file)}
+                    onNewFile={(group) => void createNewFile(group)}
+                    onSettings={(collection, groupFiles) =>
+                      setSettingsFor({ collection, files: groupFiles })
+                    }
+                  />
                   {developerMode && orderableCollections(schemas.config).length > 1 && (
                     <button
                       type="button"

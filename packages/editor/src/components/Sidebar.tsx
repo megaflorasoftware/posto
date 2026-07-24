@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Popover, Stack, Text } from "@mantine/core";
-import { ChevronDown, Plus, SlidersHorizontal, TriangleAlert } from "lucide-react";
+import { SlidersHorizontal, TriangleAlert } from "lucide-react";
 import type { FileEntry, FileGroup } from "@posto/ipc";
 import {
   matchCollectionForDir,
@@ -10,7 +10,7 @@ import {
 import { applyCollectionPrefs } from "../collectionPrefs";
 import { CollectionOrderDialog } from "./CollectionOrderDialog";
 import { CollectionSettingsDialog } from "./CollectionSettingsDialog";
-import { FileList } from "./FileList";
+import { FileTree } from "./FileTree";
 
 export interface DisplayGroup {
   group: FileGroup;
@@ -74,14 +74,6 @@ function inferredDirectory(
     },
     depth,
   );
-}
-
-/** Public media is managed through the media library, not the text-file
- * creation flow exposed by sidebar collection groups. */
-export function canCreateFileInGroup(root: string, group: FileGroup): boolean {
-  const normalizedRoot = root.replace(/\\/g, "/").replace(/\/+$/, "");
-  const normalizedGroup = group.path.replace(/\\/g, "/").replace(/\/+$/, "");
-  return group.kind !== "styles" && normalizedGroup !== `${normalizedRoot}/public`;
 }
 
 /**
@@ -285,91 +277,6 @@ export function SchemaDiagnostics({ config }: { config: PagesConfig | null }) {
   );
 }
 
-function SidebarDirectory(props: {
-  node: DisplayGroupNode;
-  root: string;
-  activeKey: string | null;
-  developerMode: boolean;
-  onOpen: (file: FileEntry) => void;
-  onDelete: (file: FileEntry) => void;
-  onNewFile: (group: FileGroup) => void;
-  onSettings: (collection: ContentEntry, files: FileEntry[]) => void;
-}) {
-  const { node } = props;
-  const { group, collection, exact } = node;
-
-  if (!group.label) {
-    return (
-      <FileList
-        files={group.files}
-        activeKey={props.activeKey}
-        onOpen={props.onOpen}
-        onDelete={props.onDelete}
-      />
-    );
-  }
-
-  return (
-    <details open={node.defaultOpen}>
-      <summary>
-        <span className="group-label" title={group.label}>
-          {group.label}
-        </span>
-        {canCreateFileInGroup(props.root, group) && (
-          <button
-            type="button"
-            className="group-action"
-            title="New file"
-            aria-label={`New file in ${group.label}`}
-            onClick={(event) => {
-              // A click inside <summary> would also toggle the group.
-              event.preventDefault();
-              event.stopPropagation();
-              props.onNewFile(group);
-            }}
-          >
-            <Plus size={14} />
-          </button>
-        )}
-        {props.developerMode && collection && exact && (
-          <button
-            type="button"
-            className="group-action"
-            title="Collection settings"
-            aria-label={`Settings for ${group.label}`}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              props.onSettings(collection, group.files);
-            }}
-          >
-            <SlidersHorizontal size={14} />
-          </button>
-        )}
-        <ChevronDown size={14} className="group-chevron" />
-      </summary>
-      <FileList
-        files={group.files}
-        activeKey={props.activeKey}
-        pinned={collection?.pinned}
-        onOpen={props.onOpen}
-        onDelete={props.onDelete}
-      />
-      {node.children.length > 0 && (
-        <div className="sidebar-group-children">
-          {node.children.map((child) => (
-            <SidebarDirectory
-              key={`${child.group.kind ?? ""}:${child.group.path}`}
-              {...props}
-              node={child}
-            />
-          ))}
-        </div>
-      )}
-    </details>
-  );
-}
-
 export function Sidebar(props: {
   root: string;
   groups: FileGroup[];
@@ -425,21 +332,17 @@ export function Sidebar(props: {
         />
       )}
       <div className="sidebar-groups">
-        {displayTree.map((node) => (
-          // The synthetic Styles group shares its path with the root group,
-          // so the key needs the kind to stay unique.
-          <SidebarDirectory
-            key={`${node.group.kind ?? ""}:${node.group.path}`}
-            node={node}
-            root={root}
-            activeKey={props.activeKey}
-            developerMode={developerMode}
-            onOpen={props.onOpen}
-            onDelete={props.onDelete}
-            onNewFile={props.onNewFile}
-            onSettings={(collection, files) => setSettingsFor({ collection, files })}
-          />
-        ))}
+        <FileTree
+          root={root}
+          nodes={displayTree}
+          activeKey={props.activeKey}
+          variant="desktop"
+          developerMode={developerMode}
+          onOpen={props.onOpen}
+          onDelete={props.onDelete}
+          onNewFile={props.onNewFile}
+          onSettings={(collection, files) => setSettingsFor({ collection, files })}
+        />
       </div>
       {developerMode && orderableCollections(config).length > 1 && (
         <button type="button" className="sidebar-footer-action" onClick={() => setOrderOpen(true)}>

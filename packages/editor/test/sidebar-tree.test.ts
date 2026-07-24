@@ -3,6 +3,7 @@
 import { describe, expect, test } from "vitest";
 import type { PagesConfig } from "@posto/core/pagescms/config";
 import type { FileGroup } from "@posto/ipc";
+import { fileTreeData } from "../src/components/FileTree";
 import { sidebarDisplayTree } from "../src/components/Sidebar";
 
 const file = (path: string) => ({ name: path.split("/").pop()!, path });
@@ -81,6 +82,18 @@ describe("sidebarDisplayTree", () => {
     const frameworks = docs.children[3];
     expect(frameworks.group.files).toEqual([]);
     expect(frameworks.children.map((child) => child.group.label)).toEqual(["astro", "pages-cms"]);
+
+    const [mantineDocs] = fileTreeData([docs]);
+    expect(mantineDocs.label).toBe("Docs");
+    expect(mantineDocs.children?.map((child) => child.label)).toEqual([
+      "index.mdx",
+      "install.mdx",
+      "development",
+      "deployment",
+      "features",
+      "frameworks",
+    ]);
+    expect(mantineDocs.children?.[3].children?.[0].label).toBe("github");
   });
 
   test("infers ordinary parent folders and keeps each filesystem root open", () => {
