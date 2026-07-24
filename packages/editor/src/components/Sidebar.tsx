@@ -21,6 +21,14 @@ export interface DisplayGroup {
   exact: boolean;
 }
 
+/** Public media is managed through the media library, not the text-file
+ * creation flow exposed by sidebar collection groups. */
+export function canCreateFileInGroup(root: string, group: FileGroup): boolean {
+  const normalizedRoot = root.replace(/\\/g, "/").replace(/\/+$/, "");
+  const normalizedGroup = group.path.replace(/\\/g, "/").replace(/\/+$/, "");
+  return group.kind !== "styles" && normalizedGroup !== `${normalizedRoot}/public`;
+}
+
 /**
  * Groups in display order with collection settings applied: loose root files
  * stay at the very top, then groups whose directory belongs to a defined
@@ -193,7 +201,7 @@ export function Sidebar(props: {
                 <span className="group-label" title={group.label}>
                   {group.label}
                 </span>
-                {group.kind !== "styles" && (
+                {canCreateFileInGroup(root, group) && (
                   <button
                     type="button"
                     className="group-action"

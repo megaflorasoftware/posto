@@ -1,4 +1,5 @@
 import { createTheme, MantineProvider } from "@mantine/core";
+import { Notifications } from "@mantine/notifications";
 import { DialogVariantProvider } from "@posto/editor";
 import {
   closeInAppBrowser,
@@ -290,6 +291,7 @@ export default function App() {
 
   return (
     <MantineProvider defaultColorScheme="auto" theme={mobileTheme}>
+      <Notifications position="top-center" />
       <DialogVariantProvider variant="drawer">
         <Onboarding
           stage={stage}

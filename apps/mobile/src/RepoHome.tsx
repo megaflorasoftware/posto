@@ -5,10 +5,12 @@ import {
   Center,
   Group,
   Loader,
+  Modal,
   ScrollArea,
   Stack,
   Text,
 } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import {
   CollectionOrderDialog,
   CollectionSettingsDialog,
@@ -17,6 +19,7 @@ import {
   ImageLibraryImportDialog,
   PublishModal,
   buildNewFile,
+  canCreateFileInGroup,
   createDataDocumentEntry,
   deleteDataDocumentEntry,
   editorTabsForFile,
@@ -87,6 +90,15 @@ type Props = {
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function notifyError(notification: string) {
+  notifications.show({
+    message: notification,
+    color: "red",
+    autoClose: false,
+    withCloseButton: true,
+  });
 }
 
 export default function RepoHome({
@@ -434,7 +446,10 @@ export default function RepoHome({
     const target = renameTargetForContent(root, path, content, schemaSources());
     if (!target) return;
     // Another entry already owns the name; keep ours until the fields change.
-    if (files.groupsRef.current.some((g) => g.files.some((f) => f.path === target))) return;
+    if (files.groupsRef.current.some((g) => g.files.some((f) => f.path === target))) {
+      notifyError(`A file named ${target.slice(target.lastIndexOf("/") + 1)} already exists.`);
+      return;
+    }
     if (!(await currentFile.renameOpenFile(path, target))) return;
     void files.refreshGroups(root);
     void git.refreshLocalChanges(root);
@@ -446,11 +461,11 @@ export default function RepoHome({
     const target = from.slice(0, from.lastIndexOf("/") + 1) + filename;
     if (target === from) return true;
     if (files.groupsRef.current.some((group) => group.files.some((file) => file.path === target))) {
-      setStatus(`A file named ${filename} already exists.`);
+      notifyError(`A file named ${filename} already exists.`);
       return false;
     }
     if (!(await currentFile.renameOpenFile(from, target))) {
-      setStatus(`Could not rename the file to ${filename}.`);
+      notifyError(`Could not rename the file to ${filename}.`);
       return false;
     }
     void files.refreshGroups(root);
@@ -464,21 +479,13 @@ export default function RepoHome({
     const parsed = parseFile(currentFile.fileContentRef.current);
     const raw = parsed.doc.toJSON() as unknown;
     if (parsed.error || !raw || typeof raw !== "object" || Array.isArray(raw)) {
-      setStatus("Fix the file's frontmatter before refreshing its filename.");
+      notifyError("Fix the file's frontmatter before refreshing its filename.");
       return;
     }
     const currentName = path.slice(path.lastIndexOf("/") + 1);
     const next = renamedFilename(template, entry, raw as Record<string, unknown>, currentName);
     if (next) void renameOpenFilename(next);
   }
-
-  // The armed "Delete?" confirm disarms on its own after a moment, the touch
-  // equivalent of desktop's cancel-on-mouse-leave.
-  useEffect(() => {
-    if (!confirmingDelete) return;
-    const timer = setTimeout(() => setConfirmingDelete(false), 4000);
-    return () => clearTimeout(timer);
-  }, [confirmingDelete]);
 
   useEffect(() => {
     if (!confirmingRemoveRepo) return;
@@ -627,14 +634,28 @@ export default function RepoHome({
         choosingWorkspace={workspaceCandidates !== null}
         editorTabs={mobileEditorTabs}
         activeTab={mobileActiveTab}
-        confirmingDelete={confirmingDelete}
         openFileName={openFileName}
         onBack={navigateBack}
         onTabChange={setEditorTab}
         onOpenSettings={() => setShowSettings(true)}
         onRequestDelete={() => setConfirmingDelete(true)}
-        onConfirmDelete={() => void deleteOpenFile()}
       />
+      <Modal
+        opened={confirmingDelete && showEditor}
+        onClose={() => setConfirmingDelete(false)}
+        title={`Delete ${openFileName}?`}
+        centered
+      >
+        <Text size="sm">This file will be permanently deleted.</Text>
+        <Group justify="flex-end" mt="lg">
+          <Button variant="default" onClick={() => setConfirmingDelete(false)}>
+            Cancel
+          </Button>
+          <Button color="red" onClick={() => void deleteOpenFile()}>
+            Delete file
+          </Button>
+        </Group>
+      </Modal>
       {workspaceCandidates ? (
         <main className="mobile-settings-screen">
           {browsingWorkspace ? (
@@ -859,7 +880,7 @@ export default function RepoHome({
                           <span className="mobile-group-label" title={group.label}>
                             {group.label}
                           </span>
-                          {group.kind !== "styles" && (
+                          {canCreateFileInGroup(root, group) && (
                             <ActionIcon
                               className="mobile-group-action"
                               variant="subtle"

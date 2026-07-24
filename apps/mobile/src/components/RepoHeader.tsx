@@ -1,4 +1,4 @@
-import { ActionIcon, Button, Group, Text } from "@mantine/core";
+import { ActionIcon, Group, Text } from "@mantine/core";
 import { ChevronLeft, Code2, Menu, Trash2 } from "lucide-react";
 import type { EditorTab } from "@posto/editor";
 
@@ -11,13 +11,11 @@ export function RepoHeader(props: {
   choosingWorkspace: boolean;
   editorTabs: EditorTab[];
   activeTab: EditorTab;
-  confirmingDelete: boolean;
   openFileName: string;
   onBack: () => void;
   onTabChange: (tab: EditorTab) => void;
   onOpenSettings: () => void;
   onRequestDelete: () => void;
-  onConfirmDelete: () => void;
 }) {
   const title = props.showDeployments
     ? "Deployments"
@@ -64,28 +62,17 @@ export function RepoHeader(props: {
           <Menu size={20} />
         </ActionIcon>
       )}
-      {props.showEditor &&
-        (props.confirmingDelete ? (
-          <Button
-            color="red"
-            variant="light"
-            size="compact-md"
-            className="mobile-delete-confirm"
-            onClick={props.onConfirmDelete}
-          >
-            Delete?
-          </Button>
-        ) : (
-          <ActionIcon
-            variant="subtle"
-            color="red"
-            aria-label={`Delete ${props.openFileName}`}
-            title={`Delete ${props.openFileName}`}
-            onClick={props.onRequestDelete}
-          >
-            <Trash2 size={19} />
-          </ActionIcon>
-        ))}
+      {props.showEditor && (
+        <ActionIcon
+          variant="subtle"
+          color="red"
+          aria-label={`Delete ${props.openFileName}`}
+          title={`Delete ${props.openFileName}`}
+          onClick={props.onRequestDelete}
+        >
+          <Trash2 size={19} />
+        </ActionIcon>
+      )}
     </header>
   );
 }

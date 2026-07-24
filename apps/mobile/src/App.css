@@ -452,17 +452,17 @@ input {
 }
 
 /* The shared picker caps itself at 65vh and scrolls internally; inside the pane
-   the outer scroller owns scrolling and the grid fills the full height, edge to
-   edge, with no dead space between the header and the sticky footer. */
+   the outer scroller owns scrolling and the grid fills the full height. */
 .mobile-media-pane .picker-grid {
   max-height: none;
   overflow: visible;
+  padding: 0 var(--mantine-spacing-sm) var(--mantine-spacing-sm);
 }
 
 .mobile-media-pane .image-library-browser-path,
 .mobile-media-pane .mantine-Select-root,
 .mobile-media-pane .media-browser-toolbar {
-  padding: var(--mantine-spacing-xs) var(--mantine-spacing-xs) 0;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm) 0;
 }
 
 .mobile-media-pane .picker-empty {

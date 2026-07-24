@@ -375,7 +375,10 @@ function App() {
     const target = renameTargetForContent(dir, path, content, schemaSources());
     if (!target) return;
     // Another entry already owns the name; keep ours until the fields change.
-    if (files.groupsRef.current.some((g) => g.files.some((f) => f.path === target))) return;
+    if (files.groupsRef.current.some((g) => g.files.some((f) => f.path === target))) {
+      notify(`A file named ${target.slice(target.lastIndexOf("/") + 1)} already exists.`, "error");
+      return;
+    }
     if (!(await currentFile.renameOpenFile(path, target))) return;
     void refreshGroups(dir);
     void preview.navigateForFile(target, content);

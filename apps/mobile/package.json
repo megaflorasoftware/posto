@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@mantine/core": "^9.4.1",
+    "@mantine/notifications": "^9.4.2",
     "@mantine/spotlight": "9.4.1",
     "@mantine/tiptap": "^9.4.1",
     "@posto/core": "workspace:*",
