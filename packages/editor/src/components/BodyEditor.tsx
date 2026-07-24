@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Alert } from "@mantine/core";
 import { Link, RichTextEditor } from "@mantine/tiptap";
 import { useEditor } from "@tiptap/react";
@@ -92,6 +92,8 @@ export function BodyEditor(props: {
   componentBlocks: ComponentSchemaSource | null;
   entryIds: EntryIdSource | null;
   componentSchemaVersion?: number;
+  toolbarLeading?: ReactNode;
+  toolbarTrailing?: ReactNode;
   onChange: (markdown: string) => void;
 }) {
   const { mdx, componentBlocksEnabled } = bodyEditorMode(props.mdx, props.componentBlocks);
@@ -352,55 +354,65 @@ export function BodyEditor(props: {
           classNames={{ Typography: "body-rich-typography", content: "body-rich-content" }}
         >
           <RichTextEditor.Toolbar>
-            <RichTextEditor.ControlsGroup>
-              <RichTextEditor.H1 />
-              <RichTextEditor.H2 />
-              <RichTextEditor.H3 />
-              <RichTextEditor.H4 />
-            </RichTextEditor.ControlsGroup>
-            <RichTextEditor.ControlsGroup>
-              <RichTextEditor.Bold />
-              <RichTextEditor.Italic />
-              <RichTextEditor.Strikethrough />
-            </RichTextEditor.ControlsGroup>
-            <RichTextEditor.ControlsGroup>
-              <RichTextEditor.BulletList />
-              <RichTextEditor.OrderedList />
-              <RichTextEditor.Blockquote />
-              <RichTextEditor.CodeBlock />
-              <RichTextEditor.Hr />
-            </RichTextEditor.ControlsGroup>
-            <RichTextEditor.ControlsGroup>
-              <RichTextEditor.Link />
-              <RichTextEditor.Unlink />
-              <RichTextEditor.Control
-                title="Insert image"
-                aria-label="Insert image"
-                onClick={() => setPickerOpen(true)}
-              >
-                <ImageIcon size={16} />
-              </RichTextEditor.Control>
-              <RichTextEditor.Control
-                title="Insert HTML"
-                aria-label="Insert HTML"
-                onClick={insertHtml}
-              >
-                <CodeXml size={16} />
-              </RichTextEditor.Control>
-              {mdx && componentBlocksEnabled && (
+            {props.toolbarLeading && (
+              <div className="body-rich-toolbar-edge">{props.toolbarLeading}</div>
+            )}
+            <div className="body-rich-toolbar-controls">
+              <RichTextEditor.ControlsGroup>
+                <RichTextEditor.H1 />
+                <RichTextEditor.H2 />
+                <RichTextEditor.H3 />
+                <RichTextEditor.H4 />
+              </RichTextEditor.ControlsGroup>
+              <RichTextEditor.ControlsGroup>
+                <RichTextEditor.Bold />
+                <RichTextEditor.Italic />
+                <RichTextEditor.Strikethrough />
+              </RichTextEditor.ControlsGroup>
+              <RichTextEditor.ControlsGroup>
+                <RichTextEditor.BulletList />
+                <RichTextEditor.OrderedList />
+                <RichTextEditor.Blockquote />
+                <RichTextEditor.CodeBlock />
+                <RichTextEditor.Hr />
+              </RichTextEditor.ControlsGroup>
+              <RichTextEditor.ControlsGroup>
+                <RichTextEditor.Link />
+                <RichTextEditor.Unlink />
                 <RichTextEditor.Control
-                  title="Insert component"
-                  aria-label="Insert component"
-                  onClick={() => setComponentPickerOpen(true)}
+                  title="Insert image"
+                  aria-label="Insert image"
+                  onClick={() => setPickerOpen(true)}
                 >
-                  <Blocks size={16} />
+                  <ImageIcon size={16} />
                 </RichTextEditor.Control>
-              )}
-            </RichTextEditor.ControlsGroup>
-            <RichTextEditor.ControlsGroup>
-              <RichTextEditor.Undo />
-              <RichTextEditor.Redo />
-            </RichTextEditor.ControlsGroup>
+                <RichTextEditor.Control
+                  title="Insert HTML"
+                  aria-label="Insert HTML"
+                  onClick={insertHtml}
+                >
+                  <CodeXml size={16} />
+                </RichTextEditor.Control>
+                {mdx && componentBlocksEnabled && (
+                  <RichTextEditor.Control
+                    title="Insert component"
+                    aria-label="Insert component"
+                    onClick={() => setComponentPickerOpen(true)}
+                  >
+                    <Blocks size={16} />
+                  </RichTextEditor.Control>
+                )}
+              </RichTextEditor.ControlsGroup>
+              <RichTextEditor.ControlsGroup>
+                <RichTextEditor.Undo />
+                <RichTextEditor.Redo />
+              </RichTextEditor.ControlsGroup>
+            </div>
+            {props.toolbarTrailing && (
+              <div className="body-rich-toolbar-edge" aria-hidden={!props.toolbarTrailing}>
+                {props.toolbarTrailing}
+              </div>
+            )}
           </RichTextEditor.Toolbar>
           <div className="body-rich-scroll">
             <RichTextEditor.Content />

@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, MantineProvider } from "@mantine/core";
+import { ActionIcon, Button, MantineProvider } from "@mantine/core";
 import { Notifications, notifications } from "@mantine/notifications";
-import { invoke, onFsChanged, openDirectory } from "@posto/ipc";
+import {
+  invoke,
+  onFsChanged,
+  onOpenFullscreenEditor,
+  openDirectory,
+  setFullscreenEditorMenuEnabled,
+} from "@posto/ipc";
 import { checkForAppUpdate } from "./updater";
 import type { ChangedFile, FileEntry, FileGroup } from "@posto/ipc";
 import { EMPTY_CONFIG, matchEntry, renamedFilename } from "@posto/core/pagescms/config";
@@ -21,7 +27,9 @@ import {
   createDataDocumentEntry,
   deleteDataDocumentEntry,
   contentHasFields,
+  editorTabsForFile,
   renameTargetForContent,
+  resolveEditorTab,
   useCurrentFile,
   useFileGroups,
   useGitSync,
@@ -39,6 +47,7 @@ import { AppHeader } from "./components/AppHeader";
 import { DeploymentDrawer } from "./components/DeploymentDrawer";
 import { MediaDrawer } from "./components/MediaDrawer";
 import { PreviewPane } from "./components/PreviewPane";
+import { ChevronLeft, FileText, List } from "lucide-react";
 
 import "@mantine/core/styles.css";
 import "@mantine/tiptap/styles.css";
@@ -64,6 +73,7 @@ function App() {
   const [editorTab, setEditorTab] = useState<EditorTab>("body");
   const [publishOpen, setPublishOpen] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
+  const [fullscreenEditorOpen, setFullscreenEditorOpen] = useState(false);
   // Bumped after each successful save so the SEO preview refetches the page.
   const [saveTick, setSaveTick] = useState(0);
   const [componentSchemaVersion, setComponentSchemaVersion] = useState(0);
@@ -452,6 +462,9 @@ function App() {
 
   useEffect(() => {
     const unlistenFs = onFsChanged((paths) => externalChangesRef.current(paths));
+    const unlistenFullscreenEditor = onOpenFullscreenEditor(() => {
+      if (currentFile.filePathRef.current) setFullscreenEditorOpen(true);
+    });
     // One update check per app launch, once the UI is up.
     void checkForAppUpdate();
     void refreshRecentRoots();
@@ -466,6 +479,7 @@ function App() {
     })();
     return () => {
       unlistenFs();
+      unlistenFullscreenEditor();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -559,6 +573,57 @@ function App() {
         : schemas.derivedConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
           ? (projectInfo?.type ?? null)
           : null;
+
+  useEffect(() => {
+    if (!fullscreenEditorOpen) return;
+    const exitOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFullscreenEditorOpen(false);
+    };
+    window.addEventListener("keydown", exitOnEscape);
+    return () => window.removeEventListener("keydown", exitOnEscape);
+  }, [fullscreenEditorOpen]);
+
+  useEffect(() => {
+    void setFullscreenEditorMenuEnabled(currentFile.filePath !== null).catch(notifyError);
+  }, [currentFile.filePath, notifyError]);
+
+  const fullscreenTabs = editorTabsForFile({
+    filePath: currentFile.filePath,
+    fileContent: currentFile.fileContent,
+    entry,
+    dataEntry: currentFile.dataEntry,
+  });
+  const fullscreenActiveTab = resolveEditorTab(fullscreenTabs, editorTab);
+  const fullscreenCanToggleFieldsBody =
+    fullscreenTabs.includes("fields") && fullscreenTabs.includes("body");
+  const fullscreenToggleTarget: EditorTab = fullscreenActiveTab === "fields" ? "body" : "fields";
+  const fullscreenUsesRichToolbar =
+    fullscreenActiveTab === "body" && /\.(md|mdx|markdown)$/i.test(currentFile.filePath ?? "");
+  const renderFullscreenExit = () => (
+    <ActionIcon
+      size={34}
+      variant="subtle"
+      color="gray"
+      title="Exit fullscreen editor"
+      aria-label="Exit fullscreen editor"
+      onClick={() => setFullscreenEditorOpen(false)}
+    >
+      <ChevronLeft size={20} />
+    </ActionIcon>
+  );
+  const renderFullscreenViewToggle = () =>
+    fullscreenCanToggleFieldsBody ? (
+      <ActionIcon
+        size={34}
+        variant="subtle"
+        color="gray"
+        title={`Show ${fullscreenToggleTarget}`}
+        aria-label={`Show ${fullscreenToggleTarget}`}
+        onClick={() => setEditorTab(fullscreenToggleTarget)}
+      >
+        {fullscreenToggleTarget === "fields" ? <List size={20} /> : <FileText size={20} />}
+      </ActionIcon>
+    ) : null;
 
   return (
     <MantineProvider defaultColorScheme="auto">
@@ -654,7 +719,25 @@ function App() {
             />
 
             <div className="panes" ref={preview.panesEl}>
-              <div className="pane editor-pane" style={{ flexBasis: `${preview.split}%` }}>
+              <div
+                className={`pane editor-pane${
+                  fullscreenEditorOpen ? " fullscreen-workspace fullscreen-editor-pane" : ""
+                }`}
+                style={{ flexBasis: `${preview.split}%` }}
+              >
+                {fullscreenEditorOpen &&
+                  !fullscreenUsesRichToolbar &&
+                  fullscreenActiveTab !== "fields" && (
+                    <div className="fullscreen-plain-toolbar">
+                      <div className="body-rich-toolbar-edge">{renderFullscreenExit()}</div>
+                      <div className="body-rich-toolbar-controls" />
+                      {fullscreenCanToggleFieldsBody && (
+                        <div className="body-rich-toolbar-edge">
+                          {renderFullscreenViewToggle()}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 <EditorPane
                   root={root}
                   projectIO={ipcProjectIO}
@@ -678,6 +761,40 @@ function App() {
                   onRenameFile={renameOpenFilename}
                   onRefreshFilename={refreshFilenameTemplate}
                   onPostoSaved={() => void schemas.loadPostoConfig(root)}
+                  onFullscreen={
+                    fullscreenEditorOpen ? undefined : () => setFullscreenEditorOpen(true)
+                  }
+                  hideHeader={fullscreenEditorOpen}
+                  hideTabList={fullscreenEditorOpen}
+                  toolbarLeading={
+                    fullscreenEditorOpen && fullscreenUsesRichToolbar
+                      ? renderFullscreenExit()
+                      : undefined
+                  }
+                  toolbarTrailing={
+                    fullscreenEditorOpen && fullscreenUsesRichToolbar
+                      ? renderFullscreenViewToggle()
+                      : undefined
+                  }
+                  renderFieldsHeader={
+                    fullscreenEditorOpen
+                      ? (filenameControl) => (
+                          <div className="fullscreen-plain-toolbar">
+                            <div className="body-rich-toolbar-edge">
+                              {renderFullscreenExit()}
+                            </div>
+                            <div className="body-rich-toolbar-controls">
+                              <div className="fullscreen-fields-filename">{filenameControl}</div>
+                            </div>
+                            {fullscreenCanToggleFieldsBody && (
+                              <div className="body-rich-toolbar-edge">
+                                {renderFullscreenViewToggle()}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      : undefined
+                  }
                 />
               </div>
 

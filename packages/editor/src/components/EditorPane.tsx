@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ActionIcon, Alert, Tabs, TextInput } from "@mantine/core";
-import { RefreshCw } from "lucide-react";
+import { Maximize2, RefreshCw } from "lucide-react";
 import type { FileEntry, FileGroup } from "@posto/ipc";
 import { EMPTY_CONFIG, type ContentEntry, type PagesConfig } from "@posto/core/pagescms/config";
 import { parseFile, type ParsedFile } from "@posto/core/pagescms/frontmatter";
@@ -75,7 +75,13 @@ export function EditorPane(props: {
   onRenameFile: (filename: string) => Promise<boolean>;
   onRefreshFilename: (template: string) => void;
   onPostoSaved: () => void;
+  /** Opens the desktop editor in its distraction-free workspace. */
+  onFullscreen?: () => void;
+  hideHeader?: boolean;
   hideTabList?: boolean;
+  toolbarLeading?: ReactNode;
+  toolbarTrailing?: ReactNode;
+  renderFieldsHeader?: (filenameControl: ReactNode) => ReactNode;
   filenamePlacement?: "header" | "fields";
 }) {
   const { filePath, fileContent, entry, editorTab, dataEntry } = props;
@@ -103,8 +109,8 @@ export function EditorPane(props: {
     () => editorTabsForFile({ filePath, fileContent, entry, dataEntry }),
     [filePath, fileContent, entry, dataEntry],
   );
-  const showForm = tabs.length > 1;
   const activeTab = resolveEditorTab(tabs, editorTab);
+  const showForm = activeTab !== "raw";
 
   if (!filePath) {
     return <div className="pane-placeholder">Select a file to edit</div>;
@@ -177,15 +183,33 @@ export function EditorPane(props: {
       {filenameInput}
     </div>
   );
+  const filenameHeaderControl = (
+    <>
+      {filenameReadOnly ? <div className="pane-filename-text">{fileName}</div> : filenameInput}
+      {filenameActions}
+    </>
+  );
 
   return (
     <ProjectIOProvider value={props.projectIO}>
-      {(props.filenamePlacement ?? "header") === "header" && (
+      {!props.hideHeader && (props.filenamePlacement ?? "header") === "header" && (
         <div className="pane-header">
           {filenameReadOnly ? <div className="pane-filename-text">{fileName}</div> : filenameInput}
           {filenameActions}
+          {props.onFullscreen && (
+            <ActionIcon
+              size={30}
+              variant="default"
+              title="Open fullscreen editor"
+              aria-label="Open fullscreen editor"
+              onClick={props.onFullscreen}
+            >
+              <Maximize2 size={14} />
+            </ActionIcon>
+          )}
         </div>
       )}
+      {activeTab === "fields" && props.renderFieldsHeader?.(filenameHeaderControl)}
       {props.configError && (
         <Alert color="yellow" className="config-error">
           {`Schema configuration issue${props.hasDerivedFallback ? " (using the last available schemas)" : ""} — ${props.configError}`}
@@ -208,9 +232,7 @@ export function EditorPane(props: {
               ))}
             </Tabs.List>
           )}
-          {activeTab === "raw" ? (
-            rawEditor
-          ) : dataEntry && entry ? (
+          {dataEntry && entry ? (
             <DataFormEditor
               key={`${filePath}:${dataEntry.collection}:${dataEntry.id}`}
               content={fileContent}
@@ -241,6 +263,8 @@ export function EditorPane(props: {
               componentBlocks={props.componentBlocks}
               entryIds={props.entryIds}
               componentSchemaVersion={props.componentSchemaVersion}
+              toolbarLeading={props.toolbarLeading}
+              toolbarTrailing={props.toolbarTrailing}
               fieldsHeader={
                 (props.filenamePlacement ?? "header") === "fields" ? filenameField : undefined
               }

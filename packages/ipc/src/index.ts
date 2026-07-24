@@ -352,6 +352,21 @@ export function onFsChanged(handler: (paths: string[]) => void): () => void {
   };
 }
 
+/** Subscribes to the native View menu's fullscreen-editor command. */
+export function onOpenFullscreenEditor(handler: () => void): () => void {
+  if (!inTauri) return () => {};
+  const unlisten = listen("open-fullscreen-editor", handler);
+  return () => {
+    void unlisten.then((fn) => fn());
+  };
+}
+
+/** Keeps the native fullscreen-editor menu item in sync with file selection. */
+export function setFullscreenEditorMenuEnabled(enabled: boolean): Promise<void> {
+  if (!inTauri) return Promise.resolve();
+  return invoke("set_fullscreen_editor_menu_enabled", { enabled });
+}
+
 /** Subscribes to progress updates for the active managed-repository clone. */
 export function onCloneProgress(handler: (progress: CloneProgress) => void): () => void {
   if (!inTauri) return requireBrowserBackend().onCloneProgress(handler);

@@ -62,6 +62,8 @@ export function FormEditor(props: {
   componentBlocks: ComponentSchemaSource | null;
   entryIds: EntryIdSource | null;
   componentSchemaVersion?: number;
+  toolbarLeading?: ReactNode;
+  toolbarTrailing?: ReactNode;
   fieldsHeader?: ReactNode;
   onChange: (content: string, valid: boolean) => void;
   onPostoSaved?: () => void;
@@ -272,6 +274,8 @@ export function FormEditor(props: {
         componentBlocks={props.componentBlocks}
         entryIds={props.entryIds}
         componentSchemaVersion={props.componentSchemaVersion}
+        toolbarLeading={props.toolbarLeading}
+        toolbarTrailing={props.toolbarTrailing}
         onChange={onBodyEdit}
       />
     ) : (

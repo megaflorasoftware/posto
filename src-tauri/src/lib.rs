@@ -16,6 +16,40 @@ mod settings;
 mod watch;
 mod workspace;
 
+#[cfg(target_os = "macos")]
+const FULLSCREEN_EDITOR_MENU_ID: &str = "fullscreen-editor";
+
+#[cfg(desktop)]
+#[tauri::command]
+fn set_fullscreen_editor_menu_enabled(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::menu::MenuItemKind;
+
+        let menu = app
+            .menu()
+            .ok_or_else(|| "application menu is unavailable".to_string())?;
+        for item in menu.items().map_err(|error| error.to_string())? {
+            let MenuItemKind::Submenu(submenu) = item else {
+                continue;
+            };
+            if submenu.text().map_err(|error| error.to_string())? != "View" {
+                continue;
+            }
+            if let Some(MenuItemKind::MenuItem(item)) = submenu.get(FULLSCREEN_EDITOR_MENU_ID) {
+                return item.set_enabled(enabled).map_err(|error| error.to_string());
+            }
+        }
+        Err("fullscreen editor menu item is unavailable".to_string())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, enabled);
+        Ok(())
+    }
+}
+
 #[cfg(desktop)]
 fn handle_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
     use tauri::Manager;
@@ -63,6 +97,36 @@ pub fn run() {
             devserver::kill_stale_server(app.handle());
             Ok(())
         });
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .menu(|app| {
+            use tauri::menu::{Menu, MenuItemBuilder, MenuItemKind, PredefinedMenuItem};
+
+            let menu = Menu::default(app)?;
+            let fullscreen_editor =
+                MenuItemBuilder::with_id(FULLSCREEN_EDITOR_MENU_ID, "Fullscreen Editor")
+                    .accelerator("Cmd+Shift+F")
+                    .enabled(false)
+                    .build(app)?;
+            for item in menu.items()? {
+                let MenuItemKind::Submenu(view_menu) = item else {
+                    continue;
+                };
+                if view_menu.text()? == "View" {
+                    let separator = PredefinedMenuItem::separator(app)?;
+                    view_menu.prepend_items(&[&fullscreen_editor, &separator])?;
+                    break;
+                }
+            }
+            Ok(menu)
+        })
+        .on_menu_event(|app, event| {
+            use tauri::Emitter;
+
+            if event.id().as_ref() == FULLSCREEN_EDITOR_MENU_ID {
+                let _ = app.emit("open-fullscreen-editor", ());
+            }
+        });
     #[cfg(desktop)]
     let builder = builder.invoke_handler(tauri::generate_handler![
         auth::auth_status,
@@ -109,7 +173,8 @@ pub fn run() {
         git::pull_upstream,
         git::publish,
         workspace::scan_projects,
-        watch::watch_root
+        watch::watch_root,
+        set_fullscreen_editor_menu_enabled
     ]);
     #[cfg(mobile)]
     let builder =

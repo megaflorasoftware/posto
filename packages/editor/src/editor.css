@@ -158,6 +158,28 @@
 
 .body-rich-editor .mantine-RichTextEditor-toolbar {
   flex-shrink: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.body-rich-editor .mantine-RichTextEditor-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+.body-rich-toolbar-controls {
+  flex: 1 0 auto;
+  min-width: max-content;
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: var(--mantine-spacing-sm);
+}
+
+.body-rich-editor .mantine-RichTextEditor-controlsGroup {
+  flex-shrink: 0;
 }
 
 /* Typography wrapper Mantine inserts between the root and the content. */
@@ -176,7 +198,7 @@
 }
 
 /* Let clicks below short documents land in the editor. */
-.body-rich-content .tiptap {
+.body-rich-content > .tiptap {
   min-height: 100%;
   box-sizing: border-box;
 }
@@ -238,8 +260,14 @@
   color: var(--mantine-color-dimmed);
 }
 
+/* Tiptap owns the outer node-view wrapper that participates in document
+   flow; spacing the inner card does not reliably separate adjacent blocks. */
+.body-rich-content > .tiptap > .node-mdxComponent {
+  margin: 1.25rem 0;
+}
+
 .mdx-component {
-  margin: 1.5rem 0;
+  margin: 0;
 }
 
 /* Block components render as a card: a minimal header (click to edit props)
@@ -357,7 +385,7 @@
 }
 
 /* Nested cards inside a slot stay compact. */
-.mdx-slot .mdx-component {
+.mdx-slot .node-mdxComponent {
   margin: 0.75rem 0;
 }
 
