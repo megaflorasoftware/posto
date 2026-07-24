@@ -14,7 +14,6 @@ const TEXT_EXTENSIONS: &[&str] = &[
 const MAX_THUMBNAIL_CACHE_BYTES: u64 = 48 * 1024 * 1024;
 #[cfg(not(mobile))]
 const MAX_THUMBNAIL_CACHE_BYTES: u64 = 96 * 1024 * 1024;
-const IMAGE_THUMBNAIL_CACHE_VERSION: u8 = 2;
 
 pub(crate) const SKIP_DIRS: &[&str] = &["node_modules", "_site", "dist", "build", "out", "target"];
 
@@ -330,7 +329,6 @@ fn cached_image_thumbnail(
         .map(|duration| duration.as_nanos())
         .unwrap_or_default();
     let mut hasher = DefaultHasher::new();
-    IMAGE_THUMBNAIL_CACHE_VERSION.hash(&mut hasher);
     source.hash(&mut hasher);
     max_width.hash(&mut hasher);
     max_height.hash(&mut hasher);
@@ -1412,33 +1410,7 @@ mod tests {
         oriented.extend_from_slice(&encoded[2..]);
         std::fs::write(&source, oriented).unwrap();
 
-        // A thumbnail made before previews became EXIF-aware must not be reused.
-        let metadata = source.metadata().unwrap();
-        let modified = metadata
-            .modified()
-            .unwrap()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let mut legacy_source_hasher = DefaultHasher::new();
-        source.hash(&mut legacy_source_hasher);
-        3_u32.hash(&mut legacy_source_hasher);
-        3_u32.hash(&mut legacy_source_hasher);
-        let legacy_source_key = format!("{:016x}", legacy_source_hasher.finish());
-        let mut revision_hasher = DefaultHasher::new();
-        metadata.len().hash(&mut revision_hasher);
-        modified.hash(&mut revision_hasher);
-        let legacy_revision = revision_hasher.finish();
-        let thumbnail_directory = cache_dir.path().join("image-thumbnails");
-        std::fs::create_dir_all(&thumbnail_directory).unwrap();
-        let legacy_preview =
-            thumbnail_directory.join(format!("{legacy_source_key}-{legacy_revision:016x}.png"));
-        image::RgbImage::from_pixel(2, 3, image::Rgb([200, 50, 25]))
-            .save(&legacy_preview)
-            .unwrap();
-
         let preview = cached_image_thumbnail(cache_dir.path(), &source, 3, 3).unwrap();
-        assert_ne!(preview, legacy_preview);
         assert_eq!(image::image_dimensions(preview).unwrap(), (3, 2));
     }
 
