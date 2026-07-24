@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MantineProvider } from "@mantine/core";
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import type { MediaLibrary } from "@posto/core/pagescms/config";
 import { MediaLibraryTabs, PUBLIC_MEDIA_TAB } from "../src/components/MediaLibraryTabs";
 import { FileMediaBrowser } from "../src/components/PublicMediaBrowser";
@@ -23,6 +23,8 @@ Object.defineProperty(window, "matchMedia", {
     dispatchEvent: vi.fn(),
   })),
 });
+
+afterEach(cleanup);
 
 function library(collection: string): MediaLibrary {
   return {
@@ -118,5 +120,39 @@ describe("public media", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Edit guide.pdf" })[0]);
     expect(onEdit).toHaveBeenCalledWith(file);
+  });
+
+  test("selects desktop files and directories from inline card actions", () => {
+    const toggleFile = vi.fn();
+    const toggleDirectory = vi.fn();
+    const openDirectory = vi.fn();
+    render(
+      <MantineProvider forceColorScheme="light">
+        <FileMediaBrowser
+          rootDirectory="/repo/media"
+          currentDirectory=""
+          directories={["/repo/media/albums"]}
+          files={[{ name: "guide.pdf", path: "/repo/media/guide.pdf" }]}
+          inlineSelection
+          selectedFilePaths={new Set()}
+          selectedDirectoryPaths={new Set()}
+          onDirectoryChange={openDirectory}
+          onToggleFileSelection={toggleFile}
+          onToggleDirectorySelection={toggleDirectory}
+          onEdit={vi.fn()}
+          onDelete={vi.fn()}
+        />
+      </MantineProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Select guide.pdf" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select albums" }));
+
+    expect(toggleFile).toHaveBeenCalledWith({
+      name: "guide.pdf",
+      path: "/repo/media/guide.pdf",
+    });
+    expect(toggleDirectory).toHaveBeenCalledWith("/repo/media/albums");
+    expect(openDirectory).not.toHaveBeenCalled();
   });
 });

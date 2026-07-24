@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Alert, Button, Text } from "@mantine/core";
-import { FolderPlus, MousePointer2, Upload } from "lucide-react";
+import { FolderPlus, Upload } from "lucide-react";
 import { mediaOutputPath, type MediaLibrary, type PagesConfig } from "@posto/core/pagescms/config";
 import {
   CreateImageLibraryFolderDialog,
@@ -41,7 +41,6 @@ function LibraryMediaBrowserContent(props: {
   const [importing, setImporting] = useState(false);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [editing, setEditing] = useState<ImageLibraryAsset | null>(null);
-  const [selectionMode, setSelectionMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [selectedDirectories, setSelectedDirectories] = useState<Set<string>>(() => new Set());
   const [deleting, setDeleting] = useState(false);
@@ -89,7 +88,7 @@ function LibraryMediaBrowserContent(props: {
                 }
               : null;
           }}
-          selectionMode={selectionMode}
+          inlineSelection
           selectedAssetIds={selected}
           selectedDirectoryPaths={selectedDirectories}
           onToggleSelection={(asset) =>
@@ -133,28 +132,14 @@ function LibraryMediaBrowserContent(props: {
           </div>
         ) : (
           <div className="media-primary-actions">
-            <div className="media-secondary-actions">
-              <Button
-                fullWidth
-                variant={selectionMode ? "light" : "default"}
-                leftSection={<MousePointer2 size={16} />}
-                onClick={() => {
-                  setSelected(new Set());
-                  setSelectedDirectories(new Set());
-                  setSelectionMode((current) => !current);
-                }}
-              >
-                Select
-              </Button>
-              <Button
-                fullWidth
-                variant="default"
-                leftSection={<FolderPlus size={16} />}
-                onClick={() => setCreatingFolder(true)}
-              >
-                New folder
-              </Button>
-            </div>
+            <Button
+              fullWidth
+              variant="default"
+              leftSection={<FolderPlus size={16} />}
+              onClick={() => setCreatingFolder(true)}
+            >
+              New folder
+            </Button>
             <Button fullWidth leftSection={<Upload size={16} />} onClick={() => setImporting(true)}>
               Import images
             </Button>
@@ -193,7 +178,6 @@ function LibraryMediaBrowserContent(props: {
           onDeleted={() => {
             setSelected(new Set());
             setSelectedDirectories(new Set());
-            setSelectionMode(false);
             void state.refresh();
             props.onChanged({ silent: true });
           }}
@@ -216,7 +200,6 @@ function LibraryMediaBrowserContent(props: {
           onMoved={() => {
             setSelected(new Set());
             setSelectedDirectories(new Set());
-            setSelectionMode(false);
             void state.refresh();
             props.onChanged();
           }}
@@ -253,7 +236,6 @@ function PublicMediaBrowserContent(props: {
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectionMode, setSelectionMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [selectedDirectories, setSelectedDirectories] = useState<Set<string>>(() => new Set());
   const [deleting, setDeleting] = useState(false);
@@ -302,7 +284,7 @@ function PublicMediaBrowserContent(props: {
             const outputPath = publicMediaOutputPath(props.root, file.path);
             return outputPath ? { outputPath, label: file.name, kind: "image" } : null;
           }}
-          selectionMode={selectionMode}
+          inlineSelection
           selectedFilePaths={selected}
           selectedDirectoryPaths={selectedDirectories}
           onToggleFileSelection={(file) =>
@@ -344,28 +326,14 @@ function PublicMediaBrowserContent(props: {
           </div>
         ) : (
           <div className="media-primary-actions">
-            <div className="media-secondary-actions">
-              <Button
-                fullWidth
-                variant={selectionMode ? "light" : "default"}
-                leftSection={<MousePointer2 size={16} />}
-                onClick={() => {
-                  setSelected(new Set());
-                  setSelectedDirectories(new Set());
-                  setSelectionMode((current) => !current);
-                }}
-              >
-                Select
-              </Button>
-              <Button
-                fullWidth
-                variant="default"
-                leftSection={<FolderPlus size={16} />}
-                onClick={() => setCreatingFolder(true)}
-              >
-                New folder
-              </Button>
-            </div>
+            <Button
+              fullWidth
+              variant="default"
+              leftSection={<FolderPlus size={16} />}
+              onClick={() => setCreatingFolder(true)}
+            >
+              New folder
+            </Button>
             <Button
               fullWidth
               leftSection={<Upload size={16} />}
@@ -398,7 +366,6 @@ function PublicMediaBrowserContent(props: {
           onDeleted={() => {
             setSelected(new Set());
             setSelectedDirectories(new Set());
-            setSelectionMode(false);
             void state.refresh();
             props.onChanged({ silent: true });
           }}
@@ -433,7 +400,6 @@ function PublicMediaBrowserContent(props: {
           onMoved={() => {
             setSelected(new Set());
             setSelectedDirectories(new Set());
-            setSelectionMode(false);
             void state.refresh();
             props.onChanged();
           }}

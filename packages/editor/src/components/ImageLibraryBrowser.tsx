@@ -5,6 +5,7 @@ import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
 import { CachedImage } from "./CachedImage";
 import type { MarkdownMediaPick } from "../markdownMedia";
 import { MediaDragPreview } from "./MediaDragDrop";
+import { PickerCardSelection } from "./PickerCardSelection";
 
 function normalize(path: string): string {
   return path.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -51,6 +52,8 @@ export function ImageLibraryBrowser(props: {
   /** Enables dragging an asset into a Markdown/MDX body. */
   dragMedia?: (asset: ImageLibraryAsset) => MarkdownMediaPick | null;
   selectionMode?: boolean;
+  /** Shows a per-card selection action without switching the whole grid into selection mode. */
+  inlineSelection?: boolean;
   selectedAssetIds?: Set<string>;
   selectedDirectoryPaths?: Set<string>;
   onToggleSelection?: (asset: ImageLibraryAsset) => void;
@@ -95,26 +98,17 @@ export function ImageLibraryBrowser(props: {
           )}
           {folders.map((folder) => {
             const previews = directoryPreviewImages(folder.path, props.assets);
-            return (
-              <button
-                type="button"
-                className="picker-card picker-directory"
-                key={folder.path}
-                aria-pressed={
-                  props.selectionMode
-                    ? (props.selectedDirectoryPaths?.has(folder.path) ?? false)
-                    : undefined
-                }
-                onClick={() => {
-                  if (props.selectionMode) props.onToggleDirectorySelection?.(folder.path);
-                  else
-                    props.onDirectoryChange(
-                      props.currentDirectory
-                        ? `${props.currentDirectory}/${folder.name}`
-                        : folder.name,
-                    );
-                }}
-              >
+            const selected = props.selectedDirectoryPaths?.has(folder.path) ?? false;
+            const selection = (props.selectionMode || props.inlineSelection) && (
+              <PickerCardSelection
+                selected={selected}
+                interactive={props.inlineSelection}
+                label={folder.name}
+                onToggle={() => props.onToggleDirectorySelection?.(folder.path)}
+              />
+            );
+            const content = (
+              <>
                 {previews.length > 0 ? (
                   <span
                     className="picker-card-preview picker-directory-preview-grid"
@@ -126,26 +120,48 @@ export function ImageLibraryBrowser(props: {
                     <span className="picker-directory-preview-badge">
                       <Folder size={16} />
                     </span>
-                    {props.selectionMode && (
-                      <span
-                        className={`picker-card-selection${props.selectedDirectoryPaths?.has(folder.path) ? " is-selected" : ""}`}
-                        aria-hidden="true"
-                      />
-                    )}
+                    {selection}
                   </span>
                 ) : (
                   <span className="picker-card-preview">
                     <Folder size={36} />
-                    {props.selectionMode && (
-                      <span
-                        className={`picker-card-selection${props.selectedDirectoryPaths?.has(folder.path) ? " is-selected" : ""}`}
-                        aria-hidden="true"
-                      />
-                    )}
+                    {selection}
                   </span>
                 )}
                 <span className="picker-item-name">{folder.name}</span>
                 <span className="picker-item-path">Directory</span>
+              </>
+            );
+            const openDirectory = () =>
+              props.onDirectoryChange(
+                props.currentDirectory ? `${props.currentDirectory}/${folder.name}` : folder.name,
+              );
+            return props.inlineSelection ? (
+              <div
+                className="picker-card picker-directory"
+                key={folder.path}
+                role="button"
+                tabIndex={0}
+                aria-label={`Open ${folder.name}`}
+                onClick={openDirectory}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") openDirectory();
+                }}
+              >
+                {content}
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="picker-card picker-directory"
+                key={folder.path}
+                aria-pressed={props.selectionMode ? selected : undefined}
+                onClick={() => {
+                  if (props.selectionMode) props.onToggleDirectorySelection?.(folder.path);
+                  else openDirectory();
+                }}
+              >
+                {content}
               </button>
             );
           })}
@@ -167,10 +183,12 @@ export function ImageLibraryBrowser(props: {
                     draggable={false}
                     fallback={<span className="picker-card-noimg">No preview</span>}
                   />
-                  {props.selectionMode && (
-                    <span
-                      className={`picker-card-selection${props.selectedAssetIds?.has(asset.metadataPath) ? " is-selected" : ""}`}
-                      aria-hidden="true"
+                  {valid && (props.selectionMode || props.inlineSelection) && (
+                    <PickerCardSelection
+                      selected={props.selectedAssetIds?.has(asset.metadataPath) ?? false}
+                      interactive={props.inlineSelection}
+                      label={asset.entryId.split("/").pop() ?? asset.entryId}
+                      onToggle={() => props.onToggleSelection?.(asset)}
                     />
                   )}
                   {(props.onEdit || props.onDelete) && valid && !props.selectionMode && (
