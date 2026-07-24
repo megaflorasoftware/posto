@@ -9,7 +9,10 @@ import type { ProjectIO } from "@posto/core/project/adapter";
 import { describe, expect, test } from "vitest";
 import { useSchemas } from "../src/hooks/useSchemas";
 
-const fixtures = join(process.cwd(), "packages/editor/test/fixtures/effective-config");
+const editorRoot = process.cwd().endsWith("packages/editor")
+  ? process.cwd()
+  : join(process.cwd(), "packages/editor");
+const fixtures = join(editorRoot, "test/fixtures/effective-config");
 
 function fixtureIO(): ProjectIO {
   return {
