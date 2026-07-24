@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Alert } from "@mantine/core";
 import { Link, RichTextEditor } from "@mantine/tiptap";
 import { useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -100,7 +99,6 @@ export function BodyEditor(props: {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [componentPickerOpen, setComponentPickerOpen] = useState(false);
   const [schemas, setSchemas] = useState<Record<string, ComponentBlockSchema>>({});
-  const [componentDiagnostics, setComponentDiagnostics] = useState<string[]>([]);
   const projectIO = useProjectIO();
   const configuredMedia = props.configuredMedia
     ? expandMediaEntry(props.configuredMedia, props.templateValues)
@@ -210,12 +208,10 @@ export function BodyEditor(props: {
     let cancelled = false;
     void (async () => {
       const loaded: Record<string, ComponentBlockSchema> = {};
-      const diagnostics: string[] = [];
       const source = props.componentBlocks;
       if (!source) {
         if (!cancelled) {
           setSchemas({});
-          setComponentDiagnostics([]);
           componentSchemas.current = {};
           editor?.view.dispatch(editor.state.tr.setMeta("mdxSchemas", true));
         }
@@ -233,7 +229,6 @@ export function BodyEditor(props: {
             props.config,
           );
           if (!result) continue;
-          diagnostics.push(...result.diagnostics.map((diagnostic) => diagnostic.message));
           for (const name of names) {
             loaded[name] = {
               fields: result.fields,
@@ -241,13 +236,10 @@ export function BodyEditor(props: {
               hasDefaultSlot: result.hasDefaultSlot ?? false,
             };
           }
-        } catch (error) {
-          diagnostics.push(`Could not inspect component ${file}: ${String(error)}`);
-        }
+        } catch {}
       }
       if (cancelled) return;
       setSchemas(loaded);
-      setComponentDiagnostics([...new Set(diagnostics)]);
       // The markdown pipeline and the slot-sync plugin read schemas outside
       // React; the poke transaction makes slot sync run with the new data.
       componentSchemas.current = loaded;
@@ -341,11 +333,6 @@ export function BodyEditor(props: {
           templateValues: props.templateValues,
         }}
       >
-        {componentDiagnostics.map((diagnostic) => (
-          <Alert key={diagnostic} color="yellow" title="Component schema issue">
-            {diagnostic}
-          </Alert>
-        ))}
         <RichTextEditor
           editor={editor}
           className="body-rich-editor"

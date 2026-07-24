@@ -671,6 +671,77 @@ function App() {
       </ActionIcon>
     ) : null;
 
+  const renderEditorPane = (withFullscreenButton = false, fullscreen = false) =>
+    root ? (
+      <EditorPane
+        root={root}
+        projectIO={ipcProjectIO}
+        filePath={currentFile.filePath}
+        fileContent={currentFile.fileContent}
+        saveState={currentFile.saveState}
+        entry={entry}
+        dataEntry={currentFile.dataEntry}
+        entrySource={entrySource}
+        config={config}
+        configError={schemas.configError}
+        hasDerivedFallback={schemas.derivedConfig !== null}
+        componentBlocks={adapter.capabilities.componentBlocks}
+        entryIds={adapter.capabilities.entryIds}
+        componentSchemaVersion={componentSchemaVersion}
+        groups={files.groups}
+        editorTab={editorTab}
+        onTabChange={setEditorTab}
+        onEdit={currentFile.onEdit}
+        onFormEdit={currentFile.onFormEdit}
+        onRenameFile={renameOpenFilename}
+        onRefreshFilename={refreshFilenameTemplate}
+        onPostoSaved={() => void schemas.loadPostoConfig(root)}
+        developerMode={developerMode}
+        onFullscreen={withFullscreenButton ? () => setFullscreenEditorOpen(true) : undefined}
+        hideHeader={fullscreen}
+        hideTabList={fullscreen}
+        toolbarLeading={
+          fullscreen && fullscreenUsesRichToolbar ? renderFullscreenExit() : undefined
+        }
+        toolbarTrailing={
+          fullscreen && fullscreenUsesRichToolbar ? renderFullscreenViewToggle() : undefined
+        }
+        renderFieldsHeader={
+          fullscreen
+            ? (filenameControl) => (
+                <div className="fullscreen-plain-toolbar">
+                  <div className="body-rich-toolbar-edge">{renderFullscreenExit()}</div>
+                  <div className="body-rich-toolbar-controls">
+                    <div className="fullscreen-fields-filename">{filenameControl}</div>
+                  </div>
+                  {fullscreenCanToggleFieldsBody && (
+                    <div className="body-rich-toolbar-edge">{renderFullscreenViewToggle()}</div>
+                  )}
+                </div>
+              )
+            : undefined
+        }
+      />
+    ) : null;
+
+  const renderPreviewPane = () =>
+    root ? (
+      <PreviewPane
+        root={root}
+        server={devServer.server}
+        previewRoute={preview.previewRoute}
+        servedRoute={preview.servedRoute}
+        previewFrame={preview.previewFrame}
+        dragging={preview.dragging}
+        media={config?.media[0] ?? null}
+        saveTick={saveTick}
+        onRestart={() => void devServer.restartServer(root)}
+        onRetry={() => void devServer.startServer(root)}
+        onInstall={(steps) => void devServer.runSetup(root, steps)}
+        onHome={preview.goHome}
+      />
+    ) : null;
+
   return (
     <MantineProvider defaultColorScheme="auto">
       <Notifications position="bottom-right" />
@@ -820,69 +891,15 @@ function App() {
                   fullscreenActiveTab !== "fields" && (
                     <div className="fullscreen-plain-toolbar">
                       <div className="body-rich-toolbar-edge">{renderFullscreenExit()}</div>
-                      <div className="body-rich-toolbar-controls" />
+                      <div className="body-rich-toolbar-controls"></div>
                       {fullscreenCanToggleFieldsBody && (
-                        <div className="body-rich-toolbar-edge">{renderFullscreenViewToggle()}</div>
+                        <div className="body-rich-toolbar-edge">
+                          {renderFullscreenViewToggle()}
+                        </div>
                       )}
                     </div>
                   )}
-                <EditorPane
-                  root={root}
-                  projectIO={ipcProjectIO}
-                  filePath={currentFile.filePath}
-                  fileContent={currentFile.fileContent}
-                  saveState={currentFile.saveState}
-                  entry={entry}
-                  dataEntry={currentFile.dataEntry}
-                  entrySource={entrySource}
-                  config={config}
-                  configError={schemas.configError}
-                  hasDerivedFallback={schemas.derivedConfig !== null}
-                  componentBlocks={adapter.capabilities.componentBlocks}
-                  entryIds={adapter.capabilities.entryIds}
-                  componentSchemaVersion={componentSchemaVersion}
-                  groups={files.groups}
-                  editorTab={editorTab}
-                  onTabChange={setEditorTab}
-                  onEdit={currentFile.onEdit}
-                  onFormEdit={currentFile.onFormEdit}
-                  onRenameFile={renameOpenFilename}
-                  onRefreshFilename={refreshFilenameTemplate}
-                  onPostoSaved={() => void schemas.loadPostoConfig(root)}
-                  developerMode={developerMode}
-                  onFullscreen={
-                    fullscreenEditorOpen ? undefined : () => setFullscreenEditorOpen(true)
-                  }
-                  hideHeader={fullscreenEditorOpen}
-                  hideTabList={fullscreenEditorOpen}
-                  toolbarLeading={
-                    fullscreenEditorOpen && fullscreenUsesRichToolbar
-                      ? renderFullscreenExit()
-                      : undefined
-                  }
-                  toolbarTrailing={
-                    fullscreenEditorOpen && fullscreenUsesRichToolbar
-                      ? renderFullscreenViewToggle()
-                      : undefined
-                  }
-                  renderFieldsHeader={
-                    fullscreenEditorOpen
-                      ? (filenameControl) => (
-                          <div className="fullscreen-plain-toolbar">
-                            <div className="body-rich-toolbar-edge">{renderFullscreenExit()}</div>
-                            <div className="body-rich-toolbar-controls">
-                              <div className="fullscreen-fields-filename">{filenameControl}</div>
-                            </div>
-                            {fullscreenCanToggleFieldsBody && (
-                              <div className="body-rich-toolbar-edge">
-                                {renderFullscreenViewToggle()}
-                              </div>
-                            )}
-                          </div>
-                        )
-                      : undefined
-                  }
-                />
+                {renderEditorPane(!fullscreenEditorOpen, fullscreenEditorOpen)}
               </div>
 
               <div
@@ -894,20 +911,7 @@ function App() {
                 onPointerMove={preview.onDividerPointerMove}
               />
 
-              <PreviewPane
-                root={root}
-                server={devServer.server}
-                previewRoute={preview.previewRoute}
-                servedRoute={preview.servedRoute}
-                previewFrame={preview.previewFrame}
-                dragging={preview.dragging}
-                media={config?.media[0] ?? null}
-                saveTick={saveTick}
-                onRestart={() => void devServer.restartServer(root)}
-                onRetry={() => void devServer.startServer(root)}
-                onInstall={(steps) => void devServer.runSetup(root, steps)}
-                onHome={preview.goHome}
-              />
+              {renderPreviewPane()}
             </div>
           </div>
         )}

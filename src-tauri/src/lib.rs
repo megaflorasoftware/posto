@@ -196,11 +196,6 @@ pub fn run() {
                 .accelerator("Cmd+O")
                 .enabled(false)
                 .build(app)?;
-            let fullscreen_editor =
-                MenuItemBuilder::with_id(FULLSCREEN_EDITOR_MENU_ID, "Fullscreen Editor")
-                    .accelerator("Cmd+Shift+F")
-                    .enabled(false)
-                    .build(app)?;
             let open_repository =
                 MenuItemBuilder::with_id(OPEN_REPOSITORY_MENU_ID, "Open Repository…").build(app)?;
             let open_recent = MenuItemBuilder::with_id(OPEN_RECENT_MENU_ID, "Open Recent…")
@@ -209,6 +204,11 @@ pub fn run() {
                 .build(app)?;
             let open_sibling =
                 MenuItemBuilder::with_id(OPEN_SIBLING_PROJECT_MENU_ID, "Open Sibling Project…")
+                    .enabled(false)
+                    .build(app)?;
+            let fullscreen_editor =
+                MenuItemBuilder::with_id(FULLSCREEN_EDITOR_MENU_ID, "Fullscreen Editor")
+                    .accelerator("Cmd+Shift+F")
                     .enabled(false)
                     .build(app)?;
             let separator = PredefinedMenuItem::separator(app)?;
@@ -228,24 +228,25 @@ pub fn run() {
                     break;
                 }
             }
+
             for item in menu.items()? {
                 let MenuItemKind::Submenu(file_menu) = item else {
                     continue;
                 };
                 if file_menu.text()? == "File" {
-                    let open_file_separator = PredefinedMenuItem::separator(app)?;
-                    let repository_separator = PredefinedMenuItem::separator(app)?;
+                    let separator = PredefinedMenuItem::separator(app)?;
                     file_menu.prepend_items(&[
-                        &open_file,
-                        &open_file_separator,
                         &open_repository,
                         &open_recent,
                         &open_sibling,
-                        &repository_separator,
+                        &separator,
+                        &open_file,
+                        &separator,
                     ])?;
                     break;
                 }
             }
+
             Ok(menu)
         })
         .on_menu_event(|app, event| {
@@ -253,9 +254,6 @@ pub fn run() {
 
             if event.id().as_ref() == OPEN_FILE_MENU_ID {
                 let _ = app.emit("open-file", ());
-            }
-            if event.id().as_ref() == FULLSCREEN_EDITOR_MENU_ID {
-                let _ = app.emit("open-fullscreen-editor", ());
             }
             if event.id().as_ref() == OPEN_REPOSITORY_MENU_ID {
                 let _ = app.emit("open-repository", ());
@@ -268,6 +266,9 @@ pub fn run() {
             }
             if event.id().as_ref() == SETTINGS_MENU_ID {
                 let _ = app.emit("open-settings", ());
+            }
+            if event.id().as_ref() == FULLSCREEN_EDITOR_MENU_ID {
+                let _ = app.emit("open-fullscreen-editor", ());
             }
         });
     #[cfg(desktop)]
