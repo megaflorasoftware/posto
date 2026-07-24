@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  canRotateMediaImage,
   markdownMediaEditorContent,
   markdownMediaHtml,
   markdownMediaKind,
@@ -7,6 +8,14 @@ import {
 } from "../src/markdownMedia";
 
 describe("Markdown media insertion", () => {
+  test("limits in-place rotation to supported raster formats", () => {
+    expect(canRotateMediaImage("photo.JPG")).toBe(true);
+    expect(canRotateMediaImage("photo.png")).toBe(true);
+    expect(canRotateMediaImage("photo.webp")).toBe(true);
+    expect(canRotateMediaImage("animation.gif")).toBe(false);
+    expect(canRotateMediaImage("vector.svg")).toBe(false);
+  });
+
   test("uses native Markdown images and links where the spec provides them", () => {
     expect(markdownMediaKind("photo.webp")).toBe("image");
     expect(markdownMediaKind("scan.bmp")).toBe("image");

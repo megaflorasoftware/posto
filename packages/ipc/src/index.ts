@@ -227,6 +227,13 @@ export function renameFileMediaItem(request: RenameFileMediaItemRequest): Promis
   });
 }
 
+export function rotateMediaImage(request: FileMediaItemRequest): Promise<void> {
+  return invoke("rotate_media_image", {
+    mediaRoot: request.mediaRoot,
+    imagePath: request.path,
+  });
+}
+
 export function deleteFileMediaDirectory(request: FileMediaItemRequest): Promise<void> {
   return invoke("delete_media_directory", {
     mediaRoot: request.mediaRoot,

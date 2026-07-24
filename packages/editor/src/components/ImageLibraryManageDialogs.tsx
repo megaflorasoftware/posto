@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { Alert, Button, Group, Stack, Text, TextInput } from "@mantine/core";
-import { Image as ImageIcon, Trash2 } from "lucide-react";
+import { ActionIcon, Alert, Button, Group, Stack, Text, TextInput } from "@mantine/core";
+import { Image as ImageIcon, RotateCw, Trash2 } from "lucide-react";
 import {
   serializeImageLibraryMetadata,
   type ImageLibraryAsset,
@@ -9,7 +9,7 @@ import type { MediaLibrary, PagesConfig } from "@posto/core/pagescms/config";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 import { pathEntryId } from "@posto/core/project/entryIds";
 import { validateForm } from "@posto/core/pagescms/validate";
-import { createFileMediaDirectory, invoke, type FileGroup } from "@posto/ipc";
+import { createFileMediaDirectory, invoke, rotateMediaImage, type FileGroup } from "@posto/ipc";
 import {
   editValueAtPath,
   imageLibraryMetadataFields,
@@ -21,6 +21,7 @@ import {
   planImageLibraryReferenceUpdates,
 } from "../imageLibraryReferences";
 import { moveImageLibraryItems } from "../mediaMoves";
+import { canRotateMediaImage } from "../markdownMedia";
 import { CachedImage } from "./CachedImage";
 import { Dialog } from "./Dialog";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
@@ -277,6 +278,8 @@ export function ImageLibraryEditDialog(props: {
   );
   const [pending, setPending] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [rotating, setRotating] = useState(false);
+  const [previewRevision, setPreviewRevision] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const originalFilename =
     props.asset.imagePath?.split("/").pop() ?? props.asset.entryId.split("/").pop() ?? "";
@@ -457,6 +460,21 @@ export function ImageLibraryEditDialog(props: {
       setDeleting(false);
     }
   };
+  const rotate = async () => {
+    if (!props.asset.imagePath || !canRotateMediaImage(props.asset.imagePath)) return;
+    setRotating(true);
+    setError(null);
+    try {
+      await props.onBeforeChange();
+      await rotateMediaImage({ mediaRoot: libraryRoot, path: props.asset.imagePath });
+      setPreviewRevision((revision) => revision + 1);
+      props.onChanged();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setRotating(false);
+    }
+  };
 
   return (
     <Dialog opened onClose={props.onClose} title={`Edit ${filename}`} size="xl">
@@ -467,7 +485,27 @@ export function ImageLibraryEditDialog(props: {
       )}
       <div className="image-library-import-details">
         <div className="image-library-import-preview">
-          <CachedImage path={props.asset.imagePath} alt="" fallback={<ImageIcon size={28} />} />
+          <CachedImage
+            key={previewRevision}
+            path={props.asset.imagePath}
+            alt=""
+            fallback={<ImageIcon size={28} />}
+          />
+          {props.asset.imagePath && canRotateMediaImage(props.asset.imagePath) && (
+            <ActionIcon
+              className="image-edit-rotate-action"
+              variant="filled"
+              color="dark"
+              size="md"
+              loading={rotating}
+              disabled={pending || deleting}
+              title="Rotate image clockwise"
+              aria-label="Rotate image clockwise"
+              onClick={() => void rotate()}
+            >
+              <RotateCw size={18} />
+            </ActionIcon>
+          )}
         </div>
         <div className="image-library-import-form">
           <TextInput
@@ -488,14 +526,14 @@ export function ImageLibraryEditDialog(props: {
               variant="subtle"
               leftSection={<Trash2 size={16} />}
               loading={deleting}
-              disabled={pending}
+              disabled={pending || rotating}
               onClick={() => void remove()}
             >
               Delete image
             </Button>
             <Button
               loading={pending}
-              disabled={errors.size > 0 || !!filenameError || deleting}
+              disabled={errors.size > 0 || !!filenameError || deleting || rotating}
               onClick={() => void save()}
             >
               Save changes

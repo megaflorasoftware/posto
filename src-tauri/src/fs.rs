@@ -345,12 +345,7 @@ fn cached_image_thumbnail(
 
     std::fs::create_dir_all(&cache_directory)
         .map_err(|error| format!("Could not create thumbnail cache: {error}"))?;
-    let image = image::ImageReader::open(source)
-        .map_err(|error| format!("Could not open {}: {error}", source.display()))?
-        .with_guessed_format()
-        .map_err(|error| format!("Could not identify {}: {error}", source.display()))?
-        .decode()
-        .map_err(|error| format!("Could not decode {}: {error}", source.display()))?;
+    let (image, _) = decode_oriented_image(source)?;
     image
         .thumbnail(max_width, max_height)
         .save_with_format(&destination, image::ImageFormat::Png)
@@ -375,6 +370,33 @@ fn cached_image_thumbnail(
     }
     prune_thumbnail_cache(&cache_directory);
     Ok(destination)
+}
+
+fn decode_oriented_image(
+    source: &Path,
+) -> Result<(image::DynamicImage, image::ImageFormat), String> {
+    use image::ImageDecoder;
+
+    let reader = image::ImageReader::open(source)
+        .map_err(|error| format!("Could not open {}: {error}", source.display()))?
+        .with_guessed_format()
+        .map_err(|error| format!("Could not identify {}: {error}", source.display()))?;
+    let format = reader
+        .format()
+        .ok_or_else(|| format!("Could not identify image format for {}", source.display()))?;
+    let mut decoder = reader
+        .into_decoder()
+        .map_err(|error| format!("Could not decode {}: {error}", source.display()))?;
+    let orientation = decoder.orientation().map_err(|error| {
+        format!(
+            "Could not read orientation for {}: {error}",
+            source.display()
+        )
+    })?;
+    let mut image = image::DynamicImage::from_decoder(decoder)
+        .map_err(|error| format!("Could not decode {}: {error}", source.display()))?;
+    image.apply_orientation(orientation);
+    Ok((image, format))
 }
 
 fn prune_thumbnail_cache(directory: &Path) {
@@ -835,6 +857,45 @@ pub fn rename_media_file(
     }
     std::fs::rename(&canonical_file, &target)
         .map_err(|error| format!("Failed to rename media file: {error}"))
+}
+
+/// Normalizes embedded orientation and rotates a managed raster image 90° clockwise.
+#[tauri::command]
+pub fn rotate_media_image(media_root: String, image_path: String) -> Result<(), String> {
+    let canonical_root = canonical_root(&media_root)?;
+    let image_path = managed_target(Path::new(&media_root), &image_path, false)?;
+    let canonical_image = std::fs::canonicalize(&image_path)
+        .map_err(|error| format!("Invalid media image: {error}"))?;
+    if !canonical_image.starts_with(&canonical_root) || !canonical_image.is_file() {
+        return Err("Invalid media image".to_string());
+    }
+
+    let permissions = canonical_image
+        .metadata()
+        .map_err(|error| format!("Could not inspect image: {error}"))?
+        .permissions();
+    let (image, format) = decode_oriented_image(&canonical_image)?;
+    let staged = transaction_temp(&canonical_image, "rotate")?;
+    let backup = transaction_temp(&canonical_image, "rotate-backup")?;
+    if staged.exists() || backup.exists() {
+        return Err("A previous image rotation is still pending".to_string());
+    }
+    if let Err(error) = image.rotate90().save_with_format(&staged, format) {
+        let _ = std::fs::remove_file(&staged);
+        return Err(format!("Could not rotate image: {error}"));
+    }
+    let _ = std::fs::set_permissions(&staged, permissions);
+    if let Err(error) = std::fs::rename(&canonical_image, &backup) {
+        let _ = std::fs::remove_file(&staged);
+        return Err(format!("Could not stage image rotation: {error}"));
+    }
+    if let Err(error) = std::fs::rename(&staged, &canonical_image) {
+        let _ = std::fs::rename(&backup, &canonical_image);
+        let _ = std::fs::remove_file(&staged);
+        return Err(format!("Could not finish image rotation: {error}"));
+    }
+    let _ = std::fs::remove_file(&backup);
+    Ok(())
 }
 
 /// Moves one file into an existing directory below the same file-based media root.
@@ -1364,6 +1425,29 @@ mod tests {
         assert_ne!(first, revised);
         assert_eq!(image::image_dimensions(&revised).unwrap(), (120, 240));
         assert!(!first.exists(), "superseded revisions should be removed");
+    }
+
+    #[test]
+    fn media_images_rotate_clockwise_in_place() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("portrait.png");
+        let mut pixels = image::RgbaImage::new(2, 3);
+        pixels.put_pixel(0, 0, image::Rgba([255, 0, 0, 255]));
+        pixels.put_pixel(1, 0, image::Rgba([0, 255, 0, 255]));
+        pixels.put_pixel(0, 2, image::Rgba([0, 0, 255, 255]));
+        pixels.save(&source).unwrap();
+
+        rotate_media_image(
+            root.path().to_string_lossy().to_string(),
+            source.to_string_lossy().to_string(),
+        )
+        .unwrap();
+
+        let rotated = image::open(&source).unwrap().to_rgba8();
+        assert_eq!(rotated.dimensions(), (3, 2));
+        assert_eq!(rotated.get_pixel(2, 0), &image::Rgba([255, 0, 0, 255]));
+        assert_eq!(rotated.get_pixel(2, 1), &image::Rgba([0, 255, 0, 255]));
+        assert_eq!(rotated.get_pixel(0, 0), &image::Rgba([0, 0, 255, 255]));
     }
 
     #[test]

@@ -1,14 +1,16 @@
 // @vitest-environment jsdom
 
 import React from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MantineProvider } from "@mantine/core";
 import { afterEach, expect, test, vi } from "vitest";
 import type { MediaLibrary } from "@posto/core/pagescms/config";
 import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
 import { ImageLibraryBrowser } from "../src/components/ImageLibraryBrowser";
+import { ImageLibraryEditDialog } from "../src/components/ImageLibraryManageDialogs";
 import { ImageLibraryImportDialog } from "../src/components/ImageLibraryImportDialog";
 import { ImageLibraryPickerDialog } from "../src/components/ImageLibraryPickerDialog";
+import { rotateMediaImage } from "@posto/ipc";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 Object.defineProperty(window, "matchMedia", {
@@ -34,6 +36,7 @@ vi.mock("@posto/ipc", () => ({
   openImageFiles: vi.fn().mockResolvedValue([]),
   openPath: vi.fn(),
   prepareImageSources: vi.fn(async (paths: string[]) => paths),
+  rotateMediaImage: vi.fn().mockResolvedValue(undefined),
   thumbnailUrl: vi.fn().mockResolvedValue(null),
 }));
 
@@ -161,6 +164,45 @@ test("shift-clicks desktop library asset and directory cards to toggle selection
   expect(toggleDirectory).toHaveBeenCalledWith("/repo/src/content/photos/albums");
   expect(editAsset).not.toHaveBeenCalled();
   expect(openDirectory).not.toHaveBeenCalled();
+});
+
+test("rotates an editable image clockwise from its preview action", async () => {
+  const asset: ImageLibraryAsset = {
+    entryId: "portrait",
+    metadataPath: "/repo/src/content/photos/portrait.yml",
+    imagePath: "/repo/src/content/photos/portrait.jpg",
+    metadata: { image: "./portrait.jpg" },
+    metadataSource: "image: ./portrait.jpg\n",
+    health: ["valid"],
+  };
+  const beforeChange = vi.fn().mockResolvedValue(undefined);
+  const changed = vi.fn();
+  vi.mocked(rotateMediaImage).mockClear();
+  render(
+    <MantineProvider forceColorScheme="light">
+      <ImageLibraryEditDialog
+        root="/repo"
+        library={library}
+        config={{ media: [], content: [], mediaLibraries: [library] }}
+        groups={[]}
+        asset={asset}
+        onBeforeChange={beforeChange}
+        onClose={vi.fn()}
+        onChanged={changed}
+      />
+    </MantineProvider>,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Rotate image clockwise" }));
+
+  await waitFor(() =>
+    expect(rotateMediaImage).toHaveBeenCalledWith({
+      mediaRoot: "/repo/src/content/photos",
+      path: asset.imagePath,
+    }),
+  );
+  expect(beforeChange).toHaveBeenCalledOnce();
+  expect(changed).toHaveBeenCalledOnce();
 });
 
 test("opens a filesystem directory drop directly on image metadata details", () => {

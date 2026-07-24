@@ -61,6 +61,17 @@ function LibraryMediaBrowserContent(props: {
   const state = useImageLibraryAssets(props.root, library);
   const libraryRoot = `${props.root}/${library.base}`;
   const dragScope = `library:${library.collection}`;
+  const selectionCount = selected.size + selectedDirectories.size;
+  useEffect(() => {
+    if (selectionCount === 0) return;
+    const clearSelection = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || document.querySelector('[role="dialog"]')) return;
+      setSelected(new Set());
+      setSelectedDirectories(new Set());
+    };
+    window.addEventListener("keydown", clearSelection);
+    return () => window.removeEventListener("keydown", clearSelection);
+  }, [selectionCount]);
   const mediaForAsset = (asset: ImageLibraryAsset): MarkdownMediaPick | null => {
     if (!asset.imagePath) return null;
     const input = library.base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
@@ -205,6 +216,7 @@ function LibraryMediaBrowserContent(props: {
             setSelectedDirectories(new Set());
             setDeleting(true);
           }}
+          hideActions={selectionCount > 0}
           dragPayload={(asset) => dragPayload({ asset })}
           directoryDragPayload={(directory) => dragPayload({ directory })}
           dropScope={dragScope}
@@ -242,7 +254,7 @@ function LibraryMediaBrowserContent(props: {
         />
       </div>
       <div className="media-drawer-footer">
-        {selected.size + selectedDirectories.size > 0 ? (
+        {selectionCount > 0 ? (
           <div className="media-selection-actions">
             <Button fullWidth variant="default" onClick={() => setMoving(true)}>
               Move items
@@ -368,6 +380,17 @@ function PublicMediaBrowserContent(props: {
   const [moveError, setMoveError] = useState<string | null>(null);
   const paneRef = useRef<HTMLDivElement>(null);
   const dragScope = "public";
+  const selectionCount = selected.size + selectedDirectories.size;
+  useEffect(() => {
+    if (selectionCount === 0) return;
+    const clearSelection = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || document.querySelector('[role="dialog"]')) return;
+      setSelected(new Set());
+      setSelectedDirectories(new Set());
+    };
+    window.addEventListener("keydown", clearSelection);
+    return () => window.removeEventListener("keydown", clearSelection);
+  }, [selectionCount]);
 
   const importFiles = async () => {
     setImporting(true);
@@ -526,6 +549,7 @@ function PublicMediaBrowserContent(props: {
             setSelectedDirectories(new Set());
             setDeleting(true);
           }}
+          hideActions={selectionCount > 0}
           dragPayload={(file) => dragPayload({ file })}
           directoryDragPayload={(directory) => dragPayload({ directory })}
           dropScope={dragScope}
@@ -561,7 +585,7 @@ function PublicMediaBrowserContent(props: {
         />
       </div>
       <div className="media-drawer-footer">
-        {selected.size + selectedDirectories.size > 0 ? (
+        {selectionCount > 0 ? (
           <div className="media-selection-actions">
             <Button fullWidth variant="default" onClick={() => setMoving(true)}>
               Move items

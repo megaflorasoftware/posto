@@ -11,6 +11,7 @@ import {
 } from "./MediaDragDrop";
 import { PickerCardSelection } from "./PickerCardSelection";
 import { PickerDirectoryCard } from "./PickerDirectoryCard";
+import { useShiftPressed } from "../hooks/useShiftPressed";
 
 function normalize(path: string): string {
   return path.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -54,6 +55,7 @@ export function ImageLibraryBrowser(props: {
   onPick?: (asset: ImageLibraryAsset) => void;
   onEdit?: (asset: ImageLibraryAsset) => void;
   onDelete?: (asset: ImageLibraryAsset) => void;
+  hideActions?: boolean;
   /** Enables dragging an asset into a Markdown/MDX body. */
   dragMedia?: (asset: ImageLibraryAsset) => MarkdownMediaPick | null;
   dragPayload?: (asset: ImageLibraryAsset) => MediaDragPayload | null;
@@ -68,6 +70,7 @@ export function ImageLibraryBrowser(props: {
   onToggleSelection?: (asset: ImageLibraryAsset) => void;
   onToggleDirectorySelection?: (directory: string) => void;
 }) {
+  const shiftPressed = useShiftPressed();
   const root = normalize(props.rootDirectory);
   const current = props.currentDirectory ? `${root}/${props.currentDirectory}` : root;
   const folders = props.directories
@@ -169,50 +172,54 @@ export function ImageLibraryBrowser(props: {
                       onToggle={() => props.onToggleSelection?.(asset)}
                     />
                   )}
-                  {(props.onEdit || props.onDelete) && valid && !props.selectionMode && (
-                    <span className="picker-card-actions">
-                      {props.onEdit && (
-                        <ActionIcon
-                          className="picker-card-edit-action"
-                          variant="filled"
-                          color="dark"
-                          size="md"
-                          title={`Edit ${asset.entryId.split("/").pop()}`}
-                          aria-label={`Edit ${asset.entryId.split("/").pop()}`}
-                          onPointerDown={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                          }}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            props.onEdit?.(asset);
-                          }}
-                        >
-                          <Pencil size={18} />
-                        </ActionIcon>
-                      )}
-                      {props.onDelete && (
-                        <ActionIcon
-                          className="picker-card-delete-action"
-                          variant="filled"
-                          color="red"
-                          size="md"
-                          title={`Delete ${asset.entryId.split("/").pop()}`}
-                          aria-label={`Delete ${asset.entryId.split("/").pop()}`}
-                          onPointerDown={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                          }}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            props.onDelete?.(asset);
-                          }}
-                        >
-                          <Trash2 size={16} />
-                        </ActionIcon>
-                      )}
-                    </span>
-                  )}
+                  {(props.onEdit || props.onDelete) &&
+                    valid &&
+                    !props.selectionMode &&
+                    !props.hideActions &&
+                    !shiftPressed && (
+                      <span className="picker-card-actions">
+                        {props.onEdit && (
+                          <ActionIcon
+                            className="picker-card-edit-action"
+                            variant="filled"
+                            color="dark"
+                            size="md"
+                            title={`Edit ${asset.entryId.split("/").pop()}`}
+                            aria-label={`Edit ${asset.entryId.split("/").pop()}`}
+                            onPointerDown={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              props.onEdit?.(asset);
+                            }}
+                          >
+                            <Pencil size={18} />
+                          </ActionIcon>
+                        )}
+                        {props.onDelete && (
+                          <ActionIcon
+                            className="picker-card-delete-action"
+                            variant="filled"
+                            color="red"
+                            size="md"
+                            title={`Delete ${asset.entryId.split("/").pop()}`}
+                            aria-label={`Delete ${asset.entryId.split("/").pop()}`}
+                            onPointerDown={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              props.onDelete?.(asset);
+                            }}
+                          >
+                            <Trash2 size={16} />
+                          </ActionIcon>
+                        )}
+                      </span>
+                    )}
                 </MediaDragPreview>
                 <span className="picker-item-name">{asset.entryId.split("/").pop()}</span>
                 {!valid && <span className="picker-item-path">{asset.health.join(", ")}</span>}

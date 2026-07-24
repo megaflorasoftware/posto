@@ -12,6 +12,7 @@ import {
 } from "./MediaDragDrop";
 import { PickerCardSelection } from "./PickerCardSelection";
 import { PickerDirectoryCard } from "./PickerDirectoryCard";
+import { useShiftPressed } from "../hooks/useShiftPressed";
 
 function normalize(path: string): string {
   return path.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -88,6 +89,7 @@ export function FileMediaBrowser(props: {
   onPick?: (file: FileEntry) => void;
   onEdit?: (file: FileEntry) => void;
   onDelete?: (file: FileEntry) => void;
+  hideActions?: boolean;
   /** Enables dragging a file into a Markdown/MDX body. */
   dragMedia?: (file: FileEntry) => MarkdownMediaPick | null;
   dragPayload?: (file: FileEntry) => MediaDragPayload | null;
@@ -102,6 +104,7 @@ export function FileMediaBrowser(props: {
   onToggleFileSelection?: (file: FileEntry) => void;
   onToggleDirectorySelection?: (directory: string) => void;
 }) {
+  const shiftPressed = useShiftPressed();
   const root = normalize(props.rootDirectory);
   const current = props.currentDirectory ? `${root}/${props.currentDirectory}` : root;
   const folders = props.directories
@@ -195,50 +198,53 @@ export function FileMediaBrowser(props: {
                       onToggle={() => props.onToggleFileSelection?.(file)}
                     />
                   )}
-                  {(props.onEdit || props.onDelete) && !props.selectionMode && (
-                    <span className="picker-card-actions">
-                      {props.onEdit && (
-                        <ActionIcon
-                          className="picker-card-edit-action"
-                          variant="filled"
-                          color="dark"
-                          size="md"
-                          title={`Edit ${file.name}`}
-                          aria-label={`Edit ${file.name}`}
-                          onPointerDown={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                          }}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            props.onEdit?.(file);
-                          }}
-                        >
-                          <Pencil size={18} />
-                        </ActionIcon>
-                      )}
-                      {props.onDelete && (
-                        <ActionIcon
-                          className="picker-card-delete-action"
-                          variant="filled"
-                          color="red"
-                          size="md"
-                          title={`Delete ${file.name}`}
-                          aria-label={`Delete ${file.name}`}
-                          onPointerDown={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                          }}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            props.onDelete?.(file);
-                          }}
-                        >
-                          <Trash2 size={16} />
-                        </ActionIcon>
-                      )}
-                    </span>
-                  )}
+                  {(props.onEdit || props.onDelete) &&
+                    !props.selectionMode &&
+                    !props.hideActions &&
+                    !shiftPressed && (
+                      <span className="picker-card-actions">
+                        {props.onEdit && (
+                          <ActionIcon
+                            className="picker-card-edit-action"
+                            variant="filled"
+                            color="dark"
+                            size="md"
+                            title={`Edit ${file.name}`}
+                            aria-label={`Edit ${file.name}`}
+                            onPointerDown={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              props.onEdit?.(file);
+                            }}
+                          >
+                            <Pencil size={18} />
+                          </ActionIcon>
+                        )}
+                        {props.onDelete && (
+                          <ActionIcon
+                            className="picker-card-delete-action"
+                            variant="filled"
+                            color="red"
+                            size="md"
+                            title={`Delete ${file.name}`}
+                            aria-label={`Delete ${file.name}`}
+                            onPointerDown={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              props.onDelete?.(file);
+                            }}
+                          >
+                            <Trash2 size={16} />
+                          </ActionIcon>
+                        )}
+                      </span>
+                    )}
                 </MediaDragPreview>
                 <span className="picker-item-name">{file.name}</span>
               </>

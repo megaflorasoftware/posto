@@ -196,6 +196,39 @@ describe("public media", () => {
     expect(openDirectory).not.toHaveBeenCalled();
   });
 
+  test("hides card edit actions while Shift is held or a selection is active", () => {
+    const renderBrowser = (hideActions = false) =>
+      render(
+        <MantineProvider forceColorScheme="light">
+          <FileMediaBrowser
+            rootDirectory="/repo/media"
+            currentDirectory=""
+            directories={[]}
+            files={[{ name: "photo.jpg", path: "/repo/media/photo.jpg" }]}
+            inlineSelection
+            hideActions={hideActions}
+            selectedFilePaths={new Set(hideActions ? ["/repo/media/photo.jpg"] : [])}
+            selectedDirectoryPaths={new Set()}
+            onDirectoryChange={vi.fn()}
+            onToggleFileSelection={vi.fn()}
+            onEdit={vi.fn()}
+            onDelete={vi.fn()}
+          />
+        </MantineProvider>,
+      );
+
+    const first = renderBrowser();
+    expect(screen.getByRole("button", { name: "Delete photo.jpg" })).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Shift" });
+    expect(screen.queryByRole("button", { name: "Delete photo.jpg" })).toBeNull();
+    fireEvent.keyUp(window, { key: "Shift" });
+    expect(screen.getByRole("button", { name: "Delete photo.jpg" })).toBeTruthy();
+    first.unmount();
+
+    renderBrowser(true);
+    expect(screen.queryByRole("button", { name: "Delete photo.jpg" })).toBeNull();
+  });
+
   test("enables directory cards as drag sources when they have a categorized payload", () => {
     render(
       <MantineProvider forceColorScheme="light">

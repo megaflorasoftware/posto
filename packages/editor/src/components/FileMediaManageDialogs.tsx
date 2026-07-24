@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Alert, Button, Group, Stack, Text, TextInput } from "@mantine/core";
-import { Trash2 } from "lucide-react";
+import { ActionIcon, Alert, Button, Group, Stack, Text, TextInput } from "@mantine/core";
+import { RotateCw, Trash2 } from "lucide-react";
 import {
   deleteFileMediaDirectory,
   deleteFileMediaItem,
   renameFileMediaItem,
+  rotateMediaImage,
   type FileEntry,
   type FileGroup,
 } from "@posto/ipc";
@@ -14,7 +15,7 @@ import {
 } from "../imageLibraryReferences";
 import { filePathDirname, normalizeFilePath } from "../filePaths";
 import { moveFileMediaItems } from "../mediaMoves";
-import { publicMediaOutputPath } from "../markdownMedia";
+import { canRotateMediaImage, publicMediaOutputPath } from "../markdownMedia";
 import { Dialog } from "./Dialog";
 import { FileMediaBrowser, FileMediaPreview } from "./PublicMediaBrowser";
 
@@ -45,6 +46,8 @@ export function FileMediaEditDialog(props: {
   const [filename, setFilename] = useState(props.file.name);
   const [pending, setPending] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [rotating, setRotating] = useState(false);
+  const [previewRevision, setPreviewRevision] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const originalExtension = props.file.name.slice(props.file.name.lastIndexOf(".") + 1);
   const candidateExtension = filename.slice(filename.lastIndexOf(".") + 1);
@@ -113,6 +116,21 @@ export function FileMediaEditDialog(props: {
       setDeleting(false);
     }
   };
+  const rotate = async () => {
+    if (!canRotateMediaImage(props.file.path)) return;
+    setRotating(true);
+    setError(null);
+    try {
+      await props.onBeforeChange();
+      await rotateMediaImage({ mediaRoot: props.mediaRoot, path: props.file.path });
+      setPreviewRevision((revision) => revision + 1);
+      props.onChanged();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setRotating(false);
+    }
+  };
 
   return (
     <Dialog opened onClose={props.onClose} title={`Edit ${props.file.name}`} size="xl">
@@ -123,7 +141,22 @@ export function FileMediaEditDialog(props: {
       )}
       <div className="image-library-import-details">
         <div className="image-library-import-preview">
-          <FileMediaPreview file={props.file} />
+          <FileMediaPreview key={previewRevision} file={props.file} />
+          {canRotateMediaImage(props.file.path) && (
+            <ActionIcon
+              className="image-edit-rotate-action"
+              variant="filled"
+              color="dark"
+              size="md"
+              loading={rotating}
+              disabled={pending || deleting}
+              title="Rotate image clockwise"
+              aria-label="Rotate image clockwise"
+              onClick={() => void rotate()}
+            >
+              <RotateCw size={18} />
+            </ActionIcon>
+          )}
         </div>
         <div className="image-library-import-form">
           <TextInput
@@ -139,14 +172,14 @@ export function FileMediaEditDialog(props: {
               variant="subtle"
               leftSection={<Trash2 size={16} />}
               loading={deleting}
-              disabled={pending}
+              disabled={pending || rotating}
               onClick={() => void remove()}
             >
               Delete file
             </Button>
             <Button
               loading={pending}
-              disabled={!!filenameError || deleting}
+              disabled={!!filenameError || deleting || rotating}
               onClick={() => void save()}
             >
               Save changes
