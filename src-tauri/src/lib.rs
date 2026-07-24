@@ -274,8 +274,10 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder.invoke_handler(tauri::generate_handler![
         auth::auth_status,
+        auth::retry_auth_status,
         auth::sign_in,
         auth::sign_out,
+        auth::github_pages_url,
         auth::list_workflow_runs,
         git::github_remote,
         fs::list_files,
@@ -345,8 +347,10 @@ pub fn run() {
             .manage(auth::AuthState::default())
             .invoke_handler(tauri::generate_handler![
                 auth::auth_status,
+                auth::retry_auth_status,
                 auth::sign_in,
                 auth::sign_out,
+                auth::github_pages_url,
                 auth::list_user_repos,
                 auth::list_workflow_runs,
                 browser::open_in_app_browser,

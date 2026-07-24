@@ -301,6 +301,7 @@ const mockUser: GitHubUser = {
   commit_email: "123456+example-user@users.noreply.github.com",
 };
 let mockSignedIn = false;
+let mockCredentialDenied = new URLSearchParams(window.location.search).has("mockCredentialDenied");
 const mockDeviceCodeHandlers = new Set<(authorization: DeviceAuthorization) => void>();
 const mockCloneProgressHandlers = new Set<(progress: CloneProgress) => void>();
 const mockGitHubRepos: GitHubRepo[] = [
@@ -538,6 +539,13 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     }
     case "read_text_file_optional": {
       const path = args?.path as string;
+      if (
+        new URLSearchParams(window.location.search).has("mockNoLocalSiteUrl") &&
+        (path.includes("/astro.config.") || path.endsWith("/public/CNAME") ||
+          path.endsWith("/package.json"))
+      ) {
+        return null;
+      }
       return path in mockFiles && !mockDeleted.has(path) ? mockFiles[path] : null;
     }
     case "path_exists": {
@@ -758,6 +766,10 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     case "close_in_app_browser":
       return null;
     case "auth_status":
+      if (mockCredentialDenied) throw new Error("The credential request was denied");
+      return { signed_in: mockSignedIn, user: mockSignedIn ? { ...mockUser } : null };
+    case "retry_auth_status":
+      mockCredentialDenied = false;
       return { signed_in: mockSignedIn, user: mockSignedIn ? { ...mockUser } : null };
     case "sign_in":
       mockDeviceCodeHandlers.forEach((handler) =>
@@ -830,6 +842,8 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       if (new URLSearchParams(window.location.search).has("mockNoRepo")) return null;
       return root.includes("/mock/") ? { owner: "example-org", name: "posto" } : null;
     }
+    case "github_pages_url":
+      return "https://example-org.github.io/posto/";
     case "list_workflow_runs": {
       if (!mockSignedIn) throw new Error("Not signed in to GitHub");
       const params = new URLSearchParams(window.location.search);

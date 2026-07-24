@@ -133,6 +133,11 @@ struct ApiRunsResponse {
 }
 
 #[derive(Debug, Deserialize)]
+struct ApiPagesSite {
+    html_url: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct ApiWorkflowRun {
     id: u64,
     name: Option<String>,
@@ -273,6 +278,36 @@ impl GitHubClient {
             .collect())
     }
 
+    /// The configured public URL for a GitHub Pages site. A repository that
+    /// does not use Pages returns 404, which is an expected absent fallback.
+    async fn pages_url(
+        &self,
+        token: &str,
+        owner: &str,
+        name: &str,
+    ) -> Result<Option<String>, String> {
+        let url = format!("{API_URL}/repos/{owner}/{name}/pages");
+        let response = self
+            .http
+            .get(url)
+            .bearer_auth(token)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", API_VERSION)
+            .send()
+            .await
+            .map_err(err_str)?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        let site = response
+            .error_for_status()
+            .map_err(err_str)?
+            .json::<ApiPagesSite>()
+            .await
+            .map_err(err_str)?;
+        Ok(Some(site.html_url))
+    }
+
     async fn api_get(&self, url: &str, token: &str) -> Result<reqwest::Response, String> {
         self.http
             .get(url)
@@ -379,10 +414,24 @@ pub async fn auth_status() -> Result<AuthStatus, String> {
     let session = tauri::async_runtime::spawn_blocking(storage::load_session)
         .await
         .map_err(err_str)??;
-    Ok(AuthStatus {
+    Ok(auth_status_from(session))
+}
+
+/// Re-attempts a credential-store read after the user explicitly asks Posto
+/// to retry a denied or failed request.
+#[tauri::command]
+pub async fn retry_auth_status() -> Result<AuthStatus, String> {
+    let session = tauri::async_runtime::spawn_blocking(storage::reload_session)
+        .await
+        .map_err(err_str)??;
+    Ok(auth_status_from(session))
+}
+
+fn auth_status_from(session: Option<StoredSession>) -> AuthStatus {
+    AuthStatus {
         signed_in: session.is_some(),
         user: session.map(|session| session.user),
-    })
+    }
 }
 
 /// Starts GitHub's device flow. The public code and verification URL are
@@ -454,6 +503,16 @@ pub async fn list_workflow_runs(
     GitHubClient::new()?
         .workflow_runs(&token, &owner, &name, &branch)
         .await
+}
+
+/// Public URL configured for this repository's GitHub Pages site, when one
+/// exists. Used only as a fallback when the local project has no site URL.
+#[tauri::command]
+pub async fn github_pages_url(owner: String, name: String) -> Result<Option<String>, String> {
+    let token = tauri::async_runtime::spawn_blocking(stored_token)
+        .await
+        .map_err(err_str)??;
+    GitHubClient::new()?.pages_url(&token, &owner, &name).await
 }
 
 #[cfg(test)]

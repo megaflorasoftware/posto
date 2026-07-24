@@ -41,6 +41,8 @@ export interface Deployment {
   /** The pending device-flow code, while sign-in is in progress. */
   device: DeviceAuthorization | null;
   signingIn: boolean;
+  retryingCredentialAccess: boolean;
+  credentialError: string | null;
   error: string | null;
   /** GitHub repo behind the open site, or null when none is found. */
   slug: GitHubSlug | null;
@@ -48,11 +50,14 @@ export interface Deployment {
   ring: DeploymentRing;
   /** True when there's a run to render a ring for. */
   hasRing: boolean;
+  /** GitHub Pages URL, used when the local project declares no live URL. */
+  pagesUrl: string | null;
   actionsUrl: string | null;
   drawerOpen: boolean;
   openDrawer: () => void;
   closeDrawer: () => void;
   signIn: () => void;
+  retryCredentialAccess: () => void;
   signOut: () => void;
   openActions: () => void;
   openVerification: () => void;
@@ -70,9 +75,12 @@ export function useDeployment(root: string | null): Deployment {
   const [user, setUser] = useState<GitHubUser | null>(null);
   const [device, setDevice] = useState<DeviceAuthorization | null>(null);
   const [signingIn, setSigningIn] = useState(false);
+  const [retryingCredentialAccess, setRetryingCredentialAccess] = useState(false);
+  const [credentialError, setCredentialError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [slug, setSlug] = useState<GitHubSlug | null>(null);
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
+  const [pagesUrl, setPagesUrl] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Holds the active poll's fetch so `refresh()` can trigger it off-schedule.
@@ -94,8 +102,9 @@ export function useDeployment(root: string | null): Deployment {
         setSignedIn(status.signed_in);
         setUser(status.user);
       })
-      .catch(() => {
+      .catch((e) => {
         setSignedIn(false);
+        setCredentialError(message(e));
       });
     return stopDevice;
   }, []);
@@ -114,6 +123,30 @@ export function useDeployment(root: string | null): Deployment {
       active = false;
     };
   }, [root, signedIn]);
+
+  // Resolve GitHub Pages once per repository. Local project metadata remains
+  // the preferred live URL; this fills the gap for repos that declare none.
+  useEffect(() => {
+    if (!signedIn || !slug) {
+      setPagesUrl(null);
+      return;
+    }
+    let active = true;
+    setPagesUrl(null);
+    void invoke<string | null>("github_pages_url", {
+      owner: slug.owner,
+      name: slug.name,
+    })
+      .then((url) => {
+        if (active) setPagesUrl(url);
+      })
+      .catch(() => {
+        if (active) setPagesUrl(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [signedIn, slug]);
 
   // Poll the repo's recent runs while it's open and we're signed in.
   useEffect(() => {
@@ -167,6 +200,7 @@ export function useDeployment(root: string | null): Deployment {
 
   const signIn = useCallback(() => {
     setError(null);
+    setCredentialError(null);
     setDevice(null);
     setSigningIn(true);
     void invoke<GitHubUser>("sign_in")
@@ -181,14 +215,34 @@ export function useDeployment(root: string | null): Deployment {
       });
   }, []);
 
+  const retryCredentialAccess = useCallback(() => {
+    setRetryingCredentialAccess(true);
+    void invoke<AuthStatus>("retry_auth_status")
+      .then((status) => {
+        setSignedIn(status.signed_in);
+        setUser(status.user);
+        setCredentialError(null);
+      })
+      .catch((e) => {
+        setSignedIn(false);
+        setCredentialError(message(e));
+      })
+      .finally(() => setRetryingCredentialAccess(false));
+  }, []);
+
   const signOut = useCallback(() => {
-    void invoke("sign_out").catch(() => {});
-    setSignedIn(false);
-    setUser(null);
-    setSlug(null);
-    setRuns([]);
-    setDevice(null);
     setError(null);
+    void invoke("sign_out")
+      .then(() => {
+        setSignedIn(false);
+        setUser(null);
+        setSlug(null);
+        setRuns([]);
+        setPagesUrl(null);
+        setDevice(null);
+        setCredentialError(null);
+      })
+      .catch((e) => setError(message(e)));
   }, []);
 
   const openActions = useCallback(() => {
@@ -229,16 +283,20 @@ export function useDeployment(root: string | null): Deployment {
     user,
     device,
     signingIn,
+    retryingCredentialAccess,
+    credentialError,
     error,
     slug,
     latestRun,
     ring,
     hasRing,
+    pagesUrl,
     actionsUrl,
     drawerOpen,
     openDrawer: useCallback(() => setDrawerOpen(true), []),
     closeDrawer: useCallback(() => setDrawerOpen(false), []),
     signIn,
+    retryCredentialAccess,
     signOut,
     openActions,
     openVerification,
