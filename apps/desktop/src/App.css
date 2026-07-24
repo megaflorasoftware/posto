@@ -426,11 +426,6 @@ body,
   margin-left: auto;
 }
 
-.fullscreen-sidebar-toggle {
-  position: absolute;
-  right: 0.75rem;
-}
-
 /* Fullscreen keeps both navigation surfaces above the editor instead of
    reflowing its centered 760px content column. The 50px rails remain present
    even while the panels are closed, making either edge a reveal target. */

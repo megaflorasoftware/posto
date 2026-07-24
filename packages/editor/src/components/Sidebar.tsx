@@ -291,7 +291,7 @@ export function Sidebar(props: {
   onPostoSaved: () => void;
 }) {
   const { root, groups, config } = props;
-  const developerMode = props.developerMode ?? true;
+  const developerMode = props.developerMode === true;
 
   // Collection whose settings dialog is open, with its group's files for
   // pinning suggestions.

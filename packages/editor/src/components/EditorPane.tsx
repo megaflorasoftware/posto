@@ -15,6 +15,13 @@ import { ProjectIOProvider } from "../projectIO";
 
 export type EditorTab = "content" | "raw";
 
+export function defaultEditorTabForFile(
+  filePath: string,
+  dataEntry?: FileEntry["dataEntry"],
+): EditorTab {
+  return dataEntry || /\.(md|mdx|markdown)$/i.test(filePath) ? "content" : "raw";
+}
+
 export function editorTabsForFile(input: {
   filePath: string | null;
   fileContent: string;
@@ -31,7 +38,7 @@ export function editorTabsForFile(input: {
   if (/\.(md|mdx|markdown)$/i.test(input.filePath) && parseFile(input.fileContent).error) {
     return ["raw"];
   }
-  return ["content", ...((input.developerMode ?? true) ? (["raw"] as const) : [])];
+  return ["content", ...(input.developerMode === true ? (["raw"] as const) : [])];
 }
 
 export function resolveEditorTab(tabs: EditorTab[], requested: EditorTab): EditorTab {
@@ -81,7 +88,7 @@ export function EditorPane(props: {
   filenamePlacement?: "header" | "fields";
 }) {
   const { filePath, fileContent, entry, editorTab, dataEntry } = props;
-  const developerMode = props.developerMode ?? true;
+  const developerMode = props.developerMode === true;
 
   const fileName = dataEntry?.id ?? filePath?.split("/").pop() ?? "";
   const filenameSchema =

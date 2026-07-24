@@ -19,6 +19,7 @@ import {
   PublishModal,
   buildNewFile,
   createDataDocumentEntry,
+  defaultEditorTabForFile,
   deleteDataDocumentEntry,
   editorTabsForFile,
   renameTargetForContent,
@@ -146,6 +147,7 @@ export default function RepoHome({
 
   useEffect(() => {
     if (developerMode) return;
+    setEditorTab("content");
     setSettingsFor(null);
     setOrderOpen(false);
   }, [developerMode]);
@@ -226,11 +228,7 @@ export default function RepoHome({
       void renameForTemplate(path, content);
     },
     onOpened(path, _content, file) {
-      if (file?.dataEntry) {
-        setEditorTab("content");
-        return;
-      }
-      if (!/\.(md|mdx|markdown)$/i.test(path)) setEditorTab("raw");
+      setEditorTab(defaultEditorTabForFile(path, file?.dataEntry));
     },
     onOpenError: setError,
   });
