@@ -5,11 +5,14 @@ import type { MediaLibrary, PagesConfig } from "@posto/core/pagescms/config";
 import {
   CreateImageLibraryFolderDialog,
   DeleteImageLibraryAssetsDialog,
+  DeleteFileMediaItemsDialog,
+  FileMediaEditDialog,
   ImageLibraryBrowser,
   ImageLibraryEditDialog,
   ImageLibraryImportDialog,
   MediaLibraryTabs,
   MoveImageLibraryAssetsDialog,
+  MoveFileMediaItemsDialog,
   PUBLIC_MEDIA_TAB,
   PublicMediaBrowser,
   chooseAndImportPublicMedia,
@@ -18,7 +21,7 @@ import {
   usePublicMediaFiles,
 } from "@posto/editor";
 import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
-import type { FileGroup } from "@posto/ipc";
+import type { FileEntry, FileGroup } from "@posto/ipc";
 
 /** Browses one library's directories and assets (read-only, like the import
  * picker) with a sticky Import action — the desktop mirror of the mobile
@@ -198,13 +201,15 @@ function LibraryMediaBrowserContent(props: {
         <ImageLibraryImportDialog
           root={props.root}
           library={library}
+          libraries={props.config.mediaLibraries ?? [library]}
           config={props.config}
           groups={props.groups}
           onClose={() => setImporting(false)}
-          onImported={() => {
-            void refreshImageLibraryAssets(props.root, library);
+          onImported={(_result, importedLibrary) => {
+            void refreshImageLibraryAssets(props.root, importedLibrary);
             props.onChanged();
           }}
+          onPublicImported={() => props.onChanged()}
         />
       )}
     </div>
@@ -214,13 +219,19 @@ function LibraryMediaBrowserContent(props: {
 function PublicMediaBrowserContent(props: {
   root: string;
   tabs: ReactNode;
-  onChanged: () => void;
+  onChanged: (options?: { silent?: boolean }) => void;
 }) {
   const state = usePublicMediaFiles(props.root);
   const [currentDirectory, setCurrentDirectory] = useState("");
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [selectedDirectories, setSelectedDirectories] = useState<Set<string>>(() => new Set());
+  const [deleting, setDeleting] = useState(false);
+  const [moving, setMoving] = useState(false);
+  const [editing, setEditing] = useState<FileEntry | null>(null);
 
   const importFiles = async () => {
     setImporting(true);
@@ -253,27 +264,81 @@ function PublicMediaBrowserContent(props: {
           files={state.files}
           toolbar={props.tabs}
           onDirectoryChange={setCurrentDirectory}
+          onEdit={setEditing}
+          selectionMode={selectionMode}
+          selectedFilePaths={selected}
+          selectedDirectoryPaths={selectedDirectories}
+          onToggleFileSelection={(file) =>
+            setSelected((current) => {
+              const next = new Set(current);
+              if (next.has(file.path)) next.delete(file.path);
+              else next.add(file.path);
+              return next;
+            })
+          }
+          onToggleDirectorySelection={(directory) => {
+            setSelectedDirectories((current) => {
+              const next = new Set(current);
+              if (next.has(directory)) next.delete(directory);
+              else {
+                for (const selectedDirectory of next) {
+                  if (selectedDirectory.startsWith(`${directory}/`)) next.delete(selectedDirectory);
+                }
+                next.add(directory);
+              }
+              return next;
+            });
+            setSelected(
+              (current) =>
+                new Set([...current].filter((path) => !path.startsWith(`${directory}/`))),
+            );
+          }}
         />
       </div>
       <div className="media-drawer-footer">
-        <div className="media-primary-actions">
-          <Button
-            fullWidth
-            variant="default"
-            leftSection={<FolderPlus size={16} />}
-            onClick={() => setCreatingFolder(true)}
-          >
-            New folder
-          </Button>
-          <Button
-            fullWidth
-            leftSection={<Upload size={16} />}
-            loading={importing}
-            onClick={() => void importFiles()}
-          >
-            Import files
-          </Button>
-        </div>
+        {selected.size + selectedDirectories.size > 0 ? (
+          <div className="media-selection-actions">
+            <Button fullWidth variant="default" onClick={() => setMoving(true)}>
+              Move items
+            </Button>
+            <Button fullWidth color="red" onClick={() => setDeleting(true)}>
+              Delete items
+            </Button>
+          </div>
+        ) : (
+          <div className="media-primary-actions">
+            <div className="media-secondary-actions">
+              <Button
+                fullWidth
+                variant={selectionMode ? "light" : "default"}
+                leftSection={<MousePointer2 size={16} />}
+                onClick={() => {
+                  setSelected(new Set());
+                  setSelectedDirectories(new Set());
+                  setSelectionMode((current) => !current);
+                }}
+              >
+                Select
+              </Button>
+              <Button
+                fullWidth
+                variant="default"
+                leftSection={<FolderPlus size={16} />}
+                onClick={() => setCreatingFolder(true)}
+              >
+                New folder
+              </Button>
+            </div>
+            <Button
+              fullWidth
+              leftSection={<Upload size={16} />}
+              loading={importing}
+              onClick={() => void importFiles()}
+            >
+              Import files
+            </Button>
+          </div>
+        )}
       </div>
       {creatingFolder && (
         <CreateImageLibraryFolderDialog
@@ -282,6 +347,50 @@ function PublicMediaBrowserContent(props: {
           currentDirectory={currentDirectory}
           onClose={() => setCreatingFolder(false)}
           onCreated={() => {
+            void state.refresh();
+            props.onChanged();
+          }}
+        />
+      )}
+      {deleting && (
+        <DeleteFileMediaItemsDialog
+          mediaRoot={state.publicRoot}
+          files={state.files.filter((file) => selected.has(file.path))}
+          directories={[...selectedDirectories]}
+          onClose={() => setDeleting(false)}
+          onDeleted={() => {
+            setSelected(new Set());
+            setSelectedDirectories(new Set());
+            setSelectionMode(false);
+            void state.refresh();
+            props.onChanged({ silent: true });
+          }}
+        />
+      )}
+      {editing && (
+        <FileMediaEditDialog
+          mediaRoot={state.publicRoot}
+          file={editing}
+          onClose={() => setEditing(null)}
+          onChanged={(options) => {
+            void state.refresh();
+            props.onChanged(options);
+          }}
+        />
+      )}
+      {moving && (
+        <MoveFileMediaItemsDialog
+          mediaRoot={state.publicRoot}
+          directories={state.directories}
+          files={state.files}
+          movingFiles={state.files.filter((file) => selected.has(file.path))}
+          movingDirectories={[...selectedDirectories]}
+          onClose={() => setMoving(false)}
+          onRefresh={() => void state.refresh()}
+          onMoved={() => {
+            setSelected(new Set());
+            setSelectedDirectories(new Set());
+            setSelectionMode(false);
             void state.refresh();
             props.onChanged();
           }}
@@ -325,7 +434,7 @@ function MediaBrowserContent(props: {
       key={PUBLIC_MEDIA_TAB}
       root={props.root}
       tabs={tabs}
-      onChanged={() => props.onChanged()}
+      onChanged={(options) => props.onChanged(options)}
     />
   );
 }

@@ -9,7 +9,7 @@ import type { MediaLibrary, PagesConfig } from "@posto/core/pagescms/config";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 import { pathEntryId } from "@posto/core/project/entryIds";
 import { validateForm } from "@posto/core/pagescms/validate";
-import { invoke, type FileGroup } from "@posto/ipc";
+import { createFileMediaDirectory, invoke, type FileGroup } from "@posto/ipc";
 import {
   editValueAtPath,
   imageLibraryMetadataFields,
@@ -53,12 +53,18 @@ export function CreateImageLibraryFolderDialog(props: {
       .join("/");
     const publicDirectory = [props.currentDirectory, trimmed].filter(Boolean).join("/");
     try {
-      await invoke(
-        props.repositoryRoot ? "create_public_media_directory" : "create_image_library_directory",
-        props.repositoryRoot
-          ? { repositoryRoot: props.repositoryRoot, directory: publicDirectory }
-          : { libraryRoot: props.libraryRoot, directoryPath },
-      );
+      if (props.repositoryRoot) {
+        await createFileMediaDirectory({
+          repositoryRoot: props.repositoryRoot,
+          mediaRoot: props.libraryRoot,
+          directory: publicDirectory,
+        });
+      } else {
+        await invoke("create_image_library_directory", {
+          libraryRoot: props.libraryRoot,
+          directoryPath,
+        });
+      }
       props.onCreated();
       props.onClose();
     } catch (caught) {

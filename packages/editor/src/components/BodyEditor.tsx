@@ -4,7 +4,7 @@ import { useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import { Markdown } from "@tiptap/markdown";
-import { Blocks, CodeXml, Image as ImageIcon } from "lucide-react";
+import { Blocks, CodeXml, Paperclip } from "lucide-react";
 
 import { assetUrl } from "@posto/ipc";
 import type { FileGroup } from "@posto/ipc";
@@ -29,6 +29,7 @@ import {
   type ComponentBlockSchema,
 } from "./MdxNodes";
 import { useProjectIO } from "../projectIO";
+import { markdownMediaEditorContent } from "../markdownMedia";
 
 /** An import statement managed outside the document, with its bindings. */
 interface ManagedImport {
@@ -139,6 +140,12 @@ export function BodyEditor(props: {
   // once) always sees the current root/media libraries.
   const resolveSrc = (src: string): string => {
     if (!src.startsWith("/")) return src;
+    let filesystemSrc = src;
+    try {
+      filesystemSrc = decodeURIComponent(src);
+    } catch {
+      // Keep malformed percent escapes displayable through the existing path.
+    }
     const libraryMedia = (props.config.mediaLibraries ?? []).map((library) => {
       const input = library.base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
       return { name: `library:${library.collection}`, input, output: `/${input}` };
@@ -147,11 +154,13 @@ export function BodyEditor(props: {
       (media): media is MediaEntry => media !== null,
     );
     const absolute = candidates
-      .map((media) => mediaInputPath(props.root, media, src))
+      .map((media) => mediaInputPath(props.root, media, filesystemSrc))
       .find((path): path is string => path !== null);
     // Site-root paths outside the media source usually live in the site's
     // `public` folder, which is served from `/` — try there before giving up.
-    return (absolute && assetUrl(absolute)) || assetUrl(props.root + "/public" + src) || src;
+    return (
+      (absolute && assetUrl(absolute)) || assetUrl(props.root + "/public" + filesystemSrc) || src
+    );
   };
   const resolveRef = useRef(resolveSrc);
   resolveRef.current = resolveSrc;
@@ -379,11 +388,11 @@ export function BodyEditor(props: {
                 <RichTextEditor.Link />
                 <RichTextEditor.Unlink />
                 <RichTextEditor.Control
-                  title="Insert image"
-                  aria-label="Insert image"
+                  title="Insert media"
+                  aria-label="Insert media"
                   onClick={() => setPickerOpen(true)}
                 >
-                  <ImageIcon size={16} />
+                  <Paperclip size={16} />
                 </RichTextEditor.Control>
                 <RichTextEditor.Control
                   title="Insert HTML"
@@ -424,9 +433,9 @@ export function BodyEditor(props: {
               templateValues={props.templateValues}
               groups={props.groups}
               onClose={() => setPickerOpen(false)}
-              onPick={(outputPath) => {
+              onPick={(media) => {
                 setPickerOpen(false);
-                editor?.chain().focus().setImage({ src: outputPath }).run();
+                editor?.chain().focus().insertContent(markdownMediaEditorContent(media)).run();
               }}
             />
           )}

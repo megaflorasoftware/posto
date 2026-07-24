@@ -487,16 +487,17 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       }
       return [...directories].sort();
     }
+    case "import_file_media_item":
     case "import_public_media_file": {
       const request = args?.request as {
         repositoryRoot: string;
+        mediaRoot?: string;
         sourceFilePath: string;
         directory: string;
       };
       const name = request.sourceFilePath.split("/").pop() as string;
-      const target = [request.repositoryRoot, "public", request.directory, name]
-        .filter(Boolean)
-        .join("/");
+      const mediaRoot = request.mediaRoot ?? `${request.repositoryRoot}/public`;
+      const target = [mediaRoot, request.directory, name].filter(Boolean).join("/");
       if (target in mockFiles && !mockDeleted.has(target)) {
         throw new Error(`File already exists: ${target}`);
       }
@@ -505,10 +506,11 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       mockDeleted.delete(target);
       return target;
     }
+    case "create_file_media_directory":
     case "create_public_media_directory": {
-      const directoryPath = [args?.repositoryRoot as string, "public", args?.directory as string]
-        .filter(Boolean)
-        .join("/");
+      const mediaRoot =
+        (args?.mediaRoot as string | undefined) ?? `${args?.repositoryRoot as string}/public`;
+      const directoryPath = [mediaRoot, args?.directory as string].filter(Boolean).join("/");
       if (mockDirectories.has(directoryPath)) {
         throw new Error(`Folder already exists: ${directoryPath}`);
       }
@@ -586,6 +588,52 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       mockDeleted.add(path);
       return null;
     }
+    case "delete_media_file": {
+      const mediaRoot = args?.mediaRoot as string;
+      const path = args?.filePath as string;
+      if (!path.startsWith(`${mediaRoot}/`)) throw new Error("Media file is outside its root");
+      delete mockFiles[path];
+      mockDeleted.add(path);
+      return null;
+    }
+    case "rename_media_file": {
+      const mediaRoot = args?.mediaRoot as string;
+      const path = args?.filePath as string;
+      const target = args?.targetFilePath as string;
+      if (!path.startsWith(`${mediaRoot}/`) || !target.startsWith(`${mediaRoot}/`)) {
+        throw new Error("Media rename is outside its root");
+      }
+      if (target in mockFiles || mockDirectories.has(target)) {
+        throw new Error(`A file or folder already exists at ${target}`);
+      }
+      mockFiles[target] = mockFiles[path] ?? "";
+      rememberMockPath(target);
+      delete mockFiles[path];
+      mockDeleted.add(path);
+      mockDeleted.delete(target);
+      return null;
+    }
+    case "move_media_file": {
+      const mediaRoot = args?.mediaRoot as string;
+      const path = args?.filePath as string;
+      const destination = args?.destinationDirectory as string;
+      if (
+        !path.startsWith(`${mediaRoot}/`) ||
+        (destination !== mediaRoot && !destination.startsWith(`${mediaRoot}/`))
+      ) {
+        throw new Error("Media move is outside its root");
+      }
+      const target = `${destination}/${path.split("/").pop()}`;
+      if (target in mockFiles || mockDirectories.has(target)) {
+        throw new Error(`A file or folder with that name already exists in ${destination}`);
+      }
+      mockFiles[target] = mockFiles[path] ?? "";
+      rememberMockPath(target);
+      delete mockFiles[path];
+      mockDeleted.add(path);
+      mockDeleted.delete(target);
+      return null;
+    }
     case "create_image_library_directory": {
       const path = args?.directoryPath as string;
       if ((path.split("/").pop() ?? "").startsWith(".")) {
@@ -641,8 +689,11 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       mockDeleted.add(metadataPath);
       return null;
     }
+    case "delete_media_directory":
     case "delete_image_library_directory": {
       const directory = args?.directoryPath as string;
+      const root = (args?.mediaRoot ?? args?.libraryRoot) as string;
+      if (!directory.startsWith(`${root}/`)) throw new Error("Media folder is outside its root");
       for (const path of Object.keys(mockFiles)) {
         if (path.startsWith(`${directory}/`)) {
           delete mockFiles[path];
@@ -654,9 +705,17 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       }
       return null;
     }
+    case "move_media_directory":
     case "move_image_library_directory": {
       const directory = args?.directoryPath as string;
       const destination = args?.destinationDirectory as string;
+      const root = (args?.mediaRoot ?? args?.libraryRoot) as string;
+      if (
+        !directory.startsWith(`${root}/`) ||
+        (destination !== root && !destination.startsWith(`${root}/`))
+      ) {
+        throw new Error("Media move is outside its root");
+      }
       const target = `${destination}/${directory.split("/").pop()}`;
       if (mockDirectories.has(target)) throw new Error(`Folder already exists: ${target}`);
       for (const path of Object.keys(mockFiles)) {
@@ -906,6 +965,7 @@ export function installMockBackend(): void {
   setBrowserBackend({
     invoke: mockInvoke as typeof import("@tauri-apps/api/core").invoke,
     openDirectory: async () => "/mock/site",
+    openFile: async () => "/mock/uploads/document.pdf",
     openFiles: async () => ["/mock/uploads/document.pdf"],
     openImageFile: async () => "/mock/uploads/photo.jpg",
     openImageFiles: async () => ["/mock/uploads/photo.jpg"],

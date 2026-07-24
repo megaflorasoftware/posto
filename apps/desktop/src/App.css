@@ -42,6 +42,10 @@ body,
   overflow: visible;
 }
 
+.media-drawer .picker-card {
+  padding-inline: 0;
+}
+
 .media-drawer-footer {
   flex-shrink: 0;
   padding: var(--mantine-spacing-md);
@@ -131,6 +135,7 @@ body,
 .sidebar-content .picker-grid {
   grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
   gap: 0.35rem;
+  column-gap: 0.75rem;
 }
 
 .sidebar-reopen {

@@ -12,11 +12,9 @@ import {
 import {
   CollectionOrderDialog,
   CollectionSettingsDialog,
-  Dialog,
   DirectoryBrowser,
   EditorPane,
   ImageLibraryImportDialog,
-  ImageLibraryList,
   PublishModal,
   buildNewFile,
   createDataDocumentEntry,
@@ -52,7 +50,13 @@ import {
   workspaceProjects,
 } from "@posto/core/project/workspace";
 import { invoke } from "@posto/ipc";
-import type { ChangedFile, FileEntry, FileGroup, GitHubRepo } from "@posto/ipc";
+import type {
+  ChangedFile,
+  FileEntry,
+  FileGroup,
+  GitHubRepo,
+  ImageLibraryImportResult,
+} from "@posto/ipc";
 import {
   CloudDownload,
   ChevronDown,
@@ -124,7 +128,6 @@ export default function RepoHome({
     files: FileEntry[];
   } | null>(null);
   const [orderOpen, setOrderOpen] = useState(false);
-  const [mediaImportOpen, setMediaImportOpen] = useState(false);
   const [componentSchemaVersion, setComponentSchemaVersion] = useState(0);
   const [siteUrlVersion, setSiteUrlVersion] = useState(0);
   const [importLibrary, setImportLibrary] = useState<MediaLibrary | null>(null);
@@ -563,19 +566,22 @@ export default function RepoHome({
   }
 
   function closeMediaImport() {
-    setMediaImportOpen(false);
     setImportLibrary(null);
   }
 
   function importIntoLibrary(library: MediaLibrary) {
     setImportLibrary(library);
-    setMediaImportOpen(true);
   }
 
-  function imageImported() {
+  function imageImported(_result: ImageLibraryImportResult, library: MediaLibrary) {
     setStatus("Image imported. Publish when you are ready.");
     void git.refreshLocalChanges(root);
-    if (importLibrary) void refreshImageLibraryAssets(root, importLibrary);
+    void refreshImageLibraryAssets(root, library);
+  }
+
+  function publicMediaImported() {
+    setStatus("Media imported. Publish when you are ready.");
+    void git.refreshLocalChanges(root);
   }
 
   const config = schemas.config;
@@ -985,21 +991,17 @@ export default function RepoHome({
         </main>
       )}
 
-      {adapter.capabilities.mediaLibraries && mediaImportOpen && !importLibrary && (
-        <Dialog opened onClose={closeMediaImport} title="Choose image library" size="sm">
-          <ImageLibraryList libraries={config?.mediaLibraries ?? []} onChoose={setImportLibrary} />
-        </Dialog>
-      )}
-
       {adapter.capabilities.mediaLibraries && importLibrary && config && (
         <ImageLibraryImportDialog
           root={root}
           library={importLibrary}
+          libraries={config.mediaLibraries ?? [importLibrary]}
           config={config}
           groups={files.groups}
           autoChooseSource
           onClose={closeMediaImport}
           onImported={imageImported}
+          onPublicImported={publicMediaImported}
         />
       )}
     </>

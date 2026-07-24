@@ -3,13 +3,16 @@ import { Alert, Button, Text } from "@mantine/core";
 import { FolderPlus, MousePointer2, Upload } from "lucide-react";
 import type { MediaLibrary, PagesConfig } from "@posto/core/pagescms/config";
 import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
-import type { FileGroup } from "@posto/ipc";
+import type { FileEntry, FileGroup } from "@posto/ipc";
 import {
   CreateImageLibraryFolderDialog,
+  DeleteFileMediaItemsDialog,
   DeleteImageLibraryAssetsDialog,
+  FileMediaEditDialog,
   ImageLibraryBrowser,
   ImageLibraryEditDialog,
   MediaLibraryTabs,
+  MoveFileMediaItemsDialog,
   MoveImageLibraryAssetsDialog,
   PUBLIC_MEDIA_TAB,
   PublicMediaBrowser,
@@ -208,6 +211,12 @@ function PublicMediaPane(props: {
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [selectedDirectories, setSelectedDirectories] = useState<Set<string>>(() => new Set());
+  const [deleting, setDeleting] = useState(false);
+  const [moving, setMoving] = useState(false);
+  const [editing, setEditing] = useState<FileEntry | null>(null);
 
   const importFiles = async () => {
     setImporting(true);
@@ -240,27 +249,81 @@ function PublicMediaPane(props: {
           files={state.files}
           toolbar={props.tabs}
           onDirectoryChange={setCurrentDirectory}
+          onEdit={setEditing}
+          selectionMode={selectionMode}
+          selectedFilePaths={selected}
+          selectedDirectoryPaths={selectedDirectories}
+          onToggleFileSelection={(file) =>
+            setSelected((current) => {
+              const next = new Set(current);
+              if (next.has(file.path)) next.delete(file.path);
+              else next.add(file.path);
+              return next;
+            })
+          }
+          onToggleDirectorySelection={(directory) => {
+            setSelectedDirectories((current) => {
+              const next = new Set(current);
+              if (next.has(directory)) next.delete(directory);
+              else {
+                for (const selectedDirectory of next) {
+                  if (selectedDirectory.startsWith(`${directory}/`)) next.delete(selectedDirectory);
+                }
+                next.add(directory);
+              }
+              return next;
+            });
+            setSelected(
+              (current) =>
+                new Set([...current].filter((path) => !path.startsWith(`${directory}/`))),
+            );
+          }}
         />
       </div>
       <div className="mobile-media-pane-footer">
-        <div className="media-primary-actions">
-          <Button
-            fullWidth
-            variant="default"
-            leftSection={<FolderPlus size={18} />}
-            onClick={() => setCreatingFolder(true)}
-          >
-            New folder
-          </Button>
-          <Button
-            fullWidth
-            leftSection={<Upload size={18} />}
-            loading={importing}
-            onClick={() => void importFiles()}
-          >
-            Import files
-          </Button>
-        </div>
+        {selected.size + selectedDirectories.size > 0 ? (
+          <div className="media-selection-actions">
+            <Button fullWidth variant="default" onClick={() => setMoving(true)}>
+              Move items
+            </Button>
+            <Button fullWidth color="red" onClick={() => setDeleting(true)}>
+              Delete items
+            </Button>
+          </div>
+        ) : (
+          <div className="media-primary-actions">
+            <div className="media-secondary-actions">
+              <Button
+                fullWidth
+                variant={selectionMode ? "light" : "default"}
+                leftSection={<MousePointer2 size={18} />}
+                onClick={() => {
+                  setSelected(new Set());
+                  setSelectedDirectories(new Set());
+                  setSelectionMode((current) => !current);
+                }}
+              >
+                Select
+              </Button>
+              <Button
+                fullWidth
+                variant="default"
+                leftSection={<FolderPlus size={18} />}
+                onClick={() => setCreatingFolder(true)}
+              >
+                New folder
+              </Button>
+            </div>
+            <Button
+              fullWidth
+              leftSection={<Upload size={18} />}
+              loading={importing}
+              onClick={() => void importFiles()}
+            >
+              Import files
+            </Button>
+          </div>
+        )}
       </div>
       {creatingFolder && (
         <CreateImageLibraryFolderDialog
@@ -269,6 +332,50 @@ function PublicMediaPane(props: {
           currentDirectory={currentDirectory}
           onClose={() => setCreatingFolder(false)}
           onCreated={() => {
+            void state.refresh();
+            props.onChanged();
+          }}
+        />
+      )}
+      {deleting && (
+        <DeleteFileMediaItemsDialog
+          mediaRoot={state.publicRoot}
+          files={state.files.filter((file) => selected.has(file.path))}
+          directories={[...selectedDirectories]}
+          onClose={() => setDeleting(false)}
+          onDeleted={() => {
+            setSelected(new Set());
+            setSelectedDirectories(new Set());
+            setSelectionMode(false);
+            void state.refresh();
+            props.onChanged({ silent: true });
+          }}
+        />
+      )}
+      {editing && (
+        <FileMediaEditDialog
+          mediaRoot={state.publicRoot}
+          file={editing}
+          onClose={() => setEditing(null)}
+          onChanged={(options) => {
+            void state.refresh();
+            props.onChanged(options);
+          }}
+        />
+      )}
+      {moving && (
+        <MoveFileMediaItemsDialog
+          mediaRoot={state.publicRoot}
+          directories={state.directories}
+          files={state.files}
+          movingFiles={state.files.filter((file) => selected.has(file.path))}
+          movingDirectories={[...selectedDirectories]}
+          onClose={() => setMoving(false)}
+          onRefresh={() => void state.refresh()}
+          onMoved={() => {
+            setSelected(new Set());
+            setSelectedDirectories(new Set());
+            setSelectionMode(false);
             void state.refresh();
             props.onChanged();
           }}

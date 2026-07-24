@@ -588,28 +588,38 @@ pub fn create_image_library_directory(
     })
 }
 
-fn public_media_root(repository_root: &str) -> Result<PathBuf, String> {
+fn file_media_root(repository_root: &str, media_root: &str) -> Result<PathBuf, String> {
     let repository = canonical_root(repository_root)?;
-    let public_path = repository.join("public");
-    if !public_path.exists() {
-        std::fs::create_dir(&public_path)
-            .map_err(|error| format!("Failed to create public directory: {error}"))?;
+    let requested = Path::new(media_root);
+    if !requested.is_absolute() {
+        return Err("A file media root must be absolute".to_string());
     }
-    let public_root = canonical_root(&public_path.to_string_lossy())?;
-    if !public_root.starts_with(&repository) {
-        return Err("The public directory escapes the repository".to_string());
+    let relative = requested
+        .strip_prefix(Path::new(repository_root))
+        .or_else(|_| requested.strip_prefix(&repository))
+        .map_err(|_| "The file media root is outside the repository".to_string())?;
+    if relative.as_os_str().is_empty()
+        || relative.components().any(|part| match part {
+            Component::Normal(name) => name.to_string_lossy().starts_with('.'),
+            _ => true,
+        })
+    {
+        return Err("Invalid file media root".to_string());
     }
-    Ok(public_root)
+    let requested = repository.join(relative);
+    let target = managed_target(&repository, &requested.to_string_lossy(), true)?;
+    std::fs::create_dir_all(&target)
+        .map_err(|error| format!("Failed to create file media root: {error}"))?;
+    canonical_root(&target.to_string_lossy())
 }
 
-/// Creates one visible directory inside the conventional public media root,
-/// creating `public` itself when the project does not have it yet.
 #[tauri::command]
-pub fn create_public_media_directory(
+pub fn create_file_media_directory(
     repository_root: String,
+    media_root: String,
     directory: String,
 ) -> Result<(), String> {
-    let public_root = public_media_root(&repository_root)?;
+    let media_root = file_media_root(&repository_root, &media_root)?;
     if directory.is_empty()
         || Path::new(&directory).is_absolute()
         || Path::new(&directory).components().any(|part| match part {
@@ -617,10 +627,10 @@ pub fn create_public_media_directory(
             _ => true,
         })
     {
-        return Err("Invalid public media directory".to_string());
+        return Err("Invalid file media directory".to_string());
     }
-    let target = public_root.join(directory);
-    let target = managed_target(&public_root, &target.to_string_lossy(), false)?;
+    let target = media_root.join(directory);
+    let target = managed_target(&media_root, &target.to_string_lossy(), false)?;
     std::fs::create_dir(&target).map_err(|error| {
         if error.kind() == std::io::ErrorKind::AlreadyExists {
             format!("Folder already exists: {}", target.display())
@@ -628,6 +638,20 @@ pub fn create_public_media_directory(
             format!("Failed to create folder {}: {error}", target.display())
         }
     })
+}
+
+/// Compatibility command for the conventional public media root.
+#[tauri::command]
+pub fn create_public_media_directory(
+    repository_root: String,
+    directory: String,
+) -> Result<(), String> {
+    let media_root = Path::new(&repository_root).join("public");
+    create_file_media_directory(
+        repository_root,
+        media_root.to_string_lossy().to_string(),
+        directory,
+    )
 }
 
 /// Deletes an image-library entry and its image together after verifying that
@@ -775,38 +799,114 @@ pub fn rename_image_library_asset(
     Ok(())
 }
 
-/// Deletes a directory and everything below it, constrained to a media library.
+/// Deletes one file below an arbitrary file-based media root.
 #[tauri::command]
-pub fn delete_image_library_directory(
-    library_root: String,
-    directory_path: String,
+pub fn delete_media_file(media_root: String, file_path: String) -> Result<(), String> {
+    let canonical_root = canonical_root(&media_root)?;
+    let file = managed_target(Path::new(&media_root), &file_path, false)?;
+    let canonical_file =
+        std::fs::canonicalize(&file).map_err(|error| format!("Invalid media file: {error}"))?;
+    if !canonical_file.starts_with(&canonical_root) || !canonical_file.is_file() {
+        return Err("Invalid media file".to_string());
+    }
+    std::fs::remove_file(&canonical_file)
+        .map_err(|error| format!("Failed to delete media file {}: {error}", file.display()))
+}
+
+/// Renames one file below an arbitrary file-based media root without allowing
+/// it to cross that root or overwrite another item.
+#[tauri::command]
+pub fn rename_media_file(
+    media_root: String,
+    file_path: String,
+    target_file_path: String,
 ) -> Result<(), String> {
-    canonical_root(&library_root)?;
-    let root = Path::new(&library_root);
+    let canonical_root = canonical_root(&media_root)?;
+    let file = managed_target(Path::new(&media_root), &file_path, false)?;
+    let canonical_file =
+        std::fs::canonicalize(&file).map_err(|error| format!("Invalid media file: {error}"))?;
+    let target = managed_target(Path::new(&media_root), &target_file_path, false)?;
+    reject_hidden(&target.to_string_lossy())?;
+    if !canonical_file.starts_with(&canonical_root) || !canonical_file.is_file() {
+        return Err("Invalid media file".to_string());
+    }
+    if target.exists() {
+        return Err(format!("File already exists: {}", target.display()));
+    }
+    std::fs::rename(&canonical_file, &target)
+        .map_err(|error| format!("Failed to rename media file: {error}"))
+}
+
+/// Moves one file into an existing directory below the same file-based media root.
+#[tauri::command]
+pub fn move_media_file(
+    media_root: String,
+    file_path: String,
+    destination_directory: String,
+) -> Result<(), String> {
+    let canonical_root = canonical_root(&media_root)?;
+    let file = managed_target(Path::new(&media_root), &file_path, false)?;
+    let canonical_file =
+        std::fs::canonicalize(&file).map_err(|error| format!("Invalid media file: {error}"))?;
+    let destination_probe = Path::new(&destination_directory).join(".posto-destination");
+    let destination_probe = managed_target(
+        Path::new(&media_root),
+        &destination_probe.to_string_lossy(),
+        false,
+    )?;
+    let destination = destination_probe
+        .parent()
+        .ok_or_else(|| "Invalid destination folder".to_string())?;
+    let canonical_destination = std::fs::canonicalize(destination)
+        .map_err(|error| format!("Invalid destination folder: {error}"))?;
+    if !canonical_file.starts_with(&canonical_root)
+        || !canonical_file.is_file()
+        || !canonical_destination.starts_with(&canonical_root)
+    {
+        return Err("Invalid media move".to_string());
+    }
+    let name = canonical_file
+        .file_name()
+        .ok_or_else(|| "Invalid media file name".to_string())?;
+    let target = canonical_destination.join(name);
+    if target.exists() {
+        return Err(format!("File already exists: {}", target.display()));
+    }
+    std::fs::rename(&canonical_file, &target)
+        .map_err(|error| format!("Failed to move media file: {error}"))
+}
+
+/// Deletes a directory and everything below it, constrained to an arbitrary
+/// file-based media root.
+#[tauri::command]
+pub fn delete_media_directory(media_root: String, directory_path: String) -> Result<(), String> {
+    canonical_root(&media_root)?;
+    let root = Path::new(&media_root);
     let probe = Path::new(&directory_path).join(".posto-directory");
     let probe = managed_target(root, &probe.to_string_lossy(), false)?;
     let directory = probe
         .parent()
         .ok_or_else(|| "Invalid media directory".to_string())?;
-    let canonical_root = canonical_root(&library_root)?;
+    let canonical_root = canonical_root(&media_root)?;
     let canonical_directory = std::fs::canonicalize(directory)
         .map_err(|error| format!("Invalid media directory: {error}"))?;
     if canonical_directory == canonical_root || !canonical_directory.starts_with(&canonical_root) {
-        return Err("The media library root cannot be deleted".to_string());
+        return Err("The media root cannot be deleted".to_string());
     }
     std::fs::remove_dir_all(&canonical_directory)
         .map_err(|error| format!("Failed to delete folder {}: {error}", directory.display()))
 }
 
-/// Moves a whole directory into an existing directory in the same library.
+/// Moves a whole directory into an existing directory below the same
+/// file-based media root.
 #[tauri::command]
-pub fn move_image_library_directory(
-    library_root: String,
+pub fn move_media_directory(
+    media_root: String,
     directory_path: String,
     destination_directory: String,
 ) -> Result<(), String> {
-    canonical_root(&library_root)?;
-    let root = Path::new(&library_root);
+    canonical_root(&media_root)?;
+    let root = Path::new(&media_root);
     let source_probe = Path::new(&directory_path).join(".posto-source");
     let source_probe = managed_target(root, &source_probe.to_string_lossy(), false)?;
     let source = source_probe
@@ -817,7 +917,7 @@ pub fn move_image_library_directory(
     let destination = destination_probe
         .parent()
         .ok_or_else(|| "Invalid destination folder".to_string())?;
-    let canonical_root = canonical_root(&library_root)?;
+    let canonical_root = canonical_root(&media_root)?;
     let canonical_source =
         std::fs::canonicalize(source).map_err(|error| format!("Invalid source folder: {error}"))?;
     let canonical_destination = std::fs::canonicalize(destination)
@@ -839,6 +939,25 @@ pub fn move_image_library_directory(
     }
     std::fs::rename(&canonical_source, &target)
         .map_err(|error| format!("Failed to move folder: {error}"))
+}
+
+/// Compatibility commands for metadata-backed image libraries. New
+/// file-based media roots use the generic media operations above.
+#[tauri::command]
+pub fn delete_image_library_directory(
+    library_root: String,
+    directory_path: String,
+) -> Result<(), String> {
+    delete_media_directory(library_root, directory_path)
+}
+
+#[tauri::command]
+pub fn move_image_library_directory(
+    library_root: String,
+    directory_path: String,
+    destination_directory: String,
+) -> Result<(), String> {
+    move_media_directory(library_root, directory_path, destination_directory)
 }
 
 #[derive(Deserialize)]
@@ -864,6 +983,15 @@ pub struct ImageLibraryImportResult {
 #[serde(rename_all = "camelCase")]
 pub struct PublicMediaImportRequest {
     repository_root: String,
+    source_file_path: String,
+    directory: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileMediaImportRequest {
+    repository_root: String,
+    media_root: String,
     source_file_path: String,
     directory: String,
 }
@@ -1029,12 +1157,9 @@ pub fn import_image_library_asset(
     execute_image_library_import(plan, None)
 }
 
-/// Copies one user-selected file into the conventional public directory
-/// without creating image-library metadata. The destination is constrained to
-/// `<repository>/public`, and an existing file is never overwritten.
 #[tauri::command]
-pub fn import_public_media_file(request: PublicMediaImportRequest) -> Result<String, String> {
-    let public_root = public_media_root(&request.repository_root)?;
+pub fn import_file_media_item(request: FileMediaImportRequest) -> Result<String, String> {
+    let media_root = file_media_root(&request.repository_root, &request.media_root)?;
     if !request.directory.is_empty()
         && (Path::new(&request.directory).is_absolute()
             || Path::new(&request.directory)
@@ -1044,7 +1169,7 @@ pub fn import_public_media_file(request: PublicMediaImportRequest) -> Result<Str
                     _ => true,
                 }))
     {
-        return Err("Invalid public media directory".to_string());
+        return Err("Invalid file media directory".to_string());
     }
     let source = std::fs::canonicalize(&request.source_file_path)
         .map_err(|error| format!("Invalid source file {}: {error}", request.source_file_path))?;
@@ -1054,17 +1179,17 @@ pub fn import_public_media_file(request: PublicMediaImportRequest) -> Result<Str
     let name = source
         .file_name()
         .ok_or_else(|| "Invalid source filename".to_string())?;
-    let target = public_root.join(&request.directory).join(name);
+    let target = media_root.join(&request.directory).join(name);
     reject_hidden(&target.to_string_lossy())?;
-    let target = managed_target(&public_root, &target.to_string_lossy(), true)?;
+    let target = managed_target(&media_root, &target.to_string_lossy(), true)?;
     if target.exists() {
         return Err(format!("File already exists: {}", target.display()));
     }
-    let staged = transaction_temp(&target, "public-import")?;
+    let staged = transaction_temp(&target, "file-media-import")?;
     let _ = std::fs::remove_file(&staged);
     if let Err(error) = std::fs::copy(&source, &staged) {
         let _ = std::fs::remove_file(&staged);
-        return Err(format!("Failed to stage public media: {error}"));
+        return Err(format!("Failed to stage file media: {error}"));
     }
     if target.exists() {
         let _ = std::fs::remove_file(&staged);
@@ -1072,9 +1197,21 @@ pub fn import_public_media_file(request: PublicMediaImportRequest) -> Result<Str
     }
     std::fs::rename(&staged, &target).map_err(|error| {
         let _ = std::fs::remove_file(&staged);
-        format!("Failed to import public media: {error}")
+        format!("Failed to import file media: {error}")
     })?;
     Ok(target.to_string_lossy().to_string())
+}
+
+/// Compatibility command for the conventional public media root.
+#[tauri::command]
+pub fn import_public_media_file(request: PublicMediaImportRequest) -> Result<String, String> {
+    let media_root = Path::new(&request.repository_root).join("public");
+    import_file_media_item(FileMediaImportRequest {
+        repository_root: request.repository_root,
+        media_root: media_root.to_string_lossy().to_string(),
+        source_file_path: request.source_file_path,
+        directory: request.directory,
+    })
 }
 
 /// Reads a picked image's raw bytes so the webview can decode it same-origin
@@ -1475,6 +1612,78 @@ mod tests {
             library.to_string_lossy().to_string(),
         )
         .is_err());
+    }
+
+    #[test]
+    fn file_media_management_is_root_scoped_and_metadata_agnostic() {
+        let temp = tempfile::tempdir().unwrap();
+        let media_root = temp.path().join("media");
+        let destination = media_root.join("destination");
+        for directory in ["source", "destination"] {
+            create_file_media_directory(
+                temp.path().to_string_lossy().to_string(),
+                media_root.to_string_lossy().to_string(),
+                directory.to_string(),
+            )
+            .unwrap();
+        }
+        let picked = temp.path().join("clip.mp4");
+        std::fs::write(&picked, b"video").unwrap();
+        let imported = import_file_media_item(FileMediaImportRequest {
+            repository_root: temp.path().to_string_lossy().to_string(),
+            media_root: media_root.to_string_lossy().to_string(),
+            source_file_path: picked.to_string_lossy().to_string(),
+            directory: "source".to_string(),
+        })
+        .unwrap();
+        let file = PathBuf::from(imported);
+
+        move_media_file(
+            media_root.to_string_lossy().to_string(),
+            file.to_string_lossy().to_string(),
+            destination.to_string_lossy().to_string(),
+        )
+        .unwrap();
+        let moved = destination.join("clip.mp4");
+        assert!(moved.is_file());
+        assert!(move_media_file(
+            media_root.to_string_lossy().to_string(),
+            moved.to_string_lossy().to_string(),
+            temp.path().to_string_lossy().to_string(),
+        )
+        .is_err());
+        let renamed = destination.join("renamed.mp4");
+        rename_media_file(
+            media_root.to_string_lossy().to_string(),
+            moved.to_string_lossy().to_string(),
+            renamed.to_string_lossy().to_string(),
+        )
+        .unwrap();
+        assert!(renamed.is_file());
+        delete_media_file(
+            media_root.to_string_lossy().to_string(),
+            renamed.to_string_lossy().to_string(),
+        )
+        .unwrap();
+        assert!(!renamed.exists());
+
+        let album = media_root.join("album");
+        std::fs::create_dir_all(album.join("nested")).unwrap();
+        std::fs::write(album.join("nested/cover.webp"), b"image").unwrap();
+        move_media_directory(
+            media_root.to_string_lossy().to_string(),
+            album.to_string_lossy().to_string(),
+            destination.to_string_lossy().to_string(),
+        )
+        .unwrap();
+        let moved_album = destination.join("album");
+        assert!(moved_album.join("nested/cover.webp").is_file());
+        delete_media_directory(
+            media_root.to_string_lossy().to_string(),
+            moved_album.to_string_lossy().to_string(),
+        )
+        .unwrap();
+        assert!(!moved_album.exists());
     }
 
     #[test]

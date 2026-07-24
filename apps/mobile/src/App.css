@@ -766,6 +766,7 @@ input {
 .posto-mobile-shell .picker-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--mantine-spacing-xs);
+  column-gap: var(--mantine-spacing-sm);
   max-width: 100%;
 }
 
@@ -773,6 +774,10 @@ input {
   width: 100%;
   min-width: 0;
   padding: var(--mantine-spacing-xs);
+}
+
+.posto-mobile-shell .mobile-media-pane .picker-card {
+  padding-inline: 0;
 }
 
 .posto-mobile-shell .picker-card-preview {

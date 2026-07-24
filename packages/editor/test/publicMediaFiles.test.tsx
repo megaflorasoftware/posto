@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import type { MediaLibrary } from "@posto/core/pagescms/config";
 import { MediaLibraryTabs, PUBLIC_MEDIA_TAB } from "../src/components/MediaLibraryTabs";
+import { FileMediaBrowser } from "../src/components/PublicMediaBrowser";
 import { isPublicMediaFile } from "../src/hooks/usePublicMediaFiles";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
@@ -55,5 +56,51 @@ describe("public media", () => {
         "script.ts",
       ].some(isPublicMediaFile),
     ).toBe(false);
+  });
+
+  test("selects files and directories without opening them", () => {
+    const toggleFile = vi.fn();
+    const toggleDirectory = vi.fn();
+    render(
+      <FileMediaBrowser
+        rootDirectory="/repo/media"
+        currentDirectory=""
+        directories={["/repo/media/albums"]}
+        files={[{ name: "guide.pdf", path: "/repo/media/guide.pdf" }]}
+        selectionMode
+        selectedFilePaths={new Set()}
+        selectedDirectoryPaths={new Set()}
+        onDirectoryChange={vi.fn()}
+        onToggleFileSelection={toggleFile}
+        onToggleDirectorySelection={toggleDirectory}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Select guide.pdf" }));
+    fireEvent.click(screen.getByRole("button", { name: /albums/i }));
+
+    expect(toggleFile).toHaveBeenCalledWith({
+      name: "guide.pdf",
+      path: "/repo/media/guide.pdf",
+    });
+    expect(toggleDirectory).toHaveBeenCalledWith("/repo/media/albums");
+  });
+
+  test("opens file media items for editing when an editor is supplied", () => {
+    const onEdit = vi.fn();
+    const file = { name: "guide.pdf", path: "/repo/media/guide.pdf" };
+    render(
+      <FileMediaBrowser
+        rootDirectory="/repo/media"
+        currentDirectory=""
+        directories={[]}
+        files={[file]}
+        onDirectoryChange={vi.fn()}
+        onEdit={onEdit}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit guide.pdf" }));
+    expect(onEdit).toHaveBeenCalledWith(file);
   });
 });

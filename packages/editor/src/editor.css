@@ -817,16 +817,14 @@
   cursor: pointer;
 }
 
-.picker-card:hover {
-  background: var(--mantine-color-default-hover);
-}
-
 .picker-card-static {
   cursor: default;
 }
 
-.picker-card-static:hover {
-  background: none;
+button.picker-card:hover .picker-card-preview,
+button.picker-card:focus-visible .picker-card-preview {
+  border-color: var(--mantine-primary-color-filled);
+  box-shadow: 0 0 0 1px var(--mantine-primary-color-filled);
 }
 
 .picker-directory .picker-card-preview {

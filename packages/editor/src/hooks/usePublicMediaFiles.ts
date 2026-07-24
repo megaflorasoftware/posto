@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { importPublicMediaFile, invoke, openFiles, type FileEntry } from "@posto/ipc";
+import { importPublicMediaFile, invoke, openFile, openFiles, type FileEntry } from "@posto/ipc";
 
 const TEXT_EXTENSIONS = new Set([
   "astro",
@@ -112,8 +112,12 @@ export function usePublicMediaFiles(root: string) {
 export async function chooseAndImportPublicMedia(
   repositoryRoot: string,
   directory: string,
+  options: { multiple?: boolean } = {},
 ): Promise<string[]> {
-  const selected = await openFiles();
+  const selected =
+    options.multiple === false
+      ? [await openFile()].filter((path): path is string => path !== null)
+      : await openFiles();
   const sources = selected.filter(isPublicMediaFile);
   if (selected.length > 0 && sources.length === 0) {
     throw new Error("Choose non-text media files to import into public.");

@@ -132,9 +132,27 @@ export interface PublicMediaImportRequest {
   directory: string;
 }
 
+export interface FileMediaImportRequest extends PublicMediaImportRequest {
+  mediaRoot: string;
+}
+
+export interface FileMediaItemRequest {
+  mediaRoot: string;
+  path: string;
+}
+
+export interface MoveFileMediaItemRequest extends FileMediaItemRequest {
+  destinationDirectory: string;
+}
+
+export interface RenameFileMediaItemRequest extends FileMediaItemRequest {
+  targetPath: string;
+}
+
 type BrowserBackend = {
   invoke: typeof tauriInvoke;
   openDirectory: (defaultPath?: string) => Promise<string | null>;
+  openFile: () => Promise<string | null>;
   openFiles: () => Promise<string[]>;
   openImageFile: () => Promise<string | null>;
   openImageFiles: () => Promise<string[]>;
@@ -170,12 +188,72 @@ export function importImageLibraryAsset(
 }
 
 export function importPublicMediaFile(request: PublicMediaImportRequest): Promise<string> {
-  return invoke("import_public_media_file", { request });
+  return importFileMediaItem({
+    ...request,
+    mediaRoot: `${request.repositoryRoot}/public`,
+  });
+}
+
+export function importFileMediaItem(request: FileMediaImportRequest): Promise<string> {
+  return invoke("import_file_media_item", { request });
+}
+
+export function createFileMediaDirectory(request: {
+  repositoryRoot: string;
+  mediaRoot: string;
+  directory: string;
+}): Promise<void> {
+  return invoke("create_file_media_directory", request);
+}
+
+export function deleteFileMediaItem(request: FileMediaItemRequest): Promise<void> {
+  return invoke("delete_media_file", {
+    mediaRoot: request.mediaRoot,
+    filePath: request.path,
+  });
+}
+
+export function renameFileMediaItem(request: RenameFileMediaItemRequest): Promise<void> {
+  return invoke("rename_media_file", {
+    mediaRoot: request.mediaRoot,
+    filePath: request.path,
+    targetFilePath: request.targetPath,
+  });
+}
+
+export function deleteFileMediaDirectory(request: FileMediaItemRequest): Promise<void> {
+  return invoke("delete_media_directory", {
+    mediaRoot: request.mediaRoot,
+    directoryPath: request.path,
+  });
+}
+
+export function moveFileMediaItem(request: MoveFileMediaItemRequest): Promise<void> {
+  return invoke("move_media_file", {
+    mediaRoot: request.mediaRoot,
+    filePath: request.path,
+    destinationDirectory: request.destinationDirectory,
+  });
+}
+
+export function moveFileMediaDirectory(request: MoveFileMediaItemRequest): Promise<void> {
+  return invoke("move_media_directory", {
+    mediaRoot: request.mediaRoot,
+    directoryPath: request.path,
+    destinationDirectory: request.destinationDirectory,
+  });
 }
 
 export const openDirectory: (defaultPath?: string) => Promise<string | null> = inTauri
   ? (defaultPath) => tauriOpen({ directory: true, defaultPath })
   : (defaultPath) => requireBrowserBackend().openDirectory(defaultPath);
+
+export const openFile: () => Promise<string | null> = inTauri
+  ? async () => {
+      const selected = await tauriOpen({ multiple: false });
+      return typeof selected === "string" ? toFilesystemPath(selected) : null;
+    }
+  : () => requireBrowserBackend().openFile();
 
 export const openFiles: () => Promise<string[]> = inTauri
   ? async () => {
