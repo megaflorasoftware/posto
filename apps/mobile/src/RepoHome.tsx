@@ -656,6 +656,7 @@ export default function RepoHome({
         <main className="mobile-settings-screen">
           {browsingWorkspace ? (
             <DirectoryBrowser
+              key={repoRoot}
               repoRoot={repoRoot}
               onChoose={(dir) => void chooseBrowsedWorkspace(dir)}
               onCancel={() => setBrowsingWorkspace(false)}

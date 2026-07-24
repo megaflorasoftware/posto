@@ -1469,3 +1469,41 @@ button.picker-card:focus-visible .picker-card-preview,
     width: 100%;
   }
 }
+.directory-browser-tree {
+  max-height: min(55vh, 32rem);
+  overflow: auto;
+  padding: 0.25rem;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+}
+
+.directory-browser-node {
+  min-width: 0;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding-inline-end: 0.5rem;
+  border-radius: var(--mantine-radius-sm);
+}
+
+.directory-browser-node:hover {
+  background: var(--mantine-color-default-hover);
+}
+
+.directory-browser-label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.directory-browser-chevron {
+  flex-shrink: 0;
+  transition: transform 120ms ease;
+}
+
+.directory-browser-chevron[data-expanded] {
+  transform: rotate(90deg);
+}
