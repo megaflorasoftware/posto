@@ -283,7 +283,10 @@ const mockRepos: ManagedRepo[] = [
   {
     owner: "example-org",
     name: "posto",
-    root: "/mock/repos/example-org/posto",
+    // The complete browser fixture lives at /mock/site. Point the pre-cloned
+    // mobile repository there so its media libraries and content references
+    // can be exercised end to end instead of opening the sparse clone stub.
+    root: "/mock/site",
     url: "https://github.com/example-org/posto.git",
   },
 ];
