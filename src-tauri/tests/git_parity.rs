@@ -367,7 +367,7 @@ fn scoped_publish_preserves_staged_sibling_changes() {
 }
 
 #[test]
-fn scoped_pull_stashes_dirty_sibling_changes() {
+fn scoped_pull_blocks_conflicting_sibling_changes() {
     let f = fixture();
     write(&f.local, "apps/site/index.md", "site\n");
     write(&f.local, "apps/sibling/index.md", "sibling\n");
@@ -387,12 +387,18 @@ fn scoped_pull_stashes_dirty_sibling_changes() {
     );
 
     let mut client = Client::open(f.local.join("apps/site").to_str().unwrap()).unwrap();
-    assert_eq!(client.pull().unwrap(), "Updated from server.");
+    let error = client.pull().unwrap_err();
+    assert!(
+        error.contains("changes outside the selected project"),
+        "pull explains that hidden sibling changes require manual resolution: {error}"
+    );
     assert_eq!(
         read(&f.local, "apps/sibling/index.md"),
-        "server sibling\n",
-        "repo-wide pull recovery sees and stashes sibling changes"
+        "local sibling draft\n",
+        "a pull from the selected project never discards hidden sibling edits"
     );
+    let repo = git2::Repository::open(&f.local).unwrap();
+    assert_eq!(stash_count(repo), 0, "hidden changes were never stashed");
 }
 
 #[test]

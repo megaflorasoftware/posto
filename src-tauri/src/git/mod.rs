@@ -196,9 +196,25 @@ impl Client {
     fn is_dirty(&self) -> Result<bool, String> {
         Ok(!self
             .repo
-            .statuses(Some(&mut Self::repo_status_options()))
+            .statuses(Some(&mut self.scoped_status_options()))
             .map_err(err_str)?
             .is_empty())
+    }
+
+    fn has_out_of_scope_changes(&self) -> Result<bool, String> {
+        if self.scope.as_os_str().is_empty() {
+            return Ok(false);
+        }
+        let statuses = self
+            .repo
+            .statuses(Some(&mut Self::repo_status_options()))
+            .map_err(err_str)?;
+        Ok(statuses.iter().any(|entry| {
+            entry
+                .path()
+                .map(|path| !Path::new(path).starts_with(&self.scope))
+                .unwrap_or(false)
+        }))
     }
 
     /// Reverts one file to its committed state; `path` is repo-relative.
@@ -383,6 +399,12 @@ impl Client {
             Ok(()) => return Ok("Updated from server.".to_string()),
             Err(e) => e,
         };
+        if self.has_out_of_scope_changes()? {
+            return Err(
+                "Pull blocked because unpublished changes outside the selected project conflict with incoming updates. Resolve the repository changes manually, then try again."
+                    .to_string(),
+            );
+        }
         if !self.is_dirty()? {
             // A clean tree that still can't merge is a real failure (unrelated
             // histories, conflicts -X theirs can't settle, …).
