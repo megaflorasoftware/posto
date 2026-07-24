@@ -1,5 +1,4 @@
 import {
-  ActionIcon,
   Alert,
   Avatar,
   Button,
@@ -13,6 +12,7 @@ import {
   TextInput,
   ThemeIcon,
   Title,
+  UnstyledButton,
 } from "@mantine/core";
 import { assetUrl } from "@posto/ipc";
 import type { CloneProgress, DeviceAuthorization, GitHubRepo, GitHubUser } from "@posto/ipc";
@@ -24,7 +24,6 @@ import {
   ExternalLink,
   FolderGit2,
   LockKeyhole,
-  LogOut,
   RefreshCw,
   RotateCcw,
   Search,
@@ -60,8 +59,9 @@ type Props = {
   readyRoot: string | null;
   progress: CloneProgress;
   error: string | null;
+  developerMode: boolean;
   onSignIn: () => void;
-  onSignOut: () => void;
+  onOpenAppSettings: () => void;
   onOpenVerification: () => void;
   onChooseRepo: (repo: GitHubRepo) => void;
   onRetryRepos: () => void;
@@ -72,19 +72,24 @@ type Props = {
   onChangeRepo: () => void;
 };
 
-function Header({ stage, user, onSignOut }: Pick<Props, "stage" | "user" | "onSignOut">) {
+function Header({
+  stage,
+  user,
+  onOpenAppSettings,
+}: Pick<Props, "stage" | "user" | "onOpenAppSettings">) {
   return (
     <header className="mobile-header">
       <Text fw={600} size="sm">
         {stage === "repos" || stage === "repos-loading" ? "Repositories" : "Posto"}
       </Text>
       {(stage === "repos" || stage === "repos-loading") && user && (
-        <Group gap="xs" wrap="nowrap">
+        <UnstyledButton
+          aria-label="Open settings"
+          title="Settings"
+          onClick={onOpenAppSettings}
+        >
           <Avatar src={user.avatar_url} alt={user.name} size={36} radius="xl" />
-          <ActionIcon variant="subtle" color="gray" aria-label="Sign out" onClick={onSignOut}>
-            <LogOut size={18} />
-          </ActionIcon>
-        </Group>
+        </UnstyledButton>
       )}
     </header>
   );
@@ -366,7 +371,11 @@ export default function Onboarding(props: Props) {
   return (
     <div className="mobile-app">
       {props.stage !== "home" && (
-        <Header stage={props.stage} user={props.user} onSignOut={props.onSignOut} />
+        <Header
+          stage={props.stage}
+          user={props.user}
+          onOpenAppSettings={props.onOpenAppSettings}
+        />
       )}
       {props.stage === "loading" && (
         <Center className="screen">
@@ -396,6 +405,7 @@ export default function Onboarding(props: Props) {
         <RepoHome
           root={props.readyRoot}
           repo={props.selectedRepo}
+          developerMode={props.developerMode}
           onChangeRepo={props.onChangeRepo}
           onRedownloadRepo={redownloadSelectedRepo}
           onRemoveRepo={() => props.onRemoveRepo(props.readyRoot!)}

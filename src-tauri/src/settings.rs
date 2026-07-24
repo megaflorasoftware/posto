@@ -76,6 +76,26 @@ pub fn get_recent_roots(app: tauri::AppHandle) -> Vec<String> {
         .unwrap_or_default()
 }
 
+#[tauri::command]
+pub fn get_developer_mode(app: tauri::AppHandle) -> bool {
+    read_settings(&app)
+        .get("developer_mode")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
+#[tauri::command]
+pub fn set_developer_mode(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let path =
+        settings_path(&app).ok_or_else(|| "App config directory is unavailable".to_string())?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|error| error.to_string())?;
+    }
+    let mut settings = read_settings(&app);
+    settings["developer_mode"] = serde_json::Value::Bool(enabled);
+    std::fs::write(path, settings.to_string()).map_err(|error| error.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::saved_work_dir;

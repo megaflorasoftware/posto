@@ -756,6 +756,11 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       const raw = localStorage.getItem("posto-recent-roots");
       return raw ? (JSON.parse(raw) as string[]) : [];
     }
+    case "get_developer_mode":
+      return localStorage.getItem("posto-developer-mode") === "true";
+    case "set_developer_mode":
+      localStorage.setItem("posto-developer-mode", String(args?.enabled === true));
+      return null;
     case "set_last_root": {
       const root = args?.root as string;
       localStorage.setItem("posto-last-root", root);

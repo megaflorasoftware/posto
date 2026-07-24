@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Popover, Stack, Text } from "@mantine/core";
 import { ChevronDown, Plus, SlidersHorizontal, TriangleAlert } from "lucide-react";
 import type { FileEntry, FileGroup } from "@posto/ipc";
@@ -137,10 +137,13 @@ export function Sidebar(props: {
   onOpen: (file: FileEntry) => void;
   onDelete: (file: FileEntry) => void;
   onNewFile: (group: FileGroup) => void;
+  /** Reveals controls that write repository-level Posto configuration. */
+  developerMode?: boolean;
   /** `.posto` settings were saved; reload the overlay. */
   onPostoSaved: () => void;
 }) {
   const { root, groups, config } = props;
+  const developerMode = props.developerMode ?? true;
 
   // Collection whose settings dialog is open, with its group's files for
   // pinning suggestions.
@@ -150,6 +153,12 @@ export function Sidebar(props: {
   } | null>(null);
   const [orderOpen, setOrderOpen] = useState(false);
 
+  useEffect(() => {
+    if (developerMode) return;
+    setSettingsFor(null);
+    setOrderOpen(false);
+  }, [developerMode]);
+
   const displayGroups = useMemo(
     () => sidebarDisplayGroups(groups, config, root),
     [groups, config, root],
@@ -157,7 +166,7 @@ export function Sidebar(props: {
 
   return (
     <aside className="sidebar">
-      {settingsFor && (
+      {developerMode && settingsFor && (
         <CollectionSettingsDialog
           root={root}
           collection={settingsFor.collection}
@@ -166,7 +175,7 @@ export function Sidebar(props: {
           onSaved={props.onPostoSaved}
         />
       )}
-      {orderOpen && (
+      {developerMode && orderOpen && (
         <CollectionOrderDialog
           root={root}
           collections={orderableCollections(config)}
@@ -200,7 +209,7 @@ export function Sidebar(props: {
                     <Plus size={14} />
                   </button>
                 )}
-                {collection && exact && (
+                {developerMode && collection && exact && (
                   <button
                     type="button"
                     className="group-action"
@@ -236,13 +245,13 @@ export function Sidebar(props: {
           ),
         )}
       </div>
-      {orderableCollections(config).length > 1 && (
+      {developerMode && orderableCollections(config).length > 1 && (
         <button type="button" className="sidebar-footer-action" onClick={() => setOrderOpen(true)}>
           <SlidersHorizontal size={14} />
           Collection settings
         </button>
       )}
-      <SchemaDiagnostics config={config} />
+      {developerMode && <SchemaDiagnostics config={config} />}
     </aside>
   );
 }

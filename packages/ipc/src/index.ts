@@ -352,6 +352,15 @@ export function onFsChanged(handler: (paths: string[]) => void): () => void {
   };
 }
 
+/** Subscribes to the native application menu's request to open settings. */
+export function onOpenSettings(handler: () => void): () => void {
+  if (!inTauri) return () => {};
+  const unlisten = listen("open-settings", handler);
+  return () => {
+    void unlisten.then((fn) => fn());
+  };
+}
+
 /** Subscribes to the native File menu's recognized-file picker command. */
 export function onOpenFile(handler: () => void): () => void {
   if (!inTauri) return () => {};

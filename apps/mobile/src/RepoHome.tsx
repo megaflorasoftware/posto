@@ -76,6 +76,7 @@ const TRANSIENT_NOTICE_MS = 5_000;
 type Props = {
   root: string;
   repo: GitHubRepo | null;
+  developerMode: boolean;
   onChangeRepo: () => void;
   onRedownloadRepo: () => Promise<void>;
   onRemoveRepo: () => Promise<void>;
@@ -88,6 +89,7 @@ function message(error: unknown): string {
 export default function RepoHome({
   root: repoRoot,
   repo,
+  developerMode,
   onChangeRepo,
   onRedownloadRepo,
   onRemoveRepo,
@@ -131,6 +133,12 @@ export default function RepoHome({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const schemas = useSchemas(adapter, ipcProjectIO);
   const files = useFileGroups(setError, adapter.capabilities.dataDocuments);
+
+  useEffect(() => {
+    if (developerMode) return;
+    setSettingsFor(null);
+    setOrderOpen(false);
+  }, [developerMode]);
 
   async function refreshRepositoryContent(dir: string, selectedAdapter?: ProjectAdapter) {
     const [, config] = await Promise.all([
@@ -610,6 +618,7 @@ export default function RepoHome({
     fileContent: currentFile.fileContent,
     entry,
     dataEntry: currentFile.dataEntry,
+    developerMode,
   });
   const mobileActiveTab = resolveEditorTab(mobileEditorTabs, editorTab);
 
@@ -674,6 +683,7 @@ export default function RepoHome({
             onRenameFile={renameOpenFilename}
             onRefreshFilename={refreshFilenameTemplate}
             onPostoSaved={() => void schemas.loadPostoConfig(root)}
+            developerMode={developerMode}
             hideTabList
             filenamePlacement="fields"
           />
@@ -864,7 +874,7 @@ export default function RepoHome({
                               <Plus size={16} />
                             </ActionIcon>
                           )}
-                          {collection && exact && (
+                          {developerMode && collection && exact && (
                             <ActionIcon
                               className="mobile-group-action"
                               variant="subtle"
@@ -911,7 +921,7 @@ export default function RepoHome({
                       </div>
                     ),
                   )}
-                  {orderableCollections(schemas.config).length > 1 && (
+                  {developerMode && orderableCollections(schemas.config).length > 1 && (
                     <button
                       type="button"
                       className="mobile-collections-settings"
@@ -921,7 +931,7 @@ export default function RepoHome({
                       Collection settings
                     </button>
                   )}
-                  <SchemaDiagnostics config={schemas.config} />
+                  {developerMode && <SchemaDiagnostics config={schemas.config} />}
                 </div>
               )}
             </ScrollArea>
@@ -946,7 +956,7 @@ export default function RepoHome({
             </Button>
           </div>
 
-          {settingsFor && (
+          {developerMode && settingsFor && (
             <CollectionSettingsDialog
               root={root}
               collection={settingsFor.collection}
@@ -956,7 +966,7 @@ export default function RepoHome({
             />
           )}
 
-          {orderOpen && (
+          {developerMode && orderOpen && (
             <CollectionOrderDialog
               root={root}
               collections={orderableCollections(schemas.config)}

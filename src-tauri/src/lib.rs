@@ -17,6 +17,8 @@ mod watch;
 mod workspace;
 
 #[cfg(target_os = "macos")]
+const SETTINGS_MENU_ID: &str = "settings";
+#[cfg(target_os = "macos")]
 const FULLSCREEN_EDITOR_MENU_ID: &str = "fullscreen-editor";
 #[cfg(target_os = "macos")]
 const OPEN_FILE_MENU_ID: &str = "open-file";
@@ -187,6 +189,9 @@ pub fn run() {
             use tauri::menu::{Menu, MenuItemBuilder, MenuItemKind, PredefinedMenuItem};
 
             let menu = Menu::default(app)?;
+            let settings = MenuItemBuilder::with_id(SETTINGS_MENU_ID, "Settings…")
+                .accelerator("Cmd+,")
+                .build(app)?;
             let open_file = MenuItemBuilder::with_id(OPEN_FILE_MENU_ID, "Open File…")
                 .accelerator("Cmd+O")
                 .enabled(false)
@@ -206,6 +211,13 @@ pub fn run() {
                 MenuItemBuilder::with_id(OPEN_SIBLING_PROJECT_MENU_ID, "Open Sibling Project…")
                     .enabled(false)
                     .build(app)?;
+            let separator = PredefinedMenuItem::separator(app)?;
+
+            if let Some(MenuItemKind::Submenu(app_menu)) = menu.items()?.into_iter().next() {
+                // The default macOS app menu starts with About and a separator.
+                app_menu.insert_items(&[&settings, &separator], 2)?;
+            }
+
             for item in menu.items()? {
                 let MenuItemKind::Submenu(view_menu) = item else {
                     continue;
@@ -254,6 +266,9 @@ pub fn run() {
             if event.id().as_ref() == OPEN_SIBLING_PROJECT_MENU_ID {
                 let _ = app.emit("open-sibling-project", ());
             }
+            if event.id().as_ref() == SETTINGS_MENU_ID {
+                let _ = app.emit("open-settings", ());
+            }
         });
     #[cfg(desktop)]
     let builder = builder.invoke_handler(tauri::generate_handler![
@@ -294,6 +309,8 @@ pub fn run() {
         settings::get_last_selection,
         settings::get_work_dir,
         settings::get_recent_roots,
+        settings::get_developer_mode,
+        settings::set_developer_mode,
         settings::set_last_root,
         git::changed_files,
         git::revert_file,
@@ -339,6 +356,8 @@ pub fn run() {
                 settings::get_last_selection,
                 settings::get_work_dir,
                 settings::get_recent_roots,
+                settings::get_developer_mode,
+                settings::set_developer_mode,
                 settings::set_last_root,
                 git::changed_files,
                 git::revert_file,

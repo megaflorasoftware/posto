@@ -20,6 +20,7 @@ export function editorTabsForFile(input: {
   fileContent: string;
   entry: ContentEntry | null;
   dataEntry?: FileEntry["dataEntry"];
+  developerMode?: boolean;
 }): EditorTab[] {
   if (!input.filePath) return [];
   const showForm = input.entry !== null || /\.(md|mdx|markdown)$/i.test(input.filePath);
@@ -28,7 +29,7 @@ export function editorTabsForFile(input: {
   return [
     ...(hasFields ? ["fields" as const] : []),
     ...(!input.dataEntry ? ["body" as const] : []),
-    "raw",
+    ...(input.developerMode ?? true ? ["raw" as const] : []),
   ];
 }
 
@@ -75,6 +76,8 @@ export function EditorPane(props: {
   onRenameFile: (filename: string) => Promise<boolean>;
   onRefreshFilename: (template: string) => void;
   onPostoSaved: () => void;
+  /** Reveals controls that write repository-level Posto configuration. */
+  developerMode?: boolean;
   /** Opens the desktop editor in its distraction-free workspace. */
   onFullscreen?: () => void;
   hideHeader?: boolean;
@@ -85,6 +88,7 @@ export function EditorPane(props: {
   filenamePlacement?: "header" | "fields";
 }) {
   const { filePath, fileContent, entry, editorTab, dataEntry } = props;
+  const developerMode = props.developerMode ?? true;
 
   const fileName = dataEntry?.id ?? filePath?.split("/").pop() ?? "";
   const filenameSchema =
@@ -106,10 +110,13 @@ export function EditorPane(props: {
   }
 
   const tabs = useMemo(
-    () => editorTabsForFile({ filePath, fileContent, entry, dataEntry }),
-    [filePath, fileContent, entry, dataEntry],
+    () => editorTabsForFile({ filePath, fileContent, entry, dataEntry, developerMode }),
+    [filePath, fileContent, entry, dataEntry, developerMode],
   );
   const activeTab = resolveEditorTab(tabs, editorTab);
+  // A markdown file can legitimately have only a Body tab (no frontmatter,
+  // developer mode off). It still needs FormEditor so BodyEditor — including
+  // its rich toolbar — is mounted instead of falling back to the raw textarea.
   const showForm = activeTab !== "raw";
 
   if (!filePath) {
@@ -163,7 +170,7 @@ export function EditorPane(props: {
     />
   );
   const filenameActions =
-    entry && !dataEntry ? (
+    developerMode && entry && !dataEntry ? (
       <FieldTemplateActions
         root={props.root}
         collection={entry}
@@ -246,7 +253,7 @@ export function EditorPane(props: {
                 (props.filenamePlacement ?? "header") === "fields" ? filenameField : undefined
               }
               onChange={props.onFormEdit}
-              onPostoSaved={props.onPostoSaved}
+              onPostoSaved={developerMode ? props.onPostoSaved : undefined}
             />
           ) : (
             // One FormEditor spans the Fields and Body tabs so the
@@ -269,7 +276,7 @@ export function EditorPane(props: {
                 (props.filenamePlacement ?? "header") === "fields" ? filenameField : undefined
               }
               onChange={props.onFormEdit}
-              onPostoSaved={props.onPostoSaved}
+              onPostoSaved={developerMode ? props.onPostoSaved : undefined}
             />
           )}
         </Tabs>

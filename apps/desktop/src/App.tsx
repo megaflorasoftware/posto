@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActionIcon, MantineProvider } from "@mantine/core";
+import { ActionIcon, MantineProvider, Modal, Switch } from "@mantine/core";
 import { Notifications, notifications } from "@mantine/notifications";
 import {
   invoke,
@@ -8,6 +8,7 @@ import {
   onOpenFullscreenEditor,
   onOpenRecent,
   onOpenRepository,
+  onOpenSettings,
   onOpenSiblingProject,
   openDirectory,
   setOpenFileMenuEnabled,
@@ -80,6 +81,8 @@ function App() {
   // Editor tab choice sticks for the session; Markdown opens on Body by default.
   const [editorTab, setEditorTab] = useState<EditorTab>("body");
   const [publishOpen, setPublishOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [developerMode, setDeveloperMode] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
   const [fullscreenEditorOpen, setFullscreenEditorOpen] = useState(false);
   const [openFileSpotlightOpen, setOpenFileSpotlightOpen] = useState(false);
@@ -476,6 +479,7 @@ function App() {
 
   useEffect(() => {
     const unlistenFs = onFsChanged((paths) => externalChangesRef.current(paths));
+    const unlistenSettings = onOpenSettings(() => setSettingsOpen(true));
     const unlistenOpenFile = onOpenFile(() => {
       if (rootRef.current) setOpenFileSpotlightOpen(true);
     });
@@ -492,6 +496,7 @@ function App() {
     // One update check per app launch, once the UI is up.
     void checkForAppUpdate();
     void refreshRecentRoots();
+    void invoke<boolean>("get_developer_mode").then(setDeveloperMode).catch(notifyError);
     void (async () => {
       const last = await invoke<{ root: string; workDir: string | null } | null>(
         "get_last_selection",
@@ -503,6 +508,7 @@ function App() {
     })();
     return () => {
       unlistenFs();
+      unlistenSettings();
       unlistenOpenFile();
       unlistenOpenRepository();
       unlistenOpenRecent();
@@ -739,6 +745,21 @@ function App() {
           }}
         />
 
+        <Modal opened={settingsOpen} onClose={() => setSettingsOpen(false)} title="Settings">
+          <Switch
+            label="Enable developer mode"
+            checked={developerMode}
+            onChange={(event) => {
+              const enabled = event.currentTarget.checked;
+              setDeveloperMode(enabled);
+              void invoke("set_developer_mode", { enabled }).catch((error) => {
+                setDeveloperMode(!enabled);
+                notify(`Could not save settings: ${String(error)}`, "error");
+              });
+            }}
+          />
+        </Modal>
+
         {root && config && (
           <ImageLibraryDropImport
             root={root}
@@ -773,6 +794,7 @@ function App() {
                 onOpen={(file) => openFile(file)}
                 onDelete={(file) => void deleteFile(file)}
                 onNewFile={(group) => void createNewFile(group)}
+                developerMode={developerMode}
                 onPostoSaved={() => void schemas.loadPostoConfig(root)}
               />
             </div>
@@ -827,6 +849,7 @@ function App() {
                   onRenameFile={renameOpenFilename}
                   onRefreshFilename={refreshFilenameTemplate}
                   onPostoSaved={() => void schemas.loadPostoConfig(root)}
+                  developerMode={developerMode}
                   onFullscreen={
                     fullscreenEditorOpen ? undefined : () => setFullscreenEditorOpen(true)
                   }
