@@ -1,0 +1,124 @@
+---
+title: Install Posto
+description: Download and install Posto on macOS, Windows, or Linux, including the security steps required for unsigned pre-alpha builds.
+---
+
+import { LinkButton, Steps, TabItem, Tabs } from "@astrojs/starlight/components";
+
+Choose your computer's operating system below, then follow the steps from top to bottom. You do not need developer tools or experience with code to install Posto.
+
+:::caution[Posto is pre-alpha]
+Posto is still being tested and is not yet code-signed. macOS and Windows may warn you before opening it. Only download Posto from the official links on this page, and expect bugs or incomplete features.
+:::
+
+## Choose your operating system
+
+<Tabs syncKey="operating-system">
+  <TabItem label="macOS" icon="apple">
+    <Steps>
+      1. **Check which kind of Mac you have.**
+
+         Open the Apple menu in the top-left corner of your screen and choose **About This Mac**. If you see an item labeled **Chip**, choose Apple Silicon. If you see an item labeled **Processor** that contains the word Intel, choose Intel.
+
+         <LinkButton href="https://github.com/megaflorasoftware/posto/releases/latest/download/Posto_aarch64.dmg" icon="download">
+           Download for Apple Silicon
+         </LinkButton>
+
+         <LinkButton href="https://github.com/megaflorasoftware/posto/releases/latest/download/Posto_x64.dmg" icon="download" variant="secondary">
+           Download for Intel
+         </LinkButton>
+
+      2. **Move Posto into Applications.**
+
+         Open the downloaded `.dmg` file, then drag **Posto** into the **Applications** folder shown in the window.
+
+      3. **Allow this pre-alpha build to open.**
+
+         Because Posto is not yet signed, macOS blocks it by default. Open **Terminal** by pressing `Command + Space`, typing `Terminal`, and pressing Return. Copy the command below, paste it into Terminal, and press Return:
+
+         ```sh
+         xattr -d com.apple.quarantine /Applications/Posto.app/
+         ```
+
+         This command only removes the downloaded-app warning from Posto. It does not change the security settings for other apps.
+
+      4. **Open Posto.**
+
+         Open your **Applications** folder and double-click **Posto**. If macOS asks whether you are sure, choose **Open**.
+    </Steps>
+  </TabItem>
+
+  <TabItem label="Windows" icon="seti:windows">
+    <Steps>
+      1. **Download the Windows installer.**
+
+         The standard installer works for most people and for 64-bit Windows computers.
+
+         <LinkButton href="https://github.com/megaflorasoftware/posto/releases/download/v0.9.2/Posto_0.9.2_x64-setup.exe" icon="download">
+           Download for Windows
+         </LinkButton>
+
+      2. **Run the installer.**
+
+         Open your **Downloads** folder and double-click the Posto installer. If Windows asks whether to allow the installer to make changes, choose **Yes**.
+
+      3. **Continue past the pre-alpha warning.**
+
+         Because Posto is not yet signed, Windows may show **Windows protected your PC**. Choose **More info**, confirm that the app is Posto, then choose **Run anyway**.
+
+      4. **Finish and open Posto.**
+
+         Follow the installer's prompts. When it finishes, open Posto from the Start menu.
+    </Steps>
+
+    :::note[Installing on a managed computer]
+    If your workplace requires an `.msi` file, use the [Windows MSI installer](https://github.com/megaflorasoftware/posto/releases/download/v0.9.2/Posto_0.9.2_x64_en-US.msi). Most people should use the standard installer above.
+    :::
+  </TabItem>
+
+  <TabItem label="Linux" icon="linux">
+    Posto's current Linux downloads are for 64-bit Intel or AMD computers.
+
+    **For Ubuntu, Debian, or Linux Mint:**
+
+    <Steps>
+      1. **Download the Debian package.**
+
+         <LinkButton href="https://github.com/megaflorasoftware/posto/releases/latest/download/Posto_amd64.deb" icon="download">
+           Download the .deb package
+         </LinkButton>
+
+      2. **Install the package.**
+
+         Open your **Downloads** folder and double-click the `.deb` file. Your software installer will open; choose **Install** and enter your computer password if asked.
+
+      3. **Open Posto.**
+
+         Find Posto in your applications menu and open it.
+    </Steps>
+
+    **For other Linux distributions:**
+
+    <Steps>
+      1. **Download the AppImage.**
+
+         <LinkButton href="https://github.com/megaflorasoftware/posto/releases/latest/download/Posto_amd64.AppImage" icon="download">
+           Download the AppImage
+         </LinkButton>
+
+      2. **Allow the file to run.**
+
+         In your **Downloads** folder, right-click the AppImage and open **Properties**. Under **Permissions**, enable the option that allows the file to run as a program. The wording varies between Linux desktop environments.
+
+      3. **Open Posto.**
+
+         Double-click the AppImage. You can move it to another folder first if you do not want to keep it in Downloads.
+    </Steps>
+  </TabItem>
+</Tabs>
+
+## Next step
+
+Once Posto opens, continue to [Opening your first site](/getting-started/). Posto will prepare the site's tools automatically after you choose its folder.
+
+The mobile app is not distributed yet. iOS and Android instructions will be added when those versions are available.

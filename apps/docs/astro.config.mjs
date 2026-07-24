@@ -29,6 +29,7 @@ export default defineConfig({
               label: "Getting started",
               items: [
                 { label: "What is Posto?", slug: "what-is-posto" },
+                { label: "Install Posto", slug: "install" },
                 {
                   label: "Opening your first site",
                   slug: "getting-started",

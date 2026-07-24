@@ -1,17 +1,11 @@
 ---
 title: Opening your first site
-description: Install Posto, open a repository, edit a site, and publish your first change.
+description: Open a repository in Posto, make an edit, preview the site, and publish your first change.
 ---
 
-Follow these steps to go from a fresh install to a published change. The site must already live in a Git repository. If you are preparing a site for other people to edit in Posto, read the setup guide for its framework afterward.
+Follow these steps to go from an installed app to a published change. If Posto is not on your computer yet, start with [Install Posto](/install/). The site must already live in a Git repository. If you are preparing a site for other people to edit in Posto, read the setup guide for its framework afterward.
 
-## 1. Install Posto
-
-Download the desktop app from the [home page](/) or the latest [GitHub release](https://github.com/megaflorasoftware/posto/releases/latest). The current macOS build is unsigned, so clear its quarantine flag after installing; [What is Posto?](/what-is-posto/) includes the command.
-
-The mobile app isn't distributed yet; this page will link to it when it is.
-
-## 2. Open the repository
+## 1. Open the repository
 
 - **Desktop** — choose **File → Open Repository** and select the repository folder on your computer. If the site exists only on GitHub, clone it with Git or a Git client first:
 
@@ -23,17 +17,17 @@ The mobile app isn't distributed yet; this page will link to it when it is.
 
 If the repository contains several sites, choose the project directory you want to edit. You can switch later with **File → Open Sibling Project** on desktop.
 
-## 3. Let the environment set up
+## 2. Let the environment set up
 
 On desktop, Posto detects and installs the required Node version and package manager, installs the site's dependencies, and starts its development server. When setup finishes, the live preview appears beside the editor. See [Environment setup](/features/environment-setup/) for details.
 
 Mobile skips this step — there is no dev server or preview on mobile.
 
-## 4. Make an edit
+## 3. Make an edit
 
 Choose a file from the sidebar. Its frontmatter fields and body appear in one continuous editor, and changes save automatically as you type. The preview follows the open file. [Editing a site](/features/editing-a-site/) covers the workspace, shortcuts, and rich-text tools.
 
-## 5. Publish
+## 4. Publish
 
 When the changes are ready, select **Publish**. Review the changed files, enter a short commit message, and publish. Posto commits and pushes the changes for the selected site.
 
