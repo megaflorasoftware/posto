@@ -213,14 +213,9 @@ body,
   white-space: nowrap;
 }
 
-.file-tree-chevron {
+.file-tree-type-icon {
   flex-shrink: 0;
   color: var(--mantine-color-dimmed);
-  transition: transform 120ms ease;
-}
-
-.file-tree-chevron[data-expanded] {
-  transform: rotate(90deg);
 }
 
 .group-action {
@@ -255,6 +250,21 @@ body,
 
 .file-item.active {
   background: var(--mantine-primary-color-light);
+}
+
+.file-tree-file[data-selected] {
+  background: var(--mantine-primary-color-light);
+  border-radius: 4px;
+}
+
+.file-tree-file[data-selected] .file-item.active {
+  background: transparent;
+}
+
+.file-item-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-left: 0.25rem;
 }
 
 .file-item-name {

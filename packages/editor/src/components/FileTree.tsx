@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActionIcon,
   Tree,
@@ -7,8 +7,9 @@ import {
   type RenderTreeNodePayload,
   type TreeNodeData,
 } from "@mantine/core";
-import { ChevronRight, Pin, Plus, SlidersHorizontal } from "lucide-react";
+import { FileText, Folder, FolderOpen, Pin, Plus, SlidersHorizontal } from "lucide-react";
 import type { ContentEntry } from "@posto/core/pagescms/config";
+import { expandEntryName } from "@posto/core/posto/config";
 import type { FileEntry, FileGroup } from "@posto/ipc";
 import type { DisplayGroupNode } from "./Sidebar";
 import { FileList } from "./FileList";
@@ -41,10 +42,16 @@ function directoryValue(node: DisplayGroupNode): string {
   return `directory:${node.group.kind ?? ""}:${node.group.path}`;
 }
 
+/** A custom collection entry-label template wins; otherwise show the filename. */
+export function sidebarFileLabel(file: FileEntry, collection: ContentEntry | null): string {
+  if (!collection?.entryName) return file.name;
+  return expandEntryName(collection.entryName, file.frontmatter) ?? file.name;
+}
+
 function fileData(file: FileEntry, collection: ContentEntry | null): TreeNodeData {
   return {
     value: fileValue(file),
-    label: file.title ?? file.name,
+    label: sidebarFileLabel(file, collection),
     nodeProps: { type: "file", file, collection } satisfies FileNodeProps,
   };
 }
@@ -90,8 +97,24 @@ export function FileTree(props: {
     () => data.filter((node) => nodeProps(node).type === "directory").map((node) => node.value),
     [data],
   );
+  const [expandedState, setExpandedState] = useState(() =>
+    getTreeExpandedState(data, rootDirectories),
+  );
+  const initializedRoots = useRef(new Set(rootDirectories));
+
+  useEffect(() => {
+    const newRoots = rootDirectories.filter((value) => !initializedRoots.current.has(value));
+    if (newRoots.length === 0) return;
+    newRoots.forEach((value) => initializedRoots.current.add(value));
+    setExpandedState((current) => ({
+      ...current,
+      ...Object.fromEntries(newRoots.map((value) => [value, true])),
+    }));
+  }, [rootDirectories]);
+
   const tree = useTree({
-    initialExpandedState: getTreeExpandedState(data, rootDirectories),
+    expandedState,
+    onExpandedStateChange: setExpandedState,
     selectedState: props.activeKey ? [`file:${props.activeKey}`] : [],
   });
 
@@ -107,11 +130,19 @@ export function FileTree(props: {
         className={`${payload.elementProps.className} ${labelClass}`}
         title={group.label}
       >
-        <ChevronRight
-          size={props.variant === "mobile" ? 16 : 14}
-          className="file-tree-chevron"
-          data-expanded={payload.expanded || undefined}
-        />
+        {payload.expanded ? (
+          <FolderOpen
+            size={props.variant === "mobile" ? 15 : 13}
+            className="file-tree-type-icon"
+            aria-hidden
+          />
+        ) : (
+          <Folder
+            size={props.variant === "mobile" ? 15 : 13}
+            className="file-tree-type-icon"
+            aria-hidden
+          />
+        )}
         <span className="file-tree-directory-label">{group.label}</span>
         {canCreateFileInGroup(props.root, group) &&
           (props.variant === "mobile" ? (
@@ -193,7 +224,10 @@ export function FileTree(props: {
             title={item.file.name}
             onClick={() => props.onOpen(item.file)}
           >
-            {item.file.title ?? item.file.name}
+            <FileText size={15} className="file-tree-type-icon" aria-hidden />
+            <span className="mobile-file-label">
+              {sidebarFileLabel(item.file, item.collection)}
+            </span>
             {item.collection?.pinned?.includes(item.file.name) && (
               <Pin size={13} className="mobile-file-pin" aria-label="Pinned" />
             )}
@@ -206,6 +240,8 @@ export function FileTree(props: {
       <div {...payload.elementProps} className={`${payload.elementProps.className} file-tree-file`}>
         <FileList
           files={[item.file]}
+          leadingIcon={<FileText size={13} className="file-tree-type-icon" aria-hidden />}
+          fileLabel={(file) => sidebarFileLabel(file, item.collection)}
           activeKey={props.activeKey}
           pinned={item.collection?.pinned}
           onOpen={props.onOpen}

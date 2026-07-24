@@ -13,7 +13,7 @@ import {
   type RenderTreeNodePayload,
   type TreeNodeData,
 } from "@mantine/core";
-import { ChevronRight, Folder, FolderOpen, TriangleAlert } from "lucide-react";
+import { Folder, FolderOpen, TriangleAlert } from "lucide-react";
 import { invoke } from "@posto/ipc";
 
 function directoryNode(path: string, label: string): TreeNodeData {
@@ -97,11 +97,6 @@ export function DirectoryBrowser(props: {
         className={`${payload.elementProps.className} directory-browser-node`}
         title={payload.loadError?.message ?? label}
       >
-        <ChevronRight
-          size={16}
-          className="directory-browser-chevron"
-          data-expanded={payload.expanded || undefined}
-        />
         {payload.expanded ? <FolderOpen size={16} /> : <Folder size={16} />}
         <span className="directory-browser-label">{payload.node.label}</span>
         {payload.loadError && <TriangleAlert size={15} color="var(--mantine-color-red-6)" />}

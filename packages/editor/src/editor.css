@@ -1498,12 +1498,3 @@ button.picker-card:focus-visible .picker-card-preview,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.directory-browser-chevron {
-  flex-shrink: 0;
-  transition: transform 120ms ease;
-}
-
-.directory-browser-chevron[data-expanded] {
-  transform: rotate(90deg);
-}

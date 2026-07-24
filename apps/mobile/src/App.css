@@ -332,14 +332,9 @@ input {
   white-space: nowrap;
 }
 
-.mobile-file-tree .file-tree-chevron {
+.mobile-file-tree .file-tree-type-icon {
   flex-shrink: 0;
   color: var(--mantine-color-dimmed);
-  transition: transform 120ms ease;
-}
-
-.mobile-file-tree .file-tree-chevron[data-expanded] {
-  transform: rotate(90deg);
 }
 
 .mobile-group-action {
@@ -370,10 +365,23 @@ input {
   text-overflow: ellipsis;
   white-space: nowrap;
   background: transparent;
+  gap: 0.4rem;
+}
+
+.mobile-file-label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .mobile-file-item:active {
   background: var(--mantine-color-default-hover);
+}
+
+.mobile-file-tree-file[data-selected] {
+  background: var(--mantine-primary-color-light);
+  border-radius: 4px;
 }
 
 /* Right-aligned marker on files pinned via collection settings. */

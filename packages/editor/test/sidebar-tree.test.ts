@@ -3,12 +3,35 @@
 import { describe, expect, test } from "vitest";
 import type { PagesConfig } from "@posto/core/pagescms/config";
 import type { FileGroup } from "@posto/ipc";
-import { fileTreeData } from "../src/components/FileTree";
+import { fileTreeData, sidebarFileLabel } from "../src/components/FileTree";
 import { sidebarDisplayTree } from "../src/components/Sidebar";
 
 const file = (path: string) => ({ name: path.split("/").pop()!, path });
 
 describe("sidebarDisplayTree", () => {
+  test("uses a custom entry label in the sidebar and otherwise shows the filename", () => {
+    const entry = {
+      name: "getting-started.mdx",
+      path: "/repo/docs/getting-started.mdx",
+      title: "Frontmatter title",
+      frontmatter: { title: "Frontmatter title" },
+    };
+    const collection = {
+      name: "docs",
+      type: "collection" as const,
+      path: "docs",
+      fields: [],
+    };
+
+    expect(sidebarFileLabel(entry, collection)).toBe("getting-started.mdx");
+    expect(sidebarFileLabel(entry, { ...collection, entryName: "Guide: {fields.title}" })).toBe(
+      "Guide: Frontmatter title",
+    );
+    expect(sidebarFileLabel(entry, { ...collection, entryName: "{fields.missing}" })).toBe(
+      "getting-started.mdx",
+    );
+  });
+
   test("models the docs app as one open collection with closed nested folders", () => {
     const root = "/repo/apps/docs";
     const directory = `${root}/src/content/docs`;
