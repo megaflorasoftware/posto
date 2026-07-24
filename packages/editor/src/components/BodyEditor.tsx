@@ -183,7 +183,18 @@ export function BodyEditor(props: {
     extensions,
     content: initial.body,
     contentType: "markdown",
+    editorProps: {
+      attributes: {
+        "aria-label": "Body",
+        "data-empty": initial.body.trim() === "" ? "true" : "false",
+        "data-placeholder": "Start writing...",
+      },
+    },
+    onCreate: ({ editor }) => {
+      editor.view.dom.dataset.empty = editor.isEmpty ? "true" : "false";
+    },
     onUpdate: ({ editor }) => {
+      editor.view.dom.dataset.empty = editor.isEmpty ? "true" : "false";
       const markdown = composeMarkdown(editor.getMarkdown());
       lastEmitted.current = markdown;
       props.onChange(markdown);
@@ -198,6 +209,7 @@ export function BodyEditor(props: {
     importsRef.current = toManagedImports(next.imports, next.body);
     if (next.body === editor.getMarkdown()) return;
     editor.commands.setContent(next.body, { contentType: "markdown", emitUpdate: false });
+    editor.view.dom.dataset.empty = editor.isEmpty ? "true" : "false";
   }, [editor, props.value]);
 
   // The active adapter owns component discovery and prop parsing. The editor

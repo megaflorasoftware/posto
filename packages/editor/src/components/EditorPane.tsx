@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ActionIcon, Alert, Tabs, TextInput } from "@mantine/core";
-import { Maximize2, RefreshCw } from "lucide-react";
+import { ActionIcon, Alert, TextInput } from "@mantine/core";
+import { Code2, Maximize2, RefreshCw } from "lucide-react";
 import type { FileEntry, FileGroup } from "@posto/ipc";
 import { EMPTY_CONFIG, type ContentEntry, type PagesConfig } from "@posto/core/pagescms/config";
-import { parseFile, type ParsedFile } from "@posto/core/pagescms/frontmatter";
 import { FormEditor } from "./FormEditor";
 import { DataFormEditor } from "./DataFormEditor";
 import type { SaveState } from "../hooks/useCurrentFile";
@@ -13,7 +12,7 @@ import type { ComponentSchemaSource, ProjectIO } from "@posto/core/project/adapt
 import type { EntryIdSource } from "@posto/core/project/entryIds";
 import { ProjectIOProvider } from "../projectIO";
 
-export type EditorTab = "fields" | "body" | "raw";
+export type EditorTab = "content" | "raw";
 
 export function editorTabsForFile(input: {
   filePath: string | null;
@@ -25,32 +24,17 @@ export function editorTabsForFile(input: {
   if (!input.filePath) return [];
   const showForm = input.entry !== null || /\.(md|mdx|markdown)$/i.test(input.filePath);
   if (!showForm) return ["raw"];
-  const hasFields = input.entry !== null || contentHasFields(null, parseFile(input.fileContent));
-  return [
-    ...(hasFields ? ["fields" as const] : []),
-    ...(!input.dataEntry ? ["body" as const] : []),
-    ...(input.developerMode ?? true ? ["raw" as const] : []),
-  ];
+  return ["content", ...((input.developerMode ?? true) ? (["raw"] as const) : [])];
 }
 
 export function resolveEditorTab(tabs: EditorTab[], requested: EditorTab): EditorTab {
   if (tabs.includes(requested)) return requested;
-  if (tabs.includes("fields")) return "fields";
+  if (tabs.includes("content")) return "content";
   return tabs[0] ?? "raw";
 }
 
-// Whether the Fields tab would have anything to show: a matched schema entry,
-// or existing frontmatter to infer fields from. A broken frontmatter block
-// still counts — FormEditor's YAML-error alert explains it.
-export function contentHasFields(entry: unknown, parsed: ParsedFile): boolean {
-  if (entry !== null) return true;
-  if (parsed.hadFrontmatter && parsed.error) return true;
-  const values: unknown = parsed.doc.toJS();
-  return !!values && typeof values === "object" && Object.keys(values).length > 0;
-}
-
 /** The editor pane's content: file header with save state, and the
- * Fields/Body/Raw tab host around FormEditor / the raw textarea. */
+ * continuous fields/body editor or the developer-only raw textarea. */
 export function EditorPane(props: {
   root: string;
   projectIO: ProjectIO;
@@ -80,11 +64,9 @@ export function EditorPane(props: {
   developerMode?: boolean;
   /** Opens the desktop editor in its distraction-free workspace. */
   onFullscreen?: () => void;
+  /** Control rendered before the filename, used by the fullscreen header. */
+  headerLeading?: ReactNode;
   hideHeader?: boolean;
-  hideTabList?: boolean;
-  toolbarLeading?: ReactNode;
-  toolbarTrailing?: ReactNode;
-  renderFieldsHeader?: (filenameControl: ReactNode) => ReactNode;
   filenamePlacement?: "header" | "fields";
 }) {
   const { filePath, fileContent, entry, editorTab, dataEntry } = props;
@@ -114,9 +96,6 @@ export function EditorPane(props: {
     [filePath, fileContent, entry, dataEntry, developerMode],
   );
   const activeTab = resolveEditorTab(tabs, editorTab);
-  // A markdown file can legitimately have only a Body tab (no frontmatter,
-  // developer mode off). It still needs FormEditor so BodyEditor — including
-  // its rich toolbar — is mounted instead of falling back to the raw textarea.
   const showForm = activeTab !== "raw";
 
   if (!filePath) {
@@ -190,97 +169,102 @@ export function EditorPane(props: {
       {filenameInput}
     </div>
   );
-  const filenameHeaderControl = (
-    <>
-      {filenameReadOnly ? <div className="pane-filename-text">{fileName}</div> : filenameInput}
-      {filenameActions}
-    </>
-  );
-
   return (
     <ProjectIOProvider value={props.projectIO}>
       {!props.hideHeader && (props.filenamePlacement ?? "header") === "header" && (
         <div className="pane-header" data-tauri-drag-region>
-          {filenameReadOnly ? <div className="pane-filename-text">{fileName}</div> : filenameInput}
-          {filenameActions}
-          {props.onFullscreen && (
-            <ActionIcon
-              size={26}
-              variant="default"
-              title="Open fullscreen editor"
-              aria-label="Open fullscreen editor"
-              onClick={props.onFullscreen}
-            >
-              <Maximize2 size={13} />
-            </ActionIcon>
-          )}
+          {props.headerLeading}
+          <div className="pane-filename-header-control">
+            {filenameReadOnly ? (
+              <div className="pane-filename-text">{fileName}</div>
+            ) : (
+              filenameInput
+            )}
+            {filenameActions}
+          </div>
+          <div className="pane-header-actions">
+            {developerMode && showForm && (
+              <ActionIcon
+                size={26}
+                variant="default"
+                title="Show raw file"
+                aria-label="Show raw file"
+                onClick={() => props.onTabChange("raw")}
+              >
+                <Code2 size={13} />
+              </ActionIcon>
+            )}
+            {developerMode && !showForm && tabs.includes("content") && (
+              <ActionIcon
+                size={26}
+                variant="default"
+                title="Show visual editor"
+                aria-label="Show visual editor"
+                onClick={() => props.onTabChange("content")}
+              >
+                <Code2 size={13} />
+              </ActionIcon>
+            )}
+            {props.onFullscreen && (
+              <ActionIcon
+                size={26}
+                variant="default"
+                title="Open fullscreen editor"
+                aria-label="Open fullscreen editor"
+                onClick={props.onFullscreen}
+              >
+                <Maximize2 size={13} />
+              </ActionIcon>
+            )}
+          </div>
         </div>
       )}
-      {activeTab === "fields" && props.renderFieldsHeader?.(filenameHeaderControl)}
       {props.configError && (
         <Alert color="yellow" className="config-error">
           {`Schema configuration issue${props.hasDerivedFallback ? " (using the last available schemas)" : ""} — ${props.configError}`}
         </Alert>
       )}
-      {!showForm ? (
-        rawEditor
-      ) : (
-        <Tabs
-          className="pane-tabs"
-          value={activeTab}
-          onChange={(value) => props.onTabChange(value as EditorTab)}
-        >
-          {!props.hideTabList && (
-            <Tabs.List>
-              {tabs.map((tab) => (
-                <Tabs.Tab key={tab} value={tab} tt="capitalize">
-                  {tab}
-                </Tabs.Tab>
-              ))}
-            </Tabs.List>
-          )}
-          {dataEntry && entry ? (
-            <DataFormEditor
-              key={`${filePath}:${dataEntry.collection}:${dataEntry.id}`}
-              content={fileContent}
-              entry={entry}
-              dataEntry={dataEntry}
-              config={props.config ?? EMPTY_CONFIG}
-              root={props.root}
-              groups={props.groups}
-              entryIds={props.entryIds}
-              fieldsHeader={
-                (props.filenamePlacement ?? "header") === "fields" ? filenameField : undefined
-              }
-              onChange={props.onFormEdit}
-              onPostoSaved={developerMode ? props.onPostoSaved : undefined}
-            />
-          ) : (
-            // One FormEditor spans the Fields and Body tabs so the
-            // parsed document survives switching between them.
-            <FormEditor
-              key={filePath}
-              path={filePath}
-              view={activeTab}
-              content={fileContent}
-              entry={entry}
-              config={props.config ?? EMPTY_CONFIG}
-              root={props.root}
-              groups={props.groups}
-              componentBlocks={props.componentBlocks}
-              entryIds={props.entryIds}
-              componentSchemaVersion={props.componentSchemaVersion}
-              toolbarLeading={props.toolbarLeading}
-              toolbarTrailing={props.toolbarTrailing}
-              fieldsHeader={
-                (props.filenamePlacement ?? "header") === "fields" ? filenameField : undefined
-              }
-              onChange={props.onFormEdit}
-              onPostoSaved={developerMode ? props.onPostoSaved : undefined}
-            />
-          )}
-        </Tabs>
-      )}
+      <div className="pane-content">
+        {!showForm ? (
+          rawEditor
+        ) : dataEntry && entry ? (
+          <DataFormEditor
+            key={`${filePath}:${dataEntry.collection}:${dataEntry.id}`}
+            content={fileContent}
+            entry={entry}
+            dataEntry={dataEntry}
+            config={props.config ?? EMPTY_CONFIG}
+            root={props.root}
+            groups={props.groups}
+            entryIds={props.entryIds}
+            fieldsHeader={
+              (props.filenamePlacement ?? "header") === "fields" ? filenameField : undefined
+            }
+            onChange={props.onFormEdit}
+            onPostoSaved={developerMode ? props.onPostoSaved : undefined}
+          />
+        ) : (
+          // One FormEditor owns fields and body so edits round-trip through
+          // the same parsed document.
+          <FormEditor
+            key={filePath}
+            path={filePath}
+            content={fileContent}
+            entry={entry}
+            config={props.config ?? EMPTY_CONFIG}
+            root={props.root}
+            groups={props.groups}
+            componentBlocks={props.componentBlocks}
+            entryIds={props.entryIds}
+            componentSchemaVersion={props.componentSchemaVersion}
+            fieldsHeader={
+              (props.filenamePlacement ?? "header") === "fields" ? filenameField : undefined
+            }
+            onChange={props.onFormEdit}
+            onPostoSaved={developerMode ? props.onPostoSaved : undefined}
+          />
+        )}
+      </div>
     </ProjectIOProvider>
   );
 }

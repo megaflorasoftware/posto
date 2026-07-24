@@ -361,8 +361,8 @@ body,
   background: var(--mantine-color-body);
 }
 
-.fullscreen-plain-toolbar {
-  flex: 0 0 48px;
+.fullscreen-editor-pane > .pane-header {
+  position: relative;
   display: flex;
   align-items: center;
   flex-wrap: nowrap;
@@ -370,26 +370,20 @@ body,
   min-height: 48px;
   box-sizing: border-box;
   padding: 0.2rem 0.75rem 0.2rem 5.375rem;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
   background: var(--mantine-color-body);
 }
 
-.fullscreen-plain-toolbar::-webkit-scrollbar {
-  display: none;
+.fullscreen-editor-pane > .pane-header .pane-filename-header-control {
+  position: absolute;
+  left: 50%;
+  /* The 760px fields column includes 0.75rem padding on each side. Align
+     with the controls inside that column, not its padded outer edge. */
+  width: min(736px, calc(100vw - 15.5rem));
+  transform: translateX(-50%);
 }
 
-.fullscreen-fields-filename {
-  width: min(760px, calc(100vw - 8rem));
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0 0.75rem;
-  color: var(--mantine-color-text);
-  font-size: var(--mantine-font-size-sm);
-  font-weight: 500;
+.fullscreen-editor-pane > .pane-header .pane-header-actions {
+  margin-left: auto;
 }
 
 .fullscreen-editor-pane .body-rich-editor {
@@ -415,9 +409,10 @@ body,
 
 .fullscreen-editor-pane .body-rich-editor .mantine-RichTextEditor-toolbar {
   align-items: center;
+  justify-content: safe center;
   min-height: 48px;
   box-sizing: border-box;
-  padding: 0.2rem 0.75rem 0.2rem 5.375rem;
+  padding: 0.2rem 0.75rem;
   border-bottom: 0;
 }
 
@@ -489,6 +484,7 @@ body,
 }
 
 .fullscreen-editor-pane .body-rich-toolbar-controls {
+  flex: 0 0 auto;
   justify-content: center;
 }
 
@@ -502,10 +498,15 @@ body,
 }
 
 .fullscreen-editor-pane [data-rich-text-editor-control] {
-  width: calc(1.625rem * var(--mantine-scale));
-  height: calc(1.625rem * var(--mantine-scale));
+  width: calc(2rem * var(--mantine-scale));
+  height: calc(2rem * var(--mantine-scale));
   border: 0 !important;
   background: transparent;
+}
+
+.fullscreen-editor-pane [data-rich-text-editor-control] svg {
+  width: calc(1.125rem * var(--mantine-scale));
+  height: calc(1.125rem * var(--mantine-scale));
 }
 
 @media (hover: hover) {
@@ -528,8 +529,7 @@ body,
 
 .fullscreen-editor-pane .body-rich-content > .tiptap,
 .fullscreen-editor-pane .form-editor > .form-fields,
-.fullscreen-editor-pane > .editor,
-.fullscreen-editor-pane .pane-tabs > .editor {
+.fullscreen-editor-pane .pane-content > .editor {
   width: 100%;
   max-width: 760px;
   margin-right: auto;
@@ -538,9 +538,7 @@ body,
 }
 
 .fullscreen-editor-pane .body-rich-content > .tiptap,
-.fullscreen-editor-pane .form-editor > .form-fields,
-.fullscreen-editor-pane > .editor,
-.fullscreen-editor-pane .pane-tabs > .editor {
+.fullscreen-editor-pane .pane-content > .editor {
   padding-bottom: max(12rem, 30vh);
 }
 
@@ -551,7 +549,7 @@ body,
 /* Fullscreen Fields gets one Mantine size step more breathing room: the
    shared editor uses xs/sm controls, which become sm/md here. */
 .fullscreen-editor-pane .form-editor > .form-fields [data-size="xs"],
-.fullscreen-editor-pane .fullscreen-fields-filename [data-size="xs"] {
+.fullscreen-editor-pane > .pane-header [data-size="xs"] {
   --input-height: var(--input-height-sm) !important;
   --input-fz: var(--mantine-font-size-sm) !important;
   --input-padding-y: var(--input-padding-y-sm) !important;
@@ -567,7 +565,7 @@ body,
 }
 
 .fullscreen-editor-pane .form-editor > .form-fields [data-size="sm"],
-.fullscreen-editor-pane .fullscreen-fields-filename [data-size="sm"] {
+.fullscreen-editor-pane > .pane-header [data-size="sm"] {
   --input-height: var(--input-height-md) !important;
   --input-fz: var(--mantine-font-size-md) !important;
   --input-padding-y: var(--input-padding-y-md) !important;

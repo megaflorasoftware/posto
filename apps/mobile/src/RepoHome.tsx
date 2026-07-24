@@ -21,7 +21,6 @@ import {
   buildNewFile,
   createDataDocumentEntry,
   deleteDataDocumentEntry,
-  contentHasFields,
   editorTabsForFile,
   renameTargetForContent,
   orderableCollections,
@@ -129,7 +128,7 @@ export default function RepoHome({
   const [componentSchemaVersion, setComponentSchemaVersion] = useState(0);
   const [siteUrlVersion, setSiteUrlVersion] = useState(0);
   const [importLibrary, setImportLibrary] = useState<MediaLibrary | null>(null);
-  const [editorTab, setEditorTab] = useState<EditorTab>("body");
+  const [editorTab, setEditorTab] = useState<EditorTab>("content");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const schemas = useSchemas(adapter, ipcProjectIO);
   const files = useFileGroups(setError, adapter.capabilities.dataDocuments);
@@ -215,23 +214,12 @@ export default function RepoHome({
       // debounced) save is the moment to bring the name back in line.
       void renameForTemplate(path, content);
     },
-    onOpened(path, content, file) {
+    onOpened(path, _content, file) {
       if (file?.dataEntry) {
-        setEditorTab("fields");
+        setEditorTab("content");
         return;
       }
-      if (!/\.(md|mdx|markdown)$/i.test(path)) return;
-      const entry = schemas.configRef.current
-        ? matchEntry(schemas.configRef.current, root, path)
-        : null;
-      const parsed = parseFile(content);
-      const hasFields = contentHasFields(entry, parsed);
-      const hasBody = parsed.body.trim() !== "";
-      setEditorTab((last) => {
-        if (last === "fields" && !hasFields) return "body";
-        if (last === "body" && !hasBody && hasFields) return "fields";
-        return last;
-      });
+      if (!/\.(md|mdx|markdown)$/i.test(path)) setEditorTab("raw");
     },
     onOpenError: setError,
   });
@@ -684,7 +672,6 @@ export default function RepoHome({
             onRefreshFilename={refreshFilenameTemplate}
             onPostoSaved={() => void schemas.loadPostoConfig(root)}
             developerMode={developerMode}
-            hideTabList
             filenamePlacement="fields"
           />
         </main>

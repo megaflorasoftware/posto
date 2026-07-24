@@ -84,6 +84,8 @@ input {
 .mobile-header-tabs {
   grid-column: 2;
   min-width: 0;
+  display: flex;
+  justify-content: center;
 }
 
 .mobile-header-tabs .mantine-Tabs-list {

@@ -34,10 +34,7 @@ import {
   buildNewFile,
   createDataDocumentEntry,
   deleteDataDocumentEntry,
-  contentHasFields,
-  editorTabsForFile,
   renameTargetForContent,
-  resolveEditorTab,
   useCurrentFile,
   useFileGroups,
   useGitSync,
@@ -57,10 +54,8 @@ import { PreviewPane } from "./components/PreviewPane";
 import { RecentProjectsSpotlight } from "./components/RecentProjectsSpotlight";
 import {
   ChevronLeft,
-  FileText,
   Files,
   Image as ImageIcon,
-  List,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
@@ -85,8 +80,8 @@ function App() {
   const { projectInfo, adapter } = projectSession;
   // Recently-opened site roots, newest first (backend caps at 10).
   const [recentRoots, setRecentRoots] = useState<string[]>([]);
-  // Editor tab choice sticks for the session; Markdown opens on Body by default.
-  const [editorTab, setEditorTab] = useState<EditorTab>("body");
+  // Raw source is a developer-only alternate view of the continuous editor.
+  const [editorTab, setEditorTab] = useState<EditorTab>("content");
   const [publishOpen, setPublishOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [developerMode, setDeveloperMode] = useState(false);
@@ -143,25 +138,10 @@ function App() {
     },
     onOpened(path, content, file) {
       if (file?.dataEntry) {
-        setEditorTab("fields");
+        setEditorTab("content");
         return;
       }
-      // On opening a markdown file, keep the last selected tab when it has
-      // content to show, otherwise fall over to the tab that does: no fields
-      // → Body; empty body but fields present → Fields. Raw stays sticky.
-      if (/\.(md|mdx|markdown)$/i.test(path)) {
-        const dir = rootRef.current;
-        const cfg = schemas.configRef.current;
-        const openedEntry = dir && cfg ? matchEntry(cfg, dir, path) : null;
-        const parsed = parseFile(content);
-        const hasFields = contentHasFields(openedEntry, parsed);
-        const hasBody = parsed.body.trim() !== "";
-        setEditorTab((last) => {
-          if (last === "fields" && !hasFields) return "body";
-          if (last === "body" && !hasBody && hasFields) return "fields";
-          return last;
-        });
-      }
+      if (!/\.(md|mdx|markdown)$/i.test(path)) setEditorTab("raw");
       if (navigatePreviewRef.current) void preview.navigateForFile(path, content);
     },
     onOpenError(message) {
@@ -378,11 +358,10 @@ function App() {
       return;
     }
     await refreshGroups(dir);
-    // A new markdown file with a schema should land on its form, not on
-    // whichever tab was last active (an empty file's Body/Raw view is blank).
+    // A new markdown file with a schema should land in the visual editor.
     const cfg = schemas.configRef.current;
     if (/\.(md|mdx)$/i.test(path) && cfg && matchEntry(cfg, dir, path) !== null) {
-      setEditorTab("fields");
+      setEditorTab("content");
     }
     openFile(path);
   }
@@ -641,18 +620,6 @@ function App() {
     void setFullscreenEditorMenuEnabled(currentFile.filePath !== null).catch(notifyError);
   }, [currentFile.filePath, notifyError]);
 
-  const fullscreenTabs = editorTabsForFile({
-    filePath: currentFile.filePath,
-    fileContent: currentFile.fileContent,
-    entry,
-    dataEntry: currentFile.dataEntry,
-  });
-  const fullscreenActiveTab = resolveEditorTab(fullscreenTabs, editorTab);
-  const fullscreenCanToggleFieldsBody =
-    fullscreenTabs.includes("fields") && fullscreenTabs.includes("body");
-  const fullscreenToggleTarget: EditorTab = fullscreenActiveTab === "fields" ? "body" : "fields";
-  const fullscreenUsesRichToolbar =
-    fullscreenActiveTab === "body" && /\.(md|mdx|markdown)$/i.test(currentFile.filePath ?? "");
   const renderFullscreenExit = () => (
     <ActionIcon
       size={26}
@@ -665,20 +632,6 @@ function App() {
       <ChevronLeft size={16} />
     </ActionIcon>
   );
-  const renderFullscreenViewToggle = () =>
-    fullscreenCanToggleFieldsBody ? (
-      <ActionIcon
-        size={26}
-        variant="subtle"
-        color="gray"
-        title={`Show ${fullscreenToggleTarget}`}
-        aria-label={`Show ${fullscreenToggleTarget}`}
-        onClick={() => setEditorTab(fullscreenToggleTarget)}
-      >
-        {fullscreenToggleTarget === "fields" ? <List size={16} /> : <FileText size={16} />}
-      </ActionIcon>
-    ) : null;
-
   const renderEditorPane = (withFullscreenButton = false, fullscreen = false) =>
     root ? (
       <EditorPane
@@ -706,29 +659,7 @@ function App() {
         onPostoSaved={() => void schemas.loadPostoConfig(root)}
         developerMode={developerMode}
         onFullscreen={withFullscreenButton ? () => setFullscreenEditorOpen(true) : undefined}
-        hideHeader={fullscreen}
-        hideTabList={fullscreen}
-        toolbarLeading={
-          fullscreen && fullscreenUsesRichToolbar ? renderFullscreenExit() : undefined
-        }
-        toolbarTrailing={
-          fullscreen && fullscreenUsesRichToolbar ? renderFullscreenViewToggle() : undefined
-        }
-        renderFieldsHeader={
-          fullscreen
-            ? (filenameControl) => (
-                <div className="fullscreen-plain-toolbar">
-                  <div className="body-rich-toolbar-edge">{renderFullscreenExit()}</div>
-                  <div className="body-rich-toolbar-controls">
-                    <div className="fullscreen-fields-filename">{filenameControl}</div>
-                  </div>
-                  {fullscreenCanToggleFieldsBody && (
-                    <div className="body-rich-toolbar-edge">{renderFullscreenViewToggle()}</div>
-                  )}
-                </div>
-              )
-            : undefined
-        }
+        headerLeading={fullscreen ? renderFullscreenExit() : undefined}
       />
     ) : null;
 
@@ -944,19 +875,6 @@ function App() {
                 }`}
                 style={{ flexBasis: `${preview.split}%` }}
               >
-                {fullscreenEditorOpen &&
-                  !fullscreenUsesRichToolbar &&
-                  fullscreenActiveTab !== "fields" && (
-                    <div className="fullscreen-plain-toolbar">
-                      <div className="body-rich-toolbar-edge">{renderFullscreenExit()}</div>
-                      <div className="body-rich-toolbar-controls"></div>
-                      {fullscreenCanToggleFieldsBody && (
-                        <div className="body-rich-toolbar-edge">
-                          {renderFullscreenViewToggle()}
-                        </div>
-                      )}
-                    </div>
-                  )}
                 {renderEditorPane(!fullscreenEditorOpen, fullscreenEditorOpen)}
               </div>
 

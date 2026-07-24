@@ -1,5 +1,5 @@
-import { ActionIcon, Button, Group, Tabs, Text } from "@mantine/core";
-import { ChevronLeft, Menu, Trash2 } from "lucide-react";
+import { ActionIcon, Button, Group, Text } from "@mantine/core";
+import { ChevronLeft, Code2, Menu, Trash2 } from "lucide-react";
 import type { EditorTab } from "@posto/editor";
 
 export function RepoHeader(props: {
@@ -40,22 +40,20 @@ export function RepoHeader(props: {
           </Text>
         )}
       </Group>
-      {props.showEditor && (
-        <Tabs
-          className="mobile-header-tabs"
-          variant="pills"
-          value={props.activeTab}
-          onChange={(value) => props.onTabChange(value as EditorTab)}
-        >
-          <Tabs.List justify="center">
-            {props.editorTabs.map((tab) => (
-              <Tabs.Tab key={tab} value={tab} tt="capitalize">
-                {tab}
-              </Tabs.Tab>
-            ))}
-          </Tabs.List>
-        </Tabs>
-      )}
+      {props.showEditor &&
+        props.editorTabs.includes("content") &&
+        props.editorTabs.includes("raw") && (
+          <div className="mobile-header-tabs">
+            <ActionIcon
+              variant="subtle"
+              aria-label={props.activeTab === "raw" ? "Show visual editor" : "Show raw file"}
+              title={props.activeTab === "raw" ? "Show visual editor" : "Show raw file"}
+              onClick={() => props.onTabChange(props.activeTab === "raw" ? "content" : "raw")}
+            >
+              <Code2 size={19} />
+            </ActionIcon>
+          </div>
+        )}
       {!props.showEditor && !props.showSettings && !props.choosingWorkspace && (
         <ActionIcon
           variant="subtle"

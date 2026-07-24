@@ -11,12 +11,8 @@ describe("editorTabsForFile", () => {
       entry: null,
     };
 
-    expect(editorTabsForFile({ ...file, developerMode: false })).toEqual(["fields", "body"]);
-    expect(editorTabsForFile({ ...file, developerMode: true })).toEqual([
-      "fields",
-      "body",
-      "raw",
-    ]);
+    expect(editorTabsForFile({ ...file, developerMode: false })).toEqual(["content"]);
+    expect(editorTabsForFile({ ...file, developerMode: true })).toEqual(["content", "raw"]);
   });
 
   test("keeps raw-only files editable for normal users", () => {
