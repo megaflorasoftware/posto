@@ -80,8 +80,11 @@ interface ImageDropBox {
   pos: number;
   size: number;
   rect: DOMRect;
+  hitRect?: DOMRect;
   blockFrom?: number;
   blockTo?: number;
+  parentStart?: number;
+  parentDepth?: number;
 }
 
 type RichTextDragSource = MediaDragSource | BodyNodeDragSource;
@@ -105,77 +108,110 @@ export function imageGapLocation(
   contentRect: DOMRect,
   hasOnlyWhitespaceBetween: (left: ImageDropBox, right: ImageDropBox) => boolean,
 ): RichTextDropLocation | null {
-  for (let index = 0; index < boxes.length - 1; index += 1) {
-    const left = boxes[index];
-    const right = boxes[index + 1];
-    if (!hasOnlyWhitespaceBetween(left, right)) continue;
-    const leftCenter = {
-      x: left.rect.left + left.rect.width / 2,
-      y: left.rect.top + left.rect.height / 2,
-    };
-    const rightCenter = {
-      x: right.rect.left + right.rect.width / 2,
-      y: right.rect.top + right.rect.height / 2,
-    };
-    const verticalOverlap =
-      Math.min(left.rect.bottom, right.rect.bottom) - Math.max(left.rect.top, right.rect.top);
-    const sameRow = verticalOverlap >= Math.min(left.rect.height, right.rect.height) * 0.4;
-    if (
-      sameRow &&
-      inRange(pointer.x, leftCenter.x, rightCenter.x) &&
-      inRange(
-        pointer.y,
-        Math.min(left.rect.top, right.rect.top),
-        Math.max(left.rect.bottom, right.rect.bottom),
-        12,
-      )
-    ) {
-      return {
-        pos: right.pos,
-        left: (left.rect.right + right.rect.left) / 2,
-        top: Math.min(left.rect.top, right.rect.top),
-        width: 3,
-        height:
-          Math.max(left.rect.bottom, right.rect.bottom) - Math.min(left.rect.top, right.rect.top),
-        orientation: "vertical",
-        blockBoundary: false,
+  const groups = new Map<string, ImageDropBox[]>();
+  for (const box of boxes) {
+    const key = `${box.parentDepth ?? 0}:${box.parentStart ?? 0}`;
+    const group = groups.get(key) ?? [];
+    group.push(box);
+    groups.set(key, group);
+  }
+  const gaps: { location: RichTextDropLocation; depth: number; distance: number }[] = [];
+  for (const group of groups.values()) {
+    group.sort((left, right) => left.pos - right.pos);
+    for (let index = 0; index < group.length - 1; index += 1) {
+      const left = group[index];
+      const right = group[index + 1];
+      if (!hasOnlyWhitespaceBetween(left, right)) continue;
+      const leftCenter = {
+        x: left.rect.left + left.rect.width / 2,
+        y: left.rect.top + left.rect.height / 2,
       };
-    }
-    if (
-      !sameRow &&
-      inRange(pointer.y, leftCenter.y, rightCenter.y) &&
-      inRange(
-        pointer.x,
-        Math.min(left.rect.left, right.rect.left),
-        Math.max(left.rect.right, right.rect.right),
-        24,
-      )
-    ) {
-      const caretLeft = Math.max(contentRect.left, Math.min(left.rect.left, right.rect.left));
-      const caretRight = Math.min(contentRect.right, Math.max(left.rect.right, right.rect.right));
-      return {
-        pos: right.blockFrom ?? right.pos,
-        left: caretLeft,
-        top: (left.rect.bottom + right.rect.top) / 2,
-        width: Math.max(caretRight - caretLeft, 24),
-        height: 3,
-        orientation: "horizontal",
-        blockBoundary: right.blockFrom !== undefined,
+      const rightCenter = {
+        x: right.rect.left + right.rect.width / 2,
+        y: right.rect.top + right.rect.height / 2,
       };
+      const verticalOverlap =
+        Math.min(left.rect.bottom, right.rect.bottom) - Math.max(left.rect.top, right.rect.top);
+      const sameRow = verticalOverlap >= Math.min(left.rect.height, right.rect.height) * 0.4;
+      if (
+        sameRow &&
+        inRange(pointer.x, leftCenter.x, rightCenter.x) &&
+        inRange(
+          pointer.y,
+          Math.min(left.rect.top, right.rect.top),
+          Math.max(left.rect.bottom, right.rect.bottom),
+          12,
+        )
+      ) {
+        const caretLeft = (left.rect.right + right.rect.left) / 2;
+        gaps.push({
+          location: {
+            pos: right.pos,
+            left: caretLeft,
+            top: Math.min(left.rect.top, right.rect.top),
+            width: 3,
+            height:
+              Math.max(left.rect.bottom, right.rect.bottom) -
+              Math.min(left.rect.top, right.rect.top),
+            orientation: "vertical",
+            blockBoundary: false,
+          },
+          depth: right.parentDepth ?? 0,
+          distance: Math.abs(pointer.x - caretLeft),
+        });
+      }
+      if (
+        !sameRow &&
+        inRange(pointer.y, leftCenter.y, rightCenter.y) &&
+        inRange(
+          pointer.x,
+          Math.min(left.rect.left, right.rect.left),
+          Math.max(left.rect.right, right.rect.right),
+          24,
+        )
+      ) {
+        const caretLeft = Math.max(contentRect.left, Math.min(left.rect.left, right.rect.left));
+        const caretRight = Math.min(contentRect.right, Math.max(left.rect.right, right.rect.right));
+        const caretTop = (left.rect.bottom + right.rect.top) / 2;
+        gaps.push({
+          location: {
+            pos: right.blockFrom ?? right.pos,
+            left: caretLeft,
+            top: caretTop,
+            width: Math.max(caretRight - caretLeft, 24),
+            height: 3,
+            orientation: "horizontal",
+            blockBoundary: right.blockFrom !== undefined,
+          },
+          depth: right.parentDepth ?? 0,
+          distance: Math.abs(pointer.y - caretTop),
+        });
+      }
     }
   }
+  gaps.sort((left, right) => right.depth - left.depth || left.distance - right.distance);
+  if (gaps[0]) return gaps[0].location;
 
-  const hit = boxes.find(
-    ({ rect }) =>
+  const hits = boxes.filter((box) => {
+    const rect = box.hitRect ?? box.rect;
+    return (
       pointer.x >= rect.left &&
       pointer.x <= rect.right &&
       pointer.y >= rect.top &&
-      pointer.y <= rect.bottom,
+      pointer.y <= rect.bottom
+    );
+  });
+  hits.sort(
+    (left, right) =>
+      (right.parentDepth ?? 0) - (left.parentDepth ?? 0) ||
+      left.rect.width * left.rect.height - right.rect.width * right.rect.height,
   );
+  const hit = hits[0];
   if (!hit) return null;
-  const blockLike = hit.rect.width >= contentRect.width * 0.45;
+  const hitRect = hit.hitRect ?? hit.rect;
+  const blockLike = hit.blockFrom !== undefined || hit.rect.width >= contentRect.width * 0.45;
   if (blockLike) {
-    const before = pointer.y < hit.rect.top + hit.rect.height / 2;
+    const before = pointer.y < hitRect.top + hitRect.height / 2;
     return {
       pos: before ? (hit.blockFrom ?? hit.pos) : (hit.blockTo ?? hit.pos + hit.size),
       left: Math.max(contentRect.left, hit.rect.left),
@@ -234,7 +270,6 @@ export function bodyNodeMoveTransaction(
     } else {
       transaction.replaceRangeWith(target, target, movedNode);
     }
-    transaction.setMeta("postoBodyNodeMove", true);
     return transaction.docChanged ? transaction.scrollIntoView() : null;
   } catch {
     return null;
@@ -551,16 +586,25 @@ export function BodyEditor(props: {
             $pos.parent.type.name === "paragraph" &&
             $pos.parent.childCount === 1 &&
             $pos.parent.firstChild === node;
+          const parentDepth = onlyParagraphChild ? Math.max(0, $pos.depth - 1) : $pos.depth;
+          const rect = element.getBoundingClientRect();
+          const componentHeader =
+            node.type.name === "mdxComponent"
+              ? element.querySelector<HTMLElement>(":scope > .mdx-card-header")
+              : null;
           return {
             pos,
             size: node.nodeSize,
-            rect: element.getBoundingClientRect(),
+            rect,
+            hitRect: componentHeader?.getBoundingClientRect() ?? rect,
             blockFrom: node.isBlock ? pos : onlyParagraphChild ? $pos.before() : undefined,
             blockTo: node.isBlock
               ? pos + node.nodeSize
               : onlyParagraphChild
                 ? $pos.after()
                 : undefined,
+            parentStart: $pos.start(parentDepth),
+            parentDepth,
           };
         } catch {
           return null;

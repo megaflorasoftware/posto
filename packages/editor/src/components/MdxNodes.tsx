@@ -1007,8 +1007,7 @@ export const MdxRawInvalidate = Extension.create({
             if (
               !transaction.docChanged ||
               transaction.getMeta("mdxSlotSync") ||
-              transaction.getMeta("mdxRawInvalidate") ||
-              transaction.getMeta("postoBodyNodeMove")
+              transaction.getMeta("mdxRawInvalidate")
             ) {
               return;
             }

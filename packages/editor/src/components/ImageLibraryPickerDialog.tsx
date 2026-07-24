@@ -17,6 +17,7 @@ export function ImageLibraryPickerDialog(props: {
   onClose: () => void;
   onPick: (asset: ImageLibraryAsset) => void;
   onImport: () => void;
+  onClear?: () => void;
 }) {
   const directory = props.directory ?? `${props.root}/${props.library.base}`;
   const [currentDirectory, setCurrentDirectory] = useState("");
@@ -43,14 +44,20 @@ export function ImageLibraryPickerDialog(props: {
         onPick={props.onPick}
       />
       <div className="image-library-picker-actions">
-        <Button
-          className="image-library-open-directory"
-          fullWidth
-          variant="outline"
-          onClick={() => void openPath(openDirectory)}
-        >
-          Open Media Library
-        </Button>
+        {props.onClear ? (
+          <Button fullWidth variant="outline" color="red" onClick={props.onClear}>
+            Clear Image Selection
+          </Button>
+        ) : (
+          <Button
+            className="image-library-open-directory"
+            fullWidth
+            variant="outline"
+            onClick={() => void openPath(openDirectory)}
+          >
+            Open Media Library
+          </Button>
+        )}
         <Button fullWidth onClick={props.onImport}>
           Import image
         </Button>

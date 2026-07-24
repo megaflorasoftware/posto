@@ -67,6 +67,43 @@ test("finds the insertion boundary between adjacent images", () => {
     () => true,
   );
   expect(stacked).toMatchObject({ pos: 3, top: 110, orientation: "horizontal" });
+
+  const nested = imageGapLocation(
+    [
+      {
+        pos: 1,
+        size: 30,
+        rect: rect(0, 0, 220, 300),
+        hitRect: rect(0, 0, 220, 32),
+        blockFrom: 1,
+        blockTo: 31,
+        parentStart: 0,
+        parentDepth: 0,
+      },
+      {
+        pos: 3,
+        size: 5,
+        rect: rect(20, 60, 180, 70),
+        blockFrom: 3,
+        blockTo: 8,
+        parentStart: 2,
+        parentDepth: 2,
+      },
+      {
+        pos: 8,
+        size: 5,
+        rect: rect(20, 150, 180, 70),
+        blockFrom: 8,
+        blockTo: 13,
+        parentStart: 2,
+        parentDepth: 2,
+      },
+    ],
+    { x: 110, y: 140 },
+    rect(0, 0, 220, 320),
+    () => true,
+  );
+  expect(nested).toMatchObject({ pos: 8, top: 140, orientation: "horizontal" });
 });
 
 test("moves blank-line-separated Markdown images as top-level nodes", () => {
@@ -164,6 +201,67 @@ test("moves block and inline MDX components without changing their source", () =
   );
   expect(() => inlineEditor.state.doc.check()).not.toThrow();
   inlineEditor.destroy();
+});
+
+test("reorders components inside a component slot and persists the nested source", () => {
+  const editor = new Editor({
+    extensions: [StarterKit, Markdown, ...htmlNodes, ...mdxNodes],
+    content: [
+      "<ExperienceSection>",
+      '<TimelineItem name="First">',
+      "First role.",
+      "</TimelineItem>",
+      "",
+      '<TimelineItem name="Second">',
+      "Second role.",
+      "</TimelineItem>",
+      "</ExperienceSection>",
+      "",
+      "<UmamiStatCard />",
+    ].join("\n"),
+    contentType: "markdown",
+  });
+  const timelinePositions: number[] = [];
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name === "mdxComponent" && node.attrs.name === "TimelineItem") {
+      timelinePositions.push(pos);
+      expect(editor.state.doc.resolve(pos).parent.type.name).toBe("mdxSlot");
+    }
+  });
+  expect(timelinePositions).toHaveLength(2);
+  const reorder = bodyNodeMoveTransaction(editor.state, timelinePositions[1], {
+    pos: timelinePositions[0],
+    blockBoundary: true,
+  });
+  expect(reorder).not.toBeNull();
+  editor.view.dispatch(reorder!);
+  const reordered = editor.getMarkdown();
+  expect(reordered.indexOf('name="Second"')).toBeLessThan(reordered.indexOf('name="First"'));
+
+  let statPosition: number | undefined;
+  let firstTimelinePosition: number | undefined;
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name !== "mdxComponent") return;
+    if (node.attrs.name === "UmamiStatCard") statPosition = pos;
+    if (node.attrs.name === "TimelineItem" && firstTimelinePosition === undefined) {
+      firstTimelinePosition = pos;
+    }
+  });
+  const moveIntoSlot = bodyNodeMoveTransaction(editor.state, statPosition!, {
+    pos: firstTimelinePosition!,
+    blockBoundary: true,
+  });
+  expect(moveIntoSlot).not.toBeNull();
+  editor.view.dispatch(moveIntoSlot!);
+  const movedIntoSlot = editor.getMarkdown();
+  expect(movedIntoSlot.indexOf("<UmamiStatCard />")).toBeGreaterThan(
+    movedIntoSlot.indexOf("<ExperienceSection>"),
+  );
+  expect(movedIntoSlot.indexOf("<UmamiStatCard />")).toBeLessThan(
+    movedIntoSlot.indexOf("</ExperienceSection>"),
+  );
+  expect(() => editor.state.doc.check()).not.toThrow();
+  editor.destroy();
 });
 
 test("moves custom HTML nodes with the same rich-text transaction", () => {

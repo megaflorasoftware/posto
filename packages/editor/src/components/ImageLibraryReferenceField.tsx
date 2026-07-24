@@ -228,6 +228,16 @@ export function ImageLibraryReferenceField(props: {
           assets={libraryState.assets}
           directories={libraryState.directories}
           onClose={() => setPickerOpen(false)}
+          onClear={
+            selected
+              ? () => {
+                  void flushMetadata().then(() => {
+                    props.ctx.edit(props.path, undefined);
+                    setPickerOpen(false);
+                  });
+                }
+              : undefined
+          }
           onImport={() => {
             setPickerOpen(false);
             setImportOpen(true);
