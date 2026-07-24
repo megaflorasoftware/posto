@@ -504,6 +504,19 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       const path = args?.path as string;
       return path in mockFiles && !mockDeleted.has(path) ? mockFiles[path] : null;
     }
+    case "path_exists": {
+      const path = args?.path as string;
+      const kind = args?.kind;
+      const isFile = path in mockFiles && !mockDeleted.has(path);
+      const isDirectory = mockDirectories.has(path);
+      if (kind === "file") return isFile;
+      if (kind === "directory") return isDirectory;
+      if (kind !== undefined) {
+        const label = typeof kind === "string" ? kind : JSON.stringify(kind);
+        throw new Error(`Unknown path kind: ${label}`);
+      }
+      return isFile || isDirectory;
+    }
     case "write_text_file":
       mockFiles[args?.path as string] = args?.content as string;
       rememberMockPath(args?.path as string);
