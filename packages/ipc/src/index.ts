@@ -126,9 +126,16 @@ export interface ImageLibraryImportResult {
   metadataPath: string;
 }
 
+export interface PublicMediaImportRequest {
+  repositoryRoot: string;
+  sourceFilePath: string;
+  directory: string;
+}
+
 type BrowserBackend = {
   invoke: typeof tauriInvoke;
   openDirectory: (defaultPath?: string) => Promise<string | null>;
+  openFiles: () => Promise<string[]>;
   openImageFile: () => Promise<string | null>;
   openImageFiles: () => Promise<string[]>;
   onCloneProgress: (handler: (progress: CloneProgress) => void) => () => void;
@@ -162,9 +169,21 @@ export function importImageLibraryAsset(
   return invoke("import_image_library_asset", { plan });
 }
 
+export function importPublicMediaFile(request: PublicMediaImportRequest): Promise<string> {
+  return invoke("import_public_media_file", { request });
+}
+
 export const openDirectory: (defaultPath?: string) => Promise<string | null> = inTauri
   ? (defaultPath) => tauriOpen({ directory: true, defaultPath })
   : (defaultPath) => requireBrowserBackend().openDirectory(defaultPath);
+
+export const openFiles: () => Promise<string[]> = inTauri
+  ? async () => {
+      const selected = await tauriOpen({ multiple: true });
+      const paths = Array.isArray(selected) ? selected : selected ? [selected] : [];
+      return paths.map(toFilesystemPath);
+    }
+  : () => requireBrowserBackend().openFiles();
 
 const IMAGE_FILE_FILTERS = [
   {

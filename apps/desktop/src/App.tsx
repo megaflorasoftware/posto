@@ -795,9 +795,7 @@ function App() {
                       color={sidebarView === "media" ? "blue" : "gray"}
                       title="Show media library"
                       aria-label="Show media library"
-                      disabled={
-                        !adapter.capabilities.mediaLibraries || !config?.mediaLibraries?.length
-                      }
+                      disabled={!config}
                       onClick={() => setSidebarView("media")}
                     >
                       <ImageIcon size={16} />

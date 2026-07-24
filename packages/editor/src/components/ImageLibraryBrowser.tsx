@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Folder, FolderUp, Pencil } from "lucide-react";
 import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
 import { CachedImage } from "./CachedImage";
@@ -39,6 +40,7 @@ export function ImageLibraryBrowser(props: {
   currentDirectory: string;
   directories: string[];
   assets: ImageLibraryAsset[];
+  toolbar?: ReactNode;
   onDirectoryChange: (directory: string) => void;
   onPick?: (asset: ImageLibraryAsset) => void;
   onEdit?: (asset: ImageLibraryAsset) => void;
@@ -63,7 +65,11 @@ export function ImageLibraryBrowser(props: {
 
   return (
     <>
-      <div className="image-library-browser-path">/{props.currentDirectory}</div>
+      {props.toolbar ? (
+        <div className="media-browser-toolbar">{props.toolbar}</div>
+      ) : (
+        <div className="image-library-browser-path">/{props.currentDirectory}</div>
+      )}
       {empty ? (
         <div className="picker-empty">No image entries or directories here.</div>
       ) : (

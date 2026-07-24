@@ -3,7 +3,6 @@ import { ChevronRight, Trash2 } from "lucide-react";
 
 export function RepoSettings(props: {
   hasRepository: boolean;
-  mediaEnabled: boolean;
   mediaLibraryCount: number;
   projectDirectory: string;
   canSwitchProject: boolean;
@@ -34,34 +33,23 @@ export function RepoSettings(props: {
             <ChevronRight size={18} />
           </button>
         )}
-        {props.mediaEnabled && props.mediaLibraryCount > 0 ? (
-          <button
-            type="button"
-            className="mobile-settings-row mobile-settings-link"
-            onClick={props.onOpenMedia}
-          >
-            <div>
-              <Text fw={600} size="sm">
-                Media
-              </Text>
-              <Text c="dimmed" size="xs">
-                {`${props.mediaLibraryCount} media ${props.mediaLibraryCount === 1 ? "library" : "libraries"}`}
-              </Text>
-            </div>
-            <ChevronRight size={18} />
-          </button>
-        ) : (
-          <div className="mobile-settings-row mobile-settings-media-row">
-            <div>
-              <Text fw={600} size="sm">
-                Media
-              </Text>
-              <Text c="dimmed" size="xs">
-                No media libraries found
-              </Text>
-            </div>
+        <button
+          type="button"
+          className="mobile-settings-row mobile-settings-link"
+          onClick={props.onOpenMedia}
+        >
+          <div>
+            <Text fw={600} size="sm">
+              Media
+            </Text>
+            <Text c="dimmed" size="xs">
+              {props.mediaLibraryCount > 0
+                ? `${props.mediaLibraryCount} media ${props.mediaLibraryCount === 1 ? "library" : "libraries"} + public`
+                : "Public media"}
+            </Text>
           </div>
-        )}
+          <ChevronRight size={18} />
+        </button>
         {props.canSwitchProject && (
           <button
             type="button"

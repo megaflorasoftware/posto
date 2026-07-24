@@ -28,6 +28,7 @@ import { ImageLibraryBrowser } from "./ImageLibraryBrowser";
 
 export function CreateImageLibraryFolderDialog(props: {
   libraryRoot: string;
+  repositoryRoot?: string;
   currentDirectory: string;
   onClose: () => void;
   onCreated: () => void;
@@ -50,11 +51,14 @@ export function CreateImageLibraryFolderDialog(props: {
     const directoryPath = [props.libraryRoot, props.currentDirectory, trimmed]
       .filter(Boolean)
       .join("/");
+    const publicDirectory = [props.currentDirectory, trimmed].filter(Boolean).join("/");
     try {
-      await invoke("create_image_library_directory", {
-        libraryRoot: props.libraryRoot,
-        directoryPath,
-      });
+      await invoke(
+        props.repositoryRoot ? "create_public_media_directory" : "create_image_library_directory",
+        props.repositoryRoot
+          ? { repositoryRoot: props.repositoryRoot, directory: publicDirectory }
+          : { libraryRoot: props.libraryRoot, directoryPath },
+      );
       props.onCreated();
       props.onClose();
     } catch (caught) {

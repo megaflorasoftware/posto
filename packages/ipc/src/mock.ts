@@ -193,6 +193,9 @@ const mockFiles: Record<string, string> = {
   "/mock/site/media/portraits/person.jpg": "[mock image]",
   "/mock/site/public/images/photo.jpg": "[mock image]",
   "/mock/site/public/images/nested/logo.png": "[mock image]",
+  "/mock/site/public/downloads/guide.pdf": "[mock pdf]",
+  "/mock/site/public/media/theme.mp3": "[mock audio]",
+  "/mock/site/public/media/trailer.mp4": "[mock video]",
   "/mock/site/.hidden.txt": "hidden fixture",
   "/mock/site/dist/generated.txt": "build fixture",
   "/mock/site/node_modules/example/readme.txt": "dependency fixture",
@@ -483,6 +486,34 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
         }
       }
       return [...directories].sort();
+    }
+    case "import_public_media_file": {
+      const request = args?.request as {
+        repositoryRoot: string;
+        sourceFilePath: string;
+        directory: string;
+      };
+      const name = request.sourceFilePath.split("/").pop() as string;
+      const target = [request.repositoryRoot, "public", request.directory, name]
+        .filter(Boolean)
+        .join("/");
+      if (target in mockFiles && !mockDeleted.has(target)) {
+        throw new Error(`File already exists: ${target}`);
+      }
+      mockFiles[target] = "mock binary file";
+      mockDirectories.add(target.slice(0, target.lastIndexOf("/")));
+      mockDeleted.delete(target);
+      return target;
+    }
+    case "create_public_media_directory": {
+      const directoryPath = [args?.repositoryRoot as string, "public", args?.directory as string]
+        .filter(Boolean)
+        .join("/");
+      if (mockDirectories.has(directoryPath)) {
+        throw new Error(`Folder already exists: ${directoryPath}`);
+      }
+      mockDirectories.add(directoryPath);
+      return null;
     }
     case "list_child_directories": {
       const dir = args?.dir as string;
@@ -875,6 +906,7 @@ export function installMockBackend(): void {
   setBrowserBackend({
     invoke: mockInvoke as typeof import("@tauri-apps/api/core").invoke,
     openDirectory: async () => "/mock/site",
+    openFiles: async () => ["/mock/uploads/document.pdf"],
     openImageFile: async () => "/mock/uploads/photo.jpg",
     openImageFiles: async () => ["/mock/uploads/photo.jpg"],
     onCloneProgress(handler) {

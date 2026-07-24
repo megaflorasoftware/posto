@@ -703,7 +703,7 @@ export default function RepoHome({
             onChanged={(library, options) => {
               if (!options?.silent) setStatus("Media updated. Publish when you are ready.");
               void git.refreshLocalChanges(root);
-              void refreshImageLibraryAssets(root, library);
+              if (library) void refreshImageLibraryAssets(root, library);
               void currentFile.reloadFromDisk();
             }}
           />
@@ -711,7 +711,6 @@ export default function RepoHome({
       ) : showSettings ? (
         <RepoSettings
           hasRepository={repo !== null}
-          mediaEnabled={adapter.capabilities.mediaLibraries}
           mediaLibraryCount={config?.mediaLibraries?.length ?? 0}
           projectDirectory={root === repoRoot ? "Repository root" : root.slice(repoRoot.length + 1)}
           canSwitchProject={projectSession.hasMultipleProjects}

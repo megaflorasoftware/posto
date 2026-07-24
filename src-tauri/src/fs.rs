@@ -588,6 +588,48 @@ pub fn create_image_library_directory(
     })
 }
 
+fn public_media_root(repository_root: &str) -> Result<PathBuf, String> {
+    let repository = canonical_root(repository_root)?;
+    let public_path = repository.join("public");
+    if !public_path.exists() {
+        std::fs::create_dir(&public_path)
+            .map_err(|error| format!("Failed to create public directory: {error}"))?;
+    }
+    let public_root = canonical_root(&public_path.to_string_lossy())?;
+    if !public_root.starts_with(&repository) {
+        return Err("The public directory escapes the repository".to_string());
+    }
+    Ok(public_root)
+}
+
+/// Creates one visible directory inside the conventional public media root,
+/// creating `public` itself when the project does not have it yet.
+#[tauri::command]
+pub fn create_public_media_directory(
+    repository_root: String,
+    directory: String,
+) -> Result<(), String> {
+    let public_root = public_media_root(&repository_root)?;
+    if directory.is_empty()
+        || Path::new(&directory).is_absolute()
+        || Path::new(&directory).components().any(|part| match part {
+            Component::Normal(name) => name.to_string_lossy().starts_with('.'),
+            _ => true,
+        })
+    {
+        return Err("Invalid public media directory".to_string());
+    }
+    let target = public_root.join(directory);
+    let target = managed_target(&public_root, &target.to_string_lossy(), false)?;
+    std::fs::create_dir(&target).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            format!("Folder already exists: {}", target.display())
+        } else {
+            format!("Failed to create folder {}: {error}", target.display())
+        }
+    })
+}
+
 /// Deletes an image-library entry and its image together after verifying that
 /// both paths are files contained by the declared library root.
 #[tauri::command]
@@ -818,6 +860,14 @@ pub struct ImageLibraryImportResult {
     metadata_path: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicMediaImportRequest {
+    repository_root: String,
+    source_file_path: String,
+    directory: String,
+}
+
 fn canonical_root(path: &str) -> Result<PathBuf, String> {
     let root =
         std::fs::canonicalize(path).map_err(|e| format!("Invalid managed root {path}: {e}"))?;
@@ -977,6 +1027,54 @@ pub fn import_image_library_asset(
     plan: ImageLibraryImportPlan,
 ) -> Result<ImageLibraryImportResult, String> {
     execute_image_library_import(plan, None)
+}
+
+/// Copies one user-selected file into the conventional public directory
+/// without creating image-library metadata. The destination is constrained to
+/// `<repository>/public`, and an existing file is never overwritten.
+#[tauri::command]
+pub fn import_public_media_file(request: PublicMediaImportRequest) -> Result<String, String> {
+    let public_root = public_media_root(&request.repository_root)?;
+    if !request.directory.is_empty()
+        && (Path::new(&request.directory).is_absolute()
+            || Path::new(&request.directory)
+                .components()
+                .any(|part| match part {
+                    Component::Normal(name) => name.to_string_lossy().starts_with('.'),
+                    _ => true,
+                }))
+    {
+        return Err("Invalid public media directory".to_string());
+    }
+    let source = std::fs::canonicalize(&request.source_file_path)
+        .map_err(|error| format!("Invalid source file {}: {error}", request.source_file_path))?;
+    if !source.is_file() {
+        return Err("The selected media source is not a file".to_string());
+    }
+    let name = source
+        .file_name()
+        .ok_or_else(|| "Invalid source filename".to_string())?;
+    let target = public_root.join(&request.directory).join(name);
+    reject_hidden(&target.to_string_lossy())?;
+    let target = managed_target(&public_root, &target.to_string_lossy(), true)?;
+    if target.exists() {
+        return Err(format!("File already exists: {}", target.display()));
+    }
+    let staged = transaction_temp(&target, "public-import")?;
+    let _ = std::fs::remove_file(&staged);
+    if let Err(error) = std::fs::copy(&source, &staged) {
+        let _ = std::fs::remove_file(&staged);
+        return Err(format!("Failed to stage public media: {error}"));
+    }
+    if target.exists() {
+        let _ = std::fs::remove_file(&staged);
+        return Err(format!("File already exists: {}", target.display()));
+    }
+    std::fs::rename(&staged, &target).map_err(|error| {
+        let _ = std::fs::remove_file(&staged);
+        format!("Failed to import public media: {error}")
+    })?;
+    Ok(target.to_string_lossy().to_string())
 }
 
 /// Reads a picked image's raw bytes so the webview can decode it same-origin
@@ -1215,6 +1313,53 @@ mod tests {
         let collision = import_plan(temp.path());
         assert!(execute_image_library_import(collision, None).is_err());
         assert_eq!(std::fs::read(&image).unwrap(), b"image");
+    }
+
+    #[test]
+    fn public_media_import_copies_only_the_file_inside_public() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = tempfile::tempdir().unwrap();
+        let source_file = source.path().join("guide.pdf");
+        std::fs::write(&source_file, b"pdf").unwrap();
+        let request = || PublicMediaImportRequest {
+            repository_root: temp.path().to_string_lossy().to_string(),
+            source_file_path: source_file.to_string_lossy().to_string(),
+            directory: "downloads/guides".into(),
+        };
+
+        create_public_media_directory(
+            temp.path().to_string_lossy().to_string(),
+            "downloads".into(),
+        )
+        .unwrap();
+        assert!(temp.path().join("public/downloads").is_dir());
+        assert!(create_public_media_directory(
+            temp.path().to_string_lossy().to_string(),
+            "../outside".into(),
+        )
+        .is_err());
+
+        let imported = import_public_media_file(request()).unwrap();
+        assert_eq!(
+            Path::new(&imported),
+            std::fs::canonicalize(temp.path())
+                .unwrap()
+                .join("public/downloads/guides/guide.pdf")
+        );
+        assert_eq!(std::fs::read(&imported).unwrap(), b"pdf");
+        assert_eq!(
+            std::fs::read_dir(temp.path().join("public/downloads/guides"))
+                .unwrap()
+                .count(),
+            1
+        );
+        assert!(import_public_media_file(request()).is_err());
+
+        let traversal = PublicMediaImportRequest {
+            directory: "../outside".into(),
+            ..request()
+        };
+        assert!(import_public_media_file(traversal).is_err());
     }
 
     #[test]
