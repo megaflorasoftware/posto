@@ -31,10 +31,11 @@ export default {
       {
         // In MDX, prose lives inside JSX (e.g. <Card> children) and is filled to
         // printWidth as JSX text, which proseWrap doesn't govern — so widen it
-        // too so those lines aren't wrapped either.
+        // too. Preserve authored Markdown line breaks so callout markers stay
+        // separate from their content.
         files: ["**/*.mdx"],
         options: {
-          proseWrap: "never",
+          proseWrap: "preserve",
           printWidth: 320,
         },
       },
