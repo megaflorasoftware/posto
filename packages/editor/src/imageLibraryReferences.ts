@@ -31,6 +31,7 @@ export interface ImageLibraryRelocation {
   newEntryId: string;
   oldImagePath: string;
   newImagePath: string;
+  newAlt?: string;
 }
 
 export interface ImageLibraryReferenceUpdatePlan {
@@ -148,42 +149,51 @@ function markdownOutputMap(
   config: PagesConfig,
   library: MediaLibrary,
   relocations: ImageLibraryRelocation[],
-): Map<string, string> {
+  includeAlt: boolean,
+): Map<string, { destination: string; alt?: string }> {
   const candidates = [entry.media, ...config.media, defaultLibraryMedia(library)]
     .filter((media): media is MediaEntry => !!media)
     .flatMap((media) => {
       const expanded = expandMediaEntry(media, values);
       return expanded ? [expanded] : [];
     });
-  const result = new Map<string, string>();
+  const result = new Map<string, { destination: string; alt?: string }>();
   for (const media of candidates) {
     for (const relocation of relocations) {
       const oldOutput = mediaOutputPath(root, media, relocation.oldImagePath);
       const newOutput = mediaOutputPath(root, media, relocation.newImagePath);
-      if (!oldOutput || !newOutput || oldOutput === newOutput) continue;
-      result.set(oldOutput, newOutput);
-      result.set(oldOutput.replace(/^\//, ""), newOutput.replace(/^\//, ""));
+      const alt = includeAlt ? relocation.newAlt : undefined;
+      if (!oldOutput || !newOutput || (oldOutput === newOutput && alt === undefined)) continue;
+      result.set(oldOutput, { destination: newOutput, alt });
+      result.set(oldOutput.replace(/^\//, ""), {
+        destination: newOutput.replace(/^\//, ""),
+        alt,
+      });
     }
   }
   return result;
 }
 
-function replaceDestination(destination: string, replacements: Map<string, string>): string {
-  for (const [oldPath, newPath] of replacements) {
-    if (destination === oldPath) return newPath;
+function replacementForDestination<T>(
+  destination: string,
+  replacements: Map<string, T>,
+): { replacement: T; suffix: string } | null {
+  for (const [oldPath, replacement] of replacements) {
+    if (destination === oldPath) return { replacement, suffix: "" };
     if (destination.startsWith(`${oldPath}?`) || destination.startsWith(`${oldPath}#`)) {
-      return newPath + destination.slice(oldPath.length);
+      return { replacement, suffix: destination.slice(oldPath.length) };
     }
   }
-  return destination;
+  return null;
 }
 
-/** Rewrites ordinary inline Markdown image destinations while deliberately
- * leaving fenced examples untouched. The document's surrounding formatting is
- * preserved because only the destination token is replaced. */
-export function rewriteMarkdownImageDestinations(
+function escapeMarkdownImageAlt(alt: string): string {
+  return alt.replace(/\r?\n/g, " ").replace(/([\\[\]])/g, "\\$1");
+}
+
+function rewriteMarkdownImages(
   body: string,
-  replacements: Map<string, string>,
+  replacements: Map<string, { destination: string; alt?: string }>,
 ): { content: string; replacements: number } {
   let fencedBy: "`" | "~" | null = null;
   let count = 0;
@@ -199,23 +209,45 @@ export function rewriteMarkdownImageDestinations(
       }
       if (fencedBy) return line;
       return line.replace(
-        /(!\[[^\]\n]*\]\(\s*)(<)?([^\s)>]+)(>)?/g,
+        /!\[((?:\\.|[^\]\\\n])*)\](\(\s*)(<)?([^\s)>]+)(>)?/g,
         (
           match,
-          prefix: string,
+          currentAlt: string,
+          destinationPrefix: string,
           open: string | undefined,
           destination: string,
           close: string | undefined,
         ) => {
-          const next = replaceDestination(destination, replacements);
-          if (next === destination) return match;
+          const found = replacementForDestination(destination, replacements);
+          if (!found) return match;
+          const nextDestination = found.replacement.destination + found.suffix;
+          const nextAlt =
+            found.replacement.alt === undefined
+              ? currentAlt
+              : escapeMarkdownImageAlt(found.replacement.alt);
+          if (nextDestination === destination && nextAlt === currentAlt) return match;
           count += 1;
-          return `${prefix}${open ?? ""}${next}${close ?? ""}`;
+          return `![${nextAlt}]${destinationPrefix}${open ?? ""}${nextDestination}${close ?? ""}`;
         },
       );
     })
     .join("");
   return { content, replacements: count };
+}
+
+/** Rewrites ordinary inline Markdown image destinations while deliberately
+ * leaving fenced examples untouched. The document's surrounding formatting is
+ * preserved because only the destination token is replaced. */
+export function rewriteMarkdownImageDestinations(
+  body: string,
+  replacements: Map<string, string>,
+): { content: string; replacements: number } {
+  return rewriteMarkdownImages(
+    body,
+    new Map(
+      [...replacements].map(([oldDestination, destination]) => [oldDestination, { destination }]),
+    ),
+  );
 }
 
 /** Builds all content writes before the filesystem move starts. Parse errors
@@ -274,9 +306,17 @@ export async function planImageLibraryReferenceUpdates(input: {
     );
     for (const update of updates) setValue(parsed.doc, update.path, update.value);
     replacements += updates.length;
-    const markdown = rewriteMarkdownImageDestinations(
+    const markdown = rewriteMarkdownImages(
       parsed.body,
-      markdownOutputMap(entry, values, input.root, input.config, input.library, input.relocations),
+      markdownOutputMap(
+        entry,
+        values,
+        input.root,
+        input.config,
+        input.library,
+        input.relocations,
+        /\.(md|mdx)$/i.test(path),
+      ),
     );
     parsed.body = markdown.content;
     replacements += markdown.replacements;

@@ -101,6 +101,96 @@ describe("image library reference updates", () => {
     expect(result.content).toBe("![live](/new.jpg)\n```md\n![example](/old.jpg)\n```\n");
   });
 
+  test("syncs metadata alt text to direct Markdown images in md and mdx files only", async () => {
+    const root = "/site";
+    const mdPath = `${root}/src/content/posts/hello.md`;
+    const mdxPath = `${root}/src/content/posts/hello.mdx`;
+    const markdownPath = `${root}/src/content/posts/hello.markdown`;
+    files.set(
+      mdPath,
+      "![Old alt](/images/old/photo.jpg)\n```md\n![Example](/images/old/photo.jpg)\n```\n",
+    );
+    files.set(
+      mdxPath,
+      '![Old alt](/images/old/photo.jpg)\n<Image src="/images/old/photo.jpg" alt="Old alt" />\n',
+    );
+    files.set(markdownPath, "![Old alt](/images/old/photo.jpg)\n");
+    const library: MediaLibrary = {
+      collection: "images",
+      base: "public/images",
+      patterns: ["**/*.yml"],
+      metadataExtensions: ["yml"],
+      imageFieldPath: ["image"],
+      fields: [],
+    };
+    const config: PagesConfig = {
+      media: [{ name: "images", input: "public/images", output: "/images" }],
+      mediaLibraries: [library],
+      content: [
+        {
+          name: "posts",
+          type: "collection",
+          path: "src/content/posts",
+          fields: [{ name: "body", type: "rich-text" }],
+        },
+      ],
+    };
+    const groups: FileGroup[] = [
+      {
+        label: "posts",
+        path: `${root}/src/content/posts`,
+        files: [
+          { name: "hello.md", path: mdPath },
+          { name: "hello.mdx", path: mdxPath },
+          { name: "hello.markdown", path: markdownPath },
+        ],
+      },
+    ];
+
+    const plan = await planImageLibraryReferenceUpdates({
+      root,
+      config,
+      groups,
+      library,
+      relocations: [
+        {
+          oldEntryId: "old/photo",
+          newEntryId: "old/photo",
+          oldImagePath: `${root}/public/images/old/photo.jpg`,
+          newImagePath: `${root}/public/images/old/photo.jpg`,
+          newAlt: "New [alt]",
+        },
+      ],
+    });
+
+    expect(plan.replacements).toBe(2);
+    await applyImageLibraryReferenceUpdates(plan);
+    expect(files.get(mdPath)).toBe(
+      "![New \\[alt\\]](/images/old/photo.jpg)\n```md\n![Example](/images/old/photo.jpg)\n```\n",
+    );
+    expect(files.get(mdxPath)).toBe(
+      '![New \\[alt\\]](/images/old/photo.jpg)\n<Image src="/images/old/photo.jpg" alt="Old alt" />\n',
+    );
+    expect(files.get(markdownPath)).toBe("![Old alt](/images/old/photo.jpg)\n");
+
+    const repeatedPlan = await planImageLibraryReferenceUpdates({
+      root,
+      config,
+      groups,
+      library,
+      relocations: [
+        {
+          oldEntryId: "old/photo",
+          newEntryId: "old/photo",
+          oldImagePath: `${root}/public/images/old/photo.jpg`,
+          newImagePath: `${root}/public/images/old/photo.jpg`,
+          newAlt: "New [alt]",
+        },
+      ],
+    });
+    expect(repeatedPlan).toEqual({ writes: [], replacements: 0 });
+  });
+
   test("rewrites image paths and collection IDs in data-document entries", async () => {
     const root = "/site";
     const path = `${root}/src/data/posts.yml`;

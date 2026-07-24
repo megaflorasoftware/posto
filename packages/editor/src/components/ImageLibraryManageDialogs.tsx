@@ -110,6 +110,12 @@ async function deleteDirectories(libraryRoot: string, directories: string[]): Pr
   }
 }
 
+function metadataAlt(metadata: Record<string, unknown>): string | undefined {
+  return Object.prototype.hasOwnProperty.call(metadata, "alt") && typeof metadata.alt === "string"
+    ? metadata.alt
+    : undefined;
+}
+
 export function DeleteImageLibraryAssetsDialog(props: {
   libraryRoot: string;
   assets: ImageLibraryAsset[];
@@ -229,6 +235,7 @@ export function MoveImageLibraryAssetsDialog(props: {
         newEntryId: pathEntryId(newMetadataPath.slice(props.libraryRoot.length + 1)),
         oldImagePath: asset.imagePath,
         newImagePath,
+        newAlt: metadataAlt(asset.metadata),
       };
     };
     try {
@@ -437,13 +444,47 @@ export function ImageLibraryEditDialog(props: {
     setError(null);
     try {
       if (!props.asset.imagePath || filename === originalFilename) {
-        await invoke("write_text_file", {
-          path: props.asset.metadataPath,
-          content: serializeImageLibraryMetadata(
-            metadata,
-            metadataExtension(props.asset.metadataPath),
-          ),
-        });
+        const serializedMetadata = serializeImageLibraryMetadata(
+          metadata,
+          metadataExtension(props.asset.metadataPath),
+        );
+        const nextAlt = metadataAlt(metadata);
+        if (!props.asset.imagePath || nextAlt === undefined) {
+          await invoke("write_text_file", {
+            path: props.asset.metadataPath,
+            content: serializedMetadata,
+          });
+        } else {
+          await props.onBeforeChange();
+          const referencePlan = await planImageLibraryReferenceUpdates({
+            root: props.root,
+            config: props.config,
+            groups: props.groups,
+            library: props.library,
+            relocations: [
+              {
+                oldEntryId: props.asset.entryId,
+                newEntryId: props.asset.entryId,
+                oldImagePath: props.asset.imagePath,
+                newImagePath: props.asset.imagePath,
+                newAlt: nextAlt,
+              },
+            ],
+          });
+          await invoke("write_text_file", {
+            path: props.asset.metadataPath,
+            content: serializedMetadata,
+          });
+          try {
+            await applyImageLibraryReferenceUpdates(referencePlan);
+          } catch (caught) {
+            await invoke("write_text_file", {
+              path: props.asset.metadataPath,
+              content: props.asset.metadataSource,
+            }).catch(() => undefined);
+            throw caught;
+          }
+        }
       } else {
         await props.onBeforeChange();
         const imageDirectory = props.asset.imagePath.slice(
@@ -478,6 +519,7 @@ export function ImageLibraryEditDialog(props: {
               newEntryId: pathEntryId(targetMetadataPath.slice(libraryRoot.length + 1)),
               oldImagePath: props.asset.imagePath,
               newImagePath: targetImagePath,
+              newAlt: metadataAlt(nextMetadata),
             },
           ],
         });
