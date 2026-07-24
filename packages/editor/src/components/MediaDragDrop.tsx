@@ -34,6 +34,7 @@ interface MediaDragData {
 export interface MediaDropDetails {
   pointer: { x: number; y: number } | null;
   source: MediaDragSource | null;
+  sourcePosition: number | undefined;
 }
 
 interface MediaDropData {
@@ -50,8 +51,24 @@ export interface PostoListDragData {
 }
 
 const collisionDetection: CollisionDetection = (args) => {
-  const pointerCollisions = pointerWithin(args);
-  return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(args);
+  const activeData = args.active.data.current;
+  if (activeData?.kind === "posto-list-item") {
+    const groupId = (activeData as unknown as PostoListDragData).groupId;
+    const listItems = args.droppableContainers.filter((container) => {
+      const data = container.data.current as unknown as PostoListDragData | undefined;
+      return data?.kind === "posto-list-item" && data.groupId === groupId;
+    });
+    return closestCenter({ ...args, droppableContainers: listItems });
+  }
+  if (activeData?.kind === "posto-media") {
+    const mediaTargets = args.droppableContainers.filter(
+      (container) => container.data.current?.kind === "posto-media-drop",
+    );
+    const scopedArgs = { ...args, droppableContainers: mediaTargets };
+    const pointerCollisions = pointerWithin(scopedArgs);
+    return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(scopedArgs);
+  }
+  return closestCenter(args);
 };
 
 function draggedMedia(data: Record<string, unknown> | undefined): MarkdownMediaPick | null {
@@ -64,10 +81,15 @@ function draggedSource(data: Record<string, unknown> | undefined): MediaDragSour
 
 interface MediaDragState {
   activeMedia: MarkdownMediaPick | null;
+  activeSource: MediaDragSource | null;
   pointer: { x: number; y: number } | null;
 }
 
-const MediaDragContext = createContext<MediaDragState>({ activeMedia: null, pointer: null });
+const MediaDragContext = createContext<MediaDragState>({
+  activeMedia: null,
+  activeSource: null,
+  pointer: null,
+});
 
 function pointerFromEvent(event: Event): { x: number; y: number } | null {
   if ("clientX" in event && "clientY" in event) {
@@ -82,9 +104,12 @@ function pointerFromEvent(event: Event): { x: number; y: number } | null {
 /** App-level dnd-kit context for sidebar media and editor/field drop zones. */
 export function MediaDragDropProvider(props: { children: ReactNode }) {
   const [activeMedia, setActiveMedia] = useState<MarkdownMediaPick | null>(null);
+  const [activeSource, setActiveSource] = useState<MediaDragSource | null>(null);
   const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
   const startPointer = useRef<{ x: number; y: number } | null>(null);
   const livePointer = useRef<{ x: number; y: number } | null>(null);
+  const dragSource = useRef<MediaDragSource | null>(null);
+  const dragSourcePosition = useRef<number | undefined>(undefined);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -98,8 +123,11 @@ export function MediaDragDropProvider(props: { children: ReactNode }) {
   const clearDrag = () => {
     startPointer.current = null;
     livePointer.current = null;
+    dragSource.current = null;
+    dragSourcePosition.current = undefined;
     setPointer(null);
     setActiveMedia(null);
+    setActiveSource(null);
   };
 
   // dnd-kit owns the drag lifecycle; keep the actual pointer separately so
@@ -121,10 +149,14 @@ export function MediaDragDropProvider(props: { children: ReactNode }) {
       collisionDetection={collisionDetection}
       onDragStart={(event: DragStartEvent) => {
         const start = pointerFromEvent(event.activatorEvent);
+        const source = draggedSource(event.active.data.current);
         startPointer.current = start;
         livePointer.current = start;
+        dragSource.current = source;
+        dragSourcePosition.current = source?.getPosition();
         setPointer(start);
         setActiveMedia(draggedMedia(event.active.data.current));
+        setActiveSource(source);
       }}
       onDragMove={(event) => setPointer(pointerForEvent(event))}
       onDragCancel={clearDrag}
@@ -134,7 +166,8 @@ export function MediaDragDropProvider(props: { children: ReactNode }) {
         if (media && drop?.kind === "posto-media-drop" && drop.accepts(media)) {
           drop.onDrop(media, event, {
             pointer: pointerForEvent(event),
-            source: draggedSource(event.active.data.current),
+            source: dragSource.current,
+            sourcePosition: dragSourcePosition.current,
           });
         }
         const listItem = event.active.data.current as unknown as PostoListDragData | undefined;
@@ -150,7 +183,7 @@ export function MediaDragDropProvider(props: { children: ReactNode }) {
         clearDrag();
       }}
     >
-      <MediaDragContext.Provider value={{ activeMedia, pointer }}>
+      <MediaDragContext.Provider value={{ activeMedia, activeSource, pointer }}>
         {props.children}
         <DragOverlay dropAnimation={null}>
           {activeMedia ? (
@@ -220,5 +253,6 @@ export function useMediaDropZone(input: {
     isAccepting: droppable.isOver && !!media && input.accepts(media),
     pointer: drag.pointer,
     activeMedia: drag.activeMedia,
+    activeSource: drag.activeSource,
   };
 }

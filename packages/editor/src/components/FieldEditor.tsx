@@ -424,7 +424,10 @@ function SortableRow(props: {
     <div
       ref={setNodeRef}
       className={`${props.className}${isDragging ? " dragging" : ""}`}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition: isDragging ? undefined : transition,
+      }}
     >
       <span className="drag-handle" title="Drag to reorder" {...attributes} {...listeners}>
         <GripVertical size={14} />

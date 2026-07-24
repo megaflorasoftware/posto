@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { Link, RichTextEditor } from "@mantine/tiptap";
 import { Alert, Button, Group, Loader, TextInput } from "@mantine/core";
 import { useEditor } from "@tiptap/react";
+import type { EditorState, Transaction } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "@tiptap/markdown";
 import { Blocks, CodeXml, Image as ImageIcon } from "lucide-react";
@@ -22,7 +23,13 @@ import type { ComponentRef, ComponentSchemaSource } from "@posto/core/project/ad
 import type { EntryIdSource } from "@posto/core/project/entryIds";
 import { ComponentPicker } from "./ComponentPicker";
 import { Dialog } from "./Dialog";
-import { EditableImage, EditableImageContext, type EditableImageRequest } from "./EditableImage";
+import {
+  EditableBlockImage,
+  EditableImage,
+  EditableImageContext,
+  editableImagePosition,
+  type EditableImageRequest,
+} from "./EditableImage";
 import { ImageLibraryEditDialog } from "./ImageLibraryManageDialogs";
 import { htmlNodes } from "./HtmlNodes";
 import { RichTextImagePickerDialog } from "./RichTextImagePickerDialog";
@@ -37,7 +44,7 @@ import { useProjectIO } from "../projectIO";
 import { markdownMediaEditorContent } from "../markdownMedia";
 import { resolveImageLibraryLocation } from "@posto/core/project/mediaLibrary";
 import { useImageLibraryAssets } from "../hooks/useImageLibraryAssets";
-import { useMediaDropZone, type MediaDropDetails } from "./MediaDragDrop";
+import { useMediaDropZone, type MediaDragSource, type MediaDropDetails } from "./MediaDragDrop";
 
 function normalizedMediaPath(path: string): string {
   return path.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
@@ -51,6 +58,163 @@ function defaultLibraryMedia(library: MediaLibrary): MediaEntry {
 function outputContains(output: string, src: string): boolean {
   const prefix = `/${normalizedMediaPath(output)}`;
   return src === prefix || src.startsWith(`${prefix}/`);
+}
+
+interface RichTextDropLocation {
+  pos: number;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  orientation: "horizontal" | "vertical";
+  blockBoundary: boolean;
+}
+
+interface ImageDropBox {
+  pos: number;
+  size: number;
+  rect: DOMRect;
+  blockFrom?: number;
+  blockTo?: number;
+}
+
+function inRange(value: number, first: number, second: number, padding = 0): boolean {
+  return value >= Math.min(first, second) - padding && value <= Math.max(first, second) + padding;
+}
+
+export function imageGapLocation(
+  boxes: ImageDropBox[],
+  pointer: { x: number; y: number },
+  contentRect: DOMRect,
+  hasOnlyWhitespaceBetween: (left: ImageDropBox, right: ImageDropBox) => boolean,
+): RichTextDropLocation | null {
+  for (let index = 0; index < boxes.length - 1; index += 1) {
+    const left = boxes[index];
+    const right = boxes[index + 1];
+    if (!hasOnlyWhitespaceBetween(left, right)) continue;
+    const leftCenter = {
+      x: left.rect.left + left.rect.width / 2,
+      y: left.rect.top + left.rect.height / 2,
+    };
+    const rightCenter = {
+      x: right.rect.left + right.rect.width / 2,
+      y: right.rect.top + right.rect.height / 2,
+    };
+    const verticalOverlap =
+      Math.min(left.rect.bottom, right.rect.bottom) - Math.max(left.rect.top, right.rect.top);
+    const sameRow = verticalOverlap >= Math.min(left.rect.height, right.rect.height) * 0.4;
+    if (
+      sameRow &&
+      inRange(pointer.x, leftCenter.x, rightCenter.x) &&
+      inRange(
+        pointer.y,
+        Math.min(left.rect.top, right.rect.top),
+        Math.max(left.rect.bottom, right.rect.bottom),
+        12,
+      )
+    ) {
+      return {
+        pos: right.pos,
+        left: (left.rect.right + right.rect.left) / 2,
+        top: Math.min(left.rect.top, right.rect.top),
+        width: 3,
+        height:
+          Math.max(left.rect.bottom, right.rect.bottom) - Math.min(left.rect.top, right.rect.top),
+        orientation: "vertical",
+        blockBoundary: false,
+      };
+    }
+    if (
+      !sameRow &&
+      inRange(pointer.y, leftCenter.y, rightCenter.y) &&
+      inRange(
+        pointer.x,
+        Math.min(left.rect.left, right.rect.left),
+        Math.max(left.rect.right, right.rect.right),
+        24,
+      )
+    ) {
+      const caretLeft = Math.max(contentRect.left, Math.min(left.rect.left, right.rect.left));
+      const caretRight = Math.min(contentRect.right, Math.max(left.rect.right, right.rect.right));
+      return {
+        pos: right.blockFrom ?? right.pos,
+        left: caretLeft,
+        top: (left.rect.bottom + right.rect.top) / 2,
+        width: Math.max(caretRight - caretLeft, 24),
+        height: 3,
+        orientation: "horizontal",
+        blockBoundary: right.blockFrom !== undefined,
+      };
+    }
+  }
+
+  const hit = boxes.find(
+    ({ rect }) =>
+      pointer.x >= rect.left &&
+      pointer.x <= rect.right &&
+      pointer.y >= rect.top &&
+      pointer.y <= rect.bottom,
+  );
+  if (!hit) return null;
+  const blockLike = hit.rect.width >= contentRect.width * 0.45;
+  if (blockLike) {
+    const before = pointer.y < hit.rect.top + hit.rect.height / 2;
+    return {
+      pos: before ? (hit.blockFrom ?? hit.pos) : (hit.blockTo ?? hit.pos + hit.size),
+      left: Math.max(contentRect.left, hit.rect.left),
+      top: before ? hit.rect.top : hit.rect.bottom,
+      width:
+        Math.min(contentRect.right, hit.rect.right) - Math.max(contentRect.left, hit.rect.left),
+      height: 3,
+      orientation: "horizontal",
+      blockBoundary: hit.blockFrom !== undefined,
+    };
+  }
+  const before = pointer.x < hit.rect.left + hit.rect.width / 2;
+  return {
+    pos: before ? hit.pos : hit.pos + hit.size,
+    left: before ? hit.rect.left : hit.rect.right,
+    top: hit.rect.top,
+    width: 3,
+    height: Math.max(hit.rect.height, 18),
+    orientation: "vertical",
+    blockBoundary: false,
+  };
+}
+
+export function imageMoveTransaction(
+  state: EditorState,
+  sourcePosition: number,
+  location: Pick<RichTextDropLocation, "pos" | "blockBoundary">,
+): Transaction | null {
+  const image = state.doc.nodeAt(sourcePosition);
+  if (image?.type.name !== "image" && image?.type.name !== "blockImage") return null;
+  let from = sourcePosition;
+  let to = sourcePosition + image.nodeSize;
+  let movedNode = image;
+  const $source = state.doc.resolve(sourcePosition);
+  if (
+    location.blockBoundary &&
+    $source.parent.type.name === "paragraph" &&
+    $source.parent.childCount === 1 &&
+    $source.parent.firstChild === image
+  ) {
+    from = $source.before();
+    to = $source.after();
+    movedNode = $source.parent;
+  }
+  if (location.pos >= from && location.pos <= to) return null;
+  const transaction = state.tr.delete(from, to);
+  const target = transaction.mapping.map(location.pos);
+  if (
+    location.blockBoundary &&
+    (movedNode.type.name === "paragraph" || movedNode.type.name === "blockImage")
+  ) {
+    transaction.insert(target, movedNode);
+  } else {
+    transaction.replaceRangeWith(target, target, movedNode);
+  }
+  return transaction.docChanged ? transaction.scrollIntoView() : null;
 }
 
 function StandaloneImageEditDialog(props: { request: EditableImageRequest; onClose: () => void }) {
@@ -285,6 +449,9 @@ export function BodyEditor(props: {
       StarterKit.configure({ link: false, underline: false }),
       Link,
       Markdown,
+      // Standalone Markdown images are block tokens. Giving them a block node
+      // keeps the ProseMirror document valid and therefore transformable.
+      EditableBlockImage,
       // Inline like markdown images; src attr keeps the stored output path,
       // only the rendered <img> is rewritten to a loadable URL.
       EditableImage,
@@ -320,16 +487,75 @@ export function BodyEditor(props: {
   });
 
   const bodyDropContainer = useRef<HTMLDivElement | null>(null);
-  const [dropCaret, setDropCaret] = useState<{
-    pos: number;
-    left: number;
-    top: number;
-    height: number;
-  } | null>(null);
+  const dropLocationRef = useRef<RichTextDropLocation | null>(null);
+  const [dropCaret, setDropCaret] = useState<RichTextDropLocation | null>(null);
 
-  const positionAtPointer = (pointer: MediaDropDetails["pointer"]): number | null => {
+  const dropLocationAtPointer = (
+    pointer: MediaDropDetails["pointer"],
+    source: MediaDragSource | null,
+    capturedSourcePosition?: number,
+  ): RichTextDropLocation | null => {
     if (!editor || !pointer) return null;
-    return editor.view.posAtCoords({ left: pointer.x, top: pointer.y })?.pos ?? null;
+    const fallback = editor.view.posAtCoords({ left: pointer.x, top: pointer.y });
+    if (!fallback) return null;
+    const contentRect = editor.view.dom.getBoundingClientRect();
+    const sourcePosition =
+      source?.kind === "body-image" && source.editorId === props.path
+        ? (capturedSourcePosition ?? source.getPosition())
+        : undefined;
+    const boxes = Array.from(editor.view.dom.querySelectorAll<HTMLElement>(".body-image"))
+      .map((element): ImageDropBox | null => {
+        try {
+          const pos = editableImagePosition(element);
+          if (pos === undefined) return null;
+          const node = editor.state.doc.nodeAt(pos);
+          if (
+            (node?.type.name !== "image" && node?.type.name !== "blockImage") ||
+            pos === sourcePosition
+          )
+            return null;
+          const $pos = editor.state.doc.resolve(pos);
+          const blockImage = node.type.name === "blockImage";
+          const imageOnlyParagraph =
+            $pos.parent.type.name === "paragraph" &&
+            $pos.parent.childCount === 1 &&
+            $pos.parent.firstChild === node;
+          return {
+            pos,
+            size: node.nodeSize,
+            rect: element.getBoundingClientRect(),
+            blockFrom: blockImage ? pos : imageOnlyParagraph ? $pos.before() : undefined,
+            blockTo: blockImage
+              ? pos + node.nodeSize
+              : imageOnlyParagraph
+                ? $pos.after()
+                : undefined,
+          };
+        } catch {
+          return null;
+        }
+      })
+      .filter((box): box is ImageDropBox => box !== null)
+      .sort((left, right) => left.pos - right.pos);
+    const imageLocation = imageGapLocation(
+      boxes,
+      pointer,
+      contentRect,
+      (left, right) =>
+        editor.state.doc.textBetween(left.pos + left.size, right.pos, "\n", "\ufffc").trim()
+          .length === 0,
+    );
+    if (imageLocation) return imageLocation;
+    const coordinates = editor.view.coordsAtPos(fallback.pos);
+    return {
+      pos: fallback.pos,
+      left: coordinates.left,
+      top: coordinates.top,
+      width: 3,
+      height: Math.max(coordinates.bottom - coordinates.top, 18),
+      orientation: "vertical",
+      blockBoundary: false,
+    };
   };
 
   const insertOrMoveImage = (
@@ -337,23 +563,36 @@ export function BodyEditor(props: {
     details: MediaDropDetails,
   ) => {
     if (!editor) return;
-    const target = positionAtPointer(details.pointer) ?? editor.state.selection.from;
+    const location = dropLocationRef.current ??
+      dropLocationAtPointer(details.pointer, details.source, details.sourcePosition) ?? {
+        pos: editor.state.selection.from,
+        left: 0,
+        top: 0,
+        width: 3,
+        height: 18,
+        orientation: "vertical" as const,
+        blockBoundary: false,
+      };
     const source = details.source;
     if (source?.kind === "body-image" && source.editorId === props.path) {
-      const sourcePosition = source.getPosition();
-      const node =
-        typeof sourcePosition === "number" ? editor.state.doc.nodeAt(sourcePosition) : null;
-      if (typeof sourcePosition === "number" && node?.type.name === "image") {
-        if (target >= sourcePosition && target <= sourcePosition + node.nodeSize) return;
-        const transaction = editor.state.tr.delete(sourcePosition, sourcePosition + node.nodeSize);
-        const mappedTarget = transaction.mapping.map(target);
-        transaction.replaceRangeWith(mappedTarget, mappedTarget, node).scrollIntoView();
-        editor.view.focus();
+      const sourcePosition = details.sourcePosition ?? source.getPosition();
+      if (typeof sourcePosition === "number") {
+        const transaction = imageMoveTransaction(editor.state, sourcePosition, location);
+        if (!transaction) return;
         editor.view.dispatch(transaction);
+        editor.view.focus();
         return;
       }
     }
-    editor.chain().focus().insertContentAt(target, markdownMediaEditorContent(media)).run();
+    const imageContent = markdownMediaEditorContent(media);
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(
+        location.pos,
+        location.blockBoundary ? { ...imageContent, type: "blockImage" } : imageContent,
+      )
+      .run();
   };
 
   const bodyDrop = useMediaDropZone({
@@ -364,24 +603,27 @@ export function BodyEditor(props: {
 
   useLayoutEffect(() => {
     const container = bodyDropContainer.current;
-    const position = positionAtPointer(bodyDrop.pointer);
-    if (!editor || !container || !bodyDrop.isAccepting || position === null) {
+    const location = dropLocationAtPointer(bodyDrop.pointer, bodyDrop.activeSource);
+    if (!editor || !container || !bodyDrop.isAccepting || location === null) {
+      dropLocationRef.current = null;
       setDropCaret(null);
       return;
     }
-    try {
-      const coordinates = editor.view.coordsAtPos(position);
-      const bounds = container.getBoundingClientRect();
-      setDropCaret({
-        pos: position,
-        left: coordinates.left - bounds.left,
-        top: coordinates.top - bounds.top,
-        height: Math.max(coordinates.bottom - coordinates.top, 18),
-      });
-    } catch {
-      setDropCaret(null);
-    }
-  }, [editor, bodyDrop.isAccepting, bodyDrop.pointer?.x, bodyDrop.pointer?.y]);
+    const bounds = container.getBoundingClientRect();
+    const relativeLocation = {
+      ...location,
+      left: location.left - bounds.left,
+      top: location.top - bounds.top,
+    };
+    dropLocationRef.current = location;
+    setDropCaret(relativeLocation);
+  }, [
+    editor,
+    bodyDrop.activeSource,
+    bodyDrop.isAccepting,
+    bodyDrop.pointer?.x,
+    bodyDrop.pointer?.y,
+  ]);
 
   // External content changes (raw-tab edits while this file stays open):
   // replace the document without emitting an update.
@@ -634,9 +876,11 @@ export function BodyEditor(props: {
                 <span
                   className="body-rich-drop-caret"
                   data-position={dropCaret.pos}
+                  data-orientation={dropCaret.orientation}
                   style={{
                     left: dropCaret.left,
                     top: dropCaret.top,
+                    width: dropCaret.width,
                     height: dropCaret.height,
                   }}
                   aria-hidden="true"

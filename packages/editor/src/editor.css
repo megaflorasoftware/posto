@@ -277,6 +277,11 @@
   touch-action: none;
 }
 
+.body-rich-content .body-image.is-block,
+.body-rich-content div.body-image {
+  display: block;
+}
+
 .body-rich-content .body-image > img {
   display: block;
 }
@@ -725,6 +730,10 @@
   border-color: var(--mantine-primary-color-filled);
 }
 
+.list-item.dragging .drag-handle {
+  cursor: grabbing;
+}
+
 .thumb {
   width: 32px;
   height: 32px;
@@ -993,13 +1002,20 @@ button.picker-card:focus-visible .picker-card-preview,
 .body-rich-drop-caret {
   position: absolute;
   z-index: 5;
-  width: 3px;
-  min-height: 18px;
   border-radius: var(--mantine-radius-xl);
   background: var(--mantine-primary-color-filled);
   box-shadow: 0 0 0 1px var(--mantine-color-body);
   pointer-events: none;
+}
+
+.body-rich-drop-caret[data-orientation="vertical"] {
+  min-height: 18px;
   transform: translateX(-1px);
+}
+
+.body-rich-drop-caret[data-orientation="horizontal"] {
+  min-width: 24px;
+  transform: translateY(-1px);
 }
 
 .picker-card-actions {
