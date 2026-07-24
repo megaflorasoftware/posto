@@ -541,7 +541,8 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       const path = args?.path as string;
       if (
         new URLSearchParams(window.location.search).has("mockNoLocalSiteUrl") &&
-        (path.includes("/astro.config.") || path.endsWith("/public/CNAME") ||
+        (path.includes("/astro.config.") ||
+          path.endsWith("/public/CNAME") ||
           path.endsWith("/package.json"))
       ) {
         return null;

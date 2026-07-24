@@ -83,11 +83,7 @@ function Header({
         {stage === "repos" || stage === "repos-loading" ? "Repositories" : "Posto"}
       </Text>
       {(stage === "repos" || stage === "repos-loading") && user && (
-        <UnstyledButton
-          aria-label="Open settings"
-          title="Settings"
-          onClick={onOpenAppSettings}
-        >
+        <UnstyledButton aria-label="Open settings" title="Settings" onClick={onOpenAppSettings}>
           <Avatar src={user.avatar_url} alt={user.name} size={36} radius="xl" />
         </UnstyledButton>
       )}
@@ -371,11 +367,7 @@ export default function Onboarding(props: Props) {
   return (
     <div className="mobile-app">
       {props.stage !== "home" && (
-        <Header
-          stage={props.stage}
-          user={props.user}
-          onOpenAppSettings={props.onOpenAppSettings}
-        />
+        <Header stage={props.stage} user={props.user} onOpenAppSettings={props.onOpenAppSettings} />
       )}
       {props.stage === "loading" && (
         <Center className="screen">

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActionIcon, MantineProvider, Modal, Switch } from "@mantine/core";
+import { ActionIcon, Button, MantineProvider, Modal, Switch } from "@mantine/core";
 import { Notifications, notifications } from "@mantine/notifications";
 import {
   invoke,
@@ -775,6 +775,7 @@ function App() {
         ) : !root ? (
           <div className="empty-state">
             <p>Open a repository from the File menu to get started.</p>
+            <Button onClick={() => void chooseDirectory()}>Choose directory</Button>
           </div>
         ) : (
           <div className="body" ref={preview.bodyEl}>
