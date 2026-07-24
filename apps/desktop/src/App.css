@@ -109,6 +109,20 @@ body,
   font-size: 0.85rem;
 }
 
+.sidebar-pane {
+  flex-grow: 0;
+  flex-shrink: 0;
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.sidebar-pane > .sidebar {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
 /* Groups scroll; the collection-settings footer stays pinned below. */
 .sidebar-groups {
   flex: 1;

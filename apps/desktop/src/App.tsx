@@ -738,16 +738,27 @@ function App() {
             <p>Open a repository from the File menu to get started.</p>
           </div>
         ) : (
-          <div className="body">
-            <Sidebar
-              root={root}
-              groups={files.groups}
-              config={config}
-              activeKey={currentFile.activeKey}
-              onOpen={(file) => openFile(file)}
-              onDelete={(file) => void deleteFile(file)}
-              onNewFile={(group) => void createNewFile(group)}
-              onPostoSaved={() => void schemas.loadPostoConfig(root)}
+          <div className="body" ref={preview.bodyEl}>
+            <div className="sidebar-pane" style={{ flexBasis: `${preview.sidebarSplit}%` }}>
+              <Sidebar
+                root={root}
+                groups={files.groups}
+                config={config}
+                activeKey={currentFile.activeKey}
+                onOpen={(file) => openFile(file)}
+                onDelete={(file) => void deleteFile(file)}
+                onNewFile={(group) => void createNewFile(group)}
+                onPostoSaved={() => void schemas.loadPostoConfig(root)}
+              />
+            </div>
+
+            <div
+              className="pane-divider"
+              onPointerDown={(e) => {
+                e.currentTarget.setPointerCapture(e.pointerId);
+                preview.setSidebarDragging(true);
+              }}
+              onPointerMove={preview.onSidebarDividerPointerMove}
             />
 
             <div className="panes" ref={preview.panesEl}>
