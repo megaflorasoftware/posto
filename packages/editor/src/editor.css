@@ -21,6 +21,21 @@
   min-width: 0;
 }
 
+.pane-filename-header-control {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pane-header-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .pane-filename-text {
   flex: 1;
   min-width: 0;
@@ -62,33 +77,40 @@
   font-size: 0.8rem;
 }
 
-/* Fields/Body/Raw tabs fill the editor pane; panels stretch to full height. */
-.pane-tabs {
+/* The visual editor or raw source fills everything below the pane header. */
+.pane-content {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
-.pane-tabs .mantine-Tabs-list {
+/* PreviewPane still uses Mantine tabs. Keep its panels stretched even though
+   the editor itself no longer has a tab strip. */
+.preview-pane .pane-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-pane .pane-tabs .mantine-Tabs-list {
   flex-shrink: 0;
 }
 
-.pane-tabs .mantine-Tabs-tab {
+.preview-pane .pane-tabs .mantine-Tabs-tab {
   font-size: 0.8rem;
   padding: 0.5rem 1rem;
 }
 
-.pane-tabs .mantine-Tabs-panel {
+.preview-pane .pane-tabs .mantine-Tabs-panel {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
-/* Inactive keep-mounted panels are hidden via the `hidden` attribute, which
-   the flex display above would otherwise override. */
-.pane-tabs .mantine-Tabs-panel[hidden] {
+.preview-pane .pane-tabs .mantine-Tabs-panel[hidden] {
   display: none;
 }
 
@@ -105,6 +127,33 @@
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+/* Fields and body share one scroll surface. The body starts after the fields
+   and is at least as tall as the pane below its header. */
+.form-body-section {
+  flex: 0 0 auto;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.form-editor-combined .body-rich-editor {
+  flex: 1 0 auto;
+  min-height: 100%;
+}
+
+.form-editor-combined .body-rich-editor .mantine-RichTextEditor-toolbar {
+  position: sticky;
+  z-index: 3;
+  top: 0;
+  background: var(--mantine-color-body);
+}
+
+.form-editor-combined .body-rich-scroll,
+.form-editor-combined .body-rich-typography,
+.form-editor-combined .body-rich-content {
+  overflow: visible;
 }
 
 .form-unavailable {
@@ -158,6 +207,28 @@
 
 .body-rich-editor .mantine-RichTextEditor-toolbar {
   flex-shrink: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.body-rich-editor .mantine-RichTextEditor-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+.body-rich-toolbar-controls {
+  flex: 1 0 auto;
+  min-width: max-content;
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: var(--mantine-spacing-sm);
+}
+
+.body-rich-editor .mantine-RichTextEditor-controlsGroup {
+  flex-shrink: 0;
 }
 
 /* Typography wrapper Mantine inserts between the root and the content. */
@@ -176,9 +247,17 @@
 }
 
 /* Let clicks below short documents land in the editor. */
-.body-rich-content .tiptap {
+.body-rich-content > .tiptap {
   min-height: 100%;
   box-sizing: border-box;
+}
+
+.body-rich-content > .tiptap[data-empty="true"] > p:first-child::before {
+  content: "Start writing...";
+  height: 0;
+  float: left;
+  color: var(--mantine-color-dimmed);
+  pointer-events: none;
 }
 
 .body-rich-content img {
@@ -238,8 +317,14 @@
   color: var(--mantine-color-dimmed);
 }
 
+/* Tiptap owns the outer node-view wrapper that participates in document
+   flow; spacing the inner card does not reliably separate adjacent blocks. */
+.body-rich-content > .tiptap > .node-mdxComponent {
+  margin: 1.25rem 0;
+}
+
 .mdx-component {
-  margin: 1.5rem 0;
+  margin: 0;
 }
 
 /* Block components render as a card: a minimal header (click to edit props)
@@ -357,7 +442,7 @@
 }
 
 /* Nested cards inside a slot stay compact. */
-.mdx-slot .mdx-component {
+.mdx-slot .node-mdxComponent {
   margin: 0.75rem 0;
 }
 
@@ -620,10 +705,61 @@
 }
 
 .image-library-browser-path {
-  margin-bottom: 0.5rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--mantine-color-dimmed);
   font-family: var(--mantine-font-family-monospace);
   font-size: var(--mantine-font-size-xs);
+  margin-bottom: 0.5rem;
+}
+
+.media-browser-toolbar {
+  min-width: 0;
+  margin-bottom: 0.5rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.media-browser-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+.media-library-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  width: max-content;
+  min-width: 100%;
+  padding: 0.18rem;
+  border-radius: 999px;
+  background: var(--mantine-color-default-hover);
+}
+
+.media-library-tab {
+  flex: 0 0 auto;
+  padding: 0.24rem 0.62rem;
+  border: 0;
+  border-radius: 999px;
+  color: var(--mantine-color-dimmed);
+  background: transparent;
+  font: inherit;
+  font-size: var(--mantine-font-size-xs);
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.media-library-tab:hover,
+.media-library-tab:focus-visible {
+  color: var(--mantine-color-text);
+}
+
+.media-library-tab.is-active {
+  color: var(--mantine-color-text);
+  background: var(--mantine-color-body);
+  box-shadow: var(--mantine-shadow-xs);
+  font-weight: 600;
 }
 
 .image-library-list {
@@ -681,16 +817,14 @@
   cursor: pointer;
 }
 
-.picker-card:hover {
-  background: var(--mantine-color-default-hover);
-}
-
 .picker-card-static {
   cursor: default;
 }
 
-.picker-card-static:hover {
-  background: none;
+button.picker-card:hover .picker-card-preview,
+button.picker-card:focus-visible .picker-card-preview {
+  border-color: var(--mantine-primary-color-filled);
+  box-shadow: 0 0 0 1px var(--mantine-primary-color-filled);
 }
 
 .picker-directory .picker-card-preview {
@@ -698,6 +832,7 @@
 }
 
 .picker-card-preview {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -708,6 +843,76 @@
   border-radius: 4px;
   background: var(--mantine-color-default-hover);
   overflow: hidden;
+}
+
+.picker-card-edit {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  background: rgb(0 0 0 / 35%);
+  opacity: 1;
+  transition: opacity 120ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .picker-card-edit {
+    opacity: 0;
+  }
+
+  .picker-card:hover .picker-card-edit,
+  .picker-card:focus-visible .picker-card-edit {
+    opacity: 1;
+  }
+}
+
+.picker-card-selection {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 2px solid white;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 28%);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 18%);
+}
+
+.picker-card-selection.is-selected {
+  border-color: var(--mantine-primary-color-filled);
+  background: var(--mantine-primary-color-filled);
+}
+
+.picker-card-selection.is-selected::after {
+  content: "";
+  position: absolute;
+  left: 0.31rem;
+  top: 0.12rem;
+  width: 0.3rem;
+  height: 0.55rem;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.media-selection-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+
+.media-primary-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+
+.media-secondary-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--mantine-spacing-xs);
 }
 
 .picker-card-preview img {

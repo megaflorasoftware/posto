@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, Button, Group, Loader, Text, TextInput } from "@mantine/core";
 import { Dropzone, IMAGE_MIME_TYPE } from "@mantine/dropzone";
 import { ChevronLeft, ChevronRight, Image as ImageIcon, Upload } from "lucide-react";
@@ -6,6 +6,7 @@ import type { MediaLibrary, PagesConfig } from "@posto/core/pagescms/config";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 import { validateForm } from "@posto/core/pagescms/validate";
 import {
+  importPublicMediaFile,
   onFileDrop,
   prepareImageSources,
   type FileGroup,
@@ -19,11 +20,40 @@ import { CachedImage } from "./CachedImage";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
 import { ImageLibraryBrowser } from "./ImageLibraryBrowser";
 import { AdaptiveSelect } from "./AdaptiveSelect";
+import { MediaLibraryTabs, PUBLIC_MEDIA_TAB } from "./MediaLibraryTabs";
+import { PublicMediaBrowser } from "./PublicMediaBrowser";
+import { usePublicMediaFiles } from "../hooks/usePublicMediaFiles";
 
 type ImportStep = "source" | "location" | "details";
 
 function normalizeFolder(folder: string | undefined): string {
   return (folder ?? "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+}
+
+function PublicImportLocation(props: {
+  root: string;
+  currentDirectory: string;
+  toolbar?: ReactNode;
+  onDirectoryChange: (directory: string) => void;
+}) {
+  const state = usePublicMediaFiles(props.root);
+  return (
+    <>
+      {state.error && (
+        <Alert color="red" mb="sm">
+          Could not read public media: {state.error}
+        </Alert>
+      )}
+      <PublicMediaBrowser
+        rootDirectory={state.publicRoot}
+        currentDirectory={props.currentDirectory}
+        directories={state.directories}
+        files={state.files}
+        toolbar={props.toolbar}
+        onDirectoryChange={props.onDirectoryChange}
+      />
+    </>
+  );
 }
 
 /** Imports one or more images into a library. A drag or a "Choose images"
@@ -33,6 +63,9 @@ function normalizeFolder(folder: string | undefined): string {
 export function ImageLibraryImportDialog(props: {
   root: string;
   library: MediaLibrary;
+  /** When supplied, the destination step can switch between every configured
+   * library and public without opening a separate library chooser. */
+  libraries?: MediaLibrary[];
   config: PagesConfig;
   groups: FileGroup[];
   sourcePath?: string;
@@ -42,26 +75,39 @@ export function ImageLibraryImportDialog(props: {
    * whose dropzone would just repeat the button that launched this dialog. */
   autoChooseSource?: boolean;
   onClose: () => void;
-  onImported: (result: ImageLibraryImportResult) => void;
+  onImported: (result: ImageLibraryImportResult, library: MediaLibrary) => void;
+  onPublicImported?: (path: string) => void;
 }) {
   const initialSources = props.sourcePaths?.length
     ? props.sourcePaths
     : props.sourcePath
       ? [props.sourcePath]
       : [];
-  const rootFolder = normalizeFolder(props.initialFolder);
-  const libraryRoot = `${props.root}/${props.library.base}`;
+  const libraries = props.libraries?.length ? props.libraries : [props.library];
+  const [selectedCollection, setSelectedCollection] = useState(props.library.collection);
+  const selectedLibrary =
+    libraries.find((library) => library.collection === selectedCollection) ?? null;
+  const importerLibrary = selectedLibrary ?? props.library;
+  const rootFolder =
+    selectedLibrary?.collection === props.library.collection
+      ? normalizeFolder(props.initialFolder)
+      : "";
+  const libraryRoot = `${props.root}/${importerLibrary.base}`;
   const browserRoot = rootFolder ? `${libraryRoot}/${rootFolder}` : libraryRoot;
   const [step, setStep] = useState<ImportStep>(initialSources.length ? "location" : "source");
   const [currentDirectory, setCurrentDirectory] = useState("");
-  const metadataFields = useMemo(() => imageLibraryMetadataFields(props.library), [props.library]);
-  const libraryState = useImageLibraryAssets(props.root, props.library);
+  const metadataFields = useMemo(
+    () => imageLibraryMetadataFields(importerLibrary),
+    [importerLibrary],
+  );
+  const libraryState = useImageLibraryAssets(props.root, importerLibrary);
   const importer = useImageLibraryImport({
     root: props.root,
-    library: props.library,
+    library: importerLibrary,
     initialSources,
-    onImported: props.onImported,
+    onImported: (result) => props.onImported(result, importerLibrary),
   });
+  const [publicImportPending, setPublicImportPending] = useState(false);
 
   const { drafts, index } = importer;
   const draft = drafts[index];
@@ -117,6 +163,41 @@ export function ImageLibraryImportDialog(props: {
     setStep("details");
   };
 
+  const importIntoPublic = async () => {
+    setPublicImportPending(true);
+    importer.setError(null);
+    try {
+      for (const item of drafts) {
+        const path = await importPublicMediaFile({
+          repositoryRoot: props.root,
+          sourceFilePath: item.sourceImagePath,
+          directory: currentDirectory,
+        });
+        props.onPublicImported?.(path);
+      }
+      props.onClose();
+    } catch (caught) {
+      importer.setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setPublicImportPending(false);
+    }
+  };
+
+  const selectLibrary = (collection: string) => {
+    const next = libraries.find((library) => library.collection === collection) ?? null;
+    if (next) importer.retarget(next);
+    setSelectedCollection(next?.collection ?? PUBLIC_MEDIA_TAB);
+    setCurrentDirectory("");
+  };
+
+  const locationTabs = props.libraries ? (
+    <MediaLibraryTabs
+      libraries={libraries}
+      selected={selectedLibrary?.collection ?? PUBLIC_MEDIA_TAB}
+      onSelect={selectLibrary}
+    />
+  ) : undefined;
+
   const update = (path: ValuePath, value: unknown) => {
     importer.updateDraft(index, (current) => ({
       ...current,
@@ -163,8 +244,8 @@ export function ImageLibraryImportDialog(props: {
     step === "source"
       ? "Choose images to import"
       : step === "location"
-        ? `Choose a location in ${props.library.collection}${countSuffix}`
-        : `Import into ${props.library.collection}${countSuffix}`;
+        ? `Choose a location in ${selectedLibrary?.collection ?? "public"}${countSuffix}`
+        : `Import into ${importerLibrary.collection}${countSuffix}`;
 
   return (
     <Dialog opened onClose={props.onClose} title={title} size="xl">
@@ -225,20 +306,39 @@ export function ImageLibraryImportDialog(props: {
 
       {step === "location" && (
         <>
-          {libraryState.error && (
+          {selectedLibrary && libraryState.error && (
             <Alert color="red" mb="sm">
               Could not read image library: {libraryState.error}
             </Alert>
           )}
-          <ImageLibraryBrowser
-            rootDirectory={browserRoot}
-            currentDirectory={currentDirectory}
-            directories={libraryState.directories}
-            assets={libraryState.assets}
-            onDirectoryChange={setCurrentDirectory}
-          />
-          <Button fullWidth mt="md" onClick={chooseLocation}>
-            Choose location
+          {selectedLibrary ? (
+            <ImageLibraryBrowser
+              rootDirectory={browserRoot}
+              currentDirectory={currentDirectory}
+              directories={libraryState.directories}
+              assets={libraryState.assets}
+              toolbar={locationTabs}
+              onDirectoryChange={setCurrentDirectory}
+            />
+          ) : (
+            <PublicImportLocation
+              root={props.root}
+              currentDirectory={currentDirectory}
+              toolbar={locationTabs}
+              onDirectoryChange={setCurrentDirectory}
+            />
+          )}
+          <Button
+            fullWidth
+            mt="md"
+            loading={publicImportPending}
+            onClick={() => (selectedLibrary ? chooseLocation() : void importIntoPublic())}
+          >
+            {selectedLibrary
+              ? "Choose location"
+              : drafts.length > 1
+                ? `Import ${drafts.length} images here`
+                : "Import image here"}
           </Button>
         </>
       )}
@@ -295,11 +395,11 @@ export function ImageLibraryImportDialog(props: {
                 importer.updateDraft(index, (current) => ({ ...current, filename }));
               }}
             />
-            {props.library.metadataExtensions.length > 1 && (
+            {importerLibrary.metadataExtensions.length > 1 && (
               <AdaptiveSelect
                 size="xs"
                 label="Metadata format"
-                data={props.library.metadataExtensions.map((extension) => ({
+                data={importerLibrary.metadataExtensions.map((extension) => ({
                   value: extension,
                   label: `.${extension}`,
                 }))}

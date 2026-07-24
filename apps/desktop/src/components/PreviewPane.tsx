@@ -2,6 +2,8 @@ import { ActionIcon, Alert, Button, Tabs } from "@mantine/core";
 import type { MediaEntry } from "@posto/core/pagescms/config";
 import { House } from "lucide-react";
 import type { ServerStatus, SetupStep } from "../hooks/useDevServer";
+import type { Deployment } from "../hooks/useDeployment";
+import { DeploymentControl } from "./DeploymentControl";
 import { SetupFlow } from "./SetupFlow";
 import { SeoPreview } from "./SeoPreview";
 
@@ -22,30 +24,58 @@ export function PreviewPane(props: {
   onRetry: () => void;
   onInstall: (steps: SetupStep[]) => void;
   onHome: () => void;
+  deployment: Deployment;
+  behindUpstream: boolean;
+  pulling: boolean;
+  hasLocalChanges: boolean;
+  onFetchChanges: () => void;
+  onOpenPublish: () => void;
 }) {
   const { server } = props;
   return (
     <div className="pane preview-pane">
-      <div className="pane-header">
+      <div className="pane-header" data-tauri-drag-region>
         <ActionIcon
-          size={30}
+          size={26}
           variant="default"
           disabled={server.state !== "running"}
           title="Return to site root"
           aria-label="Return to site root"
           onClick={props.onHome}
         >
-          <House size={14} />
+          <House size={13} />
         </ActionIcon>
         <span className="pane-title">{props.servedRoute ?? props.previewRoute}</span>
+        <DeploymentControl deployment={props.deployment} />
         <Button
-          size="xs"
+          className="preview-header-action"
+          size="compact-sm"
           variant="default"
           disabled={server.state === "setup"}
           onClick={props.onRestart}
         >
           Restart Preview
         </Button>
+        {props.behindUpstream ? (
+          <Button
+            className="preview-header-action"
+            size="compact-sm"
+            color="teal"
+            loading={props.pulling}
+            onClick={props.onFetchChanges}
+          >
+            Fetch Changes
+          </Button>
+        ) : (
+          <Button
+            className="preview-header-action"
+            size="compact-sm"
+            disabled={!props.hasLocalChanges}
+            onClick={props.onOpenPublish}
+          >
+            Publish…
+          </Button>
+        )}
       </div>
       <Tabs className="pane-tabs" defaultValue="site">
         <Tabs.List>

@@ -11,34 +11,14 @@ body,
   height: 100vh;
 }
 
-.navbar {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--mantine-color-default-border);
-}
-
-.navbar-spacer {
-  flex: 1;
-}
-
-/* Mantine's drawer content is itself the scroller; make it a full-height flex
-   column instead so the body can grow and the Import footer pins to the bottom
-   rather than trailing the grid. */
-.media-drawer-content {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.media-drawer-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 0;
-  overflow: hidden;
+/* Same footprint and fallback transition as the mobile repository picker. */
+.recent-project-favicon {
+  display: block;
+  width: 2.125rem;
+  height: 2.125rem;
+  border-radius: var(--mantine-radius-sm);
+  object-fit: cover;
+  background: var(--mantine-color-default);
 }
 
 .media-drawer {
@@ -62,7 +42,44 @@ body,
   overflow: visible;
 }
 
+.media-drawer .picker-card {
+  padding-inline: 0;
+}
+
 .media-drawer-footer {
+  flex-shrink: 0;
+  padding: var(--mantine-spacing-md);
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+
+.deployment-drawer-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.deployment-drawer-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.deployment-drawer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.deployment-drawer-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--mantine-spacing-md);
+}
+
+.deployment-drawer-footer {
   flex-shrink: 0;
   padding: var(--mantine-spacing-md);
   border-top: 1px solid var(--mantine-color-default-border);
@@ -79,6 +96,7 @@ body,
 }
 
 .body {
+  position: relative;
   display: flex;
   flex: 1;
   min-height: 0;
@@ -93,6 +111,75 @@ body,
   padding: 0.5rem;
   border-right: 1px solid var(--mantine-color-default-border);
   font-size: 0.85rem;
+}
+
+.sidebar-pane {
+  flex-grow: 0;
+  flex-shrink: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid var(--mantine-color-default-border);
+}
+
+.sidebar-header {
+  flex: 0 0 48px;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  box-sizing: border-box;
+  min-width: 190px;
+  padding: 0.2rem 0.5rem 0.2rem 5.375rem;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+  user-select: none;
+}
+
+.sidebar-header-spacer {
+  flex: 1;
+}
+
+.sidebar-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.sidebar-content > .sidebar {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  border-right: 0;
+}
+
+.sidebar-content > .media-drawer {
+  min-width: 0;
+}
+
+.sidebar-content .media-drawer-scroll {
+  padding: 0.5rem;
+}
+
+.sidebar-content .media-drawer-footer {
+  padding: 0.5rem;
+}
+
+.sidebar-content .picker-grid {
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 0.35rem;
+  column-gap: 0.75rem;
+}
+
+.sidebar-reopen {
+  position: absolute;
+  z-index: 4;
+  top: 11px;
+  left: 5.375rem;
+}
+
+.sidebar-collapsed .editor-pane > .pane-header {
+  padding-left: 7.5rem;
 }
 
 /* Groups scroll; the collection-settings footer stays pinned below. */
@@ -245,6 +332,19 @@ body,
   display: flex;
 }
 
+/* Pane-owned title bars replace the former app-wide header and align with
+   the native macOS window controls. */
+.pane > .pane-header {
+  flex: 0 0 48px;
+  box-sizing: border-box;
+  padding-top: 0.2rem;
+  padding-bottom: 0.2rem;
+}
+
+.preview-header-action {
+  font-size: var(--mantine-font-size-xs);
+}
+
 .pane {
   display: flex;
   flex-direction: column;
@@ -273,6 +373,249 @@ body,
 
 .pane-divider:hover {
   background: var(--mantine-primary-color-filled);
+}
+
+/* True fullscreen editing surface, above the app chrome. */
+.fullscreen-workspace {
+  position: fixed;
+  /* Cover the app chrome, but stay below Mantine's portaled dialogs so
+     image/component pickers remain usable from fullscreen editing. */
+  z-index: calc(var(--mantine-z-index-modal) - 1);
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding-top: 0;
+  overflow: hidden;
+  background: var(--mantine-color-body);
+}
+
+.fullscreen-editor-pane {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  border: 0;
+  background: var(--mantine-color-body);
+}
+
+.fullscreen-editor-pane > .pane-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: var(--mantine-spacing-sm);
+  min-height: 48px;
+  box-sizing: border-box;
+  padding: 0.2rem 0.75rem 0.2rem 5.375rem;
+  background: var(--mantine-color-body);
+}
+
+.fullscreen-editor-pane > .pane-header .pane-filename-header-control {
+  position: absolute;
+  left: 50%;
+  /* The 760px fields column includes 0.75rem padding on each side. Align
+     with the controls inside that column, not its padded outer edge. */
+  width: min(736px, calc(100vw - 15.5rem));
+  transform: translateX(-50%);
+}
+
+.fullscreen-editor-pane > .pane-header .pane-header-actions {
+  margin-left: auto;
+}
+
+.fullscreen-editor-pane .body-rich-editor {
+  border: 0;
+}
+
+.fullscreen-editor-pane .body-rich-scroll {
+  position: relative;
+}
+
+.fullscreen-editor-pane .body-rich-scroll::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 50%;
+  width: min(760px, 100%);
+  height: 2.5rem;
+  transform: translateX(-50%);
+  pointer-events: none;
+  background: linear-gradient(to bottom, var(--mantine-color-body), transparent);
+}
+
+.fullscreen-editor-pane .body-rich-editor .mantine-RichTextEditor-toolbar {
+  align-items: center;
+  justify-content: safe center;
+  min-height: 48px;
+  box-sizing: border-box;
+  padding: 0.2rem 0.75rem;
+  border-bottom: 0;
+}
+
+.fullscreen-workspace .body-rich-toolbar-edge {
+  flex: 0 0 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fullscreen-workspace .body-rich-toolbar-edge:first-child {
+  position: sticky;
+  z-index: 2;
+  left: 0;
+  background: var(--mantine-color-body);
+}
+
+.fullscreen-workspace .body-rich-toolbar-edge:first-child::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 100%;
+  bottom: 0;
+  width: 100vw;
+  pointer-events: none;
+  background: var(--mantine-color-body);
+}
+
+.fullscreen-workspace .body-rich-toolbar-edge:first-child::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  width: 2.5rem;
+  pointer-events: none;
+  background: linear-gradient(to right, var(--mantine-color-body), transparent);
+}
+
+.fullscreen-workspace .body-rich-toolbar-edge:last-child {
+  position: sticky;
+  z-index: 2;
+  right: 0;
+  background: var(--mantine-color-body);
+}
+
+.fullscreen-workspace .body-rich-toolbar-edge:last-child::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 100%;
+  bottom: 0;
+  width: 2.5rem;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--mantine-color-body));
+}
+
+.fullscreen-workspace .body-rich-toolbar-edge:last-child::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  /* Only the toolbar's right padding is visible beyond the sticky edge.
+     A viewport-wide mask here becomes positive scroll overflow. */
+  width: 16px;
+  pointer-events: none;
+  background: var(--mantine-color-body);
+}
+
+.fullscreen-editor-pane .body-rich-toolbar-controls {
+  flex: 0 0 auto;
+  justify-content: center;
+}
+
+.fullscreen-editor-pane .mantine-RichTextEditor-controlsGroup {
+  gap: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--mantine-radius-default);
+  box-shadow: inset 0 0 0 1px var(--mantine-color-default-border);
+  background: transparent;
+}
+
+.fullscreen-editor-pane [data-rich-text-editor-control] {
+  width: calc(2rem * var(--mantine-scale));
+  height: calc(2rem * var(--mantine-scale));
+  border: 0 !important;
+  background: transparent;
+}
+
+.fullscreen-editor-pane [data-rich-text-editor-control] svg {
+  width: calc(1.125rem * var(--mantine-scale));
+  height: calc(1.125rem * var(--mantine-scale));
+}
+
+@media (hover: hover) {
+  .fullscreen-editor-pane [data-rich-text-editor-control]:hover {
+    background: var(--mantine-color-default-hover);
+  }
+}
+
+.fullscreen-editor-pane [data-rich-text-editor-control][data-active] {
+  color: var(--mantine-primary-color-filled);
+  background: var(--mantine-primary-color-light);
+}
+
+:where([data-mantine-color-scheme="dark"])
+  .fullscreen-editor-pane
+  [data-rich-text-editor-control][data-active] {
+  color: var(--mantine-color-blue-0);
+  background: var(--mantine-color-blue-7);
+}
+
+.fullscreen-editor-pane .body-rich-content > .tiptap,
+.fullscreen-editor-pane .form-editor > .form-fields,
+.fullscreen-editor-pane .pane-content > .editor {
+  width: 100%;
+  max-width: 760px;
+  margin-right: auto;
+  margin-left: auto;
+  box-sizing: border-box;
+}
+
+.fullscreen-editor-pane .body-rich-content > .tiptap,
+.fullscreen-editor-pane .pane-content > .editor {
+  padding-bottom: max(12rem, 30vh);
+}
+
+.fullscreen-editor-pane .body-rich-content > .tiptap {
+  padding-top: 2.5rem;
+}
+
+/* Fullscreen Fields gets one Mantine size step more breathing room: the
+   shared editor uses xs/sm controls, which become sm/md here. */
+.fullscreen-editor-pane .form-editor > .form-fields [data-size="xs"],
+.fullscreen-editor-pane > .pane-header [data-size="xs"] {
+  --input-height: var(--input-height-sm) !important;
+  --input-fz: var(--mantine-font-size-sm) !important;
+  --input-padding-y: var(--input-padding-y-sm) !important;
+  --button-height: var(--button-height-sm) !important;
+  --button-padding-x: var(--button-padding-x-sm) !important;
+  --button-fz: var(--mantine-font-size-sm) !important;
+  --ai-size: var(--ai-size-sm) !important;
+  --switch-height: var(--switch-height-sm) !important;
+  --switch-width: var(--switch-width-sm) !important;
+  --switch-thumb-size: var(--switch-thumb-size-sm) !important;
+  --switch-label-font-size: var(--switch-label-font-size-sm) !important;
+  --switch-track-label-padding: var(--switch-track-label-padding-sm) !important;
+}
+
+.fullscreen-editor-pane .form-editor > .form-fields [data-size="sm"],
+.fullscreen-editor-pane > .pane-header [data-size="sm"] {
+  --input-height: var(--input-height-md) !important;
+  --input-fz: var(--mantine-font-size-md) !important;
+  --input-padding-y: var(--input-padding-y-md) !important;
+  --button-height: var(--button-height-md) !important;
+  --button-padding-x: var(--button-padding-x-md) !important;
+  --button-fz: var(--mantine-font-size-md) !important;
+  --ai-size: var(--ai-size-md) !important;
+  --switch-height: var(--switch-height-md) !important;
+  --switch-width: var(--switch-width-md) !important;
+  --switch-thumb-size: var(--switch-thumb-size-md) !important;
+  --switch-label-font-size: var(--switch-label-font-size-md) !important;
+  --switch-track-label-padding: var(--switch-track-label-padding-md) !important;
 }
 
 /* --- SEO / social previews. Cards keep fixed light colors to mimic the real

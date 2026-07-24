@@ -84,6 +84,8 @@ input {
 .mobile-header-tabs {
   grid-column: 2;
   min-width: 0;
+  display: flex;
+  justify-content: center;
 }
 
 .mobile-header-tabs .mantine-Tabs-list {
@@ -427,6 +429,30 @@ input {
     max(var(--mantine-spacing-sm), env(safe-area-inset-bottom));
 }
 
+.mobile-deployment-screen {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.mobile-deployment-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--mantine-spacing-md);
+}
+
+.mobile-deployment-footer {
+  flex-shrink: 0;
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-sm)
+    max(var(--mantine-spacing-sm), env(safe-area-inset-bottom));
+  border-top: 1px solid var(--mantine-color-default-border);
+  background: var(--mantine-color-body);
+}
+
 .mobile-media-screen {
   min-width: 0;
   min-height: 0;
@@ -450,16 +476,17 @@ input {
 }
 
 /* The shared picker caps itself at 65vh and scrolls internally; inside the pane
-   the outer scroller owns scrolling and the grid fills the full height, edge to
-   edge, with no dead space between the header and the sticky footer. */
+   the outer scroller owns scrolling and the grid fills the full height. */
 .mobile-media-pane .picker-grid {
   max-height: none;
   overflow: visible;
+  padding: 0 var(--mantine-spacing-sm) var(--mantine-spacing-sm);
 }
 
 .mobile-media-pane .image-library-browser-path,
-.mobile-media-pane .mantine-Select-root {
-  padding: var(--mantine-spacing-xs) var(--mantine-spacing-xs) 0;
+.mobile-media-pane .mantine-Select-root,
+.mobile-media-pane .media-browser-toolbar {
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm) 0;
 }
 
 .mobile-media-pane .picker-empty {
@@ -763,6 +790,7 @@ input {
 .posto-mobile-shell .picker-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--mantine-spacing-xs);
+  column-gap: var(--mantine-spacing-sm);
   max-width: 100%;
 }
 
@@ -770,6 +798,10 @@ input {
   width: 100%;
   min-width: 0;
   padding: var(--mantine-spacing-xs);
+}
+
+.posto-mobile-shell .mobile-media-pane .picker-card {
+  padding-inline: 0;
 }
 
 .posto-mobile-shell .picker-card-preview {

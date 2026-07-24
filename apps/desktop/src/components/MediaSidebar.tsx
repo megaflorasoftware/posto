@@ -2,37 +2,41 @@ import { useState, type ReactNode } from "react";
 import { Alert, Button, Text } from "@mantine/core";
 import { FolderPlus, MousePointer2, Upload } from "lucide-react";
 import type { MediaLibrary, PagesConfig } from "@posto/core/pagescms/config";
-import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
-import type { FileEntry, FileGroup } from "@posto/ipc";
 import {
   CreateImageLibraryFolderDialog,
-  DeleteFileMediaItemsDialog,
   DeleteImageLibraryAssetsDialog,
+  DeleteFileMediaItemsDialog,
   FileMediaEditDialog,
   ImageLibraryBrowser,
   ImageLibraryEditDialog,
+  ImageLibraryImportDialog,
   MediaLibraryTabs,
-  MoveFileMediaItemsDialog,
   MoveImageLibraryAssetsDialog,
+  MoveFileMediaItemsDialog,
   PUBLIC_MEDIA_TAB,
   PublicMediaBrowser,
   chooseAndImportPublicMedia,
+  refreshImageLibraryAssets,
   useImageLibraryAssets,
   usePublicMediaFiles,
 } from "@posto/editor";
+import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
+import type { FileEntry, FileGroup } from "@posto/ipc";
 
-/** Mobile image-library browser with the shared grid and sticky actions. */
-function LibraryMediaPane(props: {
+/** Browses one library's directories and assets (read-only, like the import
+ * picker) with a sticky Import action — the desktop mirror of the mobile
+ * settings Media pane. The hook only runs when a library exists. */
+function LibraryMediaBrowserContent(props: {
   root: string;
   config: PagesConfig;
   groups: FileGroup[];
   library: MediaLibrary;
   tabs: ReactNode;
-  onImport: (library: MediaLibrary) => void;
   onBeforeChange: () => Promise<void>;
-  onChanged: (library: MediaLibrary, options?: { silent?: boolean }) => void;
+  onChanged: (options?: { silent?: boolean }) => void;
 }) {
   const [currentDirectory, setCurrentDirectory] = useState("");
+  const [importing, setImporting] = useState(false);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [editing, setEditing] = useState<ImageLibraryAsset | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
@@ -41,22 +45,22 @@ function LibraryMediaPane(props: {
   const [deleting, setDeleting] = useState(false);
   const [moving, setMoving] = useState(false);
   const library = props.library;
-  const libraryState = useImageLibraryAssets(props.root, library);
+  const state = useImageLibraryAssets(props.root, library);
   const libraryRoot = `${props.root}/${library.base}`;
 
   return (
-    <div className="mobile-media-pane">
-      <div className="mobile-media-pane-scroll">
-        {libraryState.error && (
+    <div className="media-drawer">
+      <div className="media-drawer-scroll">
+        {state.error && (
           <Text c="red" size="sm">
-            Could not read image library: {libraryState.error}
+            Could not read image library: {state.error}
           </Text>
         )}
         <ImageLibraryBrowser
           rootDirectory={libraryRoot}
           currentDirectory={currentDirectory}
-          directories={libraryState.directories}
-          assets={libraryState.assets}
+          directories={state.directories}
+          assets={state.assets}
           toolbar={props.tabs}
           onDirectoryChange={setCurrentDirectory}
           onEdit={setEditing}
@@ -92,7 +96,7 @@ function LibraryMediaPane(props: {
           }}
         />
       </div>
-      <div className="mobile-media-pane-footer">
+      <div className="media-drawer-footer">
         {selected.size + selectedDirectories.size > 0 ? (
           <div className="media-selection-actions">
             <Button fullWidth variant="default" onClick={() => setMoving(true)}>
@@ -108,7 +112,7 @@ function LibraryMediaPane(props: {
               <Button
                 fullWidth
                 variant={selectionMode ? "light" : "default"}
-                leftSection={<MousePointer2 size={18} />}
+                leftSection={<MousePointer2 size={16} />}
                 onClick={() => {
                   setSelected(new Set());
                   setSelectedDirectories(new Set());
@@ -120,17 +124,13 @@ function LibraryMediaPane(props: {
               <Button
                 fullWidth
                 variant="default"
-                leftSection={<FolderPlus size={18} />}
+                leftSection={<FolderPlus size={16} />}
                 onClick={() => setCreatingFolder(true)}
               >
                 New folder
               </Button>
             </div>
-            <Button
-              fullWidth
-              leftSection={<Upload size={18} />}
-              onClick={() => props.onImport(library)}
-            >
+            <Button fullWidth leftSection={<Upload size={16} />} onClick={() => setImporting(true)}>
               Import images
             </Button>
           </div>
@@ -141,7 +141,7 @@ function LibraryMediaPane(props: {
           libraryRoot={libraryRoot}
           currentDirectory={currentDirectory}
           onClose={() => setCreatingFolder(false)}
-          onCreated={() => void libraryState.refresh()}
+          onCreated={() => void state.refresh()}
         />
       )}
       {editing && (
@@ -154,23 +154,23 @@ function LibraryMediaPane(props: {
           onBeforeChange={props.onBeforeChange}
           onClose={() => setEditing(null)}
           onChanged={(options) => {
-            void libraryState.refresh();
-            props.onChanged(library, options);
+            void state.refresh();
+            props.onChanged(options);
           }}
         />
       )}
       {deleting && (
         <DeleteImageLibraryAssetsDialog
           libraryRoot={libraryRoot}
-          assets={libraryState.assets.filter((asset) => selected.has(asset.metadataPath))}
+          assets={state.assets.filter((asset) => selected.has(asset.metadataPath))}
           directories={[...selectedDirectories]}
           onClose={() => setDeleting(false)}
           onDeleted={() => {
             setSelected(new Set());
             setSelectedDirectories(new Set());
             setSelectionMode(false);
-            void libraryState.refresh();
-            props.onChanged(library, { silent: true });
+            void state.refresh();
+            props.onChanged({ silent: true });
           }}
         />
       )}
@@ -181,27 +181,42 @@ function LibraryMediaPane(props: {
           config={props.config}
           groups={props.groups}
           libraryRoot={libraryRoot}
-          directories={libraryState.directories}
-          assets={libraryState.assets}
-          movingAssets={libraryState.assets.filter((asset) => selected.has(asset.metadataPath))}
+          directories={state.directories}
+          assets={state.assets}
+          movingAssets={state.assets.filter((asset) => selected.has(asset.metadataPath))}
           movingDirectories={[...selectedDirectories]}
           onClose={() => setMoving(false)}
           onBeforeMove={props.onBeforeChange}
-          onRefresh={() => void libraryState.refresh()}
+          onRefresh={() => void state.refresh()}
           onMoved={() => {
             setSelected(new Set());
             setSelectedDirectories(new Set());
             setSelectionMode(false);
-            void libraryState.refresh();
-            props.onChanged(library);
+            void state.refresh();
+            props.onChanged();
           }}
+        />
+      )}
+      {importing && (
+        <ImageLibraryImportDialog
+          root={props.root}
+          library={library}
+          libraries={props.config.mediaLibraries ?? [library]}
+          config={props.config}
+          groups={props.groups}
+          onClose={() => setImporting(false)}
+          onImported={(_result, importedLibrary) => {
+            void refreshImageLibraryAssets(props.root, importedLibrary);
+            props.onChanged();
+          }}
+          onPublicImported={() => props.onChanged()}
         />
       )}
     </div>
   );
 }
 
-function PublicMediaPane(props: {
+function PublicMediaBrowserContent(props: {
   root: string;
   groups: FileGroup[];
   tabs: ReactNode;
@@ -237,10 +252,10 @@ function PublicMediaPane(props: {
   };
 
   return (
-    <div className="mobile-media-pane">
-      <div className="mobile-media-pane-scroll">
+    <div className="media-drawer">
+      <div className="media-drawer-scroll">
         {(error || state.error) && (
-          <Alert color="red" m="xs">
+          <Alert color="red" mb="sm">
             {error ?? `Could not read public media: ${state.error}`}
           </Alert>
         )}
@@ -282,7 +297,7 @@ function PublicMediaPane(props: {
           }}
         />
       </div>
-      <div className="mobile-media-pane-footer">
+      <div className="media-drawer-footer">
         {selected.size + selectedDirectories.size > 0 ? (
           <div className="media-selection-actions">
             <Button fullWidth variant="default" onClick={() => setMoving(true)}>
@@ -298,7 +313,7 @@ function PublicMediaPane(props: {
               <Button
                 fullWidth
                 variant={selectionMode ? "light" : "default"}
-                leftSection={<MousePointer2 size={18} />}
+                leftSection={<MousePointer2 size={16} />}
                 onClick={() => {
                   setSelected(new Set());
                   setSelectedDirectories(new Set());
@@ -310,7 +325,7 @@ function PublicMediaPane(props: {
               <Button
                 fullWidth
                 variant="default"
-                leftSection={<FolderPlus size={18} />}
+                leftSection={<FolderPlus size={16} />}
                 onClick={() => setCreatingFolder(true)}
               >
                 New folder
@@ -318,7 +333,7 @@ function PublicMediaPane(props: {
             </div>
             <Button
               fullWidth
-              leftSection={<Upload size={18} />}
+              leftSection={<Upload size={16} />}
               loading={importing}
               onClick={() => void importFiles()}
             >
@@ -393,14 +408,13 @@ function PublicMediaPane(props: {
   );
 }
 
-export function MediaLibraryPane(props: {
+function MediaBrowserContent(props: {
   root: string;
   config: PagesConfig;
   groups: FileGroup[];
   libraries: MediaLibrary[];
-  onImport: (library: MediaLibrary) => void;
   onBeforeChange: () => Promise<void>;
-  onChanged: (library: MediaLibrary | null, options?: { silent?: boolean }) => void;
+  onChanged: (options?: { silent?: boolean }) => void;
 }) {
   const [selected, setSelected] = useState(props.libraries[0]?.collection ?? PUBLIC_MEDIA_TAB);
   const library = props.libraries.find((candidate) => candidate.collection === selected);
@@ -413,25 +427,45 @@ export function MediaLibraryPane(props: {
     />
   );
   return library ? (
-    <LibraryMediaPane
+    <LibraryMediaBrowserContent
       key={library.collection}
       root={props.root}
       config={props.config}
       groups={props.groups}
       library={library}
       tabs={tabs}
-      onImport={props.onImport}
       onBeforeChange={props.onBeforeChange}
-      onChanged={(changedLibrary, options) => props.onChanged(changedLibrary, options)}
+      onChanged={props.onChanged}
     />
   ) : (
-    <PublicMediaPane
+    <PublicMediaBrowserContent
       key={PUBLIC_MEDIA_TAB}
       root={props.root}
       groups={props.groups}
       tabs={tabs}
       onBeforeChange={props.onBeforeChange}
-      onChanged={(options) => props.onChanged(null, options)}
+      onChanged={(options) => props.onChanged(options)}
+    />
+  );
+}
+
+/** Media browser shown as one of the left sidebar's two views. */
+export function MediaSidebar(props: {
+  root: string;
+  config: PagesConfig;
+  groups: FileGroup[];
+  libraries: MediaLibrary[];
+  onBeforeChange: () => Promise<void>;
+  onChanged: (options?: { silent?: boolean }) => void;
+}) {
+  return (
+    <MediaBrowserContent
+      root={props.root}
+      config={props.config}
+      groups={props.groups}
+      libraries={props.libraries}
+      onBeforeChange={props.onBeforeChange}
+      onChanged={props.onChanged}
     />
   );
 }

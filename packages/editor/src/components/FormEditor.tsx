@@ -51,8 +51,6 @@ export function FormEditor(props: {
   content: string;
   /** Absolute path of the open file; decides rich vs plain body editing. */
   path: string;
-  /** Which half of the form to show: frontmatter fields or the body editor. */
-  view: "fields" | "body";
   /** null for markdown files without a schema — fields are inferred from the
    * frontmatter's shape instead, with no validation. */
   entry: ContentEntry | null;
@@ -247,51 +245,51 @@ export function FormEditor(props: {
     return (
       <div className="form-unavailable">
         <Alert color="yellow">
-          Form editing is unavailable: the frontmatter has a YAML syntax error. Fix it in the Raw
-          tab.
+          Form editing is unavailable: the frontmatter has a YAML syntax error. Fix it in the raw
+          file view.
         </Alert>
       </div>
     );
   }
 
-  if (props.view === "body") {
-    const media = props.entry?.media ?? null;
-    // Rich editing for the markdown family (MDX mode adds import pills,
-    // component cards, and raw-JSX preservation); plain text for anything else.
-    return /\.(md|mdx|markdown)$/i.test(props.path) ? (
-      <BodyEditor
-        value={body}
-        path={props.path}
-        mdx={/\.mdx$/i.test(props.path)}
-        root={props.root}
-        configuredMedia={media}
-        entry={props.entry}
-        templateValues={values}
-        config={props.config}
-        groups={props.groups}
-        componentBlocks={props.componentBlocks}
-        entryIds={props.entryIds}
-        componentSchemaVersion={props.componentSchemaVersion}
-        onChange={onBodyEdit}
-      />
-    ) : (
-      <textarea
-        className="editor"
-        spellCheck={false}
-        value={body}
-        onChange={(e) => onBodyEdit(e.currentTarget.value)}
-      />
-    );
-  }
+  const media = props.entry?.media ?? null;
+  const bodyEditor = /\.(md|mdx|markdown)$/i.test(props.path) ? (
+    <BodyEditor
+      value={body}
+      path={props.path}
+      mdx={/\.mdx$/i.test(props.path)}
+      root={props.root}
+      configuredMedia={media}
+      entry={props.entry}
+      templateValues={values}
+      config={props.config}
+      groups={props.groups}
+      componentBlocks={props.componentBlocks}
+      entryIds={props.entryIds}
+      componentSchemaVersion={props.componentSchemaVersion}
+      onChange={onBodyEdit}
+    />
+  ) : (
+    <textarea
+      className="editor"
+      spellCheck={false}
+      placeholder="Start writing..."
+      value={body}
+      onChange={(e) => onBodyEdit(e.currentTarget.value)}
+    />
+  );
 
   return (
-    <div className="form-editor">
+    <div className="form-editor form-editor-combined">
       <div className="form-fields">
         {props.fieldsHeader}
         {fields.map((field) => (
           <FieldEditor key={field.name} field={field} path={[field.name]} ctx={ctx} />
         ))}
       </div>
+      <section className="form-body-section" aria-label="Body">
+        {bodyEditor}
+      </section>
     </div>
   );
 }

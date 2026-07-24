@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Alert } from "@mantine/core";
+import { useState, type ReactNode } from "react";
+import { Alert, Button } from "@mantine/core";
 import {
   imageLibraryContainsAsset,
   resolveImageLibraryLocation,
@@ -11,12 +11,15 @@ import {
   type MediaEntry,
   type PagesConfig,
 } from "@posto/core/pagescms/config";
-import type { FileGroup } from "@posto/ipc";
-import { useImageLibraryAssets } from "../hooks/useImageLibraryAssets";
+import { openPath, type FileGroup } from "@posto/ipc";
+import { refreshImageLibraryAssets, useImageLibraryAssets } from "../hooks/useImageLibraryAssets";
+import { chooseAndImportPublicMedia, usePublicMediaFiles } from "../hooks/usePublicMediaFiles";
+import { markdownMediaKind, publicMediaOutputPath, type MarkdownMediaPick } from "../markdownMedia";
 import { Dialog } from "./Dialog";
 import { ImageLibraryImportDialog } from "./ImageLibraryImportDialog";
-import { ImageLibraryList } from "./ImageLibraryList";
 import { ImageLibraryPickerDialog } from "./ImageLibraryPickerDialog";
+import { MediaLibraryTabs, PUBLIC_MEDIA_TAB } from "./MediaLibraryTabs";
+import { PublicMediaBrowser } from "./PublicMediaBrowser";
 
 function defaultMedia(library: MediaLibrary): MediaEntry {
   const input = library.base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
@@ -26,12 +29,14 @@ function defaultMedia(library: MediaLibrary): MediaEntry {
 function LibraryGrid(props: {
   root: string;
   library: MediaLibrary;
+  libraries: MediaLibrary[];
   subset: string;
   media: MediaEntry;
   config: PagesConfig;
   groups: FileGroup[];
+  toolbar: ReactNode;
   onClose: () => void;
-  onPick: (outputPath: string) => void;
+  onPick: (media: MarkdownMediaPick) => void;
 }) {
   const [importOpen, setImportOpen] = useState(false);
   const state = useImageLibraryAssets(props.root, props.library);
@@ -43,14 +48,34 @@ function LibraryGrid(props: {
     <ImageLibraryImportDialog
       root={props.root}
       library={props.library}
+      libraries={props.libraries}
       config={props.config}
       groups={props.groups}
       initialFolder={props.subset}
       onClose={() => setImportOpen(false)}
-      onImported={(result) => {
-        void state.refresh();
-        const output = mediaOutputPath(props.root, props.media, result.imagePath);
-        if (output) props.onPick(output);
+      onImported={(result, importedLibrary) => {
+        void refreshImageLibraryAssets(props.root, importedLibrary);
+        const media =
+          importedLibrary.collection === props.library.collection
+            ? props.media
+            : defaultMedia(importedLibrary);
+        const output = mediaOutputPath(props.root, media, result.imagePath);
+        if (output) {
+          props.onPick({
+            outputPath: output,
+            label: result.imagePath.split("/").pop() ?? "image",
+            kind: "image",
+          });
+        }
+      }}
+      onPublicImported={(path) => {
+        const outputPath = publicMediaOutputPath(props.root, path);
+        if (!outputPath) return;
+        props.onPick({
+          outputPath,
+          label: path.split("/").pop() ?? "image",
+          kind: markdownMediaKind(path),
+        });
       }}
     />
   ) : (
@@ -61,20 +86,94 @@ function LibraryGrid(props: {
       directories={state.directories}
       directory={directory}
       error={state.error}
+      toolbar={props.toolbar}
       onClose={props.onClose}
       onImport={() => setImportOpen(true)}
       onPick={(asset) => {
         const output = asset.imagePath
           ? mediaOutputPath(props.root, props.media, asset.imagePath)
           : null;
-        if (output) props.onPick(output);
+        if (output) {
+          props.onPick({
+            outputPath: output,
+            label: asset.imagePath?.split("/").pop() ?? asset.entryId,
+            kind: "image",
+            alt: typeof asset.metadata.alt === "string" ? asset.metadata.alt : undefined,
+          });
+        }
       }}
     />
   );
 }
 
-/** Image insertion for Markdown/MDX bodies. An explicit collection media source
- * selects a library (or subset); otherwise authors choose a discovered one. */
+function PublicGrid(props: {
+  root: string;
+  toolbar: ReactNode;
+  onClose: () => void;
+  onPick: (media: MarkdownMediaPick) => void;
+}) {
+  const state = usePublicMediaFiles(props.root);
+  const [currentDirectory, setCurrentDirectory] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const openDirectory = currentDirectory
+    ? `${state.publicRoot}/${currentDirectory}`
+    : state.publicRoot;
+
+  const pick = (path: string, name: string) => {
+    const outputPath = publicMediaOutputPath(props.root, path);
+    if (!outputPath) return;
+    props.onPick({ outputPath, label: name, kind: markdownMediaKind(path) });
+  };
+
+  const importFile = async () => {
+    setImporting(true);
+    setError(null);
+    try {
+      const imported = await chooseAndImportPublicMedia(props.root, currentDirectory, {
+        multiple: false,
+      });
+      if (imported[0]) {
+        await state.refresh();
+        pick(imported[0], imported[0].split("/").pop() ?? "media");
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <Dialog opened onClose={props.onClose} title="Choose from public" size="xl">
+      {(error || state.error) && (
+        <Alert color="red" mb="sm">
+          {error ?? `Could not read public media: ${state.error}`}
+        </Alert>
+      )}
+      <PublicMediaBrowser
+        rootDirectory={state.publicRoot}
+        currentDirectory={currentDirectory}
+        directories={state.directories}
+        files={state.files}
+        toolbar={props.toolbar}
+        onDirectoryChange={setCurrentDirectory}
+        onPick={(file) => pick(file.path, file.name)}
+      />
+      <div className="image-library-picker-actions">
+        <Button fullWidth variant="outline" onClick={() => void openPath(openDirectory)}>
+          Open public folder
+        </Button>
+        <Button fullWidth loading={importing} onClick={() => void importFile()}>
+          Import file
+        </Button>
+      </div>
+    </Dialog>
+  );
+}
+
+/** Media insertion for Markdown/MDX bodies. Images use Markdown image syntax,
+ * audio/video use CommonMark raw HTML, and other public files use links. */
 export function RichTextImagePickerDialog(props: {
   root: string;
   config: PagesConfig;
@@ -82,7 +181,7 @@ export function RichTextImagePickerDialog(props: {
   templateValues: Record<string, unknown>;
   groups: FileGroup[];
   onClose: () => void;
-  onPick: (outputPath: string) => void;
+  onPick: (media: MarkdownMediaPick) => void;
 }) {
   const libraries = props.config.mediaLibraries ?? [];
   const expandedMedia = props.configuredMedia
@@ -91,55 +190,34 @@ export function RichTextImagePickerDialog(props: {
   const configured = expandedMedia
     ? resolveImageLibraryLocation(libraries, expandedMedia.input)
     : null;
-  const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
-
-  if (props.configuredMedia && !expandedMedia) {
-    return (
-      <Dialog opened onClose={props.onClose} title="Choose image" size="lg">
-        <Alert color="red">
-          This collection’s media-library template cannot be resolved until its referenced fields
-          have values.
-        </Alert>
-      </Dialog>
-    );
-  }
-
-  if (expandedMedia && !configured) {
-    return (
-      <Dialog opened onClose={props.onClose} title="Choose image" size="lg">
-        <Alert color="red">
-          This collection’s configured media folder ({expandedMedia.input}) is not a recognized
-          media library or an included subfolder of one.
-        </Alert>
-      </Dialog>
-    );
-  }
-
-  if (configured && expandedMedia) {
-    return (
-      <LibraryGrid
-        root={props.root}
-        library={configured.library}
-        subset={configured.subset}
-        media={expandedMedia}
-        config={props.config}
-        groups={props.groups}
-        onClose={props.onClose}
-        onPick={props.onPick}
-      />
-    );
-  }
-
+  const [selectedCollection, setSelectedCollection] = useState(
+    configured?.library.collection ??
+      (props.configuredMedia ? PUBLIC_MEDIA_TAB : (libraries[0]?.collection ?? PUBLIC_MEDIA_TAB)),
+  );
   const selected = libraries.find((library) => library.collection === selectedCollection) ?? null;
+  const effectiveSelection = selected ? selectedCollection : PUBLIC_MEDIA_TAB;
+  const toolbar = (
+    <MediaLibraryTabs
+      libraries={libraries}
+      selected={effectiveSelection}
+      onSelect={setSelectedCollection}
+    />
+  );
+
   if (selected) {
+    const selectedConfigured =
+      configured?.library.collection === selected.collection && expandedMedia ? configured : null;
     return (
       <LibraryGrid
+        key={selected.collection}
         root={props.root}
         library={selected}
-        subset=""
-        media={defaultMedia(selected)}
+        libraries={libraries}
+        subset={selectedConfigured?.subset ?? ""}
+        media={selectedConfigured ? expandedMedia! : defaultMedia(selected)}
         config={props.config}
         groups={props.groups}
+        toolbar={toolbar}
         onClose={props.onClose}
         onPick={props.onPick}
       />
@@ -147,15 +225,6 @@ export function RichTextImagePickerDialog(props: {
   }
 
   return (
-    <Dialog opened onClose={props.onClose} title="Choose image library" size="sm">
-      {libraries.length === 0 ? (
-        <Alert color="red">This project has no recognized media libraries.</Alert>
-      ) : (
-        <ImageLibraryList
-          libraries={libraries}
-          onChoose={(library) => setSelectedCollection(library.collection)}
-        />
-      )}
-    </Dialog>
+    <PublicGrid root={props.root} toolbar={toolbar} onClose={props.onClose} onPick={props.onPick} />
   );
 }

@@ -73,7 +73,23 @@ export function DeploymentStatus({
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [now, setNow] = useState(() => Date.now());
   const [error, setError] = useState<string | null>(null);
+  const [pagesUrl, setPagesUrl] = useState<string | null>(null);
   const siteUrl = useSiteUrl(root, adapter, siteUrlVersion);
+
+  useEffect(() => {
+    let active = true;
+    setPagesUrl(null);
+    void invoke<string | null>("github_pages_url", { owner, name })
+      .then((url) => {
+        if (active) setPagesUrl(url);
+      })
+      .catch(() => {
+        if (active) setPagesUrl(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [owner, name]);
 
   useEffect(() => {
     let active = true;
@@ -105,6 +121,7 @@ export function DeploymentStatus({
 
   const ring = useMemo(() => computeDeploymentRing(runs.map(toDeploymentRun), now), [runs, now]);
   const actionsUrl = `https://github.com/${owner}/${name}/actions`;
+  const liveSiteUrl = siteUrl ?? pagesUrl;
   const color = RING_COLOR[ring.state] ?? "gray";
   const label = ring.done ? (
     <span className="deployment-ring-label">
@@ -121,47 +138,50 @@ export function DeploymentStatus({
   ) : undefined;
 
   return (
-    <main className="mobile-settings-screen">
-      <Stack gap="lg" align="center" mt="md">
-        {error && (
-          <Alert color="red" variant="light" w="100%">
-            {error}
-          </Alert>
-        )}
-        <RingProgress
-          size={220}
-          thickness={18}
-          roundCaps
-          sections={[{ value: ring.value, color }]}
-          label={label}
-        />
-        <Stack gap={2} align="center">
-          <Text fw={600} size="lg">
-            {statusText(ring.state)}
-          </Text>
-          <Text c="dimmed" size="sm">
-            {owner}/{name} · main
-          </Text>
+    <main className="mobile-deployment-screen">
+      <div className="mobile-deployment-scroll">
+        <Stack gap="lg" align="center">
+          {error && (
+            <Alert color="red" variant="light" w="100%">
+              {error}
+            </Alert>
+          )}
+          <RingProgress
+            size={220}
+            thickness={18}
+            roundCaps
+            sections={[{ value: ring.value, color }]}
+            label={label}
+          />
+          <Stack gap={2} align="center">
+            <Text fw={600} size="lg">
+              {statusText(ring.state)}
+            </Text>
+            <Text c="dimmed" size="sm">
+              {owner}/{name} · main
+            </Text>
+          </Stack>
+          {liveSiteUrl && (
+            <Button
+              variant="light"
+              leftSection={<Globe size={18} />}
+              onClick={() => void openUrl(liveSiteUrl)}
+            >
+              Open Site
+            </Button>
+          )}
         </Stack>
-        <Stack gap="sm" align="center">
-          <Button
-            variant="light"
-            rightSection={<ExternalLink size={18} />}
-            onClick={() => void openUrl(actionsUrl)}
-          >
-            View on GitHub Actions
-          </Button>
-          <Button
-            variant="subtle"
-            color="gray"
-            leftSection={<Globe size={18} />}
-            disabled={!siteUrl}
-            onClick={() => siteUrl && void openUrl(siteUrl)}
-          >
-            Open Site
-          </Button>
-        </Stack>
-      </Stack>
+      </div>
+      <div className="mobile-deployment-footer">
+        <Button
+          fullWidth
+          variant="light"
+          rightSection={<ExternalLink size={18} />}
+          onClick={() => void openUrl(actionsUrl)}
+        >
+          View on GitHub Actions
+        </Button>
+      </div>
     </main>
   );
 }

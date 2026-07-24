@@ -72,6 +72,13 @@ export function useImageLibraryImport(input: {
     setError(null);
   }
 
+  function retarget(library: MediaLibrary) {
+    setFolder("");
+    setDrafts((current) => current.map((draft) => makeDraft(draft.sourceImagePath, library)));
+    setIndex(0);
+    setError(null);
+  }
+
   function updateDraft(
     at: number,
     update: (draft: ImageLibraryImportDraft) => ImageLibraryImportDraft,
@@ -164,6 +171,7 @@ export function useImageLibraryImport(input: {
     folder,
     setFolder,
     setSources,
+    retarget,
     updateDraft,
     chooseSources,
     plan,

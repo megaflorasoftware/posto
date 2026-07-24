@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { beforeAll, expect, test } from "vitest";
-import { invoke } from "../src/index";
+import { importPublicMediaFile, invoke } from "../src/index";
 import { installMockBackend } from "../src/mock";
 import { detectProject } from "@posto/core/project/detect";
 
@@ -71,6 +71,25 @@ test("recursive listings skip hidden entries and generated directories", async (
     "/mock/site/.posto/collections/pages.json",
     "/mock/site/.posto/index.json",
   ]);
+});
+
+test("public media imports copy a file without a metadata sidecar", async () => {
+  await expect(
+    importPublicMediaFile({
+      repositoryRoot: "/mock/site",
+      sourceFilePath: "/mock/uploads/brochure.pdf",
+      directory: "downloads",
+    }),
+  ).resolves.toBe("/mock/site/public/downloads/brochure.pdf");
+  await expect(
+    invoke("list_dir_files", { dir: "/mock/site/public", extensions: ["pdf"] }),
+  ).resolves.toContainEqual({
+    name: "brochure.pdf",
+    path: "/mock/site/public/downloads/brochure.pdf",
+  });
+  await expect(
+    invoke("list_dir_files", { dir: "/mock/site/public/downloads", extensions: ["yml"] }),
+  ).resolves.toEqual([]);
 });
 
 test("path existence matches native file and directory semantics", async () => {

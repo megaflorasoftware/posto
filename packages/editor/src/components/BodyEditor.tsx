@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert } from "@mantine/core";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, RichTextEditor } from "@mantine/tiptap";
 import { useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import { Markdown } from "@tiptap/markdown";
-import { Blocks, CodeXml, Image as ImageIcon } from "lucide-react";
+import { Blocks, CodeXml, Paperclip } from "lucide-react";
 
 import { assetUrl } from "@posto/ipc";
 import type { FileGroup } from "@posto/ipc";
@@ -30,6 +29,7 @@ import {
   type ComponentBlockSchema,
 } from "./MdxNodes";
 import { useProjectIO } from "../projectIO";
+import { markdownMediaEditorContent } from "../markdownMedia";
 
 /** An import statement managed outside the document, with its bindings. */
 interface ManagedImport {
@@ -92,13 +92,14 @@ export function BodyEditor(props: {
   componentBlocks: ComponentSchemaSource | null;
   entryIds: EntryIdSource | null;
   componentSchemaVersion?: number;
+  toolbarLeading?: ReactNode;
+  toolbarTrailing?: ReactNode;
   onChange: (markdown: string) => void;
 }) {
   const { mdx, componentBlocksEnabled } = bodyEditorMode(props.mdx, props.componentBlocks);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [componentPickerOpen, setComponentPickerOpen] = useState(false);
   const [schemas, setSchemas] = useState<Record<string, ComponentBlockSchema>>({});
-  const [componentDiagnostics, setComponentDiagnostics] = useState<string[]>([]);
   const projectIO = useProjectIO();
   const configuredMedia = props.configuredMedia
     ? expandMediaEntry(props.configuredMedia, props.templateValues)
@@ -139,6 +140,12 @@ export function BodyEditor(props: {
   // once) always sees the current root/media libraries.
   const resolveSrc = (src: string): string => {
     if (!src.startsWith("/")) return src;
+    let filesystemSrc = src;
+    try {
+      filesystemSrc = decodeURIComponent(src);
+    } catch {
+      // Keep malformed percent escapes displayable through the existing path.
+    }
     const libraryMedia = (props.config.mediaLibraries ?? []).map((library) => {
       const input = library.base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
       return { name: `library:${library.collection}`, input, output: `/${input}` };
@@ -147,11 +154,13 @@ export function BodyEditor(props: {
       (media): media is MediaEntry => media !== null,
     );
     const absolute = candidates
-      .map((media) => mediaInputPath(props.root, media, src))
+      .map((media) => mediaInputPath(props.root, media, filesystemSrc))
       .find((path): path is string => path !== null);
     // Site-root paths outside the media source usually live in the site's
     // `public` folder, which is served from `/` — try there before giving up.
-    return (absolute && assetUrl(absolute)) || assetUrl(props.root + "/public" + src) || src;
+    return (
+      (absolute && assetUrl(absolute)) || assetUrl(props.root + "/public" + filesystemSrc) || src
+    );
   };
   const resolveRef = useRef(resolveSrc);
   resolveRef.current = resolveSrc;
@@ -183,7 +192,18 @@ export function BodyEditor(props: {
     extensions,
     content: initial.body,
     contentType: "markdown",
+    editorProps: {
+      attributes: {
+        "aria-label": "Body",
+        "data-empty": initial.body.trim() === "" ? "true" : "false",
+        "data-placeholder": "Start writing...",
+      },
+    },
+    onCreate: ({ editor }) => {
+      editor.view.dom.dataset.empty = editor.isEmpty ? "true" : "false";
+    },
     onUpdate: ({ editor }) => {
+      editor.view.dom.dataset.empty = editor.isEmpty ? "true" : "false";
       const markdown = composeMarkdown(editor.getMarkdown());
       lastEmitted.current = markdown;
       props.onChange(markdown);
@@ -198,6 +218,7 @@ export function BodyEditor(props: {
     importsRef.current = toManagedImports(next.imports, next.body);
     if (next.body === editor.getMarkdown()) return;
     editor.commands.setContent(next.body, { contentType: "markdown", emitUpdate: false });
+    editor.view.dom.dataset.empty = editor.isEmpty ? "true" : "false";
   }, [editor, props.value]);
 
   // The active adapter owns component discovery and prop parsing. The editor
@@ -208,12 +229,10 @@ export function BodyEditor(props: {
     let cancelled = false;
     void (async () => {
       const loaded: Record<string, ComponentBlockSchema> = {};
-      const diagnostics: string[] = [];
       const source = props.componentBlocks;
       if (!source) {
         if (!cancelled) {
           setSchemas({});
-          setComponentDiagnostics([]);
           componentSchemas.current = {};
           editor?.view.dispatch(editor.state.tr.setMeta("mdxSchemas", true));
         }
@@ -231,7 +250,6 @@ export function BodyEditor(props: {
             props.config,
           );
           if (!result) continue;
-          diagnostics.push(...result.diagnostics.map((diagnostic) => diagnostic.message));
           for (const name of names) {
             loaded[name] = {
               fields: result.fields,
@@ -239,13 +257,10 @@ export function BodyEditor(props: {
               hasDefaultSlot: result.hasDefaultSlot ?? false,
             };
           }
-        } catch (error) {
-          diagnostics.push(`Could not inspect component ${file}: ${String(error)}`);
-        }
+        } catch {}
       }
       if (cancelled) return;
       setSchemas(loaded);
-      setComponentDiagnostics([...new Set(diagnostics)]);
       // The markdown pipeline and the slot-sync plugin read schemas outside
       // React; the poke transaction makes slot sync run with the new data.
       componentSchemas.current = loaded;
@@ -339,11 +354,6 @@ export function BodyEditor(props: {
           templateValues: props.templateValues,
         }}
       >
-        {componentDiagnostics.map((diagnostic) => (
-          <Alert key={diagnostic} color="yellow" title="Component schema issue">
-            {diagnostic}
-          </Alert>
-        ))}
         <RichTextEditor
           editor={editor}
           className="body-rich-editor"
@@ -352,55 +362,65 @@ export function BodyEditor(props: {
           classNames={{ Typography: "body-rich-typography", content: "body-rich-content" }}
         >
           <RichTextEditor.Toolbar>
-            <RichTextEditor.ControlsGroup>
-              <RichTextEditor.H1 />
-              <RichTextEditor.H2 />
-              <RichTextEditor.H3 />
-              <RichTextEditor.H4 />
-            </RichTextEditor.ControlsGroup>
-            <RichTextEditor.ControlsGroup>
-              <RichTextEditor.Bold />
-              <RichTextEditor.Italic />
-              <RichTextEditor.Strikethrough />
-            </RichTextEditor.ControlsGroup>
-            <RichTextEditor.ControlsGroup>
-              <RichTextEditor.BulletList />
-              <RichTextEditor.OrderedList />
-              <RichTextEditor.Blockquote />
-              <RichTextEditor.CodeBlock />
-              <RichTextEditor.Hr />
-            </RichTextEditor.ControlsGroup>
-            <RichTextEditor.ControlsGroup>
-              <RichTextEditor.Link />
-              <RichTextEditor.Unlink />
-              <RichTextEditor.Control
-                title="Insert image"
-                aria-label="Insert image"
-                onClick={() => setPickerOpen(true)}
-              >
-                <ImageIcon size={16} />
-              </RichTextEditor.Control>
-              <RichTextEditor.Control
-                title="Insert HTML"
-                aria-label="Insert HTML"
-                onClick={insertHtml}
-              >
-                <CodeXml size={16} />
-              </RichTextEditor.Control>
-              {mdx && componentBlocksEnabled && (
+            {props.toolbarLeading && (
+              <div className="body-rich-toolbar-edge">{props.toolbarLeading}</div>
+            )}
+            <div className="body-rich-toolbar-controls">
+              <RichTextEditor.ControlsGroup>
+                <RichTextEditor.H1 />
+                <RichTextEditor.H2 />
+                <RichTextEditor.H3 />
+                <RichTextEditor.H4 />
+              </RichTextEditor.ControlsGroup>
+              <RichTextEditor.ControlsGroup>
+                <RichTextEditor.Bold />
+                <RichTextEditor.Italic />
+                <RichTextEditor.Strikethrough />
+              </RichTextEditor.ControlsGroup>
+              <RichTextEditor.ControlsGroup>
+                <RichTextEditor.BulletList />
+                <RichTextEditor.OrderedList />
+                <RichTextEditor.Blockquote />
+                <RichTextEditor.CodeBlock />
+                <RichTextEditor.Hr />
+              </RichTextEditor.ControlsGroup>
+              <RichTextEditor.ControlsGroup>
+                <RichTextEditor.Link />
+                <RichTextEditor.Unlink />
                 <RichTextEditor.Control
-                  title="Insert component"
-                  aria-label="Insert component"
-                  onClick={() => setComponentPickerOpen(true)}
+                  title="Insert media"
+                  aria-label="Insert media"
+                  onClick={() => setPickerOpen(true)}
                 >
-                  <Blocks size={16} />
+                  <Paperclip size={16} />
                 </RichTextEditor.Control>
-              )}
-            </RichTextEditor.ControlsGroup>
-            <RichTextEditor.ControlsGroup>
-              <RichTextEditor.Undo />
-              <RichTextEditor.Redo />
-            </RichTextEditor.ControlsGroup>
+                <RichTextEditor.Control
+                  title="Insert HTML"
+                  aria-label="Insert HTML"
+                  onClick={insertHtml}
+                >
+                  <CodeXml size={16} />
+                </RichTextEditor.Control>
+                {mdx && componentBlocksEnabled && (
+                  <RichTextEditor.Control
+                    title="Insert component"
+                    aria-label="Insert component"
+                    onClick={() => setComponentPickerOpen(true)}
+                  >
+                    <Blocks size={16} />
+                  </RichTextEditor.Control>
+                )}
+              </RichTextEditor.ControlsGroup>
+              <RichTextEditor.ControlsGroup>
+                <RichTextEditor.Undo />
+                <RichTextEditor.Redo />
+              </RichTextEditor.ControlsGroup>
+            </div>
+            {props.toolbarTrailing && (
+              <div className="body-rich-toolbar-edge" aria-hidden={!props.toolbarTrailing}>
+                {props.toolbarTrailing}
+              </div>
+            )}
           </RichTextEditor.Toolbar>
           <div className="body-rich-scroll">
             <RichTextEditor.Content />
@@ -413,9 +433,9 @@ export function BodyEditor(props: {
               templateValues={props.templateValues}
               groups={props.groups}
               onClose={() => setPickerOpen(false)}
-              onPick={(outputPath) => {
+              onPick={(media) => {
                 setPickerOpen(false);
-                editor?.chain().focus().setImage({ src: outputPath }).run();
+                editor?.chain().focus().insertContent(markdownMediaEditorContent(media)).run();
               }}
             />
           )}

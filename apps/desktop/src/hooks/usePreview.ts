@@ -26,7 +26,9 @@ export function usePreview(options: Options) {
   // While the split divider is being dragged, the preview iframe must not
   // receive pointer events or it swallows the drag mid-motion.
   const [dragging, setDragging] = useState(false);
-  const [split, setSplit] = useState(33);
+  const [sidebarDragging, setSidebarDragging] = useState(false);
+  const [sidebarSplit, setSidebarSplit] = useState(100 / 6);
+  const [split, setSplit] = useState(40);
 
   const previewRouteRef = useRef(previewRoute);
   previewRouteRef.current = previewRoute;
@@ -36,10 +38,14 @@ export function usePreview(options: Options) {
   const previewFrame = useRef<HTMLIFrameElement | null>(null);
   const lastNavigatedRoute = useRef<string | undefined>(undefined);
   const lastServedRoute = useRef<string | null>(null);
+  const bodyEl = useRef<HTMLDivElement | null>(null);
   const panesEl = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const stopDragging = () => setDragging(false);
+    const stopDragging = () => {
+      setDragging(false);
+      setSidebarDragging(false);
+    };
     window.addEventListener("pointerup", stopDragging);
     window.addEventListener("pointercancel", stopDragging);
     return () => {
@@ -142,6 +148,13 @@ export function usePreview(options: Options) {
     setSplit(Math.min(85, Math.max(15, pct)));
   }
 
+  function onSidebarDividerPointerMove(e: React.PointerEvent) {
+    if (!sidebarDragging || !bodyEl.current) return;
+    const rect = bodyEl.current.getBoundingClientRect();
+    const pct = ((e.clientX - rect.left) / rect.width) * 100;
+    setSidebarSplit(Math.min(50, Math.max(10, pct)));
+  }
+
   /** Point the preview at a route imperatively. Navigates the iframe directly
    * (rather than relying on the previewRoute effect) so it works even when the
    * route hasn't changed — e.g. the user clicked into a sub-page inside the
@@ -170,11 +183,15 @@ export function usePreview(options: Options) {
     previewRoute,
     servedRoute,
     previewFrame,
+    bodyEl,
     panesEl,
+    sidebarSplit,
     split,
-    dragging,
+    dragging: dragging || sidebarDragging,
     setDragging,
+    setSidebarDragging,
     onDividerPointerMove,
+    onSidebarDividerPointerMove,
     navigateForFile,
     resetRoute,
     goHome,

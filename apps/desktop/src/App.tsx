@@ -1,7 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, MantineProvider } from "@mantine/core";
+import { ActionIcon, Button, MantineProvider, Modal, Switch } from "@mantine/core";
 import { Notifications, notifications } from "@mantine/notifications";
-import { invoke, onFsChanged, openDirectory } from "@posto/ipc";
+import {
+  invoke,
+  onFsChanged,
+  onOpenFile,
+  onOpenFullscreenEditor,
+  onOpenRecent,
+  onOpenRepository,
+  onOpenSettings,
+  onOpenSiblingProject,
+  openDirectory,
+  setOpenFileMenuEnabled,
+  setFullscreenEditorMenuEnabled,
+  setRepositoryMenuItemsEnabled,
+} from "@posto/ipc";
 import { checkForAppUpdate } from "./updater";
 import type { ChangedFile, FileEntry, FileGroup } from "@posto/ipc";
 import { EMPTY_CONFIG, matchEntry, renamedFilename } from "@posto/core/pagescms/config";
@@ -15,12 +28,12 @@ import {
 import {
   EditorPane,
   ImageLibraryDropImport,
+  OpenFileSpotlight,
   PublishModal,
   Sidebar,
   buildNewFile,
   createDataDocumentEntry,
   deleteDataDocumentEntry,
-  contentHasFields,
   renameTargetForContent,
   useCurrentFile,
   useFileGroups,
@@ -35,10 +48,17 @@ import {
 import { useDevServer } from "./hooks/useDevServer";
 import { usePreview } from "./hooks/usePreview";
 import { useDeployment } from "./hooks/useDeployment";
-import { AppHeader } from "./components/AppHeader";
 import { DeploymentDrawer } from "./components/DeploymentDrawer";
-import { MediaDrawer } from "./components/MediaDrawer";
+import { MediaSidebar } from "./components/MediaSidebar";
 import { PreviewPane } from "./components/PreviewPane";
+import { RecentProjectsSpotlight } from "./components/RecentProjectsSpotlight";
+import {
+  ChevronLeft,
+  Files,
+  Image as ImageIcon,
+  PanelLeftClose,
+  PanelLeftOpen,
+} from "lucide-react";
 
 import "@mantine/core/styles.css";
 import "@mantine/tiptap/styles.css";
@@ -60,10 +80,16 @@ function App() {
   const { projectInfo, adapter } = projectSession;
   // Recently-opened site roots, newest first (backend caps at 10).
   const [recentRoots, setRecentRoots] = useState<string[]>([]);
-  // Editor tab choice sticks for the session; Markdown opens on Body by default.
-  const [editorTab, setEditorTab] = useState<EditorTab>("body");
+  // Raw source is a developer-only alternate view of the continuous editor.
+  const [editorTab, setEditorTab] = useState<EditorTab>("content");
   const [publishOpen, setPublishOpen] = useState(false);
-  const [mediaOpen, setMediaOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [developerMode, setDeveloperMode] = useState(false);
+  const [sidebarView, setSidebarView] = useState<"files" | "media">("files");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [fullscreenEditorOpen, setFullscreenEditorOpen] = useState(false);
+  const [openFileSpotlightOpen, setOpenFileSpotlightOpen] = useState(false);
+  const [recentProjectsSpotlightOpen, setRecentProjectsSpotlightOpen] = useState(false);
   // Bumped after each successful save so the SEO preview refetches the page.
   const [saveTick, setSaveTick] = useState(0);
   const [componentSchemaVersion, setComponentSchemaVersion] = useState(0);
@@ -112,25 +138,10 @@ function App() {
     },
     onOpened(path, content, file) {
       if (file?.dataEntry) {
-        setEditorTab("fields");
+        setEditorTab("content");
         return;
       }
-      // On opening a markdown file, keep the last selected tab when it has
-      // content to show, otherwise fall over to the tab that does: no fields
-      // → Body; empty body but fields present → Fields. Raw stays sticky.
-      if (/\.(md|mdx|markdown)$/i.test(path)) {
-        const dir = rootRef.current;
-        const cfg = schemas.configRef.current;
-        const openedEntry = dir && cfg ? matchEntry(cfg, dir, path) : null;
-        const parsed = parseFile(content);
-        const hasFields = contentHasFields(openedEntry, parsed);
-        const hasBody = parsed.body.trim() !== "";
-        setEditorTab((last) => {
-          if (last === "fields" && !hasFields) return "body";
-          if (last === "body" && !hasBody && hasFields) return "fields";
-          return last;
-        });
-      }
+      if (!/\.(md|mdx|markdown)$/i.test(path)) setEditorTab("raw");
       if (navigatePreviewRef.current) void preview.navigateForFile(path, content);
     },
     onOpenError(message) {
@@ -347,11 +358,10 @@ function App() {
       return;
     }
     await refreshGroups(dir);
-    // A new markdown file with a schema should land on its form, not on
-    // whichever tab was last active (an empty file's Body/Raw view is blank).
+    // A new markdown file with a schema should land in the visual editor.
     const cfg = schemas.configRef.current;
     if (/\.(md|mdx)$/i.test(path) && cfg && matchEntry(cfg, dir, path) !== null) {
-      setEditorTab("fields");
+      setEditorTab("content");
     }
     openFile(path);
   }
@@ -365,7 +375,10 @@ function App() {
     const target = renameTargetForContent(dir, path, content, schemaSources());
     if (!target) return;
     // Another entry already owns the name; keep ours until the fields change.
-    if (files.groupsRef.current.some((g) => g.files.some((f) => f.path === target))) return;
+    if (files.groupsRef.current.some((g) => g.files.some((f) => f.path === target))) {
+      notify(`A file named ${target.slice(target.lastIndexOf("/") + 1)} already exists.`, "error");
+      return;
+    }
     if (!(await currentFile.renameOpenFile(path, target))) return;
     void refreshGroups(dir);
     void preview.navigateForFile(target, content);
@@ -449,12 +462,31 @@ function App() {
 
   const externalChangesRef = useRef(onExternalChanges);
   externalChangesRef.current = onExternalChanges;
+  const chooseDirectoryRef = useRef(chooseDirectory);
+  chooseDirectoryRef.current = chooseDirectory;
+  const chooseProjectInRepositoryRef = useRef(chooseProjectInRepository);
+  chooseProjectInRepositoryRef.current = chooseProjectInRepository;
 
   useEffect(() => {
     const unlistenFs = onFsChanged((paths) => externalChangesRef.current(paths));
+    const unlistenSettings = onOpenSettings(() => setSettingsOpen(true));
+    const unlistenOpenFile = onOpenFile(() => {
+      if (rootRef.current) setOpenFileSpotlightOpen(true);
+    });
+    const unlistenOpenRepository = onOpenRepository(() => {
+      void chooseDirectoryRef.current();
+    });
+    const unlistenOpenRecent = onOpenRecent(() => setRecentProjectsSpotlightOpen(true));
+    const unlistenOpenSiblingProject = onOpenSiblingProject(() => {
+      void chooseProjectInRepositoryRef.current();
+    });
+    const unlistenFullscreenEditor = onOpenFullscreenEditor(() => {
+      if (currentFile.filePathRef.current) setFullscreenEditorOpen(true);
+    });
     // One update check per app launch, once the UI is up.
     void checkForAppUpdate();
     void refreshRecentRoots();
+    void invoke<boolean>("get_developer_mode").then(setDeveloperMode).catch(notifyError);
     void (async () => {
       const last = await invoke<{ root: string; workDir: string | null } | null>(
         "get_last_selection",
@@ -466,6 +498,12 @@ function App() {
     })();
     return () => {
       unlistenFs();
+      unlistenSettings();
+      unlistenOpenFile();
+      unlistenOpenRepository();
+      unlistenOpenRecent();
+      unlistenOpenSiblingProject();
+      unlistenFullscreenEditor();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -560,43 +598,127 @@ function App() {
           ? (projectInfo?.type ?? null)
           : null;
 
+  useEffect(() => {
+    if (!fullscreenEditorOpen) return;
+    const exitOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFullscreenEditorOpen(false);
+    };
+    window.addEventListener("keydown", exitOnEscape);
+    return () => window.removeEventListener("keydown", exitOnEscape);
+  }, [fullscreenEditorOpen]);
+
+  useEffect(() => {
+    if (!root) setOpenFileSpotlightOpen(false);
+    void setOpenFileMenuEnabled(root !== null).catch(notifyError);
+  }, [root, notifyError]);
+
+  useEffect(() => {
+    const hasRecent = recentRoots.some((repository) => repository !== repoRoot);
+    void setRepositoryMenuItemsEnabled(hasRecent, projectSession.hasMultipleProjects).catch(
+      notifyError,
+    );
+  }, [recentRoots, repoRoot, projectSession.hasMultipleProjects, notifyError]);
+
+  useEffect(() => {
+    void setFullscreenEditorMenuEnabled(currentFile.filePath !== null).catch(notifyError);
+  }, [currentFile.filePath, notifyError]);
+
+  const renderFullscreenExit = () => (
+    <ActionIcon
+      size={26}
+      variant="subtle"
+      color="gray"
+      title="Exit fullscreen editor"
+      aria-label="Exit fullscreen editor"
+      onClick={() => setFullscreenEditorOpen(false)}
+    >
+      <ChevronLeft size={16} />
+    </ActionIcon>
+  );
+  const renderEditorPane = (withFullscreenButton = false, fullscreen = false) =>
+    root ? (
+      <EditorPane
+        root={root}
+        projectIO={ipcProjectIO}
+        filePath={currentFile.filePath}
+        fileContent={currentFile.fileContent}
+        saveState={currentFile.saveState}
+        entry={entry}
+        dataEntry={currentFile.dataEntry}
+        entrySource={entrySource}
+        config={config}
+        configError={schemas.configError}
+        hasDerivedFallback={schemas.derivedConfig !== null}
+        componentBlocks={adapter.capabilities.componentBlocks}
+        entryIds={adapter.capabilities.entryIds}
+        componentSchemaVersion={componentSchemaVersion}
+        groups={files.groups}
+        editorTab={editorTab}
+        onTabChange={setEditorTab}
+        onEdit={currentFile.onEdit}
+        onFormEdit={currentFile.onFormEdit}
+        onRenameFile={renameOpenFilename}
+        onRefreshFilename={refreshFilenameTemplate}
+        onPostoSaved={() => void schemas.loadPostoConfig(root)}
+        developerMode={developerMode}
+        onFullscreen={withFullscreenButton ? () => setFullscreenEditorOpen(true) : undefined}
+        headerLeading={fullscreen ? renderFullscreenExit() : undefined}
+      />
+    ) : null;
+
+  const renderPreviewPane = () =>
+    root ? (
+      <PreviewPane
+        root={root}
+        server={devServer.server}
+        previewRoute={preview.previewRoute}
+        servedRoute={preview.servedRoute}
+        previewFrame={preview.previewFrame}
+        dragging={preview.dragging}
+        media={config?.media[0] ?? null}
+        saveTick={saveTick}
+        onRestart={() => void devServer.restartServer(root)}
+        onRetry={() => void devServer.startServer(root)}
+        onInstall={(steps) => void devServer.runSetup(root, steps)}
+        onHome={preview.goHome}
+        deployment={deployment}
+        behindUpstream={git.behindUpstream}
+        pulling={git.pulling}
+        hasLocalChanges={git.hasLocalChanges}
+        onFetchChanges={() => void git.fetchChanges()}
+        onOpenPublish={() => void openPublishModal()}
+      />
+    ) : null;
+
   return (
     <MantineProvider defaultColorScheme="auto">
       <Notifications position="bottom-right" />
       <div className="app">
-        <AppHeader
-          root={root}
-          repoRoot={repoRoot}
-          canSwitchProject={projectSession.hasMultipleProjects}
-          recentRoots={recentRoots}
-          behindUpstream={git.behindUpstream}
-          pulling={git.pulling}
-          hasLocalChanges={git.hasLocalChanges}
-          onChooseDirectory={() => void chooseDirectory()}
-          onSelectRoot={(dir) => void selectRepository(dir)}
-          onSwitchProject={() => void chooseProjectInRepository()}
-          deployment={deployment}
-          canOpenMedia={adapter.capabilities.mediaLibraries && !!config?.mediaLibraries?.length}
-          onOpenMedia={() => setMediaOpen(true)}
-          onFetchChanges={() => void git.fetchChanges()}
-          onOpenPublish={() => void openPublishModal()}
-        />
-
-        <DeploymentDrawer deployment={deployment} siteUrl={siteUrl} />
-
-        {root && config && (
-          <MediaDrawer
-            opened={mediaOpen}
-            onClose={() => setMediaOpen(false)}
+        {openFileSpotlightOpen && root && (
+          <OpenFileSpotlight
             root={root}
-            config={config}
             groups={files.groups}
-            onImported={() => {
-              notify("Image imported. Publish when you are ready.", "success");
-              void refreshGroups(root);
+            config={config}
+            onClose={() => setOpenFileSpotlightOpen(false)}
+            onOpen={(file) => {
+              setOpenFileSpotlightOpen(false);
+              openFile(file);
             }}
           />
         )}
+        {recentProjectsSpotlightOpen && (
+          <RecentProjectsSpotlight
+            roots={recentRoots}
+            currentRoot={repoRoot}
+            onClose={() => setRecentProjectsSpotlightOpen(false)}
+            onOpen={(repository) => {
+              setRecentProjectsSpotlightOpen(false);
+              void selectRepository(repository);
+            }}
+          />
+        )}
+
+        <DeploymentDrawer deployment={deployment} siteUrl={siteUrl} />
 
         <PublishModal
           opened={publishOpen}
@@ -615,6 +737,21 @@ function App() {
             });
           }}
         />
+
+        <Modal opened={settingsOpen} onClose={() => setSettingsOpen(false)} title="Settings">
+          <Switch
+            label="Enable developer mode"
+            checked={developerMode}
+            onChange={(event) => {
+              const enabled = event.currentTarget.checked;
+              setDeveloperMode(enabled);
+              void invoke("set_developer_mode", { enabled }).catch((error) => {
+                setDeveloperMode(!enabled);
+                notify(`Could not save settings: ${String(error)}`, "error");
+              });
+            }}
+          />
+        </Modal>
 
         {root && config && (
           <ImageLibraryDropImport
@@ -637,48 +774,114 @@ function App() {
           </div>
         ) : !root ? (
           <div className="empty-state">
-            <p>Select the folder that holds your site to get started.</p>
+            <p>Open a repository from the File menu to get started.</p>
             <Button onClick={() => void chooseDirectory()}>Choose directory</Button>
           </div>
         ) : (
-          <div className="body">
-            <Sidebar
-              root={root}
-              groups={files.groups}
-              config={config}
-              activeKey={currentFile.activeKey}
-              onOpen={(file) => openFile(file)}
-              onDelete={(file) => void deleteFile(file)}
-              onNewFile={(group) => void createNewFile(group)}
-              onPostoSaved={() => void schemas.loadPostoConfig(root)}
-            />
+          <div className="body" ref={preview.bodyEl}>
+            {sidebarOpen ? (
+              <>
+                <div className="sidebar-pane" style={{ flexBasis: `${preview.sidebarSplit}%` }}>
+                  <div className="sidebar-header" data-tauri-drag-region>
+                    <ActionIcon
+                      size={26}
+                      variant={sidebarView === "files" ? "light" : "subtle"}
+                      color={sidebarView === "files" ? "blue" : "gray"}
+                      title="Show files"
+                      aria-label="Show files"
+                      onClick={() => setSidebarView("files")}
+                    >
+                      <Files size={16} />
+                    </ActionIcon>
+                    <ActionIcon
+                      size={26}
+                      variant={sidebarView === "media" ? "light" : "subtle"}
+                      color={sidebarView === "media" ? "blue" : "gray"}
+                      title="Show media library"
+                      aria-label="Show media library"
+                      disabled={!config}
+                      onClick={() => setSidebarView("media")}
+                    >
+                      <ImageIcon size={16} />
+                    </ActionIcon>
+                    <span className="sidebar-header-spacer" />
+                    <ActionIcon
+                      size={26}
+                      variant="subtle"
+                      color="gray"
+                      title="Hide sidebar"
+                      aria-label="Hide sidebar"
+                      onClick={() => setSidebarOpen(false)}
+                    >
+                      <PanelLeftClose size={16} />
+                    </ActionIcon>
+                  </div>
+                  <div className="sidebar-content">
+                    {sidebarView === "files" ? (
+                      <Sidebar
+                        root={root}
+                        groups={files.groups}
+                        config={config}
+                        activeKey={currentFile.activeKey}
+                        onOpen={(file) => openFile(file)}
+                        onDelete={(file) => void deleteFile(file)}
+                        onNewFile={(group) => void createNewFile(group)}
+                        developerMode={developerMode}
+                        onPostoSaved={() => void schemas.loadPostoConfig(root)}
+                      />
+                    ) : (
+                      <MediaSidebar
+                        root={root}
+                        config={config}
+                        groups={files.groups}
+                        libraries={config.mediaLibraries ?? []}
+                        onBeforeChange={currentFile.flushPendingSave}
+                        onChanged={(options) => {
+                          if (!options?.silent) {
+                            notify("Media updated. Publish when you are ready.", "success");
+                          }
+                          void refreshGroups(root);
+                          void currentFile.reloadFromDisk();
+                        }}
+                      />
+                    )}
+                  </div>
+                </div>
 
-            <div className="panes" ref={preview.panesEl}>
-              <div className="pane editor-pane" style={{ flexBasis: `${preview.split}%` }}>
-                <EditorPane
-                  root={root}
-                  projectIO={ipcProjectIO}
-                  filePath={currentFile.filePath}
-                  fileContent={currentFile.fileContent}
-                  saveState={currentFile.saveState}
-                  entry={entry}
-                  dataEntry={currentFile.dataEntry}
-                  entrySource={entrySource}
-                  config={config}
-                  configError={schemas.configError}
-                  hasDerivedFallback={schemas.derivedConfig !== null}
-                  componentBlocks={adapter.capabilities.componentBlocks}
-                  entryIds={adapter.capabilities.entryIds}
-                  componentSchemaVersion={componentSchemaVersion}
-                  groups={files.groups}
-                  editorTab={editorTab}
-                  onTabChange={setEditorTab}
-                  onEdit={currentFile.onEdit}
-                  onFormEdit={currentFile.onFormEdit}
-                  onRenameFile={renameOpenFilename}
-                  onRefreshFilename={refreshFilenameTemplate}
-                  onPostoSaved={() => void schemas.loadPostoConfig(root)}
+                <div
+                  className="pane-divider"
+                  onPointerDown={(e) => {
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    preview.setSidebarDragging(true);
+                  }}
+                  onPointerMove={preview.onSidebarDividerPointerMove}
                 />
+              </>
+            ) : (
+              <ActionIcon
+                className="sidebar-reopen"
+                size={26}
+                variant="subtle"
+                color="gray"
+                title="Show sidebar"
+                aria-label="Show sidebar"
+                onClick={() => setSidebarOpen(true)}
+              >
+                <PanelLeftOpen size={16} />
+              </ActionIcon>
+            )}
+
+            <div
+              className={`panes${sidebarOpen ? "" : " sidebar-collapsed"}`}
+              ref={preview.panesEl}
+            >
+              <div
+                className={`pane editor-pane${
+                  fullscreenEditorOpen ? " fullscreen-workspace fullscreen-editor-pane" : ""
+                }`}
+                style={{ flexBasis: `${preview.split}%` }}
+              >
+                {renderEditorPane(!fullscreenEditorOpen, fullscreenEditorOpen)}
               </div>
 
               <div
@@ -690,20 +893,7 @@ function App() {
                 onPointerMove={preview.onDividerPointerMove}
               />
 
-              <PreviewPane
-                root={root}
-                server={devServer.server}
-                previewRoute={preview.previewRoute}
-                servedRoute={preview.servedRoute}
-                previewFrame={preview.previewFrame}
-                dragging={preview.dragging}
-                media={config?.media[0] ?? null}
-                saveTick={saveTick}
-                onRestart={() => void devServer.restartServer(root)}
-                onRetry={() => void devServer.startServer(root)}
-                onInstall={(steps) => void devServer.runSetup(root, steps)}
-                onHome={preview.goHome}
-              />
+              {renderPreviewPane()}
             </div>
           </div>
         )}

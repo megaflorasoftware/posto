@@ -5,23 +5,23 @@ import {
   Center,
   Group,
   Loader,
+  Modal,
   ScrollArea,
   Stack,
   Text,
 } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import {
   CollectionOrderDialog,
   CollectionSettingsDialog,
-  Dialog,
   DirectoryBrowser,
   EditorPane,
   ImageLibraryImportDialog,
-  ImageLibraryList,
   PublishModal,
   buildNewFile,
+  canCreateFileInGroup,
   createDataDocumentEntry,
   deleteDataDocumentEntry,
-  contentHasFields,
   editorTabsForFile,
   renameTargetForContent,
   orderableCollections,
@@ -53,7 +53,13 @@ import {
   workspaceProjects,
 } from "@posto/core/project/workspace";
 import { invoke } from "@posto/ipc";
-import type { ChangedFile, FileEntry, FileGroup, GitHubRepo } from "@posto/ipc";
+import type {
+  ChangedFile,
+  FileEntry,
+  FileGroup,
+  GitHubRepo,
+  ImageLibraryImportResult,
+} from "@posto/ipc";
 import {
   CloudDownload,
   ChevronDown,
@@ -76,6 +82,7 @@ const TRANSIENT_NOTICE_MS = 5_000;
 type Props = {
   root: string;
   repo: GitHubRepo | null;
+  developerMode: boolean;
   onChangeRepo: () => void;
   onRedownloadRepo: () => Promise<void>;
   onRemoveRepo: () => Promise<void>;
@@ -85,9 +92,19 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function notifyError(notification: string) {
+  notifications.show({
+    message: notification,
+    color: "red",
+    autoClose: false,
+    withCloseButton: true,
+  });
+}
+
 export default function RepoHome({
   root: repoRoot,
   repo,
+  developerMode,
   onChangeRepo,
   onRedownloadRepo,
   onRemoveRepo,
@@ -123,14 +140,19 @@ export default function RepoHome({
     files: FileEntry[];
   } | null>(null);
   const [orderOpen, setOrderOpen] = useState(false);
-  const [mediaImportOpen, setMediaImportOpen] = useState(false);
   const [componentSchemaVersion, setComponentSchemaVersion] = useState(0);
   const [siteUrlVersion, setSiteUrlVersion] = useState(0);
   const [importLibrary, setImportLibrary] = useState<MediaLibrary | null>(null);
-  const [editorTab, setEditorTab] = useState<EditorTab>("body");
+  const [editorTab, setEditorTab] = useState<EditorTab>("content");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const schemas = useSchemas(adapter, ipcProjectIO);
   const files = useFileGroups(setError, adapter.capabilities.dataDocuments);
+
+  useEffect(() => {
+    if (developerMode) return;
+    setSettingsFor(null);
+    setOrderOpen(false);
+  }, [developerMode]);
 
   async function refreshRepositoryContent(dir: string, selectedAdapter?: ProjectAdapter) {
     const [, config] = await Promise.all([
@@ -207,23 +229,12 @@ export default function RepoHome({
       // debounced) save is the moment to bring the name back in line.
       void renameForTemplate(path, content);
     },
-    onOpened(path, content, file) {
+    onOpened(path, _content, file) {
       if (file?.dataEntry) {
-        setEditorTab("fields");
+        setEditorTab("content");
         return;
       }
-      if (!/\.(md|mdx|markdown)$/i.test(path)) return;
-      const entry = schemas.configRef.current
-        ? matchEntry(schemas.configRef.current, root, path)
-        : null;
-      const parsed = parseFile(content);
-      const hasFields = contentHasFields(entry, parsed);
-      const hasBody = parsed.body.trim() !== "";
-      setEditorTab((last) => {
-        if (last === "fields" && !hasFields) return "body";
-        if (last === "body" && !hasBody && hasFields) return "fields";
-        return last;
-      });
+      if (!/\.(md|mdx|markdown)$/i.test(path)) setEditorTab("raw");
     },
     onOpenError: setError,
   });
@@ -435,7 +446,10 @@ export default function RepoHome({
     const target = renameTargetForContent(root, path, content, schemaSources());
     if (!target) return;
     // Another entry already owns the name; keep ours until the fields change.
-    if (files.groupsRef.current.some((g) => g.files.some((f) => f.path === target))) return;
+    if (files.groupsRef.current.some((g) => g.files.some((f) => f.path === target))) {
+      notifyError(`A file named ${target.slice(target.lastIndexOf("/") + 1)} already exists.`);
+      return;
+    }
     if (!(await currentFile.renameOpenFile(path, target))) return;
     void files.refreshGroups(root);
     void git.refreshLocalChanges(root);
@@ -447,11 +461,11 @@ export default function RepoHome({
     const target = from.slice(0, from.lastIndexOf("/") + 1) + filename;
     if (target === from) return true;
     if (files.groupsRef.current.some((group) => group.files.some((file) => file.path === target))) {
-      setStatus(`A file named ${filename} already exists.`);
+      notifyError(`A file named ${filename} already exists.`);
       return false;
     }
     if (!(await currentFile.renameOpenFile(from, target))) {
-      setStatus(`Could not rename the file to ${filename}.`);
+      notifyError(`Could not rename the file to ${filename}.`);
       return false;
     }
     void files.refreshGroups(root);
@@ -465,21 +479,13 @@ export default function RepoHome({
     const parsed = parseFile(currentFile.fileContentRef.current);
     const raw = parsed.doc.toJSON() as unknown;
     if (parsed.error || !raw || typeof raw !== "object" || Array.isArray(raw)) {
-      setStatus("Fix the file's frontmatter before refreshing its filename.");
+      notifyError("Fix the file's frontmatter before refreshing its filename.");
       return;
     }
     const currentName = path.slice(path.lastIndexOf("/") + 1);
     const next = renamedFilename(template, entry, raw as Record<string, unknown>, currentName);
     if (next) void renameOpenFilename(next);
   }
-
-  // The armed "Delete?" confirm disarms on its own after a moment, the touch
-  // equivalent of desktop's cancel-on-mouse-leave.
-  useEffect(() => {
-    if (!confirmingDelete) return;
-    const timer = setTimeout(() => setConfirmingDelete(false), 4000);
-    return () => clearTimeout(timer);
-  }, [confirmingDelete]);
 
   useEffect(() => {
     if (!confirmingRemoveRepo) return;
@@ -567,19 +573,22 @@ export default function RepoHome({
   }
 
   function closeMediaImport() {
-    setMediaImportOpen(false);
     setImportLibrary(null);
   }
 
   function importIntoLibrary(library: MediaLibrary) {
     setImportLibrary(library);
-    setMediaImportOpen(true);
   }
 
-  function imageImported() {
+  function imageImported(_result: ImageLibraryImportResult, library: MediaLibrary) {
     setStatus("Image imported. Publish when you are ready.");
     void git.refreshLocalChanges(root);
-    if (importLibrary) void refreshImageLibraryAssets(root, importLibrary);
+    void refreshImageLibraryAssets(root, library);
+  }
+
+  function publicMediaImported() {
+    setStatus("Media imported. Publish when you are ready.");
+    void git.refreshLocalChanges(root);
   }
 
   const config = schemas.config;
@@ -610,6 +619,7 @@ export default function RepoHome({
     fileContent: currentFile.fileContent,
     entry,
     dataEntry: currentFile.dataEntry,
+    developerMode,
   });
   const mobileActiveTab = resolveEditorTab(mobileEditorTabs, editorTab);
 
@@ -624,14 +634,28 @@ export default function RepoHome({
         choosingWorkspace={workspaceCandidates !== null}
         editorTabs={mobileEditorTabs}
         activeTab={mobileActiveTab}
-        confirmingDelete={confirmingDelete}
         openFileName={openFileName}
         onBack={navigateBack}
         onTabChange={setEditorTab}
         onOpenSettings={() => setShowSettings(true)}
         onRequestDelete={() => setConfirmingDelete(true)}
-        onConfirmDelete={() => void deleteOpenFile()}
       />
+      <Modal
+        opened={confirmingDelete && showEditor}
+        onClose={() => setConfirmingDelete(false)}
+        title={`Delete ${openFileName}?`}
+        centered
+      >
+        <Text size="sm">This file will be permanently deleted.</Text>
+        <Group justify="flex-end" mt="lg">
+          <Button variant="default" onClick={() => setConfirmingDelete(false)}>
+            Cancel
+          </Button>
+          <Button color="red" onClick={() => void deleteOpenFile()}>
+            Delete file
+          </Button>
+        </Group>
+      </Modal>
       {workspaceCandidates ? (
         <main className="mobile-settings-screen">
           {browsingWorkspace ? (
@@ -674,7 +698,7 @@ export default function RepoHome({
             onRenameFile={renameOpenFilename}
             onRefreshFilename={refreshFilenameTemplate}
             onPostoSaved={() => void schemas.loadPostoConfig(root)}
-            hideTabList
+            developerMode={developerMode}
             filenamePlacement="fields"
           />
         </main>
@@ -698,14 +722,22 @@ export default function RepoHome({
         <main className="mobile-media-screen">
           <MediaLibraryPane
             root={root}
+            config={config!}
+            groups={files.groups}
             libraries={config?.mediaLibraries ?? []}
             onImport={importIntoLibrary}
+            onBeforeChange={currentFile.flushPendingSave}
+            onChanged={(library, options) => {
+              if (!options?.silent) setStatus("Media updated. Publish when you are ready.");
+              void git.refreshLocalChanges(root);
+              if (library) void refreshImageLibraryAssets(root, library);
+              void currentFile.reloadFromDisk();
+            }}
           />
         </main>
       ) : showSettings ? (
         <RepoSettings
           hasRepository={repo !== null}
-          mediaEnabled={adapter.capabilities.mediaLibraries}
           mediaLibraryCount={config?.mediaLibraries?.length ?? 0}
           projectDirectory={root === repoRoot ? "Repository root" : root.slice(repoRoot.length + 1)}
           canSwitchProject={projectSession.hasMultipleProjects}
@@ -848,7 +880,7 @@ export default function RepoHome({
                           <span className="mobile-group-label" title={group.label}>
                             {group.label}
                           </span>
-                          {group.kind !== "styles" && (
+                          {canCreateFileInGroup(root, group) && (
                             <ActionIcon
                               className="mobile-group-action"
                               variant="subtle"
@@ -864,7 +896,7 @@ export default function RepoHome({
                               <Plus size={16} />
                             </ActionIcon>
                           )}
-                          {collection && exact && (
+                          {developerMode && collection && exact && (
                             <ActionIcon
                               className="mobile-group-action"
                               variant="subtle"
@@ -911,7 +943,7 @@ export default function RepoHome({
                       </div>
                     ),
                   )}
-                  {orderableCollections(schemas.config).length > 1 && (
+                  {developerMode && orderableCollections(schemas.config).length > 1 && (
                     <button
                       type="button"
                       className="mobile-collections-settings"
@@ -921,7 +953,7 @@ export default function RepoHome({
                       Collection settings
                     </button>
                   )}
-                  <SchemaDiagnostics config={schemas.config} />
+                  {developerMode && <SchemaDiagnostics config={schemas.config} />}
                 </div>
               )}
             </ScrollArea>
@@ -946,7 +978,7 @@ export default function RepoHome({
             </Button>
           </div>
 
-          {settingsFor && (
+          {developerMode && settingsFor && (
             <CollectionSettingsDialog
               root={root}
               collection={settingsFor.collection}
@@ -956,7 +988,7 @@ export default function RepoHome({
             />
           )}
 
-          {orderOpen && (
+          {developerMode && orderOpen && (
             <CollectionOrderDialog
               root={root}
               collections={orderableCollections(schemas.config)}
@@ -980,21 +1012,17 @@ export default function RepoHome({
         </main>
       )}
 
-      {adapter.capabilities.mediaLibraries && mediaImportOpen && !importLibrary && (
-        <Dialog opened onClose={closeMediaImport} title="Choose image library" size="sm">
-          <ImageLibraryList libraries={config?.mediaLibraries ?? []} onChoose={setImportLibrary} />
-        </Dialog>
-      )}
-
       {adapter.capabilities.mediaLibraries && importLibrary && config && (
         <ImageLibraryImportDialog
           root={root}
           library={importLibrary}
+          libraries={config.mediaLibraries ?? [importLibrary]}
           config={config}
           groups={files.groups}
           autoChooseSource
           onClose={closeMediaImport}
           onImported={imageImported}
+          onPublicImported={publicMediaImported}
         />
       )}
     </>

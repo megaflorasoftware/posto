@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Alert, Button } from "@mantine/core";
 import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
 import type { MediaLibrary } from "@posto/core/pagescms/config";
@@ -13,6 +13,7 @@ export function ImageLibraryPickerDialog(props: {
   directories: string[];
   directory?: string;
   error?: string | null;
+  toolbar?: ReactNode;
   onClose: () => void;
   onPick: (asset: ImageLibraryAsset) => void;
   onImport: () => void;
@@ -37,6 +38,7 @@ export function ImageLibraryPickerDialog(props: {
         currentDirectory={currentDirectory}
         directories={props.directories}
         assets={props.assets}
+        toolbar={props.toolbar}
         onDirectoryChange={setCurrentDirectory}
         onPick={props.onPick}
       />

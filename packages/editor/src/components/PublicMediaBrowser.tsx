@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
-import { Folder, FolderUp, Pencil } from "lucide-react";
-import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
+import { File, FileAudio, FileText, FileVideo, Folder, FolderUp, Pencil } from "lucide-react";
+import type { FileEntry } from "@posto/ipc";
+import { markdownMediaKind } from "../markdownMedia";
 import { CachedImage } from "./CachedImage";
 
 function normalize(path: string): string {
@@ -23,31 +24,59 @@ function parent(path: string): string {
   return path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
 }
 
-function directoryPreviewImages(directory: string, assets: ImageLibraryAsset[]): string[] {
+function extension(path: string): string {
+  const name = path.split("/").pop() ?? "";
+  return name.includes(".") ? name.slice(name.lastIndexOf(".") + 1).toLowerCase() : "";
+}
+
+export function FileMediaPlaceholder(props: { path: string; size?: number }) {
+  const size = props.size ?? 34;
+  const path = props.path;
+  const kind = markdownMediaKind(path);
+  if (kind === "audio") return <FileAudio size={size} />;
+  if (kind === "video") return <FileVideo size={size} />;
+  if (extension(path) === "pdf") return <FileText size={size} />;
+  return <File size={size} />;
+}
+
+export function FileMediaPreview(props: { file: FileEntry; loading?: "eager" | "lazy" }) {
+  return markdownMediaKind(props.file.path) === "image" ? (
+    <CachedImage
+      path={props.file.path}
+      alt={props.file.name}
+      loading={props.loading}
+      fallback={<FileMediaPlaceholder path={props.file.path} />}
+    />
+  ) : (
+    <FileMediaPlaceholder path={props.file.path} />
+  );
+}
+
+function directoryPreviewImages(directory: string, files: FileEntry[]): string[] {
   const folder = normalize(directory);
-  return assets
-    .flatMap((asset) => {
-      if (!asset.imagePath) return [];
-      const assetDirectory = normalize(dirname(asset.metadataPath));
-      if (assetDirectory !== folder && !assetDirectory.startsWith(`${folder}/`)) return [];
-      return asset.imagePath;
-    })
+  return files
+    .filter(
+      (file) =>
+        markdownMediaKind(file.path) === "image" &&
+        (dirname(file.path) === folder || dirname(file.path).startsWith(`${folder}/`)),
+    )
+    .map((file) => file.path)
     .slice(0, 4);
 }
 
-export function ImageLibraryBrowser(props: {
+export function FileMediaBrowser(props: {
   rootDirectory: string;
   currentDirectory: string;
   directories: string[];
-  assets: ImageLibraryAsset[];
+  files: FileEntry[];
   toolbar?: ReactNode;
   onDirectoryChange: (directory: string) => void;
-  onPick?: (asset: ImageLibraryAsset) => void;
-  onEdit?: (asset: ImageLibraryAsset) => void;
+  onPick?: (file: FileEntry) => void;
+  onEdit?: (file: FileEntry) => void;
   selectionMode?: boolean;
-  selectedAssetIds?: Set<string>;
+  selectedFilePaths?: Set<string>;
   selectedDirectoryPaths?: Set<string>;
-  onToggleSelection?: (asset: ImageLibraryAsset) => void;
+  onToggleFileSelection?: (file: FileEntry) => void;
   onToggleDirectorySelection?: (directory: string) => void;
 }) {
   const root = normalize(props.rootDirectory);
@@ -58,10 +87,10 @@ export function ImageLibraryBrowser(props: {
       return location && !location.includes("/") ? [{ name: location, path: directory }] : [];
     })
     .sort((a, b) => a.name.localeCompare(b.name));
-  const assets = props.assets.filter(
-    (asset) => normalize(dirname(asset.metadataPath)) === normalize(current),
-  );
-  const empty = props.currentDirectory === "" && folders.length === 0 && assets.length === 0;
+  const files = props.files
+    .filter((file) => normalize(dirname(file.path)) === normalize(current))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const empty = props.currentDirectory === "" && folders.length === 0 && files.length === 0;
 
   return (
     <>
@@ -71,7 +100,7 @@ export function ImageLibraryBrowser(props: {
         <div className="image-library-browser-path">/{props.currentDirectory}</div>
       )}
       {empty ? (
-        <div className="picker-empty">No image entries or directories here.</div>
+        <div className="picker-empty">No media files or directories here.</div>
       ) : (
         <div className="picker-grid">
           {props.currentDirectory && (
@@ -88,7 +117,7 @@ export function ImageLibraryBrowser(props: {
             </button>
           )}
           {folders.map((folder) => {
-            const previews = directoryPreviewImages(folder.path, props.assets);
+            const previews = directoryPreviewImages(folder.path, props.files);
             return (
               <button
                 type="button"
@@ -143,70 +172,54 @@ export function ImageLibraryBrowser(props: {
               </button>
             );
           })}
-          {assets.map((asset) => {
-            const valid = asset.health.includes("valid");
-            const alt = typeof asset.metadata.alt === "string" ? asset.metadata.alt : asset.entryId;
+          {files.map((file) => {
             const content = (
               <>
                 <span className="picker-card-preview">
-                  <CachedImage
-                    path={asset.imagePath}
-                    alt={alt}
-                    loading="lazy"
-                    fallback={<span className="picker-card-noimg">No preview</span>}
-                  />
+                  <FileMediaPreview file={file} loading="lazy" />
                   {props.selectionMode && (
                     <span
-                      className={`picker-card-selection${props.selectedAssetIds?.has(asset.metadataPath) ? " is-selected" : ""}`}
+                      className={`picker-card-selection${props.selectedFilePaths?.has(file.path) ? " is-selected" : ""}`}
                       aria-hidden="true"
                     />
                   )}
-                  {props.onEdit && valid && !props.selectionMode && (
+                  {props.onEdit && !props.selectionMode && (
                     <span className="picker-card-edit" aria-hidden="true">
                       <Pencil size={22} />
                     </span>
                   )}
                 </span>
-                <span className="picker-item-name">{asset.entryId.split("/").pop()}</span>
-                {!valid && <span className="picker-item-path">{asset.health.join(", ")}</span>}
+                <span className="picker-item-name">{file.name}</span>
               </>
             );
-            return props.selectionMode ? (
+            const action = props.selectionMode
+              ? "Select"
+              : props.onPick
+                ? "Choose"
+                : props.onEdit
+                  ? "Edit"
+                  : null;
+            return action ? (
               <button
                 type="button"
-                key={`${asset.entryId}:${asset.metadataPath}`}
+                key={file.path}
                 className="picker-card"
-                disabled={!valid}
-                aria-pressed={props.selectedAssetIds?.has(asset.metadataPath) ?? false}
-                onClick={() => valid && props.onToggleSelection?.(asset)}
-              >
-                {content}
-              </button>
-            ) : props.onPick ? (
-              <button
-                type="button"
-                key={`${asset.entryId}:${asset.metadataPath}`}
-                className="picker-card"
-                disabled={!valid}
-                onClick={() => valid && props.onPick?.(asset)}
-              >
-                {content}
-              </button>
-            ) : props.onEdit && valid ? (
-              <button
-                type="button"
-                key={`${asset.entryId}:${asset.metadataPath}`}
-                className="picker-card"
-                onClick={() => props.onEdit?.(asset)}
-                aria-label={`Edit ${asset.entryId.split("/").pop()}`}
+                aria-pressed={
+                  props.selectionMode
+                    ? (props.selectedFilePaths?.has(file.path) ?? false)
+                    : undefined
+                }
+                onClick={() => {
+                  if (props.selectionMode) props.onToggleFileSelection?.(file);
+                  else if (props.onPick) props.onPick(file);
+                  else props.onEdit?.(file);
+                }}
+                aria-label={`${action} ${file.name}`}
               >
                 {content}
               </button>
             ) : (
-              <div
-                key={`${asset.entryId}:${asset.metadataPath}`}
-                className="picker-card picker-card-static"
-              >
+              <div key={file.path} className="picker-card picker-card-static">
                 {content}
               </div>
             );
@@ -216,3 +229,7 @@ export function ImageLibraryBrowser(props: {
     </>
   );
 }
+
+/** Conventional-public alias retained for callers that are specifically
+ * browsing `<repo>/public`; the grid itself works for any file media root. */
+export const PublicMediaBrowser = FileMediaBrowser;

@@ -126,9 +126,34 @@ export interface ImageLibraryImportResult {
   metadataPath: string;
 }
 
+export interface PublicMediaImportRequest {
+  repositoryRoot: string;
+  sourceFilePath: string;
+  directory: string;
+}
+
+export interface FileMediaImportRequest extends PublicMediaImportRequest {
+  mediaRoot: string;
+}
+
+export interface FileMediaItemRequest {
+  mediaRoot: string;
+  path: string;
+}
+
+export interface MoveFileMediaItemRequest extends FileMediaItemRequest {
+  destinationDirectory: string;
+}
+
+export interface RenameFileMediaItemRequest extends FileMediaItemRequest {
+  targetPath: string;
+}
+
 type BrowserBackend = {
   invoke: typeof tauriInvoke;
   openDirectory: (defaultPath?: string) => Promise<string | null>;
+  openFile: () => Promise<string | null>;
+  openFiles: () => Promise<string[]>;
   openImageFile: () => Promise<string | null>;
   openImageFiles: () => Promise<string[]>;
   onCloneProgress: (handler: (progress: CloneProgress) => void) => () => void;
@@ -162,9 +187,81 @@ export function importImageLibraryAsset(
   return invoke("import_image_library_asset", { plan });
 }
 
+export function importPublicMediaFile(request: PublicMediaImportRequest): Promise<string> {
+  return importFileMediaItem({
+    ...request,
+    mediaRoot: `${request.repositoryRoot}/public`,
+  });
+}
+
+export function importFileMediaItem(request: FileMediaImportRequest): Promise<string> {
+  return invoke("import_file_media_item", { request });
+}
+
+export function createFileMediaDirectory(request: {
+  repositoryRoot: string;
+  mediaRoot: string;
+  directory: string;
+}): Promise<void> {
+  return invoke("create_file_media_directory", request);
+}
+
+export function deleteFileMediaItem(request: FileMediaItemRequest): Promise<void> {
+  return invoke("delete_media_file", {
+    mediaRoot: request.mediaRoot,
+    filePath: request.path,
+  });
+}
+
+export function renameFileMediaItem(request: RenameFileMediaItemRequest): Promise<void> {
+  return invoke("rename_media_file", {
+    mediaRoot: request.mediaRoot,
+    filePath: request.path,
+    targetFilePath: request.targetPath,
+  });
+}
+
+export function deleteFileMediaDirectory(request: FileMediaItemRequest): Promise<void> {
+  return invoke("delete_media_directory", {
+    mediaRoot: request.mediaRoot,
+    directoryPath: request.path,
+  });
+}
+
+export function moveFileMediaItem(request: MoveFileMediaItemRequest): Promise<void> {
+  return invoke("move_media_file", {
+    mediaRoot: request.mediaRoot,
+    filePath: request.path,
+    destinationDirectory: request.destinationDirectory,
+  });
+}
+
+export function moveFileMediaDirectory(request: MoveFileMediaItemRequest): Promise<void> {
+  return invoke("move_media_directory", {
+    mediaRoot: request.mediaRoot,
+    directoryPath: request.path,
+    destinationDirectory: request.destinationDirectory,
+  });
+}
+
 export const openDirectory: (defaultPath?: string) => Promise<string | null> = inTauri
   ? (defaultPath) => tauriOpen({ directory: true, defaultPath })
   : (defaultPath) => requireBrowserBackend().openDirectory(defaultPath);
+
+export const openFile: () => Promise<string | null> = inTauri
+  ? async () => {
+      const selected = await tauriOpen({ multiple: false });
+      return typeof selected === "string" ? toFilesystemPath(selected) : null;
+    }
+  : () => requireBrowserBackend().openFile();
+
+export const openFiles: () => Promise<string[]> = inTauri
+  ? async () => {
+      const selected = await tauriOpen({ multiple: true });
+      const paths = Array.isArray(selected) ? selected : selected ? [selected] : [];
+      return paths.map(toFilesystemPath);
+    }
+  : () => requireBrowserBackend().openFiles();
 
 const IMAGE_FILE_FILTERS = [
   {
@@ -350,6 +447,79 @@ export function onFsChanged(handler: (paths: string[]) => void): () => void {
   return () => {
     void unlisten.then((fn) => fn());
   };
+}
+
+/** Subscribes to the native application menu's request to open settings. */
+export function onOpenSettings(handler: () => void): () => void {
+  if (!inTauri) return () => {};
+  const unlisten = listen("open-settings", handler);
+  return () => {
+    void unlisten.then((fn) => fn());
+  };
+}
+
+/** Subscribes to the native File menu's recognized-file picker command. */
+export function onOpenFile(handler: () => void): () => void {
+  if (!inTauri) return () => {};
+  const unlisten = listen("open-file", handler);
+  return () => {
+    void unlisten.then((fn) => fn());
+  };
+}
+
+/** Keeps the native open-file item disabled until a project is active. */
+export function setOpenFileMenuEnabled(enabled: boolean): Promise<void> {
+  if (!inTauri) return Promise.resolve();
+  return invoke("set_open_file_menu_enabled", { enabled });
+}
+
+/** Subscribes to the native File menu's repository-opening commands. */
+export function onOpenRepository(handler: () => void): () => void {
+  if (!inTauri) return () => {};
+  const unlisten = listen("open-repository", handler);
+  return () => {
+    void unlisten.then((fn) => fn());
+  };
+}
+
+export function onOpenRecent(handler: () => void): () => void {
+  if (!inTauri) return () => {};
+  const unlisten = listen("open-recent", handler);
+  return () => {
+    void unlisten.then((fn) => fn());
+  };
+}
+
+export function onOpenSiblingProject(handler: () => void): () => void {
+  if (!inTauri) return () => {};
+  const unlisten = listen("open-sibling-project", handler);
+  return () => {
+    void unlisten.then((fn) => fn());
+  };
+}
+
+/** Keeps repository commands in sync with the current app session. */
+export function setRepositoryMenuItemsEnabled(
+  hasRecent: boolean,
+  canOpenSibling: boolean,
+): Promise<void> {
+  if (!inTauri) return Promise.resolve();
+  return invoke("set_repository_menu_items_enabled", { hasRecent, canOpenSibling });
+}
+
+/** Subscribes to the native View menu's fullscreen-editor command. */
+export function onOpenFullscreenEditor(handler: () => void): () => void {
+  if (!inTauri) return () => {};
+  const unlisten = listen("open-fullscreen-editor", handler);
+  return () => {
+    void unlisten.then((fn) => fn());
+  };
+}
+
+/** Keeps the native fullscreen-editor menu item in sync with file selection. */
+export function setFullscreenEditorMenuEnabled(enabled: boolean): Promise<void> {
+  if (!inTauri) return Promise.resolve();
+  return invoke("set_fullscreen_editor_menu_enabled", { enabled });
 }
 
 /** Subscribes to progress updates for the active managed-repository clone. */

@@ -3,7 +3,6 @@ import {
   Avatar,
   Button,
   Drawer,
-  Group,
   Loader,
   RingProgress,
   Stack,
@@ -18,6 +17,7 @@ import {
   FolderGit2,
   Globe,
   LogOut,
+  RotateCcw,
   Smartphone,
   X,
 } from "lucide-react";
@@ -121,9 +121,9 @@ function Authorizing({ deployment }: { deployment: Deployment }) {
   );
 }
 
-/** Signed-in status: the resolved repo, a large deployment ring, and sign-out. */
-function Status({ deployment }: { deployment: Deployment }) {
-  const { ring, slug, user } = deployment;
+/** Signed-in status: the resolved repo and its large deployment ring. */
+function Status({ deployment, siteUrl }: { deployment: Deployment; siteUrl: string | null }) {
+  const { ring, slug } = deployment;
   const color = RING_COLOR[ring.state] ?? "gray";
   const label =
     ring.done && slug ? (
@@ -142,20 +142,6 @@ function Status({ deployment }: { deployment: Deployment }) {
 
   return (
     <Stack gap="lg">
-      {user && (
-        <Group gap="sm">
-          <Avatar src={user.avatar_url} alt={user.name} radius="xl" size={36} />
-          <div>
-            <Text fw={600} size="sm">
-              {user.name}
-            </Text>
-            <Text c="dimmed" size="xs">
-              {user.login}
-            </Text>
-          </div>
-        </Group>
-      )}
-
       {slug ? (
         <Stack gap="md" align="center">
           <RingProgress
@@ -171,14 +157,15 @@ function Status({ deployment }: { deployment: Deployment }) {
               {slug.owner}/{slug.name} · main
             </Text>
           </Stack>
-          <Button
-            variant="light"
-            rightSection={<ExternalLink size={16} />}
-            disabled={!deployment.actionsUrl}
-            onClick={deployment.openActions}
-          >
-            View on GitHub Actions
-          </Button>
+          {siteUrl && (
+            <Button
+              variant="light"
+              leftSection={<Globe size={16} />}
+              onClick={() => void openUrl(siteUrl)}
+            >
+              Open Site
+            </Button>
+          )}
         </Stack>
       ) : (
         <Alert color="gray" variant="light" icon={<FolderGit2 size={18} />}>
@@ -186,15 +173,6 @@ function Status({ deployment }: { deployment: Deployment }) {
           origin remote points at GitHub to see its progress.
         </Alert>
       )}
-
-      <Button
-        variant="subtle"
-        color="gray"
-        leftSection={<LogOut size={16} />}
-        onClick={deployment.signOut}
-      >
-        Sign out
-      </Button>
     </Stack>
   );
 }
@@ -209,6 +187,7 @@ export function DeploymentDrawer({
   siteUrl: string | null;
 }) {
   const authorizing = deployment.signingIn || deployment.device !== null;
+  const liveSiteUrl = siteUrl ?? deployment.pagesUrl;
 
   return (
     <Drawer
@@ -217,30 +196,87 @@ export function DeploymentDrawer({
       position="right"
       size={360}
       title="Deployments"
+      classNames={{ content: "deployment-drawer-content", body: "deployment-drawer-body" }}
     >
-      <Stack gap="md">
-        {deployment.error && (
-          <Alert color="red" variant="light">
-            {deployment.error}
-          </Alert>
+      <div className="deployment-drawer">
+        <div className="deployment-drawer-scroll">
+          <Stack gap="md">
+            {deployment.credentialError && (
+              <Alert color="yellow" variant="light" title="Couldn't access your GitHub session">
+                <Stack gap="sm">
+                  <Text size="sm">
+                    If you denied the system credential request by accident, approve the next
+                    request and try again.
+                  </Text>
+                  <Button
+                    variant="light"
+                    color="yellow"
+                    size="xs"
+                    leftSection={<RotateCcw size={14} />}
+                    loading={deployment.retryingCredentialAccess}
+                    onClick={deployment.retryCredentialAccess}
+                  >
+                    Approve GitHub Access
+                  </Button>
+                </Stack>
+              </Alert>
+            )}
+            {deployment.error && (
+              <Alert color="red" variant="light">
+                {deployment.error}
+              </Alert>
+            )}
+            {deployment.signedIn ? (
+              <Status deployment={deployment} siteUrl={liveSiteUrl} />
+            ) : authorizing ? (
+              <Authorizing deployment={deployment} />
+            ) : (
+              <SignIn deployment={deployment} />
+            )}
+          </Stack>
+        </div>
+        {deployment.signedIn && (
+          <div className="deployment-drawer-footer">
+            <Stack gap="md">
+              {deployment.user && (
+                <Stack gap={2} align="center">
+                  <Avatar
+                    src={deployment.user.avatar_url}
+                    alt={deployment.user.name}
+                    radius="xl"
+                    size={56}
+                  />
+                  <Text fw={600} size="sm" ta="center">
+                    {deployment.user.name}
+                  </Text>
+                  <Text c="dimmed" size="xs" ta="center">
+                    {deployment.user.login}
+                  </Text>
+                </Stack>
+              )}
+              <Stack gap="xs">
+                <Button
+                  fullWidth
+                  variant="light"
+                  rightSection={<ExternalLink size={16} />}
+                  disabled={!deployment.actionsUrl}
+                  onClick={deployment.openActions}
+                >
+                  View on GitHub Actions
+                </Button>
+                <Button
+                  fullWidth
+                  variant="default"
+                  leftSection={<LogOut size={16} />}
+                  onClick={deployment.signOut}
+                >
+                  Sign out
+                </Button>
+              </Stack>
+            </Stack>
+          </div>
         )}
-        {siteUrl && (
-          <Button
-            variant="light"
-            leftSection={<Globe size={16} />}
-            onClick={() => void openUrl(siteUrl)}
-          >
-            Open Site
-          </Button>
-        )}
-        {deployment.signedIn ? (
-          <Status deployment={deployment} />
-        ) : authorizing ? (
-          <Authorizing deployment={deployment} />
-        ) : (
-          <SignIn deployment={deployment} />
-        )}
-      </Stack>
+      </div>
     </Drawer>
   );
 }

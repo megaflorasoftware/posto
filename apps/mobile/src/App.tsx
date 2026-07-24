@@ -1,4 +1,5 @@
 import { createTheme, MantineProvider } from "@mantine/core";
+import { Notifications } from "@mantine/notifications";
 import { DialogVariantProvider } from "@posto/editor";
 import {
   closeInAppBrowser,
@@ -17,6 +18,7 @@ import type {
 } from "@posto/ipc";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import Onboarding from "./Onboarding";
+import { AppSettings } from "./components/AppSettings";
 
 type Stage =
   | "loading"
@@ -102,6 +104,9 @@ export default function App() {
   const [readyRoot, setReadyRoot] = useState<string | null>(null);
   const [progress, setProgress] = useState<CloneProgress>(emptyProgress);
   const [error, setError] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [developerMode, setDeveloperMode] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   useLayoutEffect(() => {
     const viewport = window.visualViewport;
@@ -174,6 +179,12 @@ export default function App() {
     };
   }, [loadRepos]);
 
+  useEffect(() => {
+    void invoke<boolean>("get_developer_mode")
+      .then(setDeveloperMode)
+      .catch((settingsError) => setError(message(settingsError)));
+  }, []);
+
   async function signIn() {
     setError(null);
     setDevice(null);
@@ -193,8 +204,10 @@ export default function App() {
 
   async function signOut() {
     setError(null);
+    setSigningOut(true);
     try {
       await invoke("sign_out");
+      setSettingsOpen(false);
       setUser(null);
       setRepos([]);
       setManaged([]);
@@ -202,7 +215,17 @@ export default function App() {
       setStage("signed-out");
     } catch (signOutError) {
       setError(message(signOutError));
+    } finally {
+      setSigningOut(false);
     }
+  }
+
+  function updateDeveloperMode(enabled: boolean) {
+    setDeveloperMode(enabled);
+    void invoke("set_developer_mode", { enabled }).catch((settingsError) => {
+      setDeveloperMode(!enabled);
+      setError(`Could not save settings: ${message(settingsError)}`);
+    });
   }
 
   async function chooseRepo(repo: GitHubRepo) {
@@ -268,6 +291,7 @@ export default function App() {
 
   return (
     <MantineProvider defaultColorScheme="auto" theme={mobileTheme}>
+      <Notifications position="top-center" />
       <DialogVariantProvider variant="drawer">
         <Onboarding
           stage={stage}
@@ -280,8 +304,9 @@ export default function App() {
           readyRoot={readyRoot}
           progress={progress}
           error={error}
+          developerMode={developerMode}
           onSignIn={() => void signIn()}
-          onSignOut={() => void signOut()}
+          onOpenAppSettings={() => setSettingsOpen(true)}
           onOpenVerification={() => device && void openUrlInApp(device.verification_uri)}
           onChooseRepo={(repo) => void chooseRepo(repo)}
           onRetryRepos={() => void loadRepos()}
@@ -293,6 +318,14 @@ export default function App() {
           onRedownloadRepo={(repo, root) => redownloadRepo(repo, root)}
           onRemoveRepo={(root) => removeRepo(root)}
           onChangeRepo={() => setStage("repos")}
+        />
+        <AppSettings
+          opened={settingsOpen}
+          developerMode={developerMode}
+          signingOut={signingOut}
+          onClose={() => setSettingsOpen(false)}
+          onDeveloperModeChange={updateDeveloperMode}
+          onSignOut={() => void signOut()}
         />
       </DialogVariantProvider>
     </MantineProvider>

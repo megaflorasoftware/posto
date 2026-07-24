@@ -193,6 +193,9 @@ const mockFiles: Record<string, string> = {
   "/mock/site/media/portraits/person.jpg": "[mock image]",
   "/mock/site/public/images/photo.jpg": "[mock image]",
   "/mock/site/public/images/nested/logo.png": "[mock image]",
+  "/mock/site/public/downloads/guide.pdf": "[mock pdf]",
+  "/mock/site/public/media/theme.mp3": "[mock audio]",
+  "/mock/site/public/media/trailer.mp4": "[mock video]",
   "/mock/site/.hidden.txt": "hidden fixture",
   "/mock/site/dist/generated.txt": "build fixture",
   "/mock/site/node_modules/example/readme.txt": "dependency fixture",
@@ -283,7 +286,10 @@ const mockRepos: ManagedRepo[] = [
   {
     owner: "example-org",
     name: "posto",
-    root: "/mock/repos/example-org/posto",
+    // The complete browser fixture lives at /mock/site. Point the pre-cloned
+    // mobile repository there so its media libraries and content references
+    // can be exercised end to end instead of opening the sparse clone stub.
+    root: "/mock/site",
     url: "https://github.com/example-org/posto.git",
   },
 ];
@@ -295,6 +301,7 @@ const mockUser: GitHubUser = {
   commit_email: "123456+example-user@users.noreply.github.com",
 };
 let mockSignedIn = false;
+let mockCredentialDenied = new URLSearchParams(window.location.search).has("mockCredentialDenied");
 const mockDeviceCodeHandlers = new Set<(authorization: DeviceAuthorization) => void>();
 const mockCloneProgressHandlers = new Set<(progress: CloneProgress) => void>();
 const mockGitHubRepos: GitHubRepo[] = [
@@ -481,6 +488,36 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       }
       return [...directories].sort();
     }
+    case "import_file_media_item":
+    case "import_public_media_file": {
+      const request = args?.request as {
+        repositoryRoot: string;
+        mediaRoot?: string;
+        sourceFilePath: string;
+        directory: string;
+      };
+      const name = request.sourceFilePath.split("/").pop() as string;
+      const mediaRoot = request.mediaRoot ?? `${request.repositoryRoot}/public`;
+      const target = [mediaRoot, request.directory, name].filter(Boolean).join("/");
+      if (target in mockFiles && !mockDeleted.has(target)) {
+        throw new Error(`File already exists: ${target}`);
+      }
+      mockFiles[target] = "mock binary file";
+      mockDirectories.add(target.slice(0, target.lastIndexOf("/")));
+      mockDeleted.delete(target);
+      return target;
+    }
+    case "create_file_media_directory":
+    case "create_public_media_directory": {
+      const mediaRoot =
+        (args?.mediaRoot as string | undefined) ?? `${args?.repositoryRoot as string}/public`;
+      const directoryPath = [mediaRoot, args?.directory as string].filter(Boolean).join("/");
+      if (mockDirectories.has(directoryPath)) {
+        throw new Error(`Folder already exists: ${directoryPath}`);
+      }
+      mockDirectories.add(directoryPath);
+      return null;
+    }
     case "list_child_directories": {
       const dir = args?.dir as string;
       const children = new Set<string>();
@@ -502,6 +539,14 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     }
     case "read_text_file_optional": {
       const path = args?.path as string;
+      if (
+        new URLSearchParams(window.location.search).has("mockNoLocalSiteUrl") &&
+        (path.includes("/astro.config.") ||
+          path.endsWith("/public/CNAME") ||
+          path.endsWith("/package.json"))
+      ) {
+        return null;
+      }
       return path in mockFiles && !mockDeleted.has(path) ? mockFiles[path] : null;
     }
     case "path_exists": {
@@ -552,6 +597,151 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       mockDeleted.add(path);
       return null;
     }
+    case "delete_media_file": {
+      const mediaRoot = args?.mediaRoot as string;
+      const path = args?.filePath as string;
+      if (!path.startsWith(`${mediaRoot}/`)) throw new Error("Media file is outside its root");
+      delete mockFiles[path];
+      mockDeleted.add(path);
+      return null;
+    }
+    case "rename_media_file": {
+      const mediaRoot = args?.mediaRoot as string;
+      const path = args?.filePath as string;
+      const target = args?.targetFilePath as string;
+      if (!path.startsWith(`${mediaRoot}/`) || !target.startsWith(`${mediaRoot}/`)) {
+        throw new Error("Media rename is outside its root");
+      }
+      if (target in mockFiles || mockDirectories.has(target)) {
+        throw new Error(`A file or folder already exists at ${target}`);
+      }
+      mockFiles[target] = mockFiles[path] ?? "";
+      rememberMockPath(target);
+      delete mockFiles[path];
+      mockDeleted.add(path);
+      mockDeleted.delete(target);
+      return null;
+    }
+    case "move_media_file": {
+      const mediaRoot = args?.mediaRoot as string;
+      const path = args?.filePath as string;
+      const destination = args?.destinationDirectory as string;
+      if (
+        !path.startsWith(`${mediaRoot}/`) ||
+        (destination !== mediaRoot && !destination.startsWith(`${mediaRoot}/`))
+      ) {
+        throw new Error("Media move is outside its root");
+      }
+      const target = `${destination}/${path.split("/").pop()}`;
+      if (target in mockFiles || mockDirectories.has(target)) {
+        throw new Error(`A file or folder with that name already exists in ${destination}`);
+      }
+      mockFiles[target] = mockFiles[path] ?? "";
+      rememberMockPath(target);
+      delete mockFiles[path];
+      mockDeleted.add(path);
+      mockDeleted.delete(target);
+      return null;
+    }
+    case "create_image_library_directory": {
+      const path = args?.directoryPath as string;
+      if ((path.split("/").pop() ?? "").startsWith(".")) {
+        throw new Error(`Refusing to create a hidden folder: ${path}`);
+      }
+      if (mockDirectories.has(path)) throw new Error(`Folder already exists: ${path}`);
+      mockDirectories.add(path);
+      return null;
+    }
+    case "delete_image_library_asset": {
+      const imagePath = args?.imagePath as string;
+      const metadataPath = args?.metadataPath as string;
+      delete mockFiles[imagePath];
+      delete mockFiles[metadataPath];
+      mockDeleted.add(imagePath);
+      mockDeleted.add(metadataPath);
+      return null;
+    }
+    case "move_image_library_asset": {
+      const imagePath = args?.imagePath as string;
+      const metadataPath = args?.metadataPath as string;
+      const destination = args?.destinationDirectory as string;
+      const targetImage = `${destination}/${imagePath.split("/").pop()}`;
+      const targetMetadata = `${destination}/${metadataPath.split("/").pop()}`;
+      if (targetImage in mockFiles || targetMetadata in mockFiles) {
+        throw new Error(`A file with that name already exists in ${destination}`);
+      }
+      mockFiles[targetImage] = mockFiles[imagePath] ?? "";
+      mockFiles[targetMetadata] = mockFiles[metadataPath] ?? "";
+      rememberMockPath(targetImage);
+      rememberMockPath(targetMetadata);
+      delete mockFiles[imagePath];
+      delete mockFiles[metadataPath];
+      mockDeleted.add(imagePath);
+      mockDeleted.add(metadataPath);
+      return null;
+    }
+    case "rename_image_library_asset": {
+      const imagePath = args?.imagePath as string;
+      const metadataPath = args?.metadataPath as string;
+      const targetImagePath = args?.targetImagePath as string;
+      const targetMetadataPath = args?.targetMetadataPath as string;
+      if (targetImagePath in mockFiles || targetMetadataPath in mockFiles) {
+        throw new Error("An image-library destination already exists");
+      }
+      mockFiles[targetImagePath] = mockFiles[imagePath] ?? "";
+      mockFiles[targetMetadataPath] = args?.serializedMetadata as string;
+      rememberMockPath(targetImagePath);
+      rememberMockPath(targetMetadataPath);
+      delete mockFiles[imagePath];
+      delete mockFiles[metadataPath];
+      mockDeleted.add(imagePath);
+      mockDeleted.add(metadataPath);
+      return null;
+    }
+    case "delete_media_directory":
+    case "delete_image_library_directory": {
+      const directory = args?.directoryPath as string;
+      const root = (args?.mediaRoot ?? args?.libraryRoot) as string;
+      if (!directory.startsWith(`${root}/`)) throw new Error("Media folder is outside its root");
+      for (const path of Object.keys(mockFiles)) {
+        if (path.startsWith(`${directory}/`)) {
+          delete mockFiles[path];
+          mockDeleted.add(path);
+        }
+      }
+      for (const path of Array.from(mockDirectories)) {
+        if (path === directory || path.startsWith(`${directory}/`)) mockDirectories.delete(path);
+      }
+      return null;
+    }
+    case "move_media_directory":
+    case "move_image_library_directory": {
+      const directory = args?.directoryPath as string;
+      const destination = args?.destinationDirectory as string;
+      const root = (args?.mediaRoot ?? args?.libraryRoot) as string;
+      if (
+        !directory.startsWith(`${root}/`) ||
+        (destination !== root && !destination.startsWith(`${root}/`))
+      ) {
+        throw new Error("Media move is outside its root");
+      }
+      const target = `${destination}/${directory.split("/").pop()}`;
+      if (mockDirectories.has(target)) throw new Error(`Folder already exists: ${target}`);
+      for (const path of Object.keys(mockFiles)) {
+        if (!path.startsWith(`${directory}/`)) continue;
+        const moved = `${target}${path.slice(directory.length)}`;
+        mockFiles[moved] = mockFiles[path];
+        rememberMockPath(moved);
+        delete mockFiles[path];
+        mockDeleted.add(path);
+      }
+      for (const path of Array.from(mockDirectories)) {
+        if (path !== directory && !path.startsWith(`${directory}/`)) continue;
+        mockDirectories.delete(path);
+        mockDirectories.add(`${target}${path.slice(directory.length)}`);
+      }
+      return null;
+    }
     case "import_image_library_asset": {
       const plan = args?.plan as ImageLibraryImportRequest;
       if (plan.destinationImagePath in mockFiles || plan.destinationMetadataPath in mockFiles) {
@@ -577,6 +767,10 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     case "close_in_app_browser":
       return null;
     case "auth_status":
+      if (mockCredentialDenied) throw new Error("The credential request was denied");
+      return { signed_in: mockSignedIn, user: mockSignedIn ? { ...mockUser } : null };
+    case "retry_auth_status":
+      mockCredentialDenied = false;
       return { signed_in: mockSignedIn, user: mockSignedIn ? { ...mockUser } : null };
     case "sign_in":
       mockDeviceCodeHandlers.forEach((handler) =>
@@ -649,6 +843,8 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       if (new URLSearchParams(window.location.search).has("mockNoRepo")) return null;
       return root.includes("/mock/") ? { owner: "example-org", name: "posto" } : null;
     }
+    case "github_pages_url":
+      return "https://example-org.github.io/posto/";
     case "list_workflow_runs": {
       if (!mockSignedIn) throw new Error("Not signed in to GitHub");
       const params = new URLSearchParams(window.location.search);
@@ -756,6 +952,11 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       const raw = localStorage.getItem("posto-recent-roots");
       return raw ? (JSON.parse(raw) as string[]) : [];
     }
+    case "get_developer_mode":
+      return localStorage.getItem("posto-developer-mode") === "true";
+    case "set_developer_mode":
+      localStorage.setItem("posto-developer-mode", String(args?.enabled === true));
+      return null;
     case "set_last_root": {
       const root = args?.root as string;
       localStorage.setItem("posto-last-root", root);
@@ -779,6 +980,8 @@ export function installMockBackend(): void {
   setBrowserBackend({
     invoke: mockInvoke as typeof import("@tauri-apps/api/core").invoke,
     openDirectory: async () => "/mock/site",
+    openFile: async () => "/mock/uploads/document.pdf",
+    openFiles: async () => ["/mock/uploads/document.pdf"],
     openImageFile: async () => "/mock/uploads/photo.jpg",
     openImageFiles: async () => ["/mock/uploads/photo.jpg"],
     onCloneProgress(handler) {
