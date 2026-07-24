@@ -4,8 +4,6 @@ import { Trash2 } from "lucide-react";
 import {
   deleteFileMediaDirectory,
   deleteFileMediaItem,
-  moveFileMediaDirectory,
-  moveFileMediaItem,
   renameFileMediaItem,
   type FileEntry,
   type FileGroup,
@@ -14,7 +12,8 @@ import {
   applyImageLibraryReferenceUpdates,
   planMarkdownMediaReferenceUpdates,
 } from "../imageLibraryReferences";
-import { filePathBasename, filePathDirname, normalizeFilePath } from "../filePaths";
+import { filePathDirname, normalizeFilePath } from "../filePaths";
+import { moveFileMediaItems } from "../mediaMoves";
 import { publicMediaOutputPath } from "../markdownMedia";
 import { Dialog } from "./Dialog";
 import { FileMediaBrowser, FileMediaPreview } from "./PublicMediaBrowser";
@@ -247,129 +246,18 @@ export function MoveFileMediaItemsDialog(props: {
     const destination = [normalizeFilePath(props.mediaRoot).replace(/\/+$/, ""), currentDirectory]
       .filter(Boolean)
       .join("/");
-    const fileOperations = props.movingFiles.map((file) => ({
-      from: normalizeFilePath(file.path),
-      to: `${destination}/${filePathBasename(file.path)}`,
-    }));
-    const directoryOperations = props.movingDirectories.map((from) => ({
-      from: normalizeFilePath(from).replace(/\/+$/, ""),
-      to: `${destination}/${filePathBasename(from)}`,
-    }));
-
     try {
-      const movingFilePaths = new Set(
-        props.movingFiles.map((file) => normalizeFilePath(file.path)),
-      );
-      const existingFilePaths = new Set(props.files.map((file) => normalizeFilePath(file.path)));
-      const existingDirectories = props.directories.map((directory) =>
-        normalizeFilePath(directory).replace(/\/+$/, ""),
-      );
-      const movingDirectoryPaths = directoryOperations.map((operation) => operation.from);
-      const targets = new Set<string>();
-      for (const operation of fileOperations) {
-        if (operation.from === operation.to) {
-          throw new Error("One or more selected files are already in that folder.");
-        }
-        if (
-          targets.has(operation.to) ||
-          existingDirectories.includes(operation.to) ||
-          (existingFilePaths.has(operation.to) && !movingFilePaths.has(operation.to))
-        ) {
-          throw new Error("A file or folder with that name already exists in the destination.");
-        }
-        targets.add(operation.to);
-      }
-
-      const directoryTargets = new Set<string>();
-      for (const operation of directoryOperations) {
-        if (destination === operation.from || destination.startsWith(`${operation.from}/`)) {
-          throw new Error("A folder cannot be moved into itself.");
-        }
-        if (operation.from === operation.to) {
-          throw new Error("One or more selected folders are already in that folder.");
-        }
-        if (
-          directoryTargets.has(operation.to) ||
-          existingFilePaths.has(operation.to) ||
-          existingDirectories.some(
-            (directory) =>
-              directory === operation.to &&
-              !movingDirectoryPaths.some(
-                (movingDirectory) =>
-                  directory === movingDirectory || directory.startsWith(`${movingDirectory}/`),
-              ),
-          )
-        ) {
-          throw new Error("A file or folder with that name already exists in the destination.");
-        }
-        directoryTargets.add(operation.to);
-      }
-
-      const completedFiles: typeof fileOperations = [];
-      const completedDirectories: typeof directoryOperations = [];
-      await props.onBeforeChange();
-      const relocationTargets = new Map(
-        fileOperations.map((operation) => [operation.from, operation.to]),
-      );
-      const orderedDirectories = [...directoryOperations].sort(
-        (left, right) => right.from.length - left.from.length,
-      );
-      for (const file of props.files) {
-        const filePath = normalizeFilePath(file.path);
-        if (relocationTargets.has(filePath)) continue;
-        const directory = orderedDirectories.find((operation) =>
-          filePath.startsWith(`${operation.from}/`),
-        );
-        if (directory) {
-          relocationTargets.set(
-            filePath,
-            `${directory.to}${filePath.slice(directory.from.length)}`,
-          );
-        }
-      }
-      const referencePlan = await planMarkdownMediaReferenceUpdates({
+      await moveFileMediaItems({
+        root: props.root,
+        mediaRoot: props.mediaRoot,
         groups: props.groups,
-        replacements: markdownReferenceReplacements(
-          props.root,
-          [...relocationTargets].map(([from, to]) => ({ from, to })),
-        ),
+        directories: props.directories,
+        files: props.files,
+        movingFiles: props.movingFiles,
+        movingDirectories: props.movingDirectories,
+        destinationDirectory: destination,
+        onBeforeChange: props.onBeforeChange,
       });
-      try {
-        for (const operation of fileOperations) {
-          await moveFileMediaItem({
-            mediaRoot: props.mediaRoot,
-            path: operation.from,
-            destinationDirectory: destination,
-          });
-          completedFiles.push(operation);
-        }
-        for (const operation of directoryOperations) {
-          await moveFileMediaDirectory({
-            mediaRoot: props.mediaRoot,
-            path: operation.from,
-            destinationDirectory: destination,
-          });
-          completedDirectories.push(operation);
-        }
-        await applyImageLibraryReferenceUpdates(referencePlan);
-      } catch (caught) {
-        for (const operation of completedDirectories.reverse()) {
-          await moveFileMediaDirectory({
-            mediaRoot: props.mediaRoot,
-            path: operation.to,
-            destinationDirectory: filePathDirname(operation.from),
-          }).catch(() => undefined);
-        }
-        for (const operation of completedFiles.reverse()) {
-          await moveFileMediaItem({
-            mediaRoot: props.mediaRoot,
-            path: operation.to,
-            destinationDirectory: filePathDirname(operation.from),
-          }).catch(() => undefined);
-        }
-        throw caught;
-      }
-
       props.onMoved();
       props.onClose();
     } catch (caught) {

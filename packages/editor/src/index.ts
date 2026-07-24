@@ -33,5 +33,6 @@ export * from "./hooks/useImageLibraryAssets";
 export * from "./hooks/usePublicMediaFiles";
 export * from "./imageLibraryReferences";
 export * from "./markdownMedia";
+export * from "./mediaMoves";
 export * from "./hooks/useProjectSession";
 export * from "./projectIO";

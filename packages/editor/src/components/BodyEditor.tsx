@@ -128,6 +128,18 @@ export function insertMediaAtLocation(
   return location.pos + 1;
 }
 
+export function insertMediaBatchAtLocation(
+  editor: Editor,
+  media: MarkdownMediaPick[],
+  location: Pick<RichTextDropLocation, "pos" | "blockBoundary">,
+): number {
+  let position = location.pos;
+  for (const item of media) {
+    position = insertMediaAtLocation(editor, item, { ...location, pos: position });
+  }
+  return position;
+}
+
 function inRange(value: number, first: number, second: number, padding = 0): boolean {
   return value >= Math.min(first, second) - padding && value <= Math.max(first, second) + padding;
 }
@@ -601,7 +613,7 @@ export function BodyEditor(props: {
     if (!fallback) return null;
     const contentRect = editor.view.dom.getBoundingClientRect();
     const sourcePosition =
-      source?.editorId === props.path
+      source?.kind !== "media-sidebar" && source?.editorId === props.path
         ? (capturedSourcePosition ?? source.getPosition())
         : undefined;
     const boxes = Array.from(editor.view.dom.querySelectorAll<HTMLElement>(".body-draggable-node"))
@@ -728,8 +740,8 @@ export function BodyEditor(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, externalImageDrop, pickerOpen, props.config.mediaLibraries, props.path]);
 
-  const insertOrMoveImage = (
-    media: Parameters<typeof markdownMediaEditorContent>[0],
+  const insertOrMoveImages = (
+    media: Parameters<typeof markdownMediaEditorContent>[0][],
     details: MediaDropDetails,
   ) => {
     if (!editor) return;
@@ -744,7 +756,7 @@ export function BodyEditor(props: {
         blockBoundary: false,
       };
     const source = details.source;
-    if (source?.kind === "body-image" && source.editorId === props.path) {
+    if (media.length === 1 && source?.kind === "body-image" && source.editorId === props.path) {
       const sourcePosition = details.sourcePosition ?? source.getPosition();
       if (typeof sourcePosition === "number") {
         const transaction = imageMoveTransaction(editor.state, sourcePosition, location);
@@ -754,7 +766,7 @@ export function BodyEditor(props: {
         return;
       }
     }
-    insertMediaAtLocation(editor, media, location);
+    insertMediaBatchAtLocation(editor, media, location);
   };
 
   const moveBodyNode = (source: BodyNodeDragSource, details: BodyNodeDragDetails) => {
@@ -772,8 +784,8 @@ export function BodyEditor(props: {
 
   const bodyDrop = useRichTextDropZone({
     id: `body:${props.path}`,
-    acceptsMedia: (media) => media.kind === "image",
-    onMediaDrop: (media, _event, details) => insertOrMoveImage(media, details),
+    acceptsMedia: (media) => media.every((item) => item.kind === "image"),
+    onMediaDrop: (media, _event, details) => insertOrMoveImages(media, details),
     onBodyNodeDrop: (source, _event, details) => moveBodyNode(source, details),
   });
 

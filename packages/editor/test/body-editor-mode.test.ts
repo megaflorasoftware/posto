@@ -9,7 +9,7 @@ import {
   bodyEditorMode,
   imageGapLocation,
   imageMoveTransaction,
-  insertMediaAtLocation,
+  insertMediaBatchAtLocation,
 } from "../src/components/BodyEditor";
 import { EditableBlockImage, EditableImage } from "../src/components/EditableImage";
 import { htmlNodes } from "../src/components/HtmlNodes";
@@ -116,15 +116,13 @@ test("inserts imported images at a captured drop position after the import compl
   const capturedPosition = editor.state.doc.child(0).nodeSize;
   expect(editor.getMarkdown()).toBe("Before\n\nAfter");
 
-  const nextPosition = insertMediaAtLocation(
+  insertMediaBatchAtLocation(
     editor,
-    { outputPath: "/images/first.jpg", label: "first.jpg", alt: "First", kind: "image" },
+    [
+      { outputPath: "/images/first.jpg", label: "first.jpg", alt: "First", kind: "image" },
+      { outputPath: "/images/second.jpg", label: "second.jpg", alt: "Second", kind: "image" },
+    ],
     { pos: capturedPosition, blockBoundary: true },
-  );
-  insertMediaAtLocation(
-    editor,
-    { outputPath: "/images/second.jpg", label: "second.jpg", alt: "Second", kind: "image" },
-    { pos: nextPosition, blockBoundary: true },
   );
 
   const markdown = editor.getMarkdown();

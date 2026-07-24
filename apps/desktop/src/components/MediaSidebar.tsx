@@ -20,7 +20,11 @@ import {
   useImageLibraryAssets,
   usePublicMediaFiles,
   markdownMediaKind,
+  moveFileMediaItems,
+  moveImageLibraryItems,
   publicMediaOutputPath,
+  type MarkdownMediaPick,
+  type MediaSidebarDragSource,
 } from "@posto/editor";
 import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
 import type { FileEntry, FileGroup } from "@posto/ipc";
@@ -45,9 +49,54 @@ function LibraryMediaBrowserContent(props: {
   const [selectedDirectories, setSelectedDirectories] = useState<Set<string>>(() => new Set());
   const [deleting, setDeleting] = useState(false);
   const [moving, setMoving] = useState(false);
+  const [moveError, setMoveError] = useState<string | null>(null);
   const library = props.library;
   const state = useImageLibraryAssets(props.root, library);
   const libraryRoot = `${props.root}/${library.base}`;
+  const dragScope = `library:${library.collection}`;
+  const mediaForAsset = (asset: ImageLibraryAsset): MarkdownMediaPick | null => {
+    if (!asset.imagePath) return null;
+    const input = library.base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
+    const outputPath = mediaOutputPath(
+      props.root,
+      { name: dragScope, input, output: `/${input}` },
+      asset.imagePath,
+    );
+    return outputPath
+      ? {
+          outputPath,
+          label: asset.imagePath.split("/").pop() ?? asset.entryId,
+          kind: "image",
+          alt: typeof asset.metadata.alt === "string" ? asset.metadata.alt : undefined,
+          library: { collection: library.collection, entryId: asset.entryId },
+        }
+      : null;
+  };
+  const dropIntoDirectory = (source: MediaSidebarDragSource, destinationDirectory: string) => {
+    const movingAssets = state.assets.filter((asset) =>
+      source.itemIds.includes(asset.metadataPath),
+    );
+    if (movingAssets.length === 0) return;
+    setMoveError(null);
+    void moveImageLibraryItems({
+      root: props.root,
+      library,
+      config: props.config,
+      groups: props.groups,
+      libraryRoot,
+      directories: state.directories,
+      assets: state.assets,
+      movingAssets,
+      destinationDirectory,
+      onBeforeMove: props.onBeforeChange,
+    })
+      .then(() => {
+        setSelected(new Set());
+        void state.refresh();
+        props.onChanged();
+      })
+      .catch((caught) => setMoveError(caught instanceof Error ? caught.message : String(caught)));
+  };
 
   return (
     <div className="media-drawer">
@@ -56,6 +105,11 @@ function LibraryMediaBrowserContent(props: {
           <Text c="red" size="sm">
             Could not read image library: {state.error}
           </Text>
+        )}
+        {moveError && (
+          <Alert color="red" mb="sm">
+            {moveError}
+          </Alert>
         )}
         <ImageLibraryBrowser
           rootDirectory={libraryRoot}
@@ -70,24 +124,30 @@ function LibraryMediaBrowserContent(props: {
             setSelectedDirectories(new Set());
             setDeleting(true);
           }}
-          dragMedia={(asset) => {
-            if (!asset.imagePath) return null;
-            const input = library.base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
-            const outputPath = mediaOutputPath(
-              props.root,
-              { name: `library:${library.collection}`, input, output: `/${input}` },
-              asset.imagePath,
-            );
-            return outputPath
+          dragPayload={(asset) => {
+            const dragged = selected.has(asset.metadataPath)
+              ? state.assets.filter(
+                  (candidate) =>
+                    selected.has(candidate.metadataPath) && candidate.health.includes("valid"),
+                )
+              : [asset];
+            const media = dragged.flatMap((candidate) => {
+              const pick = mediaForAsset(candidate);
+              return pick ? [pick] : [];
+            });
+            return media.length > 0
               ? {
-                  outputPath,
-                  label: asset.imagePath.split("/").pop() ?? asset.entryId,
-                  kind: "image",
-                  alt: typeof asset.metadata.alt === "string" ? asset.metadata.alt : undefined,
-                  library: { collection: library.collection, entryId: asset.entryId },
+                  media,
+                  source: {
+                    kind: "media-sidebar",
+                    scope: dragScope,
+                    itemIds: dragged.map((candidate) => candidate.metadataPath),
+                  },
                 }
               : null;
           }}
+          dropScope={dragScope}
+          onDropToDirectory={dropIntoDirectory}
           inlineSelection
           selectedAssetIds={selected}
           selectedDirectoryPaths={selectedDirectories}
@@ -241,6 +301,8 @@ function PublicMediaBrowserContent(props: {
   const [deleting, setDeleting] = useState(false);
   const [moving, setMoving] = useState(false);
   const [editing, setEditing] = useState<FileEntry | null>(null);
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const dragScope = "public";
 
   const importFiles = async () => {
     setImporting(true);
@@ -257,6 +319,32 @@ function PublicMediaBrowserContent(props: {
       setImporting(false);
     }
   };
+  const mediaForFile = (file: FileEntry): MarkdownMediaPick | null => {
+    if (markdownMediaKind(file.path) !== "image") return null;
+    const outputPath = publicMediaOutputPath(props.root, file.path);
+    return outputPath ? { outputPath, label: file.name, kind: "image" } : null;
+  };
+  const dropIntoDirectory = (source: MediaSidebarDragSource, destinationDirectory: string) => {
+    const movingFiles = state.files.filter((file) => source.itemIds.includes(file.path));
+    if (movingFiles.length === 0) return;
+    setMoveError(null);
+    void moveFileMediaItems({
+      root: props.root,
+      mediaRoot: state.publicRoot,
+      groups: props.groups,
+      directories: state.directories,
+      files: state.files,
+      movingFiles,
+      destinationDirectory,
+      onBeforeChange: props.onBeforeChange,
+    })
+      .then(() => {
+        setSelected(new Set());
+        void state.refresh();
+        props.onChanged();
+      })
+      .catch((caught) => setMoveError(caught instanceof Error ? caught.message : String(caught)));
+  };
 
   return (
     <div className="media-drawer">
@@ -264,6 +352,11 @@ function PublicMediaBrowserContent(props: {
         {(error || state.error) && (
           <Alert color="red" mb="sm">
             {error ?? `Could not read public media: ${state.error}`}
+          </Alert>
+        )}
+        {moveError && (
+          <Alert color="red" mb="sm">
+            {moveError}
           </Alert>
         )}
         <PublicMediaBrowser
@@ -279,11 +372,30 @@ function PublicMediaBrowserContent(props: {
             setSelectedDirectories(new Set());
             setDeleting(true);
           }}
-          dragMedia={(file) => {
-            if (markdownMediaKind(file.path) !== "image") return null;
-            const outputPath = publicMediaOutputPath(props.root, file.path);
-            return outputPath ? { outputPath, label: file.name, kind: "image" } : null;
+          dragPayload={(file) => {
+            const dragged = selected.has(file.path)
+              ? state.files.filter(
+                  (candidate) =>
+                    selected.has(candidate.path) && markdownMediaKind(candidate.path) === "image",
+                )
+              : [file];
+            const media = dragged.flatMap((candidate) => {
+              const pick = mediaForFile(candidate);
+              return pick ? [pick] : [];
+            });
+            return media.length > 0
+              ? {
+                  media,
+                  source: {
+                    kind: "media-sidebar",
+                    scope: dragScope,
+                    itemIds: dragged.map((candidate) => candidate.path),
+                  },
+                }
+              : null;
           }}
+          dropScope={dragScope}
+          onDropToDirectory={dropIntoDirectory}
           inlineSelection
           selectedFilePaths={selected}
           selectedDirectoryPaths={selectedDirectories}
