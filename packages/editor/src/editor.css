@@ -526,6 +526,19 @@
   border-color: var(--mantine-color-default-color);
 }
 
+.body-draggable-node .mdx-component-chip {
+  cursor: grab;
+  touch-action: none;
+}
+
+.body-draggable-node .mdx-component-chip:active {
+  cursor: grabbing;
+}
+
+.body-draggable-node.is-dragging {
+  opacity: 0.4;
+}
+
 .mdx-component-body {
   display: flex;
   flex-direction: column;

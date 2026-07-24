@@ -16,13 +16,31 @@ import {
   type CollisionDetection,
 } from "@dnd-kit/core";
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
-import { Image } from "lucide-react";
+import { Blocks, Image } from "lucide-react";
 import type { MarkdownMediaPick } from "../markdownMedia";
 
 export interface MediaDragSource {
   kind: "body-image";
   editorId: string;
   getPosition: () => number | undefined;
+}
+
+export interface BodyNodeDragSource {
+  kind: "body-node";
+  editorId: string;
+  nodeType: string;
+  getPosition: () => number | undefined;
+}
+
+export interface BodyNodeDragDetails {
+  pointer: { x: number; y: number } | null;
+  sourcePosition: number | undefined;
+}
+
+interface BodyNodeDragData {
+  kind: "posto-body-node";
+  label: string;
+  source: BodyNodeDragSource;
 }
 
 interface MediaDragData {
@@ -41,6 +59,17 @@ interface MediaDropData {
   kind: "posto-media-drop";
   accepts: (media: MarkdownMediaPick) => boolean;
   onDrop: (media: MarkdownMediaPick, event: DragEndEvent, details: MediaDropDetails) => void;
+}
+
+interface RichTextDropData {
+  kind: "posto-rich-text-drop";
+  acceptsMedia: (media: MarkdownMediaPick) => boolean;
+  onMediaDrop: (media: MarkdownMediaPick, event: DragEndEvent, details: MediaDropDetails) => void;
+  onBodyNodeDrop: (
+    source: BodyNodeDragSource,
+    event: DragEndEvent,
+    details: BodyNodeDragDetails,
+  ) => void;
 }
 
 export interface PostoListDragData {
@@ -62,9 +91,19 @@ const collisionDetection: CollisionDetection = (args) => {
   }
   if (activeData?.kind === "posto-media") {
     const mediaTargets = args.droppableContainers.filter(
-      (container) => container.data.current?.kind === "posto-media-drop",
+      (container) =>
+        container.data.current?.kind === "posto-media-drop" ||
+        container.data.current?.kind === "posto-rich-text-drop",
     );
     const scopedArgs = { ...args, droppableContainers: mediaTargets };
+    const pointerCollisions = pointerWithin(scopedArgs);
+    return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(scopedArgs);
+  }
+  if (activeData?.kind === "posto-body-node") {
+    const bodyTargets = args.droppableContainers.filter(
+      (container) => container.data.current?.kind === "posto-rich-text-drop",
+    );
+    const scopedArgs = { ...args, droppableContainers: bodyTargets };
     const pointerCollisions = pointerWithin(scopedArgs);
     return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(scopedArgs);
   }
@@ -79,15 +118,21 @@ function draggedSource(data: Record<string, unknown> | undefined): MediaDragSour
   return data?.kind === "posto-media" ? ((data as unknown as MediaDragData).source ?? null) : null;
 }
 
+function draggedBodyNode(data: Record<string, unknown> | undefined): BodyNodeDragData | null {
+  return data?.kind === "posto-body-node" ? (data as unknown as BodyNodeDragData) : null;
+}
+
 interface MediaDragState {
   activeMedia: MarkdownMediaPick | null;
   activeSource: MediaDragSource | null;
+  activeBodyNode: BodyNodeDragData | null;
   pointer: { x: number; y: number } | null;
 }
 
 const MediaDragContext = createContext<MediaDragState>({
   activeMedia: null,
   activeSource: null,
+  activeBodyNode: null,
   pointer: null,
 });
 
@@ -105,11 +150,13 @@ function pointerFromEvent(event: Event): { x: number; y: number } | null {
 export function MediaDragDropProvider(props: { children: ReactNode }) {
   const [activeMedia, setActiveMedia] = useState<MarkdownMediaPick | null>(null);
   const [activeSource, setActiveSource] = useState<MediaDragSource | null>(null);
+  const [activeBodyNode, setActiveBodyNode] = useState<BodyNodeDragData | null>(null);
   const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
   const startPointer = useRef<{ x: number; y: number } | null>(null);
   const livePointer = useRef<{ x: number; y: number } | null>(null);
   const dragSource = useRef<MediaDragSource | null>(null);
   const dragSourcePosition = useRef<number | undefined>(undefined);
+  const bodyNodeSourcePosition = useRef<number | undefined>(undefined);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -125,15 +172,17 @@ export function MediaDragDropProvider(props: { children: ReactNode }) {
     livePointer.current = null;
     dragSource.current = null;
     dragSourcePosition.current = undefined;
+    bodyNodeSourcePosition.current = undefined;
     setPointer(null);
     setActiveMedia(null);
     setActiveSource(null);
+    setActiveBodyNode(null);
   };
 
   // dnd-kit owns the drag lifecycle; keep the actual pointer separately so
   // insertion never depends on the translated dimensions of the drag overlay.
   useEffect(() => {
-    if (!activeMedia) return;
+    if (!activeMedia && !activeBodyNode) return;
     const updatePointer = (event: PointerEvent) => {
       const next = { x: event.clientX, y: event.clientY };
       livePointer.current = next;
@@ -141,7 +190,7 @@ export function MediaDragDropProvider(props: { children: ReactNode }) {
     };
     window.addEventListener("pointermove", updatePointer);
     return () => window.removeEventListener("pointermove", updatePointer);
-  }, [activeMedia]);
+  }, [activeBodyNode, activeMedia]);
 
   return (
     <DndContext
@@ -150,24 +199,43 @@ export function MediaDragDropProvider(props: { children: ReactNode }) {
       onDragStart={(event: DragStartEvent) => {
         const start = pointerFromEvent(event.activatorEvent);
         const source = draggedSource(event.active.data.current);
+        const bodyNode = draggedBodyNode(event.active.data.current);
         startPointer.current = start;
         livePointer.current = start;
         dragSource.current = source;
         dragSourcePosition.current = source?.getPosition();
+        bodyNodeSourcePosition.current = bodyNode?.source.getPosition();
         setPointer(start);
         setActiveMedia(draggedMedia(event.active.data.current));
         setActiveSource(source);
+        setActiveBodyNode(bodyNode);
       }}
       onDragMove={(event) => setPointer(pointerForEvent(event))}
       onDragCancel={clearDrag}
       onDragEnd={(event) => {
         const media = draggedMedia(event.active.data.current);
-        const drop = event.over?.data.current as unknown as MediaDropData | undefined;
+        const drop = event.over?.data.current as unknown as
+          | MediaDropData
+          | RichTextDropData
+          | undefined;
         if (media && drop?.kind === "posto-media-drop" && drop.accepts(media)) {
           drop.onDrop(media, event, {
             pointer: pointerForEvent(event),
             source: dragSource.current,
             sourcePosition: dragSourcePosition.current,
+          });
+        } else if (media && drop?.kind === "posto-rich-text-drop" && drop.acceptsMedia(media)) {
+          drop.onMediaDrop(media, event, {
+            pointer: pointerForEvent(event),
+            source: dragSource.current,
+            sourcePosition: dragSourcePosition.current,
+          });
+        }
+        const bodyNode = draggedBodyNode(event.active.data.current);
+        if (bodyNode && drop?.kind === "posto-rich-text-drop") {
+          drop.onBodyNodeDrop(bodyNode.source, event, {
+            pointer: pointerForEvent(event),
+            sourcePosition: bodyNodeSourcePosition.current,
           });
         }
         const listItem = event.active.data.current as unknown as PostoListDragData | undefined;
@@ -183,7 +251,7 @@ export function MediaDragDropProvider(props: { children: ReactNode }) {
         clearDrag();
       }}
     >
-      <MediaDragContext.Provider value={{ activeMedia, activeSource, pointer }}>
+      <MediaDragContext.Provider value={{ activeMedia, activeSource, activeBodyNode, pointer }}>
         {props.children}
         <DragOverlay dropAnimation={null}>
           {activeMedia ? (
@@ -191,11 +259,34 @@ export function MediaDragDropProvider(props: { children: ReactNode }) {
               <Image size={18} />
               <span>{activeMedia.label}</span>
             </div>
+          ) : activeBodyNode ? (
+            <div className="media-drag-overlay">
+              <Blocks size={18} />
+              <span>{activeBodyNode.label}</span>
+            </div>
           ) : null}
         </DragOverlay>
       </MediaDragContext.Provider>
     </DndContext>
   );
+}
+
+export function useBodyNodeDraggable(input: {
+  id: string;
+  label: string;
+  source: BodyNodeDragSource | null;
+}) {
+  return useDraggable({
+    id: input.id,
+    disabled: !input.source,
+    data: input.source
+      ? ({
+          kind: "posto-body-node",
+          label: input.label,
+          source: input.source,
+        } satisfies BodyNodeDragData)
+      : {},
+  });
 }
 
 export function useMediaDraggable(input: {
@@ -255,4 +346,50 @@ export function useMediaDropZone(input: {
     activeMedia: drag.activeMedia,
     activeSource: drag.activeSource,
   };
+}
+
+export function useRichTextDropZone(input: {
+  id: string;
+  acceptsMedia: (media: MarkdownMediaPick) => boolean;
+  onMediaDrop: (media: MarkdownMediaPick, event: DragEndEvent, details: MediaDropDetails) => void;
+  onBodyNodeDrop: (
+    source: BodyNodeDragSource,
+    event: DragEndEvent,
+    details: BodyNodeDragDetails,
+  ) => void;
+}) {
+  const drag = useContext(MediaDragContext);
+  const droppable = useDroppable({
+    id: input.id,
+    data: {
+      kind: "posto-rich-text-drop",
+      acceptsMedia: input.acceptsMedia,
+      onMediaDrop: input.onMediaDrop,
+      onBodyNodeDrop: input.onBodyNodeDrop,
+    } satisfies RichTextDropData,
+  });
+  const media = draggedMedia(droppable.active?.data.current);
+  const bodyNode = draggedBodyNode(droppable.active?.data.current);
+  return {
+    setNodeRef: droppable.setNodeRef,
+    isOver: droppable.isOver,
+    isAccepting: droppable.isOver && ((!!media && input.acceptsMedia(media)) || !!bodyNode),
+    pointer: drag.pointer,
+    activeMedia: drag.activeMedia,
+    activeMediaSource: drag.activeSource,
+    activeBodySource: drag.activeBodyNode?.source ?? null,
+  };
+}
+
+const bodyNodePositionGetters = new WeakMap<HTMLElement, () => number | undefined>();
+
+export function registerBodyNodePosition(
+  element: HTMLElement,
+  getPosition: () => number | undefined,
+) {
+  bodyNodePositionGetters.set(element, getPosition);
+}
+
+export function bodyNodePosition(element: HTMLElement): number | undefined {
+  return bodyNodePositionGetters.get(element)?.();
 }

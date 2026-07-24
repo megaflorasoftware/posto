@@ -27,7 +27,6 @@ import {
   EditableBlockImage,
   EditableImage,
   EditableImageContext,
-  editableImagePosition,
   type EditableImageRequest,
 } from "./EditableImage";
 import { ImageLibraryEditDialog } from "./ImageLibraryManageDialogs";
@@ -44,7 +43,14 @@ import { useProjectIO } from "../projectIO";
 import { markdownMediaEditorContent } from "../markdownMedia";
 import { resolveImageLibraryLocation } from "@posto/core/project/mediaLibrary";
 import { useImageLibraryAssets } from "../hooks/useImageLibraryAssets";
-import { useMediaDropZone, type MediaDragSource, type MediaDropDetails } from "./MediaDragDrop";
+import {
+  bodyNodePosition,
+  useRichTextDropZone,
+  type BodyNodeDragDetails,
+  type BodyNodeDragSource,
+  type MediaDragSource,
+  type MediaDropDetails,
+} from "./MediaDragDrop";
 
 function normalizedMediaPath(path: string): string {
   return path.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
@@ -77,6 +83,17 @@ interface ImageDropBox {
   blockFrom?: number;
   blockTo?: number;
 }
+
+type RichTextDragSource = MediaDragSource | BodyNodeDragSource;
+
+const draggableBodyNodeTypes = new Set([
+  "image",
+  "blockImage",
+  "mdxComponent",
+  "mdxRawInline",
+  "htmlBlock",
+  "htmlInline",
+]);
 
 function inRange(value: number, first: number, second: number, padding = 0): boolean {
   return value >= Math.min(first, second) - padding && value <= Math.max(first, second) + padding;
@@ -182,39 +199,56 @@ export function imageGapLocation(
   };
 }
 
-export function imageMoveTransaction(
+export function bodyNodeMoveTransaction(
   state: EditorState,
   sourcePosition: number,
   location: Pick<RichTextDropLocation, "pos" | "blockBoundary">,
 ): Transaction | null {
-  const image = state.doc.nodeAt(sourcePosition);
-  if (image?.type.name !== "image" && image?.type.name !== "blockImage") return null;
+  const sourceNode = state.doc.nodeAt(sourcePosition);
+  if (!sourceNode || !draggableBodyNodeTypes.has(sourceNode.type.name)) return null;
   let from = sourcePosition;
-  let to = sourcePosition + image.nodeSize;
-  let movedNode = image;
+  let to = sourcePosition + sourceNode.nodeSize;
+  let movedNode = sourceNode;
   const $source = state.doc.resolve(sourcePosition);
   if (
     location.blockBoundary &&
     $source.parent.type.name === "paragraph" &&
     $source.parent.childCount === 1 &&
-    $source.parent.firstChild === image
+    $source.parent.firstChild === sourceNode
   ) {
     from = $source.before();
     to = $source.after();
     movedNode = $source.parent;
+  } else if (location.blockBoundary && sourceNode.isInline) {
+    const paragraph = state.schema.nodes.paragraph?.createAndFill(null, sourceNode);
+    if (!paragraph) return null;
+    movedNode = paragraph;
   }
+  if (!location.blockBoundary && sourceNode.isBlock) return null;
   if (location.pos >= from && location.pos <= to) return null;
-  const transaction = state.tr.delete(from, to);
-  const target = transaction.mapping.map(location.pos);
-  if (
-    location.blockBoundary &&
-    (movedNode.type.name === "paragraph" || movedNode.type.name === "blockImage")
-  ) {
-    transaction.insert(target, movedNode);
-  } else {
-    transaction.replaceRangeWith(target, target, movedNode);
+  try {
+    const transaction = state.tr.delete(from, to);
+    const target = transaction.mapping.map(location.pos);
+    if (location.blockBoundary) {
+      transaction.insert(target, movedNode);
+    } else {
+      transaction.replaceRangeWith(target, target, movedNode);
+    }
+    transaction.setMeta("postoBodyNodeMove", true);
+    return transaction.docChanged ? transaction.scrollIntoView() : null;
+  } catch {
+    return null;
   }
-  return transaction.docChanged ? transaction.scrollIntoView() : null;
+}
+
+export function imageMoveTransaction(
+  state: EditorState,
+  sourcePosition: number,
+  location: Pick<RichTextDropLocation, "pos" | "blockBoundary">,
+): Transaction | null {
+  const node = state.doc.nodeAt(sourcePosition);
+  if (node?.type.name !== "image" && node?.type.name !== "blockImage") return null;
+  return bodyNodeMoveTransaction(state, sourcePosition, location);
 }
 
 function StandaloneImageEditDialog(props: { request: EditableImageRequest; onClose: () => void }) {
@@ -492,7 +526,7 @@ export function BodyEditor(props: {
 
   const dropLocationAtPointer = (
     pointer: MediaDropDetails["pointer"],
-    source: MediaDragSource | null,
+    source: RichTextDragSource | null,
     capturedSourcePosition?: number,
   ): RichTextDropLocation | null => {
     if (!editor || !pointer) return null;
@@ -500,23 +534,20 @@ export function BodyEditor(props: {
     if (!fallback) return null;
     const contentRect = editor.view.dom.getBoundingClientRect();
     const sourcePosition =
-      source?.kind === "body-image" && source.editorId === props.path
+      source?.editorId === props.path
         ? (capturedSourcePosition ?? source.getPosition())
         : undefined;
-    const boxes = Array.from(editor.view.dom.querySelectorAll<HTMLElement>(".body-image"))
+    const boxes = Array.from(editor.view.dom.querySelectorAll<HTMLElement>(".body-draggable-node"))
       .map((element): ImageDropBox | null => {
         try {
-          const pos = editableImagePosition(element);
+          const pos = bodyNodePosition(element);
           if (pos === undefined) return null;
           const node = editor.state.doc.nodeAt(pos);
-          if (
-            (node?.type.name !== "image" && node?.type.name !== "blockImage") ||
-            pos === sourcePosition
-          )
+          if (!node || !draggableBodyNodeTypes.has(node.type.name) || pos === sourcePosition) {
             return null;
+          }
           const $pos = editor.state.doc.resolve(pos);
-          const blockImage = node.type.name === "blockImage";
-          const imageOnlyParagraph =
+          const onlyParagraphChild =
             $pos.parent.type.name === "paragraph" &&
             $pos.parent.childCount === 1 &&
             $pos.parent.firstChild === node;
@@ -524,10 +555,10 @@ export function BodyEditor(props: {
             pos,
             size: node.nodeSize,
             rect: element.getBoundingClientRect(),
-            blockFrom: blockImage ? pos : imageOnlyParagraph ? $pos.before() : undefined,
-            blockTo: blockImage
+            blockFrom: node.isBlock ? pos : onlyParagraphChild ? $pos.before() : undefined,
+            blockTo: node.isBlock
               ? pos + node.nodeSize
-              : imageOnlyParagraph
+              : onlyParagraphChild
                 ? $pos.after()
                 : undefined,
           };
@@ -542,10 +573,41 @@ export function BodyEditor(props: {
       pointer,
       contentRect,
       (left, right) =>
-        editor.state.doc.textBetween(left.pos + left.size, right.pos, "\n", "\ufffc").trim()
-          .length === 0,
+        editor.state.doc
+          .textBetween(left.pos + left.size, right.pos, "\n", "\ufffc")
+          .replace(/\ufffc/g, "")
+          .trim().length === 0,
     );
     if (imageLocation) return imageLocation;
+    const sourceNode =
+      typeof sourcePosition === "number" ? editor.state.doc.nodeAt(sourcePosition) : null;
+    if (sourceNode?.isBlock) {
+      const $fallback = editor.state.doc.resolve(fallback.pos);
+      for (let depth = $fallback.depth; depth >= 0; depth -= 1) {
+        const parent = $fallback.node(depth);
+        if (parent.childCount === 0) continue;
+        const childIndex = Math.min($fallback.index(depth), parent.childCount - 1);
+        const childPosition = $fallback.posAtIndex(childIndex, depth);
+        const dom = editor.view.nodeDOM(childPosition);
+        const element = dom instanceof HTMLElement ? dom : dom?.parentElement;
+        if (!element) continue;
+        const rect = element.getBoundingClientRect();
+        const before = pointer.y < rect.top + rect.height / 2;
+        const insertionIndex = before ? childIndex : childIndex + 1;
+        if (!parent.canReplaceWith(insertionIndex, insertionIndex, sourceNode.type)) continue;
+        const left = Math.max(contentRect.left, rect.left);
+        const right = Math.min(contentRect.right, rect.right);
+        return {
+          pos: $fallback.posAtIndex(insertionIndex, depth),
+          left,
+          top: before ? rect.top : rect.bottom,
+          width: Math.max(right - left, 24),
+          height: 3,
+          orientation: "horizontal",
+          blockBoundary: true,
+        };
+      }
+    }
     const coordinates = editor.view.coordsAtPos(fallback.pos);
     return {
       pos: fallback.pos,
@@ -595,15 +657,30 @@ export function BodyEditor(props: {
       .run();
   };
 
-  const bodyDrop = useMediaDropZone({
+  const moveBodyNode = (source: BodyNodeDragSource, details: BodyNodeDragDetails) => {
+    if (!editor || source.editorId !== props.path) return;
+    const location =
+      dropLocationRef.current ??
+      dropLocationAtPointer(details.pointer, source, details.sourcePosition);
+    const sourcePosition = details.sourcePosition ?? source.getPosition();
+    if (!location || typeof sourcePosition !== "number") return;
+    const transaction = bodyNodeMoveTransaction(editor.state, sourcePosition, location);
+    if (!transaction) return;
+    editor.view.dispatch(transaction);
+    editor.view.focus();
+  };
+
+  const bodyDrop = useRichTextDropZone({
     id: `body:${props.path}`,
-    accepts: (media) => media.kind === "image",
-    onDrop: (media, _event, details) => insertOrMoveImage(media, details),
+    acceptsMedia: (media) => media.kind === "image",
+    onMediaDrop: (media, _event, details) => insertOrMoveImage(media, details),
+    onBodyNodeDrop: (source, _event, details) => moveBodyNode(source, details),
   });
 
   useLayoutEffect(() => {
     const container = bodyDropContainer.current;
-    const location = dropLocationAtPointer(bodyDrop.pointer, bodyDrop.activeSource);
+    const activeSource = bodyDrop.activeBodySource ?? bodyDrop.activeMediaSource;
+    const location = dropLocationAtPointer(bodyDrop.pointer, activeSource);
     if (!editor || !container || !bodyDrop.isAccepting || location === null) {
       dropLocationRef.current = null;
       setDropCaret(null);
@@ -619,7 +696,8 @@ export function BodyEditor(props: {
     setDropCaret(relativeLocation);
   }, [
     editor,
-    bodyDrop.activeSource,
+    bodyDrop.activeBodySource,
+    bodyDrop.activeMediaSource,
     bodyDrop.isAccepting,
     bodyDrop.pointer?.x,
     bodyDrop.pointer?.y,
@@ -781,6 +859,7 @@ export function BodyEditor(props: {
     <MdxSchemaContext.Provider value={schemas}>
       <MdxFieldEnvContext.Provider
         value={{
+          editorId: props.path,
           config: props.config,
           root: props.root,
           groups: props.groups,

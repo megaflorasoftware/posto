@@ -1,4 +1,11 @@
-import { createContext, useContext, useState, type ReactElement, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useId,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import {
   Extension,
   Node,
@@ -43,6 +50,7 @@ import { validateForm } from "@posto/core/pagescms/validate";
 import type { FileGroup } from "@posto/ipc";
 import type { EntryIdSource } from "@posto/core/project/entryIds";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
+import { registerBodyNodePosition, useBodyNodeDraggable } from "./MediaDragDrop";
 
 export interface ComponentBlockSchema {
   fields: Field[];
@@ -55,6 +63,7 @@ export const MdxSchemaContext = createContext<Record<string, ComponentBlockSchem
 
 /** Environment FieldEditor controls need (media resolution, references). */
 export interface MdxFieldEnv {
+  editorId: string;
   config: PagesConfig;
   root: string;
   groups: FileGroup[];
@@ -66,6 +75,7 @@ export interface MdxFieldEnv {
 }
 
 export const MdxFieldEnvContext = createContext<MdxFieldEnv>({
+  editorId: "",
   config: { media: [], content: [] },
   root: "",
   groups: [],
@@ -572,6 +582,24 @@ interface SlotTokenData {
 
 function ComponentCardView(props: NodeViewProps) {
   const name = String(props.node.attrs.name ?? "");
+  const dragEnvironment = useContext(MdxFieldEnvContext);
+  const dragId = useId();
+  const getPosition = () => {
+    const position = props.getPos();
+    return typeof position === "number" ? position : undefined;
+  };
+  const draggable = useBodyNodeDraggable({
+    id: `body-node:${dragEnvironment.editorId}:${dragId}`,
+    label: name || "Component",
+    source: dragEnvironment.editorId
+      ? {
+          kind: "body-node",
+          editorId: dragEnvironment.editorId,
+          nodeType: props.node.type.name,
+          getPosition,
+        }
+      : null,
+  });
   const schemas = useContext(MdxSchemaContext);
   const parsedProps = props.node.attrs.props as MdxProp[] | null;
   // Props render inline on the card, above the slot sections; the header chip
@@ -581,7 +609,13 @@ function ComponentCardView(props: NodeViewProps) {
     parsedProps === null || parsedProps.length > 0 || (schemas[name]?.fields.length ?? 0) > 0;
   const typed = (schemas[name]?.fields.length ?? 0) > 0;
   return (
-    <NodeViewWrapper className="mdx-component mdx-component-card">
+    <NodeViewWrapper
+      ref={(element: HTMLElement | null) => {
+        draggable.setNodeRef(element);
+        if (element) registerBodyNodePosition(element, getPosition);
+      }}
+      className={`mdx-component mdx-component-card body-draggable-node${draggable.isDragging ? " is-dragging" : ""}`}
+    >
       <div className="mdx-card-header" contentEditable={false}>
         {hasProps ? (
           <button
@@ -589,12 +623,18 @@ function ComponentCardView(props: NodeViewProps) {
             className="mdx-pill mdx-component-chip"
             title={propsOpen ? "Hide props" : "Show props"}
             onClick={() => setPropsOpen((open) => !open)}
+            {...draggable.attributes}
+            {...draggable.listeners}
           >
             <ComponentIcon size={14} />
             <span>{name}</span>
           </button>
         ) : (
-          <span className="mdx-pill mdx-component-chip">
+          <span
+            className="mdx-pill mdx-component-chip"
+            {...draggable.attributes}
+            {...draggable.listeners}
+          >
             <ComponentIcon size={14} />
             <span>{name}</span>
           </span>
@@ -835,6 +875,25 @@ export const MdxRawBlock = Node.create({
 function RawInlineView(props: NodeViewProps) {
   const source = String(props.node.attrs.source ?? "");
   const block = scanJsxBlock(source);
+  const dragEnvironment = useContext(MdxFieldEnvContext);
+  const dragId = useId();
+  const getPosition = () => {
+    const position = props.getPos();
+    return typeof position === "number" ? position : undefined;
+  };
+  const draggable = useBodyNodeDraggable({
+    id: `body-node:${dragEnvironment.editorId}:${dragId}`,
+    label: block?.name || "Component",
+    source:
+      block && dragEnvironment.editorId
+        ? {
+            kind: "body-node",
+            editorId: dragEnvironment.editorId,
+            nodeType: props.node.type.name,
+            getPosition,
+          }
+        : null,
+  });
 
   if (!block) {
     return (
@@ -859,7 +918,14 @@ function RawInlineView(props: NodeViewProps) {
   }
 
   return (
-    <NodeViewWrapper as="span" className="mdx-raw-inline">
+    <NodeViewWrapper
+      as="span"
+      ref={(element: HTMLElement | null) => {
+        draggable.setNodeRef(element);
+        if (element) registerBodyNodePosition(element, getPosition);
+      }}
+      className={`mdx-raw-inline body-draggable-node${draggable.isDragging ? " is-dragging" : ""}`}
+    >
       <ComponentPopover
         name={block.name}
         target={(toggle) => (
@@ -868,6 +934,8 @@ function RawInlineView(props: NodeViewProps) {
             className="mdx-pill mdx-component-chip"
             title={source}
             onClick={toggle}
+            {...draggable.attributes}
+            {...draggable.listeners}
           >
             <ComponentIcon size={14} />
             <span>{block.name}</span>
@@ -939,7 +1007,8 @@ export const MdxRawInvalidate = Extension.create({
             if (
               !transaction.docChanged ||
               transaction.getMeta("mdxSlotSync") ||
-              transaction.getMeta("mdxRawInvalidate")
+              transaction.getMeta("mdxRawInvalidate") ||
+              transaction.getMeta("postoBodyNodeMove")
             ) {
               return;
             }

@@ -3,7 +3,7 @@ import { ActionIcon } from "@mantine/core";
 import TiptapImage from "@tiptap/extension-image";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import { Pencil, Trash2 } from "lucide-react";
-import { useMediaDraggable } from "./MediaDragDrop";
+import { bodyNodePosition, registerBodyNodePosition, useMediaDraggable } from "./MediaDragDrop";
 
 export interface EditableImageRequest {
   src: string;
@@ -23,10 +23,8 @@ export const EditableImageContext = createContext<EditableImageEnvironment>({
   edit: () => undefined,
 });
 
-const imagePositionGetters = new WeakMap<HTMLElement, () => number | undefined>();
-
 export function editableImagePosition(element: HTMLElement): number | undefined {
-  return imagePositionGetters.get(element)?.();
+  return bodyNodePosition(element);
 }
 
 function EditableImageView(props: NodeViewProps) {
@@ -69,9 +67,9 @@ function EditableImageView(props: NodeViewProps) {
       as={props.node.type.name === "blockImage" ? "div" : "span"}
       ref={(element: HTMLElement | null) => {
         draggable.setNodeRef(element);
-        if (element) imagePositionGetters.set(element, getPosition);
+        if (element) registerBodyNodePosition(element, getPosition);
       }}
-      className={`body-image${draggable.isDragging ? " is-dragging" : ""}`}
+      className={`body-image body-draggable-node${draggable.isDragging ? " is-dragging" : ""}`}
       contentEditable={false}
       {...draggable.attributes}
       {...draggable.listeners}
