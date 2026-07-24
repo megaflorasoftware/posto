@@ -108,9 +108,34 @@ export function EditorPane(props: {
   );
   const activeTab = resolveEditorTab(tabs, editorTab);
   const showForm = activeTab !== "raw";
+  const fullscreenAction = props.onFullscreen ? (
+    <ActionIcon
+      size={26}
+      variant="default"
+      title="Open fullscreen editor"
+      aria-label="Open fullscreen editor"
+      onClick={props.onFullscreen}
+    >
+      <Maximize2 size={13} />
+    </ActionIcon>
+  ) : null;
 
   if (!filePath) {
-    return <div className="pane-placeholder">Select a file to edit</div>;
+    return (
+      <>
+        {!props.hideHeader && (
+          <div className="pane-header" data-tauri-drag-region>
+            {props.headerLeading}
+            <span className="pane-title">Editor</span>
+            <div className="pane-header-actions">
+              {fullscreenAction}
+              {props.headerTrailing}
+            </div>
+          </div>
+        )}
+        <div className="pane-placeholder">Select a file to edit</div>
+      </>
+    );
   }
 
   const rawEditor = (
@@ -216,17 +241,7 @@ export function EditorPane(props: {
                 <Code2 size={13} />
               </ActionIcon>
             )}
-            {props.onFullscreen && (
-              <ActionIcon
-                size={26}
-                variant="default"
-                title="Open fullscreen editor"
-                aria-label="Open fullscreen editor"
-                onClick={props.onFullscreen}
-              >
-                <Maximize2 size={13} />
-              </ActionIcon>
-            )}
+            {fullscreenAction}
             {props.headerTrailing}
           </div>
         </div>

@@ -541,7 +541,7 @@ export function onToggleSidebar(handler: () => void): () => void {
   };
 }
 
-/** Keeps the native fullscreen-editor menu item in sync with file selection. */
+/** Keeps the native fullscreen-editor menu item in sync with project availability. */
 export function setFullscreenEditorMenuEnabled(enabled: boolean): Promise<void> {
   if (!inTauri) return Promise.resolve();
   return invoke("set_fullscreen_editor_menu_enabled", { enabled });

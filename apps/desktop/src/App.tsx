@@ -487,7 +487,7 @@ function App() {
       void chooseProjectInRepositoryRef.current();
     });
     const unlistenFullscreenEditor = onOpenFullscreenEditor(() => {
-      if (currentFile.filePathRef.current) setFullscreenEditorOpen((open) => !open);
+      if (rootRef.current) setFullscreenEditorOpen((open) => !open);
     });
     const unlistenToggleSidebar = onToggleSidebar(() => {
       if (fullscreenEditorOpenRef.current) {
@@ -628,7 +628,7 @@ function App() {
       }
       if (event.key.toLowerCase() === "f" && command && event.shiftKey && !event.altKey) {
         event.preventDefault();
-        if (currentFile.filePathRef.current) setFullscreenEditorOpen((open) => !open);
+        if (rootRef.current) setFullscreenEditorOpen((open) => !open);
       }
     };
     window.addEventListener("keydown", handleViewShortcut);
@@ -648,8 +648,8 @@ function App() {
   }, [recentRoots, repoRoot, projectSession.hasMultipleProjects, notifyError]);
 
   useEffect(() => {
-    void setFullscreenEditorMenuEnabled(currentFile.filePath !== null).catch(notifyError);
-  }, [currentFile.filePath, notifyError]);
+    void setFullscreenEditorMenuEnabled(root !== null).catch(notifyError);
+  }, [root, notifyError]);
 
   const renderFullscreenExit = () => (
     <ActionIcon
@@ -944,7 +944,7 @@ function App() {
                     fullscreenEditorOpen
                       ? ` fullscreen-workspace fullscreen-editor-pane${
                           fullscreenSidebarOpen ? " fullscreen-sidebars-open" : ""
-                        }`
+                        }${currentFile.filePath ? "" : " fullscreen-no-file"}`
                       : ""
                   }`}
                   style={{ flexBasis: `${preview.split}%` }}

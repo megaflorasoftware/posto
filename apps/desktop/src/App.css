@@ -489,6 +489,19 @@ body,
   transform: translateX(0);
 }
 
+/* With no active document, files are the fullscreen workspace instead of an
+   optional overlay. Keep the left panel pinned even when the shared sidebar
+   preference is closed. */
+.fullscreen-no-file .fullscreen-sidebar-rail-left .fullscreen-floating-sidebar,
+.fullscreen-no-file
+  .fullscreen-sidebar-rail-left:not(:hover):not(:focus-within)
+  .fullscreen-floating-sidebar {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+
 .fullscreen-floating-sidebar-header {
   flex: 0 0 42px;
   display: flex;
@@ -549,6 +562,24 @@ body,
 
   .fullscreen-sidebar-rail-right:not(:hover):not(:focus-within) .fullscreen-floating-sidebar {
     transform: translateX(12px);
+  }
+
+  /* At compact widths there is no useful editor surface until a file is
+     selected, so give the full area below the header to the file browser. */
+  .fullscreen-no-file .fullscreen-sidebar-rail-left {
+    width: 100%;
+  }
+
+  .fullscreen-no-file .fullscreen-sidebar-rail-left .fullscreen-floating-sidebar {
+    inset: 0;
+    width: 100%;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .fullscreen-no-file .fullscreen-sidebar-rail-right {
+    display: none;
   }
 }
 
