@@ -1,6 +1,7 @@
 ---
 title: Tracking deployment status
 description: Connect GitHub, follow the latest Actions run on main, and open the deployed site from Posto.
+next: false
 ---
 
 When a site deploys through [GitHub Actions](https://docs.github.com/en/actions), Posto follows the latest workflow run on `main` so you can tell when a published change is live.

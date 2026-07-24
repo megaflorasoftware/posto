@@ -1,6 +1,7 @@
 ---
 title: Getting started with Astro
 description: Configure an Astro site for typed fields, media libraries, MDX components, and mobile editing in Posto.
+prev: false
 ---
 
 [Astro](https://docs.astro.build/en/getting-started/) is the framework Posto supports most deeply. Posto reads an Astro project's [content collections](https://docs.astro.build/en/guides/content-collections/) and turns their schemas into typed editing forms without requiring a duplicate Posto schema.
