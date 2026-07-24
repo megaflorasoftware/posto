@@ -455,8 +455,13 @@ function App() {
     void checkForAppUpdate();
     void refreshRecentRoots();
     void (async () => {
-      const last = await invoke<{ root: string; workDir: string } | null>("get_last_selection");
-      if (last && !rootRef.current) void selectRoot(last.root, last.workDir);
+      const last = await invoke<{ root: string; workDir: string | null } | null>(
+        "get_last_selection",
+      );
+      if (last && !rootRef.current) {
+        if (last.workDir) void selectRoot(last.root, last.workDir);
+        else void selectRepository(last.root);
+      }
     })();
     return () => {
       unlistenFs();

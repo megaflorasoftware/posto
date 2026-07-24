@@ -744,11 +744,13 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     case "get_last_selection": {
       const root = localStorage.getItem("posto-last-root");
       if (!root) return null;
-      return { root, workDir: localStorage.getItem(`posto-work-dir:${root}`) ?? root };
+      const saved = localStorage.getItem(`posto-work-dir:${root}`);
+      return { root, workDir: saved && mockDirectories.has(saved) ? saved : null };
     }
     case "get_work_dir": {
       const root = args?.root as string;
-      return localStorage.getItem(`posto-work-dir:${root}`);
+      const saved = localStorage.getItem(`posto-work-dir:${root}`);
+      return saved && mockDirectories.has(saved) ? saved : null;
     }
     case "get_recent_roots": {
       const raw = localStorage.getItem("posto-recent-roots");

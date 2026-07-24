@@ -110,3 +110,16 @@ test("project detection runs through the installed browser backend", async () =>
   });
   expect(project).toMatchObject({ type: "astro", hasPagesYml: true, hasPostoDir: true });
 });
+
+test("a stale remembered work directory never falls back to the repository root", async () => {
+  localStorage.setItem("posto-last-root", "/mock/site");
+  localStorage.setItem("posto-work-dir:/mock/site", "/mock/site/apps/renamed");
+
+  await expect(invoke("get_last_selection")).resolves.toEqual({
+    root: "/mock/site",
+    workDir: null,
+  });
+  await expect(invoke("get_work_dir", { root: "/mock/site" })).resolves.toBeNull();
+  localStorage.removeItem("posto-last-root");
+  localStorage.removeItem("posto-work-dir:/mock/site");
+});
