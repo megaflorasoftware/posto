@@ -88,28 +88,31 @@ const config = buildAstroConfig(
 );
 
 test("discovers image libraries and their diagnostics", () => {
-  assert(config.imageLibraries?.length === 2, "yaml and json libraries discovered");
-  assert(config.imageLibraries[0].imageFieldPath.join(".") === "asset.source", "path preserved");
+  assert(config.mediaLibraries?.length === 2, "yaml and json libraries discovered");
+  assert(config.mediaLibraries[0].imageFieldPath.join(".") === "asset.source", "path preserved");
   assert(
-    config.imageLibraries[0].fields[0].fields?.[0].type === "image",
+    config.mediaLibraries[0].fields[0].fields?.[0].type === "image",
     "only nested field upgraded",
   );
   assert(
-    config.imageLibraryDiagnostics?.some((item) => item.code === "multiple-image-fields"),
+    config.diagnostics?.some((item) => item.code === "multiple-image-fields"),
     "ambiguity diagnosed",
   );
   assert(
-    config.imageLibraryDiagnostics?.some((item) => item.code === "unsupported-image-shape"),
+    config.diagnostics?.some((item) => item.code === "unsupported-image-shape"),
     "image arrays diagnosed",
   );
   assert(
-    config.imageLibraryDiagnostics?.some((item) => item.code === "custom-entry-ids"),
+    config.diagnostics?.some((item) => item.code === "custom-entry-ids"),
     "custom IDs diagnosed",
   );
   const blog = config.content.find((entry) => entry.name === "blog");
-  assert(blog?.fields[0].options?.astroId === true, "top-level reference keeps Astro ID semantics");
   assert(
-    blog?.fields[1].fields?.[0].options?.astroId === true,
+    blog?.fields[0].options?.idScheme === "framework",
+    "top-level reference keeps Astro ID semantics",
+  );
+  assert(
+    blog?.fields[1].fields?.[0].options?.idScheme === "framework",
     "nested reference keeps Astro ID semantics",
   );
 });

@@ -64,6 +64,7 @@ export function PublishModal(props: {
   onClose: () => void;
   onRevert: (file: ChangedFile) => void;
   onPublish: (message: string) => void;
+  scopeLabel?: string;
 }) {
   const [commitMessage, setCommitMessage] = useState(DEFAULT_COMMIT_MESSAGE);
 
@@ -74,6 +75,9 @@ export function PublishModal(props: {
 
   return (
     <Dialog opened={props.opened} onClose={props.onClose} title="Publish changes">
+      {props.scopeLabel && (
+        <div className="publish-scope">Showing changes in {props.scopeLabel}</div>
+      )}
       {props.error !== null ? (
         <Alert color="red">Could not read changes: {props.error}</Alert>
       ) : props.changes === null ? (

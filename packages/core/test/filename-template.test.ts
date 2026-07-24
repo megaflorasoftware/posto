@@ -1,5 +1,11 @@
 import { test } from "vitest";
-import { generateFilename, renamedFilename, type ContentEntry } from "../src/pagescms/config";
+import {
+  DEFAULT_FILENAME_PATTERN,
+  entryFilenamePattern,
+  generateFilename,
+  renamedFilename,
+  type ContentEntry,
+} from "../src/pagescms/config";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -33,5 +39,17 @@ test("produces a rename target when the slug changes", () => {
     renamedFilename("{fields.slug}.mdx", blog, values, "a-different-title.mdx") ===
       "custom-slug.mdx",
     "editing the slug produces a rename target",
+  );
+});
+
+test("filename defaults come from neutral entry metadata", () => {
+  assert(entryFilenamePattern(blog) === DEFAULT_FILENAME_PATTERN, "Pages defaults remain neutral");
+  assert(
+    entryFilenamePattern({ ...blog, filenameFallback: "{primary}.mdx" }) === "{primary}.mdx",
+    "an adapter can provide its own fallback",
+  );
+  assert(
+    entryFilenamePattern({ ...blog, filename: "{fields.slug}.md" }) === "{fields.slug}.md",
+    "explicit configuration wins over the adapter fallback",
   );
 });

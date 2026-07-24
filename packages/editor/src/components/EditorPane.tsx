@@ -8,6 +8,10 @@ import { FormEditor } from "./FormEditor";
 import { DataFormEditor } from "./DataFormEditor";
 import type { SaveState } from "../hooks/useCurrentFile";
 import { FieldTemplateActions } from "./FieldTemplateActions";
+import type { ProjectType } from "@posto/core/project/detect";
+import type { ComponentSchemaSource, ProjectIO } from "@posto/core/project/adapter";
+import type { EntryIdSource } from "@posto/core/project/entryIds";
+import { ProjectIOProvider } from "../projectIO";
 
 export type EditorTab = "fields" | "body" | "raw";
 
@@ -48,17 +52,21 @@ export function contentHasFields(entry: unknown, parsed: ParsedFile): boolean {
  * Fields/Body/Raw tab host around FormEditor / the raw textarea. */
 export function EditorPane(props: {
   root: string;
+  projectIO: ProjectIO;
   filePath: string | null;
   fileContent: string;
   saveState: SaveState;
   entry: ContentEntry | null;
   dataEntry?: FileEntry["dataEntry"];
   /** Which schema source the entry came from, for the header badge. */
-  entrySource: "astro" | "pages" | null;
+  entrySource: ProjectType | "pages" | null;
   config: PagesConfig | null;
   configError: string | null;
   /** Whether Astro schemas exist to fall back on when `.pages.yml` is broken. */
-  hasAstroFallback: boolean;
+  hasDerivedFallback: boolean;
+  componentBlocks: ComponentSchemaSource | null;
+  entryIds: EntryIdSource | null;
+  componentSchemaVersion?: number;
   groups: FileGroup[];
   editorTab: EditorTab;
   onTabChange: (tab: EditorTab) => void;
@@ -171,7 +179,7 @@ export function EditorPane(props: {
   );
 
   return (
-    <>
+    <ProjectIOProvider value={props.projectIO}>
       {(props.filenamePlacement ?? "header") === "header" && (
         <div className="pane-header">
           {filenameReadOnly ? <div className="pane-filename-text">{fileName}</div> : filenameInput}
@@ -180,7 +188,7 @@ export function EditorPane(props: {
       )}
       {props.configError && (
         <Alert color="yellow" className="config-error">
-          {`Schema configuration issue${props.hasAstroFallback ? " (using the last available schemas)" : ""} — ${props.configError}`}
+          {`Schema configuration issue${props.hasDerivedFallback ? " (using the last available schemas)" : ""} — ${props.configError}`}
         </Alert>
       )}
       {!showForm ? (
@@ -211,6 +219,7 @@ export function EditorPane(props: {
               config={props.config ?? EMPTY_CONFIG}
               root={props.root}
               groups={props.groups}
+              entryIds={props.entryIds}
               fieldsHeader={
                 (props.filenamePlacement ?? "header") === "fields" ? filenameField : undefined
               }
@@ -229,6 +238,9 @@ export function EditorPane(props: {
               config={props.config ?? EMPTY_CONFIG}
               root={props.root}
               groups={props.groups}
+              componentBlocks={props.componentBlocks}
+              entryIds={props.entryIds}
+              componentSchemaVersion={props.componentSchemaVersion}
               fieldsHeader={
                 (props.filenamePlacement ?? "header") === "fields" ? filenameField : undefined
               }
@@ -238,6 +250,6 @@ export function EditorPane(props: {
           )}
         </Tabs>
       )}
-    </>
+    </ProjectIOProvider>
   );
 }

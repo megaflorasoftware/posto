@@ -7,7 +7,7 @@ import {
   removeDataEntry,
   serializeDataDocument,
   setDataValue,
-} from "../src/astro/dataDocument";
+} from "../src/project/dataDocument";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);

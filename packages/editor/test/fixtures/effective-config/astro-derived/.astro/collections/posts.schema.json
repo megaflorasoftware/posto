@@ -1,0 +1,1 @@
+{"type":"object","properties":{"title":{"type":"string"},"draft":{"type":"boolean"}},"required":["title"]}

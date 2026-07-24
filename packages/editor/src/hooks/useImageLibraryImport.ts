@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { astroEntryId } from "@posto/core/astro/collections";
+import { pathEntryId } from "@posto/core/project/entryIds";
 import {
   MediaPlanError,
   matchesImageLibraryPath,
   planMediaImport,
   type MediaImportPlan,
-} from "@posto/core/astro/imageLibrary";
-import type { AstroImageLibrary, ImageLibraryMetadataExtension } from "@posto/core/pagescms/config";
+} from "@posto/core/project/mediaLibrary";
+import type { MediaLibrary, MediaLibraryMetadataExtension } from "@posto/core/pagescms/config";
 import {
   importImageLibraryAsset,
   invoke,
@@ -19,7 +19,7 @@ export interface ImageLibraryImportDraft {
   sourceImagePath: string;
   filename: string;
   metadata: Record<string, unknown>;
-  metadataExtension?: ImageLibraryMetadataExtension;
+  metadataExtension?: MediaLibraryMetadataExtension;
 }
 
 function sourceStem(path: string): string {
@@ -33,13 +33,13 @@ function sourceExtension(path: string): string {
 }
 
 function defaultMetadataExtension(
-  library: AstroImageLibrary,
-): ImageLibraryMetadataExtension | undefined {
+  library: MediaLibrary,
+): MediaLibraryMetadataExtension | undefined {
   if (library.metadataExtensions.length === 1) return library.metadataExtensions[0];
   return library.metadataExtensions.includes("yaml") ? "yaml" : undefined;
 }
 
-function makeDraft(sourceImagePath: string, library: AstroImageLibrary): ImageLibraryImportDraft {
+function makeDraft(sourceImagePath: string, library: MediaLibrary): ImageLibraryImportDraft {
   return {
     sourceImagePath,
     filename: sourceStem(sourceImagePath),
@@ -54,7 +54,7 @@ function makeDraft(sourceImagePath: string, library: AstroImageLibrary): ImageLi
  * ones that land so a retry after a mid-batch failure never double-writes. */
 export function useImageLibraryImport(input: {
   root: string;
-  library: AstroImageLibrary;
+  library: MediaLibrary;
   initialSources?: string[];
   onImported?: (result: ImageLibraryImportResult) => void;
 }) {
@@ -109,10 +109,10 @@ export function useImageLibraryImport(input: {
         .filter(
           (file) =>
             metadataExts.has(
-              file.name.split(".").pop()?.toLowerCase() as ImageLibraryMetadataExtension,
+              file.name.split(".").pop()?.toLowerCase() as MediaLibraryMetadataExtension,
             ) && matchesImageLibraryPath(input.library, file.path.slice(prefix.length)),
         )
-        .map((file) => astroEntryId(file.path.slice(prefix.length))),
+        .map((file) => pathEntryId(file.path.slice(prefix.length))),
     });
   }
 

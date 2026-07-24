@@ -31,34 +31,29 @@ export interface FieldTemplateSchema {
   rows?: number;
 }
 
-export type ImageLibraryMetadataExtension = "yaml" | "yml" | "json";
+export type MediaLibraryMetadataExtension = "yaml" | "yml" | "json";
 
-/** A local Astro glob collection that Posto can manage as paired image and
- * metadata files. Paths are repository-root-relative. */
-export interface AstroImageLibrary {
+/** A metadata-backed collection of paired media and metadata files. */
+export interface MediaLibrary {
   collection: string;
   base: string;
   patterns: string[];
-  metadataExtensions: ImageLibraryMetadataExtension[];
+  metadataExtensions: MediaLibraryMetadataExtension[];
   imageFieldPath: string[];
   fields: Field[];
-}
-
-export interface AstroImageLibraryDiagnostic {
-  collection: string;
-  code:
-    | "custom-entry-ids"
-    | "multiple-image-fields"
-    | "missing-loader-base"
-    | "unsupported-image-shape"
-    | "unsupported-metadata-format";
-  message: string;
 }
 
 export interface SchemaDiagnostic {
   /** Collection name, or null for a project-wide scanner notice. */
   collection: string | null;
   code: "custom-loader" | "missing-collections-export" | "missing-collection-config";
+  message: string;
+}
+
+export interface Diagnostic {
+  feature: string;
+  collection?: string | null;
+  code: string;
   message: string;
 }
 
@@ -69,6 +64,9 @@ export interface MediaEntry {
   output: string;
 }
 
+/** Conventional public asset directory when a project declares no media source. */
+export const DEFAULT_MEDIA: MediaEntry[] = [{ name: "default", input: "public", output: "/" }];
+
 export interface ContentEntry {
   name: string;
   label?: string;
@@ -77,6 +75,8 @@ export interface ContentEntry {
   subfolders?: boolean;
   /** Filename template for new entries (e.g. `{year}-{month}-{day}-{primary}.md`). */
   filename?: string;
+  /** Adapter-provided default used only when `filename` is not configured. */
+  filenameFallback?: string;
   /** Explicit file extension for the collection's entries (no leading dot). */
   extension?: string;
   /** Field named by `view.primary`; the entry's display/primary field. */
@@ -99,7 +99,7 @@ export interface ContentEntry {
   media?: MediaEntry;
   /** The glob loader has a custom `generateId`; Posto cannot derive ids from
    * file paths and must not offer an id-valued reference picker. */
-  astroCustomIds?: boolean;
+  opaqueEntryIds?: boolean;
   /** One physical data document stores many logical entries. */
   dataFile?: {
     format: "json" | "yaml" | "toml";
@@ -108,10 +108,8 @@ export interface ContentEntry {
   };
 }
 
-/** A generated Astro collection schema used for component-prop typing. Unlike
- * ContentEntry, this also includes collections whose source Posto cannot edit
- * (`file()`, custom loaders, and non-Markdown data formats). */
-export interface AstroCollectionSchema {
+/** A named derived schema, including collections whose source is read-only. */
+export interface CollectionSchema {
   name: string;
   fields: Field[];
 }
@@ -119,10 +117,9 @@ export interface AstroCollectionSchema {
 export interface PagesConfig {
   media: MediaEntry[];
   content: ContentEntry[];
-  astroCollections?: AstroCollectionSchema[];
-  imageLibraries?: AstroImageLibrary[];
-  imageLibraryDiagnostics?: AstroImageLibraryDiagnostic[];
-  schemaDiagnostics?: SchemaDiagnostic[];
+  collectionSchemas?: CollectionSchema[];
+  mediaLibraries?: MediaLibrary[];
+  diagnostics?: Diagnostic[];
 }
 
 // Field types the form knows how to render; anything else falls back to a
@@ -427,14 +424,11 @@ function currentDateTokens(): Record<string, string> {
 
 /**
  * Filename template for the entry's new files: the entry's `filename`
- * setting, else `{primary}.<ext>` for Astro collections (whose entries are
- * just slug-named, with no date-prefix convention), else the Pages CMS
+ * setting, else an adapter-provided fallback, else the Pages CMS
  * date-prefixed default.
  */
-export function entryFilenamePattern(entry: ContentEntry, astro: boolean): string {
-  if (entry.filename) return entry.filename;
-  if (astro) return `{primary}.${collectionExtension(entry) ?? "md"}`;
-  return DEFAULT_FILENAME_PATTERN;
+export function entryFilenamePattern(entry: ContentEntry): string {
+  return entry.filename ?? entry.filenameFallback ?? DEFAULT_FILENAME_PATTERN;
 }
 
 /**

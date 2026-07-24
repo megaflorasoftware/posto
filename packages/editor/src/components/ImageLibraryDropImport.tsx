@@ -16,7 +16,7 @@ export function ImageLibraryDropImport(props: {
 }) {
   const [sources, setSources] = useState<string[] | null>(null);
   const [collection, setCollection] = useState<string | null>(null);
-  const libraries = props.config.imageLibraries ?? [];
+  const libraries = props.config.mediaLibraries ?? [];
   useEffect(
     () =>
       onFileDrop(
@@ -24,7 +24,7 @@ export function ImageLibraryDropImport(props: {
           const images = paths.filter((path) => DROPPED_IMAGE.test(path));
           if (images.length === 0) return;
           if (libraries.length === 0) {
-            props.onError?.("This project has no editable Astro image library.");
+            props.onError?.("This project has no editable media library.");
             return;
           }
           setSources(images);

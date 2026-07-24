@@ -1,8 +1,8 @@
 import YAML from "yaml";
 import picomatch from "picomatch";
-import type { AstroImageLibrary, Field, ImageLibraryMetadataExtension } from "../pagescms/config";
+import type { MediaLibrary, Field, MediaLibraryMetadataExtension } from "../pagescms/config";
 import { validateForm } from "../pagescms/validate";
-import { astroEntryId } from "./collections";
+import { pathEntryId } from "./entryIds";
 
 export const IMAGE_LIBRARY_EXTENSIONS = [
   "avif",
@@ -60,7 +60,7 @@ export class MediaPlanError extends Error {
 }
 
 export interface MediaImportPlan {
-  library: AstroImageLibrary;
+  library: MediaLibrary;
   libraryRoot: string;
   repositoryRoot: string;
   sourceImagePath: string;
@@ -72,13 +72,13 @@ export interface MediaImportPlan {
 }
 
 export interface PlanMediaImportInput {
-  library: AstroImageLibrary;
+  library: MediaLibrary;
   repositoryRoot: string;
   sourceImagePath: string;
   folder?: string;
   filename?: string;
   metadata?: Record<string, unknown>;
-  metadataExtension?: ImageLibraryMetadataExtension;
+  metadataExtension?: MediaLibraryMetadataExtension;
   existingPaths?: Iterable<string>;
   existingEntryIds?: Iterable<string>;
 }
@@ -137,13 +137,13 @@ function relative(from: string, to: string): string | null {
   return target.startsWith(root + "/") ? target.slice(root.length + 1) : null;
 }
 
-function libraryRoot(library: AstroImageLibrary, repositoryRoot: string): string {
+function libraryRoot(library: MediaLibrary, repositoryRoot: string): string {
   return join(repositoryRoot, library.base);
 }
 
 /** Applies Astro glob-loader include/exclude patterns to a base-relative path.
  * A managed import must create metadata that the collection will actually load. */
-export function matchesImageLibraryPath(library: AstroImageLibrary, relativePath: string): boolean {
+export function matchesImageLibraryPath(library: MediaLibrary, relativePath: string): boolean {
   const path = slash(relativePath).replace(/^\/+/, "");
   const includes = library.patterns.filter((pattern) => !pattern.startsWith("!"));
   const excludes = library.patterns
@@ -156,7 +156,7 @@ export function matchesImageLibraryPath(library: AstroImageLibrary, relativePath
 }
 
 export interface ImageLibraryLocation {
-  library: AstroImageLibrary;
+  library: MediaLibrary;
   /** Base-relative folder limiting the picker; empty means the whole library. */
   subset: string;
 }
@@ -170,7 +170,7 @@ function normalizedRelativePath(path: string): string {
 /** Resolves a configured media directory to a discovered library or one of
  * its included subfolders. Paths excluded by the Astro glob are rejected. */
 export function resolveImageLibraryLocation(
-  libraries: AstroImageLibrary[],
+  libraries: MediaLibrary[],
   mediaDirectory: string,
 ): ImageLibraryLocation | null {
   const input = normalizedRelativePath(mediaDirectory);
@@ -191,7 +191,7 @@ export function resolveImageLibraryLocation(
 }
 
 export function imageLibraryContainsAsset(
-  library: AstroImageLibrary,
+  library: MediaLibrary,
   repositoryRoot: string,
   asset: ImageLibraryAsset,
   subset: string,
@@ -227,14 +227,14 @@ function setAt(target: Record<string, unknown>, path: string[], value: unknown):
   });
 }
 
-function metadataFormat(path: string): ImageLibraryMetadataExtension | null {
+function metadataFormat(path: string): MediaLibraryMetadataExtension | null {
   const ext = extension(path);
   return ext === "json" || ext === "yaml" || ext === "yml" ? ext : null;
 }
 
 export function parseImageLibraryMetadata(
   content: string,
-  format: ImageLibraryMetadataExtension,
+  format: MediaLibraryMetadataExtension,
 ): Record<string, unknown> | null {
   try {
     const value = format === "json" ? JSON.parse(content) : YAML.parse(content);
@@ -246,7 +246,7 @@ export function parseImageLibraryMetadata(
 
 export function serializeImageLibraryMetadata(
   metadata: Record<string, unknown>,
-  format: ImageLibraryMetadataExtension,
+  format: MediaLibraryMetadataExtension,
 ): string {
   return format === "json"
     ? JSON.stringify(metadata, null, 2) + "\n"
@@ -256,7 +256,7 @@ export function serializeImageLibraryMetadata(
 /** Discovers pairs from metadata contents. `existingPaths` should contain the
  * repository's image files; matching basenames are never assumed. */
 export function discoverImageLibraryAssets(
-  library: AstroImageLibrary,
+  library: MediaLibrary,
   repositoryRoot: string,
   metadataFiles: ImageLibraryMetadataFile[],
   existingPaths: Iterable<string>,
@@ -275,7 +275,7 @@ export function discoverImageLibraryAssets(
     )
       return [];
     const metadata = parseImageLibraryMetadata(file.content, format);
-    const id = astroEntryId(rel);
+    const id = pathEntryId(rel);
     if (!metadata) {
       return [
         {
@@ -430,7 +430,7 @@ export function planMediaImport(input: PlanMediaImportInput): MediaImportPlan {
     if (existingPaths.has(path)) {
       issues.push({ code: "collision", message: `File already exists: ${path}`, path });
     }
-  const entryId = astroEntryId(relativeMetadataPath);
+  const entryId = pathEntryId(relativeMetadataPath);
   if (new Set(input.existingEntryIds ?? []).has(entryId)) {
     issues.push({ code: "collision", message: `Astro entry ID already exists: ${entryId}` });
   }

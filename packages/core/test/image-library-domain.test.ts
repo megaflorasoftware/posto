@@ -4,14 +4,14 @@ import {
   discoverImageLibraryAssets,
   planMediaImport,
   resolveImageLibraryLocation,
-} from "../src/astro/imageLibrary";
-import type { AstroImageLibrary } from "../src/pagescms/config";
+} from "../src/project/mediaLibrary";
+import type { MediaLibrary } from "../src/pagescms/config";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-const library: AstroImageLibrary = {
+const library: MediaLibrary = {
   collection: "images",
   base: "src/data/images",
   patterns: ["**/*.{yml,yaml}", "!videos/**/*.{yml,yaml}"],

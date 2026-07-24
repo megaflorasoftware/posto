@@ -1,33 +1,52 @@
 // @vitest-environment jsdom
 
 import { act, renderHook } from "@testing-library/react";
-import { invoke } from "@posto/ipc";
-import { beforeEach, expect, test, vi } from "vitest";
+import { expect, test } from "vitest";
 import { useSchemas } from "../src/hooks/useSchemas";
+import { genericAdapter } from "@posto/core/project/generic";
+import type { ProjectIO } from "@posto/core/project/adapter";
 
-vi.mock("@posto/ipc", () => ({ invoke: vi.fn() }));
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
-const invokeMock = vi.mocked(invoke);
-
-beforeEach(() => invokeMock.mockReset());
+function projectIO(input: {
+  read?: (path: string) => string | null;
+  list?: (dir: string) => { name: string; path: string }[] | null;
+}): ProjectIO {
+  return {
+    async pathExists() {
+      return false;
+    },
+    async readTextFileOptional(path) {
+      return input.read?.(path) ?? null;
+    },
+    async listDirFilesOptional(dir) {
+      return input.list?.(dir) ?? null;
+    },
+  };
+}
 
 test("malformed posto JSON is skipped without discarding valid preferences", async () => {
-  invokeMock.mockImplementation(async (command, args) => {
-    if (command === "list_dir_files_optional") {
+  const io = projectIO({
+    list() {
       return [
         { name: "bad.json", path: "/site/.posto/collections/bad.json" },
         { name: "good.json", path: "/site/.posto/collections/good.json" },
       ];
-    }
-    if (command === "read_text_file_optional") {
-      const path = String(args?.path);
+    },
+    read(path) {
       if (path.endsWith("index.json")) return "{ invalid";
       if (path.endsWith("bad.json")) return "{ invalid";
       if (path.endsWith("good.json")) return '{"displayName":"Good"}';
-    }
-    return null;
+      return null;
+    },
   });
-  const { result } = renderHook(() => useSchemas());
+  const { result } = renderHook(() => useSchemas(genericAdapter, io));
 
   let config = null;
   await act(async () => {
@@ -38,4 +57,150 @@ test("malformed posto JSON is skipped without discarding valid preferences", asy
     collections: { good: { displayName: "Good" } },
   });
   expect(result.current.configError).toBeNull();
+});
+
+test("pages-only projects retain the conventional public media source", async () => {
+  const io = projectIO({
+    read(path) {
+      if (path.endsWith("/.pages.yml")) return "content: []\n";
+      return null;
+    },
+  });
+  const { result } = renderHook(() => useSchemas(genericAdapter, io));
+
+  await act(async () => {
+    await result.current.loadSchemas("/site", genericAdapter);
+  });
+
+  expect(result.current.config.media).toEqual([{ name: "default", input: "public", output: "/" }]);
+});
+
+test("adapter diagnostics are merged into the effective config once", async () => {
+  const io = projectIO({});
+  const diagnostic = {
+    feature: "adapter",
+    code: "fixture",
+    message: "Adapter diagnostic",
+  };
+  const adapter = {
+    ...genericAdapter,
+    async loadDerivedConfig() {
+      return {
+        config: { media: [], content: [], diagnostics: [diagnostic] },
+        diagnostics: [diagnostic],
+      };
+    },
+  };
+  const { result } = renderHook(() => useSchemas(adapter, io));
+
+  await act(async () => {
+    await result.current.loadSchemas("/site", adapter);
+  });
+
+  expect(result.current.config.diagnostics).toEqual([diagnostic]);
+});
+
+test("an obsolete project load cannot overwrite the active schemas", async () => {
+  const slowPages = deferred<string | null>();
+  const io = projectIO({
+    read(path) {
+      if (path === "/second/.pages.yml")
+        return "content:\n  - name: second\n    path: posts\n    type: collection\n";
+      return null;
+    },
+  });
+  io.readTextFileOptional = async (path) => {
+    if (path === "/first/.pages.yml") return slowPages.promise;
+    if (path === "/second/.pages.yml") {
+      return "content:\n  - name: second\n    path: posts\n    type: collection\n";
+    }
+    return null;
+  };
+  const { result } = renderHook(() => useSchemas(genericAdapter, io));
+
+  let first!: Promise<unknown>;
+  await act(async () => {
+    first = result.current.loadSchemas("/first", genericAdapter);
+    await result.current.loadSchemas("/second", genericAdapter);
+  });
+  expect(result.current.config.content.map((entry) => entry.name)).toEqual(["second"]);
+
+  await act(async () => {
+    slowPages.resolve("content:\n  - name: first\n    path: notes\n    type: collection\n");
+    await first;
+  });
+  expect(result.current.config.content.map((entry) => entry.name)).toEqual(["second"]);
+});
+
+test("a same-project parse failure preserves the last good schemas", async () => {
+  let pages = "content:\n  - name: posts\n    path: posts\n    type: collection\n    fields: []\n";
+  const io = projectIO({
+    read(path) {
+      return path.endsWith("/.pages.yml") ? pages : null;
+    },
+  });
+  const { result } = renderHook(() => useSchemas(genericAdapter, io));
+
+  await act(async () => {
+    await result.current.loadSchemas("/site", genericAdapter);
+  });
+  pages = "content: [";
+  await act(async () => {
+    await result.current.loadSchemas("/site", genericAdapter);
+  });
+
+  expect(result.current.config.content.map((entry) => entry.name)).toEqual(["posts"]);
+  expect(result.current.configError).not.toBeNull();
+});
+
+test("a different project cannot inherit last-good schemas", async () => {
+  const io = projectIO({
+    read(path) {
+      if (path === "/first/.pages.yml") {
+        return "content:\n  - name: first\n    path: posts\n    type: collection\n    fields: []\n";
+      }
+      if (path === "/second/.pages.yml") return "content: [";
+      return null;
+    },
+  });
+  const { result } = renderHook(() => useSchemas(genericAdapter, io));
+
+  await act(async () => {
+    await result.current.loadSchemas("/first", genericAdapter);
+    await result.current.loadSchemas("/second", genericAdapter);
+  });
+
+  expect(result.current.config.content).toEqual([]);
+  expect(result.current.configError).not.toBeNull();
+});
+
+test("changing adapters clears obsolete derived schemas", async () => {
+  const derivedAdapter = {
+    ...genericAdapter,
+    type: "astro" as const,
+    async loadDerivedConfig() {
+      return {
+        config: {
+          media: [],
+          content: [
+            {
+              name: "astro-posts",
+              path: "src/content/posts",
+              type: "collection" as const,
+              fields: [],
+            },
+          ],
+        },
+        diagnostics: [],
+      };
+    },
+  };
+  const { result } = renderHook(() => useSchemas(genericAdapter, projectIO({})));
+
+  await act(async () => {
+    await result.current.loadSchemas("/site", derivedAdapter);
+    await result.current.loadSchemas("/site", genericAdapter);
+  });
+
+  expect(result.current.config.content).toEqual([]);
 });

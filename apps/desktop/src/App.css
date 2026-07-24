@@ -639,6 +639,7 @@ body,
 .deployment-ring:hover {
   opacity: 0.7;
 }
+
 /* The RingProgress label band is left-aligned with horizontal insets; this
    centers the check/X (and kills SVG baseline whitespace) within it. */
 .deployment-ring-label {

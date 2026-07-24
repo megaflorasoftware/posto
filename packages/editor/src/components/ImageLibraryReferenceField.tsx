@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "@mantine/core";
 import { Image as ImageIcon, Pencil } from "lucide-react";
-import { serializeImageLibraryMetadata } from "@posto/core/astro/imageLibrary";
-import type { AstroImageLibrary, Field } from "@posto/core/pagescms/config";
+import { serializeImageLibraryMetadata } from "@posto/core/project/mediaLibrary";
+import type { MediaLibrary, Field } from "@posto/core/pagescms/config";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 import { validateForm } from "@posto/core/pagescms/validate";
 import { invoke } from "@posto/ipc";
@@ -23,7 +23,7 @@ export function ImageLibraryReferenceField(props: {
   field: Field;
   path: ValuePath;
   ctx: FieldContext;
-  library: AstroImageLibrary;
+  library: MediaLibrary;
 }) {
   const [importOpen, setImportOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -135,6 +135,7 @@ export function ImageLibraryReferenceField(props: {
     root: props.ctx.root,
     entry: null,
     groups: props.ctx.groups,
+    entryIds: props.ctx.entryIds,
     errors: () => metadataErrors,
     templateValues: () => metadata,
     value: (path) => valueAtPath(metadata, path),

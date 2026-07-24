@@ -1,14 +1,13 @@
-import { slug as githubSlug } from "github-slugger";
 import type {
-  AstroImageLibrary,
-  AstroImageLibraryDiagnostic,
+  MediaLibrary,
+  Diagnostic,
   ContentEntry,
   Field,
-  ImageLibraryMetadataExtension,
-  MediaEntry,
+  MediaLibraryMetadataExtension,
   PagesConfig,
   SchemaDiagnostic,
 } from "../pagescms/config";
+import { DEFAULT_MEDIA } from "../pagescms/config";
 import { schemaImageFields, type SchemaImageField } from "./schemaAnalysis";
 
 // Builds a PagesConfig from Astro content collections, used as a fallback
@@ -408,11 +407,6 @@ export function parseLoaderConfig(source: string): {
   return { loaders: result, diagnostics };
 }
 
-/** Media source used when no `.pages.yml` provides one: Astro's `public` dir. */
-export const DEFAULT_ASTRO_MEDIA: MediaEntry[] = [
-  { name: "default", input: "public", output: "/" },
-];
-
 function normalizePath(base: string): string {
   return base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
 }
@@ -421,22 +415,6 @@ function normalizePath(base: string): string {
 function patternExtension(pattern: string): string | undefined {
   const match = pattern.match(/\*\.([a-z0-9]+)$/i);
   return match ? match[1].toLowerCase() : undefined;
-}
-
-/**
- * Entry id Astro's glob-loader default `generateId` produces for a file: the
- * frontmatter `slug` when present, else the base-relative path without
- * extension, each segment slugified the way Astro does (github-slugger), with
- * a trailing `/index` dropped. Custom `generateId` functions aren't modeled.
- */
-export function astroEntryId(relPath: string, slug?: string | null): string {
-  if (slug) return slug;
-  const withoutExt = relPath.replace(/\.[^./]+$/, "");
-  return withoutExt
-    .split("/")
-    .map((segment) => githubSlug(segment))
-    .join("/")
-    .replace(/\/index$/, "");
 }
 
 /** Fills reference markers from the config scan; a reference whose target
@@ -452,7 +430,7 @@ function resolveReferences(
       return collection
         ? loaders.get(collection)?.customIds
           ? { ...field, type: "string" }
-          : { ...field, options: { collection, astroId: true } }
+          : { ...field, options: { collection, idScheme: "framework" } }
         : { ...field, type: "string" };
     }
     if (field.fields) {
@@ -486,8 +464,8 @@ function resolveImages(
   });
 }
 
-function metadataExtensions(patterns: string[]): ImageLibraryMetadataExtension[] {
-  const found = new Set<ImageLibraryMetadataExtension>();
+function metadataExtensions(patterns: string[]): MediaLibraryMetadataExtension[] {
+  const found = new Set<MediaLibraryMetadataExtension>();
   for (const pattern of patterns) {
     const braces = pattern.match(/\.\{([^}]+)\}/)?.[1]?.split(",") ?? [];
     const single = pattern.match(/\.([a-z0-9]+)$/i)?.[1];
@@ -503,15 +481,16 @@ function metadataExtensions(patterns: string[]): ImageLibraryMetadataExtension[]
 function discoverImageLibraries(
   collections: { name: string; fields: Field[] }[],
   loaders: Map<string, LoaderInfo>,
-): { libraries: AstroImageLibrary[]; diagnostics: AstroImageLibraryDiagnostic[] } {
-  const libraries: AstroImageLibrary[] = [];
-  const diagnostics: AstroImageLibraryDiagnostic[] = [];
+): { libraries: MediaLibrary[]; diagnostics: Diagnostic[] } {
+  const libraries: MediaLibrary[] = [];
+  const diagnostics: Diagnostic[] = [];
   for (const collection of collections) {
     const loader = loaders.get(collection.name);
     const images = loader?.images ?? [];
     if (images.length === 0 || loader?.kind !== "glob") continue;
     if (images.length > 1) {
       diagnostics.push({
+        feature: "media-library",
         collection: collection.name,
         code: "multiple-image-fields",
         message: `Collection ${collection.name} has multiple image fields and cannot be managed as an image library.`,
@@ -520,6 +499,7 @@ function discoverImageLibraries(
     }
     if (!loader.base) {
       diagnostics.push({
+        feature: "media-library",
         collection: collection.name,
         code: "missing-loader-base",
         message: `Collection ${collection.name} has no static glob loader base.`,
@@ -528,6 +508,7 @@ function discoverImageLibraries(
     }
     if (loader.customIds) {
       diagnostics.push({
+        feature: "media-library",
         collection: collection.name,
         code: "custom-entry-ids",
         message: `Collection ${collection.name} uses a custom generateId function, so Posto cannot manage its image entry IDs.`,
@@ -536,6 +517,7 @@ function discoverImageLibraries(
     }
     if (images.some((image) => !image.writable)) {
       diagnostics.push({
+        feature: "media-library",
         collection: collection.name,
         code: "unsupported-image-shape",
         message: `Collection ${collection.name} has an image field inside a list. Posto image libraries require one scalar image field nested only through objects.`,
@@ -545,6 +527,7 @@ function discoverImageLibraries(
     const extensions = metadataExtensions(loader.patterns ?? []);
     if (extensions.length === 0) {
       diagnostics.push({
+        feature: "media-library",
         collection: collection.name,
         code: "unsupported-metadata-format",
         message: `Collection ${collection.name} does not use YAML or JSON metadata.`,
@@ -576,7 +559,7 @@ export function buildAstroConfig(
   const content: ContentEntry[] = [];
   const discovered = discoverImageLibraries(collections, loaders);
   const schemaDiagnostics = [...scannerDiagnostics];
-  const astroCollections = collections.map(({ name, fields }) => {
+  const collectionSchemas = collections.map(({ name, fields }) => {
     const loader = loaders.get(name);
     return {
       name,
@@ -633,16 +616,19 @@ export function buildAstroConfig(
       subfolders:
         patterns.length > 0 && patterns.every((p) => !p.includes("/")) ? false : undefined,
       extension,
+      filenameFallback: `{primary}.${extension ?? "md"}`,
       fields: resolveReferences(resolveImages(fields, loader?.images), loader?.references, loaders),
-      astroCustomIds: loader?.customIds || undefined,
+      opaqueEntryIds: loader?.customIds || undefined,
     });
   }
   return {
-    media: DEFAULT_ASTRO_MEDIA,
+    media: DEFAULT_MEDIA,
     content,
-    astroCollections,
-    imageLibraries: discovered.libraries,
-    imageLibraryDiagnostics: discovered.diagnostics,
-    schemaDiagnostics,
+    collectionSchemas,
+    mediaLibraries: discovered.libraries,
+    diagnostics: [
+      ...schemaDiagnostics.map((diagnostic) => ({ feature: "derived-config", ...diagnostic })),
+      ...discovered.diagnostics,
+    ],
   };
 }

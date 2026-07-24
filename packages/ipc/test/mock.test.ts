@@ -3,6 +3,7 @@
 import { beforeAll, expect, test } from "vitest";
 import { invoke } from "../src/index";
 import { installMockBackend } from "../src/mock";
+import { detectProject } from "@posto/core/project/detect";
 
 beforeAll(() => installMockBackend());
 
@@ -70,4 +71,55 @@ test("recursive listings skip hidden entries and generated directories", async (
     "/mock/site/.posto/collections/pages.json",
     "/mock/site/.posto/index.json",
   ]);
+});
+
+test("path existence matches native file and directory semantics", async () => {
+  await expect(
+    invoke("path_exists", { path: "/mock/site/.pages.yml", kind: "file" }),
+  ).resolves.toBe(true);
+  await expect(
+    invoke("path_exists", { path: "/mock/site/.pages.yml", kind: "directory" }),
+  ).resolves.toBe(false);
+  await expect(
+    invoke("path_exists", { path: "/mock/site/.astro/collections", kind: "directory" }),
+  ).resolves.toBe(true);
+  await expect(invoke("path_exists", { path: "/mock/site/missing", kind: "file" })).resolves.toBe(
+    false,
+  );
+  await expect(invoke("path_exists", { path: "/mock/site", kind: "socket" })).rejects.toThrow(
+    "Unknown path kind: socket",
+  );
+
+  const temporary = "/mock/site/empty-after-delete/temporary.md";
+  await invoke("create_text_file", { path: temporary, content: "temporary" });
+  await invoke("delete_file", { path: temporary });
+  await expect(invoke("path_exists", { path: temporary, kind: "file" })).resolves.toBe(false);
+  await expect(
+    invoke("path_exists", { path: "/mock/site/empty-after-delete", kind: "directory" }),
+  ).resolves.toBe(true);
+});
+
+test("project detection runs through the installed browser backend", async () => {
+  const project = await detectProject("/mock/site", {
+    pathExists(path, kind) {
+      return invoke<boolean>("path_exists", { path, kind });
+    },
+    readTextFileOptional(path) {
+      return invoke<string | null>("read_text_file_optional", { path });
+    },
+  });
+  expect(project).toMatchObject({ type: "astro", hasPagesYml: true, hasPostoDir: true });
+});
+
+test("a stale remembered work directory never falls back to the repository root", async () => {
+  localStorage.setItem("posto-last-root", "/mock/site");
+  localStorage.setItem("posto-work-dir:/mock/site", "/mock/site/apps/renamed");
+
+  await expect(invoke("get_last_selection")).resolves.toEqual({
+    root: "/mock/site",
+    workDir: null,
+  });
+  await expect(invoke("get_work_dir", { root: "/mock/site" })).resolves.toBeNull();
+  localStorage.removeItem("posto-last-root");
+  localStorage.removeItem("posto-work-dir:/mock/site");
 });

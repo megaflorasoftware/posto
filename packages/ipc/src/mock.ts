@@ -481,6 +481,16 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       }
       return [...directories].sort();
     }
+    case "list_child_directories": {
+      const dir = args?.dir as string;
+      const children = new Set<string>();
+      for (const path of mockDirectories) {
+        if (!path.startsWith(`${dir}/`)) continue;
+        const child = path.slice(dir.length + 1).split("/")[0];
+        if (child) children.add(`${dir}/${child}`);
+      }
+      return [...children].sort();
+    }
     case "read_text_file": {
       const path = args?.path as string;
       // Missing dotfile reads must fail like the real backend so ".pages.yml
@@ -493,6 +503,19 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     case "read_text_file_optional": {
       const path = args?.path as string;
       return path in mockFiles && !mockDeleted.has(path) ? mockFiles[path] : null;
+    }
+    case "path_exists": {
+      const path = args?.path as string;
+      const kind = args?.kind;
+      const isFile = path in mockFiles && !mockDeleted.has(path);
+      const isDirectory = mockDirectories.has(path);
+      if (kind === "file") return isFile;
+      if (kind === "directory") return isDirectory;
+      if (kind !== undefined) {
+        const label = typeof kind === "string" ? kind : JSON.stringify(kind);
+        throw new Error(`Unknown path kind: ${label}`);
+      }
+      return isFile || isDirectory;
     }
     case "write_text_file":
       mockFiles[args?.path as string] = args?.content as string;
@@ -718,6 +741,17 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       return (window as { __mockLastRoute?: string }).__mockLastRoute ?? null;
     case "get_last_root":
       return localStorage.getItem("posto-last-root");
+    case "get_last_selection": {
+      const root = localStorage.getItem("posto-last-root");
+      if (!root) return null;
+      const saved = localStorage.getItem(`posto-work-dir:${root}`);
+      return { root, workDir: saved && mockDirectories.has(saved) ? saved : null };
+    }
+    case "get_work_dir": {
+      const root = args?.root as string;
+      const saved = localStorage.getItem(`posto-work-dir:${root}`);
+      return saved && mockDirectories.has(saved) ? saved : null;
+    }
     case "get_recent_roots": {
       const raw = localStorage.getItem("posto-recent-roots");
       return raw ? (JSON.parse(raw) as string[]) : [];
@@ -725,11 +759,16 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     case "set_last_root": {
       const root = args?.root as string;
       localStorage.setItem("posto-last-root", root);
+      localStorage.setItem(`posto-work-dir:${root}`, (args?.workDir as string | undefined) ?? root);
       const raw = localStorage.getItem("posto-recent-roots");
       const recents = raw ? (JSON.parse(raw) as string[]) : [];
       const next = [root, ...recents.filter((r) => r !== root)].slice(0, 10);
       localStorage.setItem("posto-recent-roots", JSON.stringify(next));
       return null;
+    }
+    case "scan_projects": {
+      const root = args?.root as string;
+      return [{ dir: root, markers: ["package.json", "astro.config.mjs"] }];
     }
     default:
       throw new Error(`Unknown command: ${cmd}`);

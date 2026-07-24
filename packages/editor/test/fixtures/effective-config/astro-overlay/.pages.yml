@@ -1,0 +1,12 @@
+media:
+  - name: uploads
+    input: static/uploads
+    output: /uploads
+content:
+  - name: posts
+    label: Pages posts
+    type: collection
+    path: src/content/posts
+    fields:
+      - name: title
+        type: string

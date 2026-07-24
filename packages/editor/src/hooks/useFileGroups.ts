@@ -7,14 +7,14 @@ import {
   dataDocumentEntries,
   dataEntryValues,
   parseDataDocument,
-} from "@posto/core/astro/dataDocument";
+} from "@posto/core/project/dataDocument";
 
 function sidebarTitle(frontmatter: Record<string, string> | null): string | null {
   return frontmatter?.title ?? frontmatter?.name ?? null;
 }
 
 /** The sidebar's file groups for the selected root. */
-export function useFileGroups(onError: (message: string) => void) {
+export function useFileGroups(onError: (message: string) => void, dataDocumentsEnabled = false) {
   const [groups, setGroups] = useState<FileGroup[]>([]);
   // Latest value for callbacks that outlive the render they were created in.
   const groupsRef = useRef(groups);
@@ -41,8 +41,17 @@ export function useFileGroups(onError: (message: string) => void) {
   }
 
   /** Builds synthetic sidebar entries for Astro file-loader collections. */
-  async function refreshDataGroups(dir: string, config: PagesConfig | null) {
+  async function refreshDataGroups(
+    dir: string,
+    config: PagesConfig | null,
+    enabled = dataDocumentsEnabled,
+  ) {
     const next: FileGroup[] = [];
+    if (!enabled) {
+      dataGroups.current = next;
+      commitGroups();
+      return;
+    }
     for (const collection of config?.content ?? []) {
       if (!collection.dataFile) continue;
       const dataFile = collection.dataFile;

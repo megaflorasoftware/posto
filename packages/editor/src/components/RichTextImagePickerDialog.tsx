@@ -3,11 +3,11 @@ import { Alert } from "@mantine/core";
 import {
   imageLibraryContainsAsset,
   resolveImageLibraryLocation,
-} from "@posto/core/astro/imageLibrary";
+} from "@posto/core/project/mediaLibrary";
 import {
   expandMediaEntry,
   mediaOutputPath,
-  type AstroImageLibrary,
+  type MediaLibrary,
   type MediaEntry,
   type PagesConfig,
 } from "@posto/core/pagescms/config";
@@ -18,14 +18,14 @@ import { ImageLibraryImportDialog } from "./ImageLibraryImportDialog";
 import { ImageLibraryList } from "./ImageLibraryList";
 import { ImageLibraryPickerDialog } from "./ImageLibraryPickerDialog";
 
-function defaultMedia(library: AstroImageLibrary): MediaEntry {
+function defaultMedia(library: MediaLibrary): MediaEntry {
   const input = library.base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
   return { name: `astro:${library.collection}`, input, output: `/${input}` };
 }
 
 function LibraryGrid(props: {
   root: string;
-  library: AstroImageLibrary;
+  library: MediaLibrary;
   subset: string;
   media: MediaEntry;
   config: PagesConfig;
@@ -84,7 +84,7 @@ export function RichTextImagePickerDialog(props: {
   onClose: () => void;
   onPick: (outputPath: string) => void;
 }) {
-  const libraries = props.config.imageLibraries ?? [];
+  const libraries = props.config.mediaLibraries ?? [];
   const expandedMedia = props.configuredMedia
     ? expandMediaEntry(props.configuredMedia, props.templateValues)
     : null;
@@ -109,7 +109,7 @@ export function RichTextImagePickerDialog(props: {
       <Dialog opened onClose={props.onClose} title="Choose image" size="lg">
         <Alert color="red">
           This collection’s configured media folder ({expandedMedia.input}) is not a recognized
-          Astro image library or an included subfolder of one.
+          media library or an included subfolder of one.
         </Alert>
       </Dialog>
     );
@@ -149,7 +149,7 @@ export function RichTextImagePickerDialog(props: {
   return (
     <Dialog opened onClose={props.onClose} title="Choose image library" size="sm">
       {libraries.length === 0 ? (
-        <Alert color="red">This project has no recognized Astro image libraries.</Alert>
+        <Alert color="red">This project has no recognized media libraries.</Alert>
       ) : (
         <ImageLibraryList
           libraries={libraries}

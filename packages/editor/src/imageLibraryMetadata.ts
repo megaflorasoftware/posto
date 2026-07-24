@@ -1,11 +1,11 @@
 import type {
-  AstroImageLibrary,
+  MediaLibrary,
   Field,
-  ImageLibraryMetadataExtension,
+  MediaLibraryMetadataExtension,
 } from "@posto/core/pagescms/config";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 
-export function imageLibraryMetadataFields(library: AstroImageLibrary): Field[] {
+export function imageLibraryMetadataFields(library: MediaLibrary): Field[] {
   const omitImageField = (fields: Field[], prefix: string[] = []): Field[] =>
     fields.flatMap((field) => {
       const path = [...prefix, field.name];
@@ -54,7 +54,7 @@ export function editValueAtPath(
   return next;
 }
 
-export function metadataExtension(path: string): ImageLibraryMetadataExtension {
+export function metadataExtension(path: string): MediaLibraryMetadataExtension {
   const extension = path.split(".").pop()?.toLowerCase();
   if (extension === "json" || extension === "yaml" || extension === "yml") return extension;
   throw new Error(`Unsupported image metadata format: ${extension ?? "unknown"}`);

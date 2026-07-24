@@ -7,6 +7,12 @@ import type { ChangedFile, FileEntry, FileGroup } from "@posto/ipc";
 import { EMPTY_CONFIG, matchEntry, renamedFilename } from "@posto/core/pagescms/config";
 import { parseFile } from "@posto/core/pagescms/frontmatter";
 import {
+  type ProjectCandidate,
+  type ProjectInventory,
+  workspaceLayoutChanged,
+  workspaceProjects,
+} from "@posto/core/project/workspace";
+import {
   EditorPane,
   ImageLibraryDropImport,
   PublishModal,
@@ -20,7 +26,10 @@ import {
   useFileGroups,
   useGitSync,
   useSchemas,
+  useProjectSession,
+  ipcProjectIO,
   useSiteUrl,
+  WorkspaceChooser,
   type EditorTab,
 } from "@posto/editor";
 import { useDevServer } from "./hooks/useDevServer";
@@ -40,20 +49,32 @@ import "./App.css";
 
 function App() {
   const [root, setRoot] = useState<string | null>(null);
+  const [repoRoot, setRepoRoot] = useState<string | null>(null);
+  const [workspaceCandidates, setWorkspaceCandidates] = useState<ProjectCandidate[] | null>(null);
+  const projectSession = useProjectSession({
+    io: ipcProjectIO,
+    scanProjects: (repository) => invoke<ProjectInventory[]>("scan_projects", { root: repository }),
+    getRememberedWorkDir: (repository) =>
+      invoke<string | null>("get_work_dir", { root: repository }),
+  });
+  const { projectInfo, adapter } = projectSession;
   // Recently-opened site roots, newest first (backend caps at 10).
   const [recentRoots, setRecentRoots] = useState<string[]>([]);
-  // Editor tab choice sticks for the session; Fields is the default when available.
-  const [editorTab, setEditorTab] = useState<EditorTab>("fields");
+  // Editor tab choice sticks for the session; Markdown opens on Body by default.
+  const [editorTab, setEditorTab] = useState<EditorTab>("body");
   const [publishOpen, setPublishOpen] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
   // Bumped after each successful save so the SEO preview refetches the page.
   const [saveTick, setSaveTick] = useState(0);
+  const [componentSchemaVersion, setComponentSchemaVersion] = useState(0);
+  const [siteUrlVersion, setSiteUrlVersion] = useState(0);
 
   // Latest values for callbacks that outlive the render they were created in.
   const rootRef = useRef(root);
   rootRef.current = root;
+  const selectionGenerationRef = useRef(0);
 
-  const schemas = useSchemas();
+  const schemas = useSchemas(adapter, ipcProjectIO);
   const notify = useCallback((message: string, severity: "progress" | "success" | "error") => {
     notifications.show({
       message,
@@ -64,10 +85,10 @@ function App() {
   }, []);
   const notifyError = useCallback((message: string) => notify(message, "error"), [notify]);
 
-  const files = useFileGroups(notifyError);
+  const files = useFileGroups(notifyError, adapter.capabilities.dataDocuments);
   const devServer = useDevServer();
-  const deployment = useDeployment(root);
-  const siteUrl = useSiteUrl(root);
+  const deployment = useDeployment(repoRoot);
+  const siteUrl = useSiteUrl(root, adapter, siteUrlVersion);
 
   const currentFile = useCurrentFile({
     onAfterSave(path, content) {
@@ -84,12 +105,7 @@ function App() {
       setSaveTick((t) => t + 1);
       // Editing the schema itself must re-parse it, or forms keep the old one.
       if (dir && path === dir + "/.pages.yml") void schemas.loadPagesConfig(dir);
-      if (
-        dir &&
-        (path === dir + "/src/content.config.ts" || path === dir + "/src/content/config.ts")
-      ) {
-        void schemas.loadAstroConfig(dir);
-      }
+      if (dir) void invalidateAdapterPaths([path]);
       // Frontmatter drives template-derived filenames; each (already
       // debounced) save is the moment to bring the name back in line.
       void renameForTemplate(path, content);
@@ -137,18 +153,15 @@ function App() {
     groupsRef: files.groupsRef,
     filePathRef: currentFile.filePathRef,
     onRouteOpened: (path) => openFile(path, false),
+    adapter,
+    root,
   });
 
   const git = useGitSync(root, {
     onStatus: notify,
     onPublishError: notifyError,
     beforeSync: () => currentFile.flushPendingSave(),
-    afterPull(dir) {
-      // The fs watcher also reacts to git's writes, but refresh explicitly so
-      // the sidebar and open file update even when watching hiccups.
-      void refreshGroups(dir);
-      void currentFile.reloadFromDisk();
-    },
+    afterPull: refreshAfterPull,
   });
 
   // Every event that can change git status also refreshes the sidebar, so
@@ -159,18 +172,131 @@ function App() {
     await files.refreshDataGroups(dir, schemas.configRef.current);
   }
 
-  async function selectRoot(dir: string) {
+  async function recoverMissingWorkDir(repository: string, dir: string): Promise<boolean> {
+    if (await ipcProjectIO.pathExists(dir, "directory")) return false;
+    const scan = await projectSession.scanRepository(repository);
+    ++selectionGenerationRef.current;
+    currentFile.clearPendingSave();
+    currentFile.closeFile();
+    projectSession.clear();
+    setRoot(null);
+    setRepoRoot(repository);
+    setWorkspaceCandidates([{ dir: repository, ...scan.root }, ...scan.candidates]);
+    preview.resetRoute();
+    void invoke("stop_dev_server");
+    notify(
+      "The selected project directory moved or was removed. Choose a project to continue.",
+      "error",
+    );
+    return true;
+  }
+
+  async function refreshAfterPull(dir: string) {
+    const repository = repoRoot ?? dir;
+    try {
+      if (await recoverMissingWorkDir(repository, dir)) return;
+      const scan = await projectSession.scanRepository(repository);
+      setWorkspaceCandidates((current) =>
+        current ? [{ dir: repository, ...scan.root }, ...scan.candidates] : current,
+      );
+      await refreshGroups(dir);
+      await currentFile.reloadFromDisk();
+    } catch (error) {
+      notify(
+        `Could not refresh workspace: ${error instanceof Error ? error.message : String(error)}`,
+        "error",
+      );
+    }
+  }
+
+  async function selectRoot(repository: string, dir: string, requestedGeneration?: number) {
+    const generation = requestedGeneration ?? ++selectionGenerationRef.current;
+    let activation;
+    try {
+      activation = await projectSession.prepare(dir);
+    } catch (error) {
+      if (generation !== selectionGenerationRef.current) return;
+      notify(
+        `Could not inspect project: ${error instanceof Error ? error.message : String(error)}`,
+        "error",
+      );
+      return;
+    }
+    if (generation !== selectionGenerationRef.current) return;
+    projectSession.commit(activation);
+    const selectedAdapter = activation.adapter;
     void currentFile.flushPendingSave();
     setRoot(dir);
+    setRepoRoot(repository);
+    setWorkspaceCandidates(null);
     currentFile.closeFile();
     preview.resetRoute();
-    void schemas.loadPagesConfig(dir);
-    void schemas.loadAstroConfig(dir);
-    void schemas.loadPostoConfig(dir);
+    await schemas.loadSchemas(dir, selectedAdapter);
+    if (generation !== selectionGenerationRef.current) return;
     await refreshGroups(dir);
+    if (generation !== selectionGenerationRef.current) return;
     void devServer.startServer(dir);
-    void invoke("set_last_root", { root: dir }).then(() => refreshRecentRoots());
-    void invoke("watch_root", { root: dir });
+    void invoke("set_last_root", { root: repository, workDir: dir }).then(() =>
+      refreshRecentRoots(),
+    );
+    const extraPaths =
+      repository === dir
+        ? []
+        : ["package.json", "pnpm-workspace.yaml", "lerna.json", "turbo.json"].map(
+            (path) => `${repository}/${path}`,
+          );
+    void invoke("watch_root", {
+      root: dir,
+      ignoreRules: selectedAdapter.watchIgnores(),
+      extraPaths,
+      workspaceRoot: repository,
+    });
+  }
+
+  async function selectRepository(repository: string) {
+    const generation = ++selectionGenerationRef.current;
+    try {
+      const decision = await projectSession.resolveRepository(repository);
+      if (generation !== selectionGenerationRef.current) return;
+      if (decision.kind === "choose") {
+        setRepoRoot(repository);
+        setRoot(null);
+        projectSession.clear();
+        setWorkspaceCandidates(decision.candidates);
+        return;
+      }
+      await selectRoot(repository, decision.workDir, generation);
+    } catch (error) {
+      if (generation !== selectionGenerationRef.current) return;
+      notify(
+        `Could not inspect project: ${error instanceof Error ? error.message : String(error)}`,
+        "error",
+      );
+    }
+  }
+
+  async function chooseProjectInRepository() {
+    if (!repoRoot) return;
+    try {
+      const scan = await projectSession.scanRepository(repoRoot);
+      setWorkspaceCandidates(workspaceProjects(repoRoot, scan));
+    } catch (error) {
+      notify(
+        `Could not inspect project: ${error instanceof Error ? error.message : String(error)}`,
+        "error",
+      );
+    }
+  }
+
+  async function browseWithinRepository() {
+    if (!repoRoot) return;
+    const dir = await openDirectory(repoRoot);
+    if (typeof dir !== "string") return;
+    if (dir !== repoRoot && !dir.startsWith(`${repoRoot}/`)) {
+      notify("Choose a folder inside the current repository.", "error");
+      return;
+    }
+    await selectRoot(repoRoot, dir);
   }
 
   async function refreshRecentRoots() {
@@ -183,15 +309,11 @@ function App() {
 
   async function chooseDirectory() {
     const dir = await openDirectory();
-    if (typeof dir === "string") void selectRoot(dir);
+    if (typeof dir === "string") void selectRepository(dir);
   }
 
   function schemaSources() {
-    return {
-      config: schemas.configRef.current ?? EMPTY_CONFIG,
-      pagesContent: schemas.pagesConfig?.content ?? [],
-      astroContent: schemas.astroConfig?.content ?? [],
-    };
+    return { config: schemas.configRef.current ?? EMPTY_CONFIG };
   }
 
   // "New file" creates immediately — an "Untitled" entry with the
@@ -291,29 +413,56 @@ function App() {
     void refreshGroups(dir);
     if (paths.includes(dir + "/.pages.yml")) void schemas.loadPagesConfig(dir);
     if (paths.some((p) => p.startsWith(dir + "/.posto/"))) void schemas.loadPostoConfig(dir);
-    if (
-      paths.some(
-        (p) =>
-          p.startsWith(dir + "/.astro/collections") ||
-          p === dir + "/src/content.config.ts" ||
-          p === dir + "/src/content/config.ts",
-      )
-    ) {
-      void schemas.loadAstroConfig(dir);
-    }
+    void invalidateAdapterPaths(paths);
     if (paths.includes(currentFile.filePathRef.current ?? "")) {
       void currentFile.reloadFromDisk();
     }
   }
 
+  async function invalidateAdapterPaths(paths: string[]) {
+    const dir = rootRef.current;
+    if (!dir) return;
+    if (repoRoot && (await recoverMissingWorkDir(repoRoot, dir))) return;
+    if (repoRoot && workspaceLayoutChanged(repoRoot, dir, paths)) {
+      const scan = await projectSession.scanRepository(repoRoot);
+      setWorkspaceCandidates((current) =>
+        current ? [{ dir: repoRoot, ...scan.root }, ...scan.candidates] : current,
+      );
+    }
+    const scopes = projectSession.invalidations(dir, paths, schemas.configRef.current);
+    if (scopes.has("projectType")) {
+      const detected = await projectSession.inspect(dir);
+      if (detected.type !== projectInfo?.type) {
+        await selectRoot(repoRoot ?? dir, dir);
+        return;
+      }
+      projectSession.setProjectInfo(detected);
+    }
+    if (scopes.has("derivedConfig")) void schemas.loadDerivedConfig(dir, adapter);
+    if (scopes.has("componentSchemas")) setComponentSchemaVersion((version) => version + 1);
+    if (scopes.has("siteUrl")) setSiteUrlVersion((version) => version + 1);
+    if (scopes.has("dataDocuments")) {
+      void files.refreshDataGroups(dir, schemas.configRef.current);
+    }
+    if (scopes.has("mediaLibraries")) void refreshGroups(dir);
+  }
+
+  const externalChangesRef = useRef(onExternalChanges);
+  externalChangesRef.current = onExternalChanges;
+
   useEffect(() => {
-    const unlistenFs = onFsChanged(onExternalChanges);
+    const unlistenFs = onFsChanged((paths) => externalChangesRef.current(paths));
     // One update check per app launch, once the UI is up.
     void checkForAppUpdate();
     void refreshRecentRoots();
     void (async () => {
-      const last = await invoke<string | null>("get_last_root");
-      if (last && !rootRef.current) void selectRoot(last);
+      const last = await invoke<{ root: string; workDir: string | null } | null>(
+        "get_last_selection",
+      );
+      if (last && !rootRef.current) {
+        if (last.workDir) void selectRoot(last.root, last.workDir);
+        else void selectRepository(last.root);
+      }
     })();
     return () => {
       unlistenFs();
@@ -407,8 +556,8 @@ function App() {
       ? null
       : schemas.pagesConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
         ? "pages"
-        : schemas.astroConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
-          ? "astro"
+        : schemas.derivedConfig?.content.some((e) => e.name === entry.name && e.path === entry.path)
+          ? (projectInfo?.type ?? null)
           : null;
 
   return (
@@ -417,14 +566,17 @@ function App() {
       <div className="app">
         <AppHeader
           root={root}
+          repoRoot={repoRoot}
+          canSwitchProject={projectSession.hasMultipleProjects}
           recentRoots={recentRoots}
           behindUpstream={git.behindUpstream}
           pulling={git.pulling}
           hasLocalChanges={git.hasLocalChanges}
           onChooseDirectory={() => void chooseDirectory()}
-          onSelectRoot={(dir) => void selectRoot(dir)}
+          onSelectRoot={(dir) => void selectRepository(dir)}
+          onSwitchProject={() => void chooseProjectInRepository()}
           deployment={deployment}
-          canOpenMedia={!!config?.imageLibraries?.length}
+          canOpenMedia={adapter.capabilities.mediaLibraries && !!config?.mediaLibraries?.length}
           onOpenMedia={() => setMediaOpen(true)}
           onFetchChanges={() => void git.fetchChanges()}
           onOpenPublish={() => void openPublishModal()}
@@ -450,6 +602,9 @@ function App() {
           opened={publishOpen}
           changes={git.changes}
           error={git.changesError}
+          scopeLabel={
+            repoRoot && root && repoRoot !== root ? root.slice(repoRoot.length + 1) : undefined
+          }
           onClose={() => setPublishOpen(false)}
           onRevert={(file) => void revertChange(file)}
           onPublish={(message) => {
@@ -471,7 +626,16 @@ function App() {
           />
         )}
 
-        {!root ? (
+        {workspaceCandidates && repoRoot ? (
+          <div className="empty-state">
+            <WorkspaceChooser
+              repoRoot={repoRoot}
+              candidates={workspaceCandidates}
+              onChoose={(candidate) => void selectRoot(repoRoot, candidate.dir)}
+              onBrowse={() => void browseWithinRepository()}
+            />
+          </div>
+        ) : !root ? (
           <div className="empty-state">
             <p>Select the folder that holds your site to get started.</p>
             <Button onClick={() => void chooseDirectory()}>Choose directory</Button>
@@ -493,6 +657,7 @@ function App() {
               <div className="pane editor-pane" style={{ flexBasis: `${preview.split}%` }}>
                 <EditorPane
                   root={root}
+                  projectIO={ipcProjectIO}
                   filePath={currentFile.filePath}
                   fileContent={currentFile.fileContent}
                   saveState={currentFile.saveState}
@@ -501,7 +666,10 @@ function App() {
                   entrySource={entrySource}
                   config={config}
                   configError={schemas.configError}
-                  hasAstroFallback={schemas.astroConfig !== null}
+                  hasDerivedFallback={schemas.derivedConfig !== null}
+                  componentBlocks={adapter.capabilities.componentBlocks}
+                  entryIds={adapter.capabilities.entryIds}
+                  componentSchemaVersion={componentSchemaVersion}
                   groups={files.groups}
                   editorTab={editorTab}
                   onTabChange={setEditorTab}

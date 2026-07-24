@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Alert, Button, Group, Loader, Text, TextInput } from "@mantine/core";
 import { Dropzone, IMAGE_MIME_TYPE } from "@mantine/dropzone";
 import { ChevronLeft, ChevronRight, Image as ImageIcon, Upload } from "lucide-react";
-import type { AstroImageLibrary, PagesConfig } from "@posto/core/pagescms/config";
+import type { MediaLibrary, PagesConfig } from "@posto/core/pagescms/config";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 import { validateForm } from "@posto/core/pagescms/validate";
 import {
@@ -32,7 +32,7 @@ function normalizeFolder(folder: string | undefined): string {
  * preview arrows, setting each one's filename and metadata before importing. */
 export function ImageLibraryImportDialog(props: {
   root: string;
-  library: AstroImageLibrary;
+  library: MediaLibrary;
   config: PagesConfig;
   groups: FileGroup[];
   sourcePath?: string;
@@ -276,7 +276,7 @@ export function ImageLibraryImportDialog(props: {
           <div className="image-library-import-form">
             <TextInput
               size="xs"
-              label="Filename (Astro ID)"
+              label="Filename (framework ID)"
               description={
                 importer.folder
                   ? `Importing into ${importer.folder}`

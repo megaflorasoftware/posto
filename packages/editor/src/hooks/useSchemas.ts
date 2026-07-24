@@ -1,18 +1,6 @@
 import { useMemo, useRef, useState } from "react";
-import { invoke } from "@posto/ipc";
-import {
-  parsePagesConfig,
-  type Field,
-  type PagesConfig,
-  type SchemaDiagnostic,
-} from "@posto/core/pagescms/config";
-import {
-  DEFAULT_ASTRO_MEDIA,
-  buildAstroConfig,
-  parseCollectionSchema,
-  parseLoaderConfig,
-  type LoaderInfo,
-} from "@posto/core/astro/collections";
+import { parsePagesConfig, type PagesConfig } from "@posto/core/pagescms/config";
+import type { ProjectAdapter, ProjectIO } from "@posto/core/project/adapter";
 import {
   POSTO_COLLECTIONS_DIR,
   POSTO_INDEX_PATH,
@@ -22,45 +10,49 @@ import {
   type PostoConfig,
 } from "@posto/core/posto/config";
 
-function effectiveConfig(
+export function resolveEffectiveConfig(
   pagesConfig: PagesConfig | null,
-  astroConfig: PagesConfig | null,
+  derivedConfig: PagesConfig | null,
   postoConfig: PostoConfig | null,
+  defaultMedia: PagesConfig["media"],
 ): PagesConfig {
   return mergePostoConfig(
     {
       media: pagesConfig?.media.length
         ? pagesConfig.media
-        : astroConfig?.media.length
-          ? astroConfig.media
-          : DEFAULT_ASTRO_MEDIA,
-      content: [...(pagesConfig?.content ?? []), ...(astroConfig?.content ?? [])],
-      astroCollections: astroConfig?.astroCollections,
-      imageLibraries: astroConfig?.imageLibraries,
-      imageLibraryDiagnostics: astroConfig?.imageLibraryDiagnostics,
-      schemaDiagnostics: astroConfig?.schemaDiagnostics,
+        : derivedConfig?.media.length
+          ? derivedConfig.media
+          : defaultMedia,
+      content: [...(pagesConfig?.content ?? []), ...(derivedConfig?.content ?? [])],
+      collectionSchemas: derivedConfig?.collectionSchemas,
+      mediaLibraries: derivedConfig?.mediaLibraries,
+      diagnostics: derivedConfig?.diagnostics,
     },
     postoConfig,
   );
 }
 
-/** Schema sources for form editing: `.pages.yml` plus Astro collection
- * schemas as a fallback, merged into one effective config. */
-export function useSchemas() {
+export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
+  const generationRef = useRef(0);
+  const activeSourceRef = useRef<{ dir: string; adapterType: string } | null>(null);
+  const adapterRef = useRef(adapter);
+  adapterRef.current = adapter;
+  const ioRef = useRef(io);
+  ioRef.current = io;
   const [pagesConfig, setPagesConfig] = useState<PagesConfig | null>(null);
   const pagesConfigRef = useRef<PagesConfig | null>(null);
   // Fallback schemas derived from Astro content collections; `.pages.yml`
   // entries take precedence when both describe a folder.
-  const [astroConfig, setAstroConfig] = useState<PagesConfig | null>(null);
-  const astroConfigRef = useRef<PagesConfig | null>(null);
+  const [derivedConfig, setDerivedConfig] = useState<PagesConfig | null>(null);
+  const derivedConfigRef = useRef<PagesConfig | null>(null);
   // `.posto/` user preferences, overlaid on the effective config below.
   const [postoConfig, setPostoConfig] = useState<PostoConfig | null>(null);
   const postoConfigRef = useRef<PostoConfig | null>(null);
   const [configErrors, setConfigErrors] = useState<
-    Partial<Record<"pages" | "astro" | "posto", string>>
+    Partial<Record<"pages" | "derived" | "posto", string>>
   >({});
 
-  function setSourceError(source: "pages" | "astro" | "posto", message: string | null) {
+  function setSourceError(source: "pages" | "derived" | "posto", message: string | null) {
     setConfigErrors((current) => {
       const next = { ...current };
       if (message) next[source] = message;
@@ -74,9 +66,9 @@ export function useSchemas() {
     setPagesConfig(config);
   }
 
-  function commitAstroConfig(config: PagesConfig | null) {
-    astroConfigRef.current = config;
-    setAstroConfig(config);
+  function commitDerivedConfig(config: PagesConfig | null) {
+    derivedConfigRef.current = config;
+    setDerivedConfig(config);
   }
 
   function commitPostoConfig(config: PostoConfig | null) {
@@ -84,28 +76,35 @@ export function useSchemas() {
     setPostoConfig(config);
   }
 
-  async function loadPagesConfig(dir: string): Promise<PagesConfig | null> {
-    setSourceError("pages", null);
+  async function loadPagesConfig(
+    dir: string,
+    generation = generationRef.current,
+    commit = true,
+    fallback = pagesConfigRef.current,
+  ): Promise<PagesConfig | null> {
+    if (generation === generationRef.current) setSourceError("pages", null);
     let source: string | null;
     try {
-      source = await invoke<string | null>("read_text_file_optional", {
-        path: dir + "/.pages.yml",
-      });
+      source = await ioRef.current.readTextFileOptional(dir + "/.pages.yml");
     } catch (e) {
-      setSourceError("pages", e instanceof Error ? e.message : String(e));
-      return pagesConfigRef.current;
+      if (generation === generationRef.current) {
+        setSourceError("pages", e instanceof Error ? e.message : String(e));
+      }
+      return fallback;
     }
     if (source === null) {
-      commitPagesConfig(null);
+      if (commit && generation === generationRef.current) commitPagesConfig(null);
       return null; // no config file — form editing simply isn't offered
     }
     try {
       const parsed = parsePagesConfig(source);
-      commitPagesConfig(parsed);
+      if (commit && generation === generationRef.current) commitPagesConfig(parsed);
       return parsed;
     } catch (e) {
-      setSourceError("pages", e instanceof Error ? e.message : String(e));
-      return pagesConfigRef.current;
+      if (generation === generationRef.current) {
+        setSourceError("pages", e instanceof Error ? e.message : String(e));
+      }
+      return fallback;
     }
   }
 
@@ -114,128 +113,133 @@ export function useSchemas() {
   // collection. Missing paths and malformed JSON degrade to defaults;
   // unreadable paths surface an I/O error while preserving the last good
   // preferences.
-  async function loadPostoConfig(dir: string): Promise<PostoConfig | null> {
-    setSourceError("posto", null);
+  async function loadPostoConfig(
+    dir: string,
+    generation = generationRef.current,
+    commit = true,
+    fallback = postoConfigRef.current,
+  ): Promise<PostoConfig | null> {
+    if (generation === generationRef.current) setSourceError("posto", null);
     const config: PostoConfig = { collections: {} };
     let indexSource: string | null;
     try {
-      indexSource = await invoke<string | null>("read_text_file_optional", {
-        path: `${dir}/${POSTO_INDEX_PATH}`,
-      });
+      indexSource = await ioRef.current.readTextFileOptional(`${dir}/${POSTO_INDEX_PATH}`);
     } catch (e) {
-      setSourceError("posto", e instanceof Error ? e.message : String(e));
-      return postoConfigRef.current;
+      if (generation === generationRef.current) {
+        setSourceError("posto", e instanceof Error ? e.message : String(e));
+      }
+      return fallback;
     }
     if (indexSource !== null) {
       config.collectionOrder = parsePostoIndex(indexSource).collectionOrder;
     }
     let listed: { name: string; path: string }[] | null;
     try {
-      listed = await invoke<{ name: string; path: string }[] | null>("list_dir_files_optional", {
-        dir: `${dir}/${POSTO_COLLECTIONS_DIR}`,
-        extensions: ["json"],
-      });
+      listed = await ioRef.current.listDirFilesOptional(`${dir}/${POSTO_COLLECTIONS_DIR}`, [
+        "json",
+      ]);
     } catch (e) {
-      setSourceError("posto", e instanceof Error ? e.message : String(e));
-      return postoConfigRef.current;
+      if (generation === generationRef.current) {
+        setSourceError("posto", e instanceof Error ? e.message : String(e));
+      }
+      return fallback;
     }
     for (const file of listed ?? []) {
       if (!file.name.endsWith(".json")) continue;
       let source: string | null;
       try {
-        source = await invoke<string | null>("read_text_file_optional", { path: file.path });
+        source = await ioRef.current.readTextFileOptional(file.path);
       } catch (e) {
-        setSourceError("posto", e instanceof Error ? e.message : String(e));
-        return postoConfigRef.current;
+        if (generation === generationRef.current) {
+          setSourceError("posto", e instanceof Error ? e.message : String(e));
+        }
+        return fallback;
       }
       if (source === null) continue;
       const settings = parsePostoCollection(source);
       if (settings) config.collections[file.name.slice(0, -".json".length)] = settings;
     }
     if (config.collectionOrder || Object.keys(config.collections).length > 0) {
-      commitPostoConfig(config);
+      if (commit && generation === generationRef.current) commitPostoConfig(config);
       return config;
     }
-    commitPostoConfig(null);
+    if (commit && generation === generationRef.current) commitPostoConfig(null);
     return null;
   }
 
-  // Astro projects generate a JSON Schema per content collection under
-  // `.astro/collections/` (kept fresh by the dev server posto runs). Those
-  // become fallback form schemas for folders `.pages.yml` doesn't cover.
-  async function loadAstroConfig(dir: string): Promise<PagesConfig | null> {
-    setSourceError("astro", null);
-    let listed: { name: string; path: string }[] | null;
+  async function loadDerivedConfig(
+    dir: string,
+    selectedAdapter: ProjectAdapter = adapterRef.current,
+    generation = generationRef.current,
+    commit = true,
+    fallback = derivedConfigRef.current,
+  ): Promise<PagesConfig | null> {
+    if (generation === generationRef.current) setSourceError("derived", null);
     try {
-      listed = await invoke<{ name: string; path: string }[] | null>("list_dir_files_optional", {
-        dir: dir + "/.astro/collections",
-        extensions: ["json"],
-      });
+      const loaded = await selectedAdapter.loadDerivedConfig(dir, ioRef.current);
+      if (!loaded) {
+        if (commit && generation === generationRef.current) commitDerivedConfig(null);
+        return null;
+      }
+      const diagnostics = new Map(
+        [...(loaded.config.diagnostics ?? []), ...loaded.diagnostics].map((diagnostic) => [
+          `${diagnostic.feature}:${diagnostic.collection ?? ""}:${diagnostic.code}:${diagnostic.message}`,
+          diagnostic,
+        ]),
+      );
+      const config: PagesConfig = {
+        ...loaded.config,
+        diagnostics: diagnostics.size > 0 ? [...diagnostics.values()] : undefined,
+      };
+      if (commit && generation === generationRef.current) commitDerivedConfig(config);
+      return config;
     } catch (e) {
-      setSourceError("astro", e instanceof Error ? e.message : String(e));
-      return astroConfigRef.current;
-    }
-    if (listed === null) {
-      commitAstroConfig(null);
-      return null; // not an Astro project, or `astro sync` hasn't run yet
-    }
-    const collections: { name: string; fields: Field[] }[] = [];
-    for (const file of listed) {
-      if (!file.name.endsWith(".schema.json")) continue;
-      const name = file.name.slice(0, -".schema.json".length);
-      try {
-        const source = await invoke<string | null>("read_text_file_optional", { path: file.path });
-        if (source === null) continue;
-        const fields = parseCollectionSchema(name, source);
-        if (fields && fields.length > 0) collections.push({ name, fields });
-      } catch (e) {
-        setSourceError("astro", e instanceof Error ? e.message : String(e));
-        return astroConfigRef.current;
+      if (generation === generationRef.current) {
+        setSourceError("derived", e instanceof Error ? e.message : String(e));
       }
+      return fallback;
     }
-    if (collections.length === 0) {
-      commitAstroConfig(null);
-      return null;
-    }
-    let loaders = new Map<string, LoaderInfo>();
-    let scannerDiagnostics: SchemaDiagnostic[] = [];
-    for (const configPath of ["/src/content.config.ts", "/src/content/config.ts"]) {
-      try {
-        const source = await invoke<string | null>("read_text_file_optional", {
-          path: dir + configPath,
-        });
-        if (source === null) continue;
-        ({ loaders, diagnostics: scannerDiagnostics } = parseLoaderConfig(source));
-        break;
-      } catch (e) {
-        setSourceError("astro", e instanceof Error ? e.message : String(e));
-        return astroConfigRef.current;
-      }
-    }
-    const parsed = buildAstroConfig(collections, loaders, scannerDiagnostics);
-    commitAstroConfig(parsed);
-    return parsed;
   }
 
   /** Reloads every repository-owned schema/config source and returns the
    * effective result immediately. Callers that must rebuild derived file
    * groups should use this result rather than waiting for React state to
    * commit and then reading configRef. */
-  async function loadSchemas(dir: string): Promise<PagesConfig> {
-    const [pages, astro, posto] = await Promise.all([
-      loadPagesConfig(dir),
-      loadAstroConfig(dir),
-      loadPostoConfig(dir),
+  async function loadSchemas(
+    dir: string,
+    selectedAdapter: ProjectAdapter = adapterRef.current,
+  ): Promise<PagesConfig> {
+    const generation = ++generationRef.current;
+    const sameSource =
+      activeSourceRef.current?.dir === dir &&
+      activeSourceRef.current.adapterType === selectedAdapter.type;
+    const baseline = sameSource
+      ? {
+          pages: pagesConfigRef.current,
+          derived: derivedConfigRef.current,
+          posto: postoConfigRef.current,
+        }
+      : { pages: null, derived: null, posto: null };
+    setConfigErrors({});
+    const [pages, derived, posto] = await Promise.all([
+      loadPagesConfig(dir, generation, false, baseline.pages),
+      loadDerivedConfig(dir, selectedAdapter, generation, false, baseline.derived),
+      loadPostoConfig(dir, generation, false, baseline.posto),
     ]);
-    return effectiveConfig(pages, astro, posto);
+    if (generation !== generationRef.current) return configRef.current;
+    commitPagesConfig(pages);
+    commitDerivedConfig(derived);
+    commitPostoConfig(posto);
+    activeSourceRef.current = { dir, adapterType: selectedAdapter.type };
+    return resolveEffectiveConfig(pages, derived, posto, selectedAdapter.defaultMedia);
   }
 
   // Effective schema config: `.pages.yml` entries first (higher resolution —
   // labels, media, widget types), Astro collection schemas after them as a
   // fallback. matchEntry's first-match-wins ordering makes the precedence.
   const config = useMemo(
-    () => effectiveConfig(pagesConfig, astroConfig, postoConfig),
-    [pagesConfig, astroConfig, postoConfig],
+    () => resolveEffectiveConfig(pagesConfig, derivedConfig, postoConfig, adapter.defaultMedia),
+    [pagesConfig, derivedConfig, postoConfig, adapter.defaultMedia],
   );
   const configRef = useRef(config);
   configRef.current = config;
@@ -245,10 +249,10 @@ export function useSchemas() {
     config,
     configRef,
     pagesConfig,
-    astroConfig,
+    derivedConfig,
     configError,
     loadPagesConfig,
-    loadAstroConfig,
+    loadDerivedConfig,
     loadPostoConfig,
     loadSchemas,
   };

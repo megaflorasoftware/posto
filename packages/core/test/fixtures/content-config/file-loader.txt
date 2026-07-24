@@ -1,0 +1,11 @@
+import { defineCollection, z } from "astro:content";
+import { file } from "astro/loaders";
+
+const authors = defineCollection({
+  loader: file("src/data/authors.yaml"),
+  schema: z.object({ name: z.string() }),
+});
+
+export const collections = {
+  authors,
+};

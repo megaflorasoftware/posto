@@ -36,8 +36,9 @@ describe("Astro schema diagnostics", () => {
     );
 
     expect(config.content[0]?.path).toBe("src/content/orphaned");
-    expect(config.schemaDiagnostics).toEqual([
+    expect(config.diagnostics).toEqual([
       expect.objectContaining({
+        feature: "derived-config",
         collection: "orphaned",
         code: "missing-collection-config",
       }),

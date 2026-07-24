@@ -294,6 +294,23 @@ pub fn list_dir_files_optional(
     }
 }
 
+/// Checks path metadata without reading directory contents. Missing paths are
+/// expected; permissions and other metadata failures remain actionable errors.
+#[tauri::command]
+pub fn path_exists(path: String, kind: Option<String>) -> Result<bool, String> {
+    let metadata = match std::fs::metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(format!("Failed to inspect {path}: {error}")),
+    };
+    match kind.as_deref() {
+        Some("file") => Ok(metadata.is_file()),
+        Some("directory") => Ok(metadata.is_dir()),
+        Some(other) => Err(format!("Unknown path kind: {other}")),
+        None => Ok(true),
+    }
+}
+
 fn cached_image_thumbnail(
     cache_root: &Path,
     source: &Path,
@@ -437,6 +454,27 @@ pub fn list_directories(dir: String) -> Result<Vec<String>, String> {
     }
     let mut directories = Vec::new();
     collect_directories(path, &mut directories);
+    directories.sort();
+    Ok(directories)
+}
+
+/// Lists only visible immediate child directories. Used by bounded folder
+/// browsers that navigate one level at a time without walking the repository.
+#[tauri::command]
+pub fn list_child_directories(dir: String) -> Result<Vec<String>, String> {
+    let path = Path::new(&dir);
+    if !path.is_dir() {
+        return Err(format!("Not a directory: {dir}"));
+    }
+    let mut directories = std::fs::read_dir(path)
+        .map_err(|error| format!("Failed to read {dir}: {error}"))?
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().to_string();
+            (entry.path().is_dir() && !name.starts_with('.') && !SKIP_DIRS.contains(&name.as_str()))
+                .then(|| entry.path().to_string_lossy().to_string())
+        })
+        .collect::<Vec<_>>();
     directories.sort();
     Ok(directories)
 }
@@ -892,6 +930,24 @@ mod tests {
         assert!(groups[3].path.ends_with("src/content/blogs"));
 
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn child_directories_are_bounded_to_one_visible_level() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("apps/site/content")).unwrap();
+        std::fs::create_dir_all(dir.path().join("packages/docs")).unwrap();
+        std::fs::create_dir_all(dir.path().join("node_modules/pkg")).unwrap();
+        std::fs::create_dir_all(dir.path().join(".hidden/project")).unwrap();
+
+        let listed = list_child_directories(dir.path().to_string_lossy().to_string()).unwrap();
+        assert_eq!(
+            listed,
+            vec![
+                dir.path().join("apps").to_string_lossy().to_string(),
+                dir.path().join("packages").to_string_lossy().to_string(),
+            ]
+        );
     }
 
     fn import_plan(dir: &Path) -> ImageLibraryImportPlan {

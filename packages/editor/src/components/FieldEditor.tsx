@@ -27,7 +27,7 @@ import {
   resolveMedia,
   resolveMediaForValue,
 } from "@posto/core/pagescms/config";
-import { astroEntryId } from "@posto/core/astro/collections";
+import type { EntryIdSource } from "@posto/core/project/entryIds";
 import { expandEntryName } from "@posto/core/posto/config";
 import { applyCollectionPrefs } from "../collectionPrefs";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
@@ -46,6 +46,8 @@ export interface FieldContext {
   /** Collection entry the edited file belongs to; scopes media resolution. */
   entry: ContentEntry | null;
   groups: FileGroup[];
+  /** Adapter-owned entry ID behavior; absent adapters store reference paths. */
+  entryIds?: EntryIdSource | null;
   errors: () => Errors;
   /** Current top-level frontmatter used to expand per-entry settings. */
   templateValues: () => Record<string, unknown>;
@@ -713,10 +715,10 @@ function referenceTemplate(template: string, root: string, file: FileEntry): str
 }
 
 function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
-  const imageLibrary = props.ctx.config.imageLibraries?.find(
+  const imageLibrary = props.ctx.config.mediaLibraries?.find(
     (library) => library.collection === props.field.options?.collection,
   );
-  if (props.field.options?.astroId === true && imageLibrary) {
+  if (props.field.options?.idScheme === "framework" && props.ctx.entryIds && imageLibrary) {
     return <ImageLibraryReferenceField {...props} library={imageLibrary} />;
   }
   const collection = props.ctx.config.content.find(
@@ -775,16 +777,16 @@ function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContex
   // Astro `reference()` frontmatter holds the entry id, not a path; ids come
   // from the same default-`generateId` rules Astro applies (frontmatter slug
   // override, slugified base-relative path).
-  const astroBase =
-    props.field.options?.astroId && collection
+  const frameworkBase =
+    props.field.options?.idScheme === "framework" && props.ctx.entryIds && collection
       ? props.ctx.root + "/" + collection.path + "/"
       : null;
   const files = ordered
     .map((file) => ({
       // Pages CMS stores the repo-root-relative path by default.
-      value: astroBase
+      value: frameworkBase
         ? (file.dataEntry?.id ??
-          astroEntryId(file.path.slice(astroBase.length), file.frontmatter?.slug))
+          props.ctx.entryIds!.derive(file.path.slice(frameworkBase.length), file.frontmatter?.slug))
         : valueTemplate
           ? referenceTemplate(valueTemplate, props.ctx.root, file)
           : file.path.slice(props.ctx.root.length + 1),

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@posto/ipc";
 import type { FileGroup } from "@posto/ipc";
-import { routeForFile } from "../routing";
+import type { ProjectAdapter } from "@posto/core/project/adapter";
 import type { ServerStatus } from "./useDevServer";
 
 type Options = {
@@ -11,6 +11,8 @@ type Options = {
   filePathRef: React.MutableRefObject<string | null>;
   /** Opens the file matching a route the user navigated to in the preview. */
   onRouteOpened: (path: string) => void;
+  adapter: ProjectAdapter;
+  root: string | null;
 };
 
 /** The preview iframe's routing (forward guesses from the open file, reverse
@@ -83,7 +85,8 @@ export function usePreview(options: Options) {
    * only trusted once the running dev server confirms it serves; a wrong
    * guess 404s and the preview is left where it is. */
   async function navigateForFile(path: string, content: string) {
-    const match = routeForFile(path, content);
+    const root = opts.current.root;
+    const match = root ? opts.current.adapter.routeForFile(root, path, content) : null;
     if (!match || match.route === previewRouteRef.current) return;
     if (!(await routeServes(match.route, match.certain))) return;
     // Bail if the user already opened another file during the check.
@@ -99,7 +102,10 @@ export function usePreview(options: Options) {
   function fileForRoute(route: string): string | null {
     for (const group of opts.current.groupsRef.current) {
       for (const file of group.files) {
-        if (routeForFile(file.path, "")?.route === route) return file.path;
+        const root = opts.current.root;
+        if (root && opts.current.adapter.routeForFile(root, file.path, "")?.route === route) {
+          return file.path;
+        }
       }
     }
     return null;

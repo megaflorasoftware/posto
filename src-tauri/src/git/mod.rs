@@ -6,7 +6,7 @@ use git2::{
     StashApplyOptions, StashFlags, Status, StatusOptions,
 };
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tauri::Emitter;
 
 use creds::{platform_creds, platform_signature, remote_callbacks};
@@ -55,14 +55,27 @@ fn parse_github_slug(url: &str) -> Option<GitHubSlug> {
 /// `CredentialProvider`.
 pub struct Client {
     repo: Repository,
+    /// Repo-relative subtree selected as the editor's work directory.
+    scope: PathBuf,
 }
 
 impl Client {
     pub fn open(root: &str) -> Result<Client, String> {
         // The chosen directory is not necessarily the repository root.
-        Repository::discover(root)
-            .map(|repo| Client { repo })
-            .map_err(err_str)
+        let repo = Repository::discover(root).map_err(err_str)?;
+        let workdir = repo
+            .workdir()
+            .ok_or_else(|| "Repository has no working directory".to_string())?
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
+        let selected = Path::new(root)
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
+        let scope = selected
+            .strip_prefix(&workdir)
+            .map_err(|_| "Selected directory is outside the repository".to_string())?
+            .to_path_buf();
+        Ok(Client { repo, scope })
     }
 
     fn signature(&self) -> Result<Signature<'static>, String> {
@@ -119,7 +132,7 @@ impl Client {
         (!code.is_empty()).then_some(code)
     }
 
-    fn status_options() -> StatusOptions {
+    fn repo_status_options() -> StatusOptions {
         let mut opts = StatusOptions::new();
         opts.include_untracked(true)
             .recurse_untracked_dirs(true)
@@ -132,10 +145,18 @@ impl Client {
         opts
     }
 
+    fn scoped_status_options(&self) -> StatusOptions {
+        let mut opts = Self::repo_status_options();
+        if !self.scope.as_os_str().is_empty() {
+            opts.pathspec(&self.scope);
+        }
+        opts
+    }
+
     pub fn changed_files(&self) -> Result<Vec<ChangedFile>, String> {
         let statuses = self
             .repo
-            .statuses(Some(&mut Self::status_options()))
+            .statuses(Some(&mut self.scoped_status_options()))
             .map_err(err_str)?;
         let mut out = Vec::new();
         for entry in statuses.iter() {
@@ -175,9 +196,25 @@ impl Client {
     fn is_dirty(&self) -> Result<bool, String> {
         Ok(!self
             .repo
-            .statuses(Some(&mut Self::status_options()))
+            .statuses(Some(&mut self.scoped_status_options()))
             .map_err(err_str)?
             .is_empty())
+    }
+
+    fn has_out_of_scope_changes(&self) -> Result<bool, String> {
+        if self.scope.as_os_str().is_empty() {
+            return Ok(false);
+        }
+        let statuses = self
+            .repo
+            .statuses(Some(&mut Self::repo_status_options()))
+            .map_err(err_str)?;
+        Ok(statuses.iter().any(|entry| {
+            entry
+                .path()
+                .map(|path| !Path::new(path).starts_with(&self.scope))
+                .unwrap_or(false)
+        }))
     }
 
     /// Reverts one file to its committed state; `path` is repo-relative.
@@ -191,6 +228,9 @@ impl Client {
         path: &str,
         status_hint: Option<&str>,
     ) -> Result<(), String> {
+        if !self.scope.as_os_str().is_empty() && !Path::new(path).starts_with(&self.scope) {
+            return Err(format!("{path} is outside the selected project"));
+        }
         let untracked = match status_hint {
             Some(status) => status == "??",
             None => {
@@ -359,6 +399,12 @@ impl Client {
             Ok(()) => return Ok("Updated from server.".to_string()),
             Err(e) => e,
         };
+        if self.has_out_of_scope_changes()? {
+            return Err(
+                "Pull blocked because unpublished changes outside the selected project conflict with incoming updates. Resolve the repository changes manually, then try again."
+                    .to_string(),
+            );
+        }
         if !self.is_dirty()? {
             // A clean tree that still can't merge is a real failure (unrelated
             // histories, conflicts -X theirs can't settle, …).
@@ -439,13 +485,46 @@ impl Client {
         let mut index = self.repo.index().map_err(err_str)?;
         // add_all picks up new/modified files, update_all staged deletions —
         // together they are `git add -A`.
+        let scope = if self.scope.as_os_str().is_empty() {
+            "*".to_string()
+        } else {
+            self.scope.to_string_lossy().to_string()
+        };
         index
-            .add_all(["*"].iter(), IndexAddOption::DEFAULT, None)
+            .add_all([scope.as_str()].iter(), IndexAddOption::DEFAULT, None)
             .map_err(err_str)?;
-        index.update_all(["*"].iter(), None).map_err(err_str)?;
+        index
+            .update_all([scope.as_str()].iter(), None)
+            .map_err(err_str)?;
         index.write().map_err(err_str)?;
-        let tree_oid = index.write_tree().map_err(err_str)?;
         let head_commit = self.repo.head().ok().and_then(|h| h.peel_to_commit().ok());
+        let tree_oid = if self.scope.as_os_str().is_empty() {
+            index.write_tree().map_err(err_str)?
+        } else {
+            // The repository index may already contain staged sibling work.
+            // Build the publish tree from HEAD plus only this selected subtree,
+            // while leaving the real index (and those staged changes) intact.
+            let mut publish_index = git2::Index::new().map_err(err_str)?;
+            if let Some(head) = &head_commit {
+                publish_index
+                    .read_tree(&head.tree().map_err(err_str)?)
+                    .map_err(err_str)?;
+            }
+            if let Err(error) = publish_index.remove_dir(&self.scope, 0) {
+                if error.code() != git2::ErrorCode::NotFound {
+                    return Err(err_str(error));
+                }
+            }
+            let scope = self.scope.to_string_lossy().replace('\\', "/");
+            let prefix = format!("{scope}/");
+            for entry in index.iter() {
+                let path = String::from_utf8_lossy(&entry.path);
+                if path == scope || path.starts_with(&prefix) {
+                    publish_index.add(&entry).map_err(err_str)?;
+                }
+            }
+            publish_index.write_tree_to(&self.repo).map_err(err_str)?
+        };
         if let Some(head_commit) = &head_commit {
             if head_commit.tree_id() == tree_oid {
                 return Ok("Nothing to publish — no local changes.".to_string());
