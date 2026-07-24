@@ -316,6 +316,12 @@ input {
   margin-top: var(--mantine-spacing-xs);
 }
 
+.mobile-group-children {
+  margin-left: 0.75rem;
+  padding-left: 0.25rem;
+  border-left: 1px solid var(--mantine-color-default-border);
+}
+
 .mobile-document-list summary {
   width: 100%;
   min-width: 0;
@@ -354,7 +360,7 @@ input {
   flex-shrink: 0;
 }
 
-.mobile-document-list details:not([open]) .mobile-group-chevron {
+.mobile-document-list details:not([open]) > summary .mobile-group-chevron {
   transform: rotate(-90deg);
 }
 

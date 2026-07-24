@@ -285,6 +285,91 @@ export function SchemaDiagnostics({ config }: { config: PagesConfig | null }) {
   );
 }
 
+function SidebarDirectory(props: {
+  node: DisplayGroupNode;
+  root: string;
+  activeKey: string | null;
+  developerMode: boolean;
+  onOpen: (file: FileEntry) => void;
+  onDelete: (file: FileEntry) => void;
+  onNewFile: (group: FileGroup) => void;
+  onSettings: (collection: ContentEntry, files: FileEntry[]) => void;
+}) {
+  const { node } = props;
+  const { group, collection, exact } = node;
+
+  if (!group.label) {
+    return (
+      <FileList
+        files={group.files}
+        activeKey={props.activeKey}
+        onOpen={props.onOpen}
+        onDelete={props.onDelete}
+      />
+    );
+  }
+
+  return (
+    <details open={node.defaultOpen}>
+      <summary>
+        <span className="group-label" title={group.label}>
+          {group.label}
+        </span>
+        {canCreateFileInGroup(props.root, group) && (
+          <button
+            type="button"
+            className="group-action"
+            title="New file"
+            aria-label={`New file in ${group.label}`}
+            onClick={(event) => {
+              // A click inside <summary> would also toggle the group.
+              event.preventDefault();
+              event.stopPropagation();
+              props.onNewFile(group);
+            }}
+          >
+            <Plus size={14} />
+          </button>
+        )}
+        {props.developerMode && collection && exact && (
+          <button
+            type="button"
+            className="group-action"
+            title="Collection settings"
+            aria-label={`Settings for ${group.label}`}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              props.onSettings(collection, group.files);
+            }}
+          >
+            <SlidersHorizontal size={14} />
+          </button>
+        )}
+        <ChevronDown size={14} className="group-chevron" />
+      </summary>
+      <FileList
+        files={group.files}
+        activeKey={props.activeKey}
+        pinned={collection?.pinned}
+        onOpen={props.onOpen}
+        onDelete={props.onDelete}
+      />
+      {node.children.length > 0 && (
+        <div className="sidebar-group-children">
+          {node.children.map((child) => (
+            <SidebarDirectory
+              key={`${child.group.kind ?? ""}:${child.group.path}`}
+              {...props}
+              node={child}
+            />
+          ))}
+        </div>
+      )}
+    </details>
+  );
+}
+
 export function Sidebar(props: {
   root: string;
   groups: FileGroup[];
@@ -315,8 +400,8 @@ export function Sidebar(props: {
     setOrderOpen(false);
   }, [developerMode]);
 
-  const displayGroups = useMemo(
-    () => sidebarDisplayGroups(groups, config, root),
+  const displayTree = useMemo(
+    () => sidebarDisplayTree(groups, config, root),
     [groups, config, root],
   );
 
@@ -340,66 +425,21 @@ export function Sidebar(props: {
         />
       )}
       <div className="sidebar-groups">
-        {displayGroups.map(({ group, collection, exact }) =>
-          group.label ? (
-            // The synthetic Styles group shares its path with the root
-            // group, so the key needs the kind to stay unique.
-            <details key={`${group.kind ?? ""}:${group.path}`} open>
-              <summary>
-                <span className="group-label" title={group.label}>
-                  {group.label}
-                </span>
-                {canCreateFileInGroup(root, group) && (
-                  <button
-                    type="button"
-                    className="group-action"
-                    title="New file"
-                    aria-label={`New file in ${group.label}`}
-                    onClick={(e) => {
-                      // A click inside <summary> would also toggle the group.
-                      e.preventDefault();
-                      e.stopPropagation();
-                      props.onNewFile(group);
-                    }}
-                  >
-                    <Plus size={14} />
-                  </button>
-                )}
-                {developerMode && collection && exact && (
-                  <button
-                    type="button"
-                    className="group-action"
-                    title="Collection settings"
-                    aria-label={`Settings for ${group.label}`}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setSettingsFor({ collection, files: group.files });
-                    }}
-                  >
-                    <SlidersHorizontal size={14} />
-                  </button>
-                )}
-                <ChevronDown size={14} className="group-chevron" />
-              </summary>
-              <FileList
-                files={group.files}
-                activeKey={props.activeKey}
-                pinned={collection?.pinned}
-                onOpen={props.onOpen}
-                onDelete={props.onDelete}
-              />
-            </details>
-          ) : (
-            <FileList
-              key={group.path}
-              files={group.files}
-              activeKey={props.activeKey}
-              onOpen={props.onOpen}
-              onDelete={props.onDelete}
-            />
-          ),
-        )}
+        {displayTree.map((node) => (
+          // The synthetic Styles group shares its path with the root group,
+          // so the key needs the kind to stay unique.
+          <SidebarDirectory
+            key={`${node.group.kind ?? ""}:${node.group.path}`}
+            node={node}
+            root={root}
+            activeKey={props.activeKey}
+            developerMode={developerMode}
+            onOpen={props.onOpen}
+            onDelete={props.onDelete}
+            onNewFile={props.onNewFile}
+            onSettings={(collection, files) => setSettingsFor({ collection, files })}
+          />
+        ))}
       </div>
       {developerMode && orderableCollections(config).length > 1 && (
         <button type="button" className="sidebar-footer-action" onClick={() => setOrderOpen(true)}>

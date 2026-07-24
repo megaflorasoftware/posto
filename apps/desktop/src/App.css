@@ -193,6 +193,12 @@ body,
   margin-top: 0.5rem;
 }
 
+.sidebar-group-children {
+  margin-left: 0.6rem;
+  padding-left: 0.35rem;
+  border-left: 1px solid var(--mantine-color-default-border);
+}
+
 /* Heading rows lay out as `label … [+] [chevron]`; the native disclosure
    marker is hidden in favor of the right-aligned chevron. */
 .sidebar summary {
@@ -247,7 +253,7 @@ body,
   transition: transform 120ms ease;
 }
 
-.sidebar details:not([open]) .group-chevron {
+.sidebar details:not([open]) > summary .group-chevron {
   transform: rotate(-90deg);
 }
 
