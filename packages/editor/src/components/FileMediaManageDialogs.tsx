@@ -14,17 +14,10 @@ import {
   applyImageLibraryReferenceUpdates,
   planMarkdownMediaReferenceUpdates,
 } from "../imageLibraryReferences";
+import { filePathBasename, filePathDirname, normalizeFilePath } from "../filePaths";
 import { publicMediaOutputPath } from "../markdownMedia";
 import { Dialog } from "./Dialog";
 import { FileMediaBrowser, FileMediaPreview } from "./PublicMediaBrowser";
-
-function basename(path: string): string {
-  return path.slice(path.lastIndexOf("/") + 1);
-}
-
-function dirname(path: string): string {
-  return path.slice(0, path.lastIndexOf("/"));
-}
 
 function markdownReferenceReplacements(
   root: string,
@@ -74,18 +67,19 @@ export function FileMediaEditDialog(props: {
     }
     setPending(true);
     setError(null);
-    const targetPath = `${dirname(props.file.path)}/${filename}`;
+    const sourcePath = normalizeFilePath(props.file.path);
+    const targetPath = `${filePathDirname(sourcePath)}/${filename}`;
     try {
       await props.onBeforeChange();
       const referencePlan = await planMarkdownMediaReferenceUpdates({
         groups: props.groups,
         replacements: markdownReferenceReplacements(props.root, [
-          { from: props.file.path, to: targetPath },
+          { from: sourcePath, to: targetPath },
         ]),
       });
       await renameFileMediaItem({
         mediaRoot: props.mediaRoot,
-        path: props.file.path,
+        path: sourcePath,
         targetPath,
       });
       try {
@@ -94,7 +88,7 @@ export function FileMediaEditDialog(props: {
         await renameFileMediaItem({
           mediaRoot: props.mediaRoot,
           path: targetPath,
-          targetPath: props.file.path,
+          targetPath: sourcePath,
         }).catch(() => undefined);
         throw caught;
       }
@@ -250,19 +244,27 @@ export function MoveFileMediaItemsDialog(props: {
   const move = async () => {
     setPending(true);
     setError(null);
-    const destination = [props.mediaRoot, currentDirectory].filter(Boolean).join("/");
+    const destination = [normalizeFilePath(props.mediaRoot).replace(/\/+$/, ""), currentDirectory]
+      .filter(Boolean)
+      .join("/");
     const fileOperations = props.movingFiles.map((file) => ({
-      from: file.path,
-      to: `${destination}/${basename(file.path)}`,
+      from: normalizeFilePath(file.path),
+      to: `${destination}/${filePathBasename(file.path)}`,
     }));
     const directoryOperations = props.movingDirectories.map((from) => ({
-      from,
-      to: `${destination}/${basename(from)}`,
+      from: normalizeFilePath(from).replace(/\/+$/, ""),
+      to: `${destination}/${filePathBasename(from)}`,
     }));
 
     try {
-      const movingFilePaths = new Set(props.movingFiles.map((file) => file.path));
-      const existingFilePaths = new Set(props.files.map((file) => file.path));
+      const movingFilePaths = new Set(
+        props.movingFiles.map((file) => normalizeFilePath(file.path)),
+      );
+      const existingFilePaths = new Set(props.files.map((file) => normalizeFilePath(file.path)));
+      const existingDirectories = props.directories.map((directory) =>
+        normalizeFilePath(directory).replace(/\/+$/, ""),
+      );
+      const movingDirectoryPaths = directoryOperations.map((operation) => operation.from);
       const targets = new Set<string>();
       for (const operation of fileOperations) {
         if (operation.from === operation.to) {
@@ -270,7 +272,7 @@ export function MoveFileMediaItemsDialog(props: {
         }
         if (
           targets.has(operation.to) ||
-          props.directories.includes(operation.to) ||
+          existingDirectories.includes(operation.to) ||
           (existingFilePaths.has(operation.to) && !movingFilePaths.has(operation.to))
         ) {
           throw new Error("A file or folder with that name already exists in the destination.");
@@ -289,10 +291,10 @@ export function MoveFileMediaItemsDialog(props: {
         if (
           directoryTargets.has(operation.to) ||
           existingFilePaths.has(operation.to) ||
-          props.directories.some(
+          existingDirectories.some(
             (directory) =>
               directory === operation.to &&
-              !props.movingDirectories.some(
+              !movingDirectoryPaths.some(
                 (movingDirectory) =>
                   directory === movingDirectory || directory.startsWith(`${movingDirectory}/`),
               ),
@@ -313,14 +315,15 @@ export function MoveFileMediaItemsDialog(props: {
         (left, right) => right.from.length - left.from.length,
       );
       for (const file of props.files) {
-        if (relocationTargets.has(file.path)) continue;
+        const filePath = normalizeFilePath(file.path);
+        if (relocationTargets.has(filePath)) continue;
         const directory = orderedDirectories.find((operation) =>
-          file.path.startsWith(`${operation.from}/`),
+          filePath.startsWith(`${operation.from}/`),
         );
         if (directory) {
           relocationTargets.set(
-            file.path,
-            `${directory.to}${file.path.slice(directory.from.length)}`,
+            filePath,
+            `${directory.to}${filePath.slice(directory.from.length)}`,
           );
         }
       }
@@ -354,14 +357,14 @@ export function MoveFileMediaItemsDialog(props: {
           await moveFileMediaDirectory({
             mediaRoot: props.mediaRoot,
             path: operation.to,
-            destinationDirectory: dirname(operation.from),
+            destinationDirectory: filePathDirname(operation.from),
           }).catch(() => undefined);
         }
         for (const operation of completedFiles.reverse()) {
           await moveFileMediaItem({
             mediaRoot: props.mediaRoot,
             path: operation.to,
-            destinationDirectory: dirname(operation.from),
+            destinationDirectory: filePathDirname(operation.from),
           }).catch(() => undefined);
         }
         throw caught;

@@ -71,4 +71,20 @@ describe("Markdown media insertion", () => {
     );
     expect(publicMediaOutputPath("/site", "/outside/guide.pdf")).toBeNull();
   });
+
+  test("creates public URLs from native Windows paths", () => {
+    expect(
+      publicMediaOutputPath(
+        "C:\\Projects\\Site",
+        "C:\\Projects\\Site\\public\\files\\Guide (final) #1.pdf",
+      ),
+    ).toBe("/files/Guide%20%28final%29%20%231.pdf");
+    expect(publicMediaOutputPath("C:\\Projects\\Site", "D:\\outside\\guide.pdf")).toBeNull();
+  });
+
+  test("matches Windows drive paths case-insensitively", () => {
+    expect(
+      publicMediaOutputPath("C:\\Projects\\Site", "c:\\projects\\site\\public\\hero.png"),
+    ).toBe("/hero.png");
+  });
 });

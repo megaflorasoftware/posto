@@ -1,3 +1,5 @@
+import { normalizeFilePath } from "./filePaths";
+
 export type MarkdownMediaKind = "image" | "audio" | "video" | "link";
 
 export interface MarkdownMediaPick {
@@ -48,9 +50,15 @@ function encodePathSegment(segment: string): string {
 }
 
 export function publicMediaOutputPath(root: string, absolutePath: string): string | null {
-  const prefix = `${root.replace(/\/+$/, "")}/public/`;
-  if (!absolutePath.startsWith(prefix)) return null;
-  return `/${absolutePath.slice(prefix.length).split("/").map(encodePathSegment).join("/")}`;
+  const normalizedRoot = normalizeFilePath(root).replace(/\/+$/, "");
+  const normalizedPath = normalizeFilePath(absolutePath);
+  const prefix = `${normalizedRoot}/public/`;
+  const windowsPath = /^[A-Za-z]:\//.test(normalizedRoot) || normalizedRoot.startsWith("//");
+  const matches = windowsPath
+    ? normalizedPath.toLowerCase().startsWith(prefix.toLowerCase())
+    : normalizedPath.startsWith(prefix);
+  if (!matches) return null;
+  return `/${normalizedPath.slice(prefix.length).split("/").map(encodePathSegment).join("/")}`;
 }
 
 function escapeHtmlAttribute(value: string): string {
