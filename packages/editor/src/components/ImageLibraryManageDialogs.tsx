@@ -385,7 +385,7 @@ export function ImageLibraryEditDialog(props: {
   asset: ImageLibraryAsset;
   onBeforeChange: () => Promise<void>;
   onClose: () => void;
-  onChanged: () => void;
+  onChanged: (options?: { silent?: boolean }) => void;
 }) {
   const [metadata, setMetadata] = useState<Record<string, unknown>>(() =>
     structuredClone(props.asset.metadata),
@@ -529,7 +529,7 @@ export function ImageLibraryEditDialog(props: {
     setError(null);
     try {
       await deleteAssets(libraryRoot, [props.asset]);
-      props.onChanged();
+      props.onChanged({ silent: true });
       props.onClose();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));

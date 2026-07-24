@@ -700,8 +700,8 @@ export default function RepoHome({
             libraries={config?.mediaLibraries ?? []}
             onImport={importIntoLibrary}
             onBeforeChange={currentFile.flushPendingSave}
-            onChanged={(library) => {
-              setStatus("Media updated. Publish when you are ready.");
+            onChanged={(library, options) => {
+              if (!options?.silent) setStatus("Media updated. Publish when you are ready.");
               void git.refreshLocalChanges(root);
               void refreshImageLibraryAssets(root, library);
               void currentFile.reloadFromDisk();

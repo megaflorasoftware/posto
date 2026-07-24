@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button, Select, Text } from "@mantine/core";
-import { FolderPlus, Upload } from "lucide-react";
+import { FolderPlus, MousePointer2, Upload } from "lucide-react";
 import type { MediaLibrary, PagesConfig } from "@posto/core/pagescms/config";
 import {
   CreateImageLibraryFolderDialog,
@@ -24,7 +24,7 @@ function MediaBrowserContent(props: {
   groups: FileGroup[];
   libraries: MediaLibrary[];
   onBeforeChange: () => Promise<void>;
-  onChanged: () => void;
+  onChanged: (options?: { silent?: boolean }) => void;
 }) {
   const [libraryIndex, setLibraryIndex] = useState(0);
   const [currentDirectory, setCurrentDirectory] = useState("");
@@ -126,6 +126,7 @@ function MediaBrowserContent(props: {
               <Button
                 fullWidth
                 variant={selectionMode ? "light" : "default"}
+                leftSection={<MousePointer2 size={16} />}
                 onClick={() => {
                   setSelected(new Set());
                   setSelectedDirectories(new Set());
@@ -166,9 +167,9 @@ function MediaBrowserContent(props: {
           asset={editing}
           onBeforeChange={props.onBeforeChange}
           onClose={() => setEditing(null)}
-          onChanged={() => {
+          onChanged={(options) => {
             void state.refresh();
-            props.onChanged();
+            props.onChanged(options);
           }}
         />
       )}
@@ -183,7 +184,7 @@ function MediaBrowserContent(props: {
             setSelectedDirectories(new Set());
             setSelectionMode(false);
             void state.refresh();
-            props.onChanged();
+            props.onChanged({ silent: true });
           }}
         />
       )}
@@ -234,7 +235,7 @@ export function MediaSidebar(props: {
   groups: FileGroup[];
   libraries: MediaLibrary[];
   onBeforeChange: () => Promise<void>;
-  onChanged: () => void;
+  onChanged: (options?: { silent?: boolean }) => void;
 }) {
   if (props.libraries.length === 0) {
     return (
