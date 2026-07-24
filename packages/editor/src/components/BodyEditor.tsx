@@ -54,6 +54,10 @@ function toManagedImports(statements: string[], body: string): ManagedImport[] {
   });
 }
 
+export function bodyEditorMode(mdx: boolean, componentBlocks: ComponentSchemaSource | null) {
+  return { mdx, componentBlocksEnabled: componentBlocks !== null };
+}
+
 /**
  * Rich-text editor for the markdown body. Tiptap owns the document; markdown
  * goes in on mount (and on external changes) and comes back out through
@@ -90,7 +94,7 @@ export function BodyEditor(props: {
   componentSchemaVersion?: number;
   onChange: (markdown: string) => void;
 }) {
-  const mdx = props.mdx && props.componentBlocks !== null;
+  const { mdx, componentBlocksEnabled } = bodyEditorMode(props.mdx, props.componentBlocks);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [componentPickerOpen, setComponentPickerOpen] = useState(false);
   const [schemas, setSchemas] = useState<Record<string, ComponentBlockSchema>>({});
@@ -207,7 +211,12 @@ export function BodyEditor(props: {
       const diagnostics: string[] = [];
       const source = props.componentBlocks;
       if (!source) {
-        if (!cancelled) setComponentDiagnostics([]);
+        if (!cancelled) {
+          setSchemas({});
+          setComponentDiagnostics([]);
+          componentSchemas.current = {};
+          editor?.view.dispatch(editor.state.tr.setMeta("mdxSchemas", true));
+        }
         return;
       }
       for (const statement of importsKey === "" ? [] : importsKey.split("\u0000")) {
@@ -378,7 +387,7 @@ export function BodyEditor(props: {
               >
                 <CodeXml size={16} />
               </RichTextEditor.Control>
-              {mdx && (
+              {mdx && componentBlocksEnabled && (
                 <RichTextEditor.Control
                   title="Insert component"
                   aria-label="Insert component"
@@ -410,10 +419,10 @@ export function BodyEditor(props: {
               }}
             />
           )}
-          {componentPickerOpen && (
+          {componentPickerOpen && componentBlocksEnabled && props.componentBlocks && (
             <ComponentPicker
               root={props.root}
-              source={props.componentBlocks!}
+              source={props.componentBlocks}
               onClose={() => setComponentPickerOpen(false)}
               onPick={(file) => {
                 setComponentPickerOpen(false);
