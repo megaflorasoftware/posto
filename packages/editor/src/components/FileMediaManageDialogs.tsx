@@ -8,7 +8,13 @@ import {
   moveFileMediaItem,
   renameFileMediaItem,
   type FileEntry,
+  type FileGroup,
 } from "@posto/ipc";
+import {
+  applyImageLibraryReferenceUpdates,
+  planMarkdownMediaReferenceUpdates,
+} from "../imageLibraryReferences";
+import { publicMediaOutputPath } from "../markdownMedia";
 import { Dialog } from "./Dialog";
 import { FileMediaBrowser, FileMediaPreview } from "./PublicMediaBrowser";
 
@@ -20,9 +26,27 @@ function dirname(path: string): string {
   return path.slice(0, path.lastIndexOf("/"));
 }
 
+function markdownReferenceReplacements(
+  root: string,
+  relocations: Array<{ from: string; to: string }>,
+): Map<string, string> {
+  const replacements = new Map<string, string>();
+  for (const relocation of relocations) {
+    const from = publicMediaOutputPath(root, relocation.from);
+    const to = publicMediaOutputPath(root, relocation.to);
+    if (!from || !to || from === to) continue;
+    replacements.set(from, to);
+    replacements.set(from.replace(/^\//, ""), to.replace(/^\//, ""));
+  }
+  return replacements;
+}
+
 export function FileMediaEditDialog(props: {
+  root: string;
   mediaRoot: string;
+  groups: FileGroup[];
   file: FileEntry;
+  onBeforeChange: () => Promise<void>;
   onClose: () => void;
   onChanged: (options?: { silent?: boolean }) => void;
 }) {
@@ -50,12 +74,30 @@ export function FileMediaEditDialog(props: {
     }
     setPending(true);
     setError(null);
+    const targetPath = `${dirname(props.file.path)}/${filename}`;
     try {
+      await props.onBeforeChange();
+      const referencePlan = await planMarkdownMediaReferenceUpdates({
+        groups: props.groups,
+        replacements: markdownReferenceReplacements(props.root, [
+          { from: props.file.path, to: targetPath },
+        ]),
+      });
       await renameFileMediaItem({
         mediaRoot: props.mediaRoot,
         path: props.file.path,
-        targetPath: `${dirname(props.file.path)}/${filename}`,
+        targetPath,
       });
+      try {
+        await applyImageLibraryReferenceUpdates(referencePlan);
+      } catch (caught) {
+        await renameFileMediaItem({
+          mediaRoot: props.mediaRoot,
+          path: targetPath,
+          targetPath: props.file.path,
+        }).catch(() => undefined);
+        throw caught;
+      }
       props.onChanged();
       props.onClose();
     } catch (caught) {
@@ -188,11 +230,14 @@ export function DeleteFileMediaItemsDialog(props: {
 }
 
 export function MoveFileMediaItemsDialog(props: {
+  root: string;
   mediaRoot: string;
+  groups: FileGroup[];
   directories: string[];
   files: FileEntry[];
   movingFiles: FileEntry[];
   movingDirectories: string[];
+  onBeforeChange: () => Promise<void>;
   onClose: () => void;
   onRefresh: () => void;
   onMoved: () => void;
@@ -260,6 +305,32 @@ export function MoveFileMediaItemsDialog(props: {
 
       const completedFiles: typeof fileOperations = [];
       const completedDirectories: typeof directoryOperations = [];
+      await props.onBeforeChange();
+      const relocationTargets = new Map(
+        fileOperations.map((operation) => [operation.from, operation.to]),
+      );
+      const orderedDirectories = [...directoryOperations].sort(
+        (left, right) => right.from.length - left.from.length,
+      );
+      for (const file of props.files) {
+        if (relocationTargets.has(file.path)) continue;
+        const directory = orderedDirectories.find((operation) =>
+          file.path.startsWith(`${operation.from}/`),
+        );
+        if (directory) {
+          relocationTargets.set(
+            file.path,
+            `${directory.to}${file.path.slice(directory.from.length)}`,
+          );
+        }
+      }
+      const referencePlan = await planMarkdownMediaReferenceUpdates({
+        groups: props.groups,
+        replacements: markdownReferenceReplacements(
+          props.root,
+          [...relocationTargets].map(([from, to]) => ({ from, to })),
+        ),
+      });
       try {
         for (const operation of fileOperations) {
           await moveFileMediaItem({
@@ -277,6 +348,7 @@ export function MoveFileMediaItemsDialog(props: {
           });
           completedDirectories.push(operation);
         }
+        await applyImageLibraryReferenceUpdates(referencePlan);
       } catch (caught) {
         for (const operation of completedDirectories.reverse()) {
           await moveFileMediaDirectory({

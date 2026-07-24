@@ -203,7 +203,9 @@ function LibraryMediaPane(props: {
 
 function PublicMediaPane(props: {
   root: string;
+  groups: FileGroup[];
   tabs: ReactNode;
+  onBeforeChange: () => Promise<void>;
   onChanged: (options?: { silent?: boolean }) => void;
 }) {
   const state = usePublicMediaFiles(props.root);
@@ -354,8 +356,11 @@ function PublicMediaPane(props: {
       )}
       {editing && (
         <FileMediaEditDialog
+          root={props.root}
           mediaRoot={state.publicRoot}
+          groups={props.groups}
           file={editing}
+          onBeforeChange={props.onBeforeChange}
           onClose={() => setEditing(null)}
           onChanged={(options) => {
             void state.refresh();
@@ -365,11 +370,14 @@ function PublicMediaPane(props: {
       )}
       {moving && (
         <MoveFileMediaItemsDialog
+          root={props.root}
           mediaRoot={state.publicRoot}
+          groups={props.groups}
           directories={state.directories}
           files={state.files}
           movingFiles={state.files.filter((file) => selected.has(file.path))}
           movingDirectories={[...selectedDirectories]}
+          onBeforeChange={props.onBeforeChange}
           onClose={() => setMoving(false)}
           onRefresh={() => void state.refresh()}
           onMoved={() => {
@@ -420,7 +428,9 @@ export function MediaLibraryPane(props: {
     <PublicMediaPane
       key={PUBLIC_MEDIA_TAB}
       root={props.root}
+      groups={props.groups}
       tabs={tabs}
+      onBeforeChange={props.onBeforeChange}
       onChanged={(options) => props.onChanged(null, options)}
     />
   );

@@ -22,7 +22,9 @@ vi.mock("@posto/ipc", () => ({ invoke }));
 import {
   applyImageLibraryReferenceUpdates,
   planImageLibraryReferenceUpdates,
+  planMarkdownMediaReferenceUpdates,
   rewriteMarkdownImageDestinations,
+  rewriteMarkdownMediaDestinations,
 } from "../src/imageLibraryReferences";
 
 describe("image library reference updates", () => {
@@ -99,6 +101,62 @@ describe("image library reference updates", () => {
     );
     expect(result.replacements).toBe(1);
     expect(result.content).toBe("![live](/new.jpg)\n```md\n![example](/old.jpg)\n```\n");
+  });
+
+  test("plans public-media path rewrites for md and mdx files only", async () => {
+    const mdPath = "/site/posts/one.md";
+    const mdxPath = "/site/posts/two.mdx";
+    const markdownPath = "/site/posts/three.markdown";
+    files.set(
+      mdPath,
+      "![One](/images/old%20photo.jpg?size=2)\n[Download](/images/old%20photo.jpg)\n",
+    );
+    files.set(
+      mdxPath,
+      '<audio controls src="images/old%20photo.jpg"></audio>\n```md\n[Example](images/old%20photo.jpg)\n```\n',
+    );
+    files.set(markdownPath, "![Three](/images/old%20photo.jpg)\n");
+    const groups: FileGroup[] = [
+      {
+        label: "posts",
+        path: "/site/posts",
+        files: [
+          { name: "one.md", path: mdPath },
+          { name: "two.mdx", path: mdxPath },
+          { name: "three.markdown", path: markdownPath },
+        ],
+      },
+    ];
+    const plan = await planMarkdownMediaReferenceUpdates({
+      groups,
+      replacements: new Map([
+        ["/images/old%20photo.jpg", "/images/new%20photo.jpg"],
+        ["images/old%20photo.jpg", "images/new%20photo.jpg"],
+      ]),
+    });
+
+    expect(plan.replacements).toBe(3);
+    expect(plan.writes.map((write) => write.path)).toEqual([mdPath, mdxPath]);
+    await applyImageLibraryReferenceUpdates(plan);
+    expect(files.get(mdPath)).toBe(
+      "![One](/images/new%20photo.jpg?size=2)\n[Download](/images/new%20photo.jpg)\n",
+    );
+    expect(files.get(mdxPath)).toBe(
+      '<audio controls src="images/new%20photo.jpg"></audio>\n```md\n[Example](images/old%20photo.jpg)\n```\n',
+    );
+    expect(files.get(markdownPath)).toBe("![Three](/images/old%20photo.jpg)\n");
+  });
+
+  test("rewrites links and source attributes without touching fenced examples", () => {
+    const result = rewriteMarkdownMediaDestinations(
+      '[file](/old.pdf)\n<video src="/old.pdf"></video>\n```md\n[file](/old.pdf)\n```\n',
+      new Map([["/old.pdf", "/new.pdf"]]),
+    );
+
+    expect(result.replacements).toBe(2);
+    expect(result.content).toBe(
+      '[file](/new.pdf)\n<video src="/new.pdf"></video>\n```md\n[file](/old.pdf)\n```\n',
+    );
   });
 
   test("syncs metadata alt text to direct Markdown images in md and mdx files only", async () => {

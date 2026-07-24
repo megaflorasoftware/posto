@@ -25,4 +25,15 @@ describe("editorTabsForFile", () => {
       }),
     ).toEqual(["raw"]);
   });
+
+  test("opens malformed Markdown frontmatter directly in raw mode for every user", () => {
+    const file = {
+      filePath: "/site/post.mdx",
+      fileContent: "---\ntitle: [broken\n---\nBody",
+      entry: null,
+    };
+
+    expect(editorTabsForFile({ ...file, developerMode: false })).toEqual(["raw"]);
+    expect(editorTabsForFile({ ...file, developerMode: true })).toEqual(["raw"]);
+  });
 });

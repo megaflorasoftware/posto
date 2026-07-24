@@ -250,6 +250,89 @@ export function rewriteMarkdownImageDestinations(
   );
 }
 
+/** Rewrites public-media destinations in Markdown images, ordinary Markdown
+ * links, and HTML/MDX `src`/`href` attributes while leaving fenced examples
+ * untouched. */
+export function rewriteMarkdownMediaDestinations(
+  body: string,
+  replacements: Map<string, string>,
+): { content: string; replacements: number } {
+  const images = rewriteMarkdownImageDestinations(body, replacements);
+  let fencedBy: "`" | "~" | null = null;
+  let replacementsCount = images.replacements;
+  const content = images.content
+    .split(/(?<=\n)/)
+    .map((line) => {
+      const fence = line.match(/^\s*(`{3,}|~{3,})/);
+      if (fence) {
+        const marker = fence[1][0] as "`" | "~";
+        if (fencedBy === marker) fencedBy = null;
+        else if (!fencedBy) fencedBy = marker;
+        return line;
+      }
+      if (fencedBy) return line;
+      const links = line.replace(
+        /\[((?:\\.|[^\]\\\n])*)\](\(\s*)(<)?([^\s)>]+)(>)?/g,
+        (
+          match,
+          label: string,
+          destinationPrefix: string,
+          open: string | undefined,
+          destination: string,
+          close: string | undefined,
+          offset: number,
+          source: string,
+        ) => {
+          // The image pass above already handled destinations prefixed by `!`.
+          if (offset > 0 && source[offset - 1] === "!") return match;
+          const found = replacementForDestination(destination, replacements);
+          if (!found) return match;
+          replacementsCount += 1;
+          return `[${label}]${destinationPrefix}${open ?? ""}${found.replacement}${found.suffix}${close ?? ""}`;
+        },
+      );
+      return links.replace(
+        /(\b(?:src|href)\s*=\s*)(["'])([^"'\n]+)\2/gi,
+        (match, prefix: string, quote: string, destination: string) => {
+          const found = replacementForDestination(destination, replacements);
+          if (!found) return match;
+          replacementsCount += 1;
+          return `${prefix}${quote}${found.replacement}${found.suffix}${quote}`;
+        },
+      );
+    })
+    .join("");
+  return { content, replacements: replacementsCount };
+}
+
+/** Plans path-only rewrites for public-media references in `.md` and `.mdx`
+ * files. Public-file media uses this smaller plan because it has no metadata
+ * collection IDs or schema-scoped image fields to relocate. */
+export async function planMarkdownMediaReferenceUpdates(input: {
+  groups: FileGroup[];
+  replacements: Map<string, string>;
+}): Promise<ImageLibraryReferenceUpdatePlan> {
+  const writes: ImageLibraryReferenceUpdatePlan["writes"] = [];
+  let replacements = 0;
+  const paths = new Set(input.groups.flatMap((group) => group.files.map((file) => file.path)));
+
+  for (const path of paths) {
+    if (!/\.(md|mdx)$/i.test(path)) continue;
+    const previous = await invoke<string>("read_text_file", { path });
+    const parsed = parseFile(previous);
+    if (parsed.error) {
+      throw new Error(`Could not update media references in ${path}: ${parsed.error}`);
+    }
+    const markdown = rewriteMarkdownMediaDestinations(parsed.body, input.replacements);
+    if (markdown.replacements === 0) continue;
+    parsed.body = markdown.content;
+    replacements += markdown.replacements;
+    writes.push({ path, previous, content: serializeFile(parsed) });
+  }
+
+  return { writes, replacements };
+}
+
 /** Builds all content writes before the filesystem move starts. Parse errors
  * abort the operation rather than allowing an untracked broken reference. */
 export async function planImageLibraryReferenceUpdates(input: {

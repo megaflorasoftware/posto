@@ -16,17 +16,17 @@ mod settings;
 mod watch;
 mod workspace;
 
-#[cfg(target_os = "macos")]
+#[cfg(desktop)]
 const SETTINGS_MENU_ID: &str = "settings";
-#[cfg(target_os = "macos")]
+#[cfg(desktop)]
 const FULLSCREEN_EDITOR_MENU_ID: &str = "fullscreen-editor";
-#[cfg(target_os = "macos")]
+#[cfg(desktop)]
 const OPEN_FILE_MENU_ID: &str = "open-file";
-#[cfg(target_os = "macos")]
+#[cfg(desktop)]
 const OPEN_REPOSITORY_MENU_ID: &str = "open-repository";
-#[cfg(target_os = "macos")]
+#[cfg(desktop)]
 const OPEN_RECENT_MENU_ID: &str = "open-recent";
-#[cfg(target_os = "macos")]
+#[cfg(desktop)]
 const OPEN_SIBLING_PROJECT_MENU_ID: &str = "open-sibling-project";
 
 #[cfg(desktop)]
@@ -36,104 +36,77 @@ fn set_repository_menu_items_enabled(
     has_recent: bool,
     can_open_sibling: bool,
 ) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        use tauri::menu::MenuItemKind;
+    use tauri::menu::MenuItemKind;
 
-        let menu = app
-            .menu()
-            .ok_or_else(|| "application menu is unavailable".to_string())?;
-        for item in menu.items().map_err(|error| error.to_string())? {
-            let MenuItemKind::Submenu(submenu) = item else {
-                continue;
-            };
-            if submenu.text().map_err(|error| error.to_string())? != "File" {
-                continue;
-            }
-            let Some(MenuItemKind::MenuItem(recent)) = submenu.get(OPEN_RECENT_MENU_ID) else {
-                return Err("open recent menu item is unavailable".to_string());
-            };
-            let Some(MenuItemKind::MenuItem(sibling)) = submenu.get(OPEN_SIBLING_PROJECT_MENU_ID)
-            else {
-                return Err("open sibling project menu item is unavailable".to_string());
-            };
-            recent
-                .set_enabled(has_recent)
-                .map_err(|error| error.to_string())?;
-            return sibling
-                .set_enabled(can_open_sibling)
-                .map_err(|error| error.to_string());
+    let menu = app
+        .menu()
+        .ok_or_else(|| "application menu is unavailable".to_string())?;
+    for item in menu.items().map_err(|error| error.to_string())? {
+        let MenuItemKind::Submenu(submenu) = item else {
+            continue;
+        };
+        if submenu.text().map_err(|error| error.to_string())? != "File" {
+            continue;
         }
-        Err("File menu is unavailable".to_string())
+        let Some(MenuItemKind::MenuItem(recent)) = submenu.get(OPEN_RECENT_MENU_ID) else {
+            return Err("open recent menu item is unavailable".to_string());
+        };
+        let Some(MenuItemKind::MenuItem(sibling)) = submenu.get(OPEN_SIBLING_PROJECT_MENU_ID)
+        else {
+            return Err("open sibling project menu item is unavailable".to_string());
+        };
+        recent
+            .set_enabled(has_recent)
+            .map_err(|error| error.to_string())?;
+        return sibling
+            .set_enabled(can_open_sibling)
+            .map_err(|error| error.to_string());
     }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (app, has_recent, can_open_sibling);
-        Ok(())
-    }
+    Err("File menu is unavailable".to_string())
 }
 
 #[cfg(desktop)]
 #[tauri::command]
 fn set_open_file_menu_enabled(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        use tauri::menu::MenuItemKind;
+    use tauri::menu::MenuItemKind;
 
-        let menu = app
-            .menu()
-            .ok_or_else(|| "application menu is unavailable".to_string())?;
-        for item in menu.items().map_err(|error| error.to_string())? {
-            let MenuItemKind::Submenu(submenu) = item else {
-                continue;
-            };
-            if submenu.text().map_err(|error| error.to_string())? != "File" {
-                continue;
-            }
-            if let Some(MenuItemKind::MenuItem(item)) = submenu.get(OPEN_FILE_MENU_ID) {
-                return item.set_enabled(enabled).map_err(|error| error.to_string());
-            }
+    let menu = app
+        .menu()
+        .ok_or_else(|| "application menu is unavailable".to_string())?;
+    for item in menu.items().map_err(|error| error.to_string())? {
+        let MenuItemKind::Submenu(submenu) = item else {
+            continue;
+        };
+        if submenu.text().map_err(|error| error.to_string())? != "File" {
+            continue;
         }
-        Err("open file menu item is unavailable".to_string())
+        if let Some(MenuItemKind::MenuItem(item)) = submenu.get(OPEN_FILE_MENU_ID) {
+            return item.set_enabled(enabled).map_err(|error| error.to_string());
+        }
     }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (app, enabled);
-        Ok(())
-    }
+    Err("open file menu item is unavailable".to_string())
 }
 
 #[cfg(desktop)]
 #[tauri::command]
 fn set_fullscreen_editor_menu_enabled(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        use tauri::menu::MenuItemKind;
+    use tauri::menu::MenuItemKind;
 
-        let menu = app
-            .menu()
-            .ok_or_else(|| "application menu is unavailable".to_string())?;
-        for item in menu.items().map_err(|error| error.to_string())? {
-            let MenuItemKind::Submenu(submenu) = item else {
-                continue;
-            };
-            if submenu.text().map_err(|error| error.to_string())? != "View" {
-                continue;
-            }
-            if let Some(MenuItemKind::MenuItem(item)) = submenu.get(FULLSCREEN_EDITOR_MENU_ID) {
-                return item.set_enabled(enabled).map_err(|error| error.to_string());
-            }
+    let menu = app
+        .menu()
+        .ok_or_else(|| "application menu is unavailable".to_string())?;
+    for item in menu.items().map_err(|error| error.to_string())? {
+        let MenuItemKind::Submenu(submenu) = item else {
+            continue;
+        };
+        if submenu.text().map_err(|error| error.to_string())? != "View" {
+            continue;
         }
-        Err("fullscreen editor menu item is unavailable".to_string())
+        if let Some(MenuItemKind::MenuItem(item)) = submenu.get(FULLSCREEN_EDITOR_MENU_ID) {
+            return item.set_enabled(enabled).map_err(|error| error.to_string());
+        }
     }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (app, enabled);
-        Ok(())
-    }
+    Err("fullscreen editor menu item is unavailable".to_string())
 }
 
 #[cfg(desktop)]
@@ -183,23 +156,23 @@ pub fn run() {
             devserver::kill_stale_server(app.handle());
             Ok(())
         });
-    #[cfg(target_os = "macos")]
+    #[cfg(desktop)]
     let builder = builder
         .menu(|app| {
-            use tauri::menu::{Menu, MenuItemBuilder, MenuItemKind, PredefinedMenuItem};
+            use tauri::menu::{Menu, MenuItemBuilder, MenuItemKind, PredefinedMenuItem, Submenu};
 
             let menu = Menu::default(app)?;
             let settings = MenuItemBuilder::with_id(SETTINGS_MENU_ID, "Settings…")
-                .accelerator("Cmd+,")
+                .accelerator("CmdOrCtrl+,")
                 .build(app)?;
             let open_file = MenuItemBuilder::with_id(OPEN_FILE_MENU_ID, "Open File…")
-                .accelerator("Cmd+O")
+                .accelerator("CmdOrCtrl+O")
                 .enabled(false)
                 .build(app)?;
             let open_repository =
                 MenuItemBuilder::with_id(OPEN_REPOSITORY_MENU_ID, "Open Repository…").build(app)?;
             let open_recent = MenuItemBuilder::with_id(OPEN_RECENT_MENU_ID, "Open Recent…")
-                .accelerator("Cmd+Shift+O")
+                .accelerator("CmdOrCtrl+Shift+O")
                 .enabled(false)
                 .build(app)?;
             let open_sibling =
@@ -208,43 +181,91 @@ pub fn run() {
                     .build(app)?;
             let fullscreen_editor =
                 MenuItemBuilder::with_id(FULLSCREEN_EDITOR_MENU_ID, "Fullscreen Editor")
-                    .accelerator("Cmd+Shift+F")
+                    .accelerator("CmdOrCtrl+Shift+F")
                     .enabled(false)
                     .build(app)?;
-            let separator = PredefinedMenuItem::separator(app)?;
 
-            if let Some(MenuItemKind::Submenu(app_menu)) = menu.items()?.into_iter().next() {
-                // The default macOS app menu starts with About and a separator.
-                app_menu.insert_items(&[&settings, &separator], 2)?;
+            #[cfg(target_os = "macos")]
+            {
+                let separator = PredefinedMenuItem::separator(app)?;
+                if let Some(MenuItemKind::Submenu(app_menu)) = menu.items()?.into_iter().next() {
+                    // The default macOS app menu starts with About and a separator.
+                    app_menu.insert_items(&[&settings, &separator], 2)?;
+                }
             }
 
+            let mut has_view_menu = false;
             for item in menu.items()? {
                 let MenuItemKind::Submenu(view_menu) = item else {
                     continue;
                 };
                 if view_menu.text()? == "View" {
+                    has_view_menu = true;
                     let separator = PredefinedMenuItem::separator(app)?;
                     view_menu.prepend_items(&[&fullscreen_editor, &separator])?;
                     break;
                 }
             }
+            if !has_view_menu {
+                let view_menu = Submenu::with_items(app, "View", true, &[&fullscreen_editor])?;
+                menu.append(&view_menu)?;
+            }
 
+            let mut has_file_menu = false;
             for item in menu.items()? {
                 let MenuItemKind::Submenu(file_menu) = item else {
                     continue;
                 };
                 if file_menu.text()? == "File" {
-                    let separator = PredefinedMenuItem::separator(app)?;
+                    has_file_menu = true;
+                    let project_separator = PredefinedMenuItem::separator(app)?;
+                    let file_separator = PredefinedMenuItem::separator(app)?;
+                    #[cfg(not(target_os = "macos"))]
+                    let settings_separator = PredefinedMenuItem::separator(app)?;
                     file_menu.prepend_items(&[
                         &open_repository,
                         &open_recent,
                         &open_sibling,
-                        &separator,
+                        &project_separator,
                         &open_file,
-                        &separator,
+                        &file_separator,
+                        #[cfg(not(target_os = "macos"))]
+                        &settings,
+                        #[cfg(not(target_os = "macos"))]
+                        &settings_separator,
                     ])?;
                     break;
                 }
+            }
+            if !has_file_menu {
+                let project_separator = PredefinedMenuItem::separator(app)?;
+                let file_separator = PredefinedMenuItem::separator(app)?;
+                #[cfg(not(target_os = "macos"))]
+                let settings_separator = PredefinedMenuItem::separator(app)?;
+                let close = PredefinedMenuItem::close_window(app, None)?;
+                #[cfg(not(target_os = "macos"))]
+                let quit = PredefinedMenuItem::quit(app, None)?;
+                let file_menu = Submenu::with_items(
+                    app,
+                    "File",
+                    true,
+                    &[
+                        &open_repository,
+                        &open_recent,
+                        &open_sibling,
+                        &project_separator,
+                        &open_file,
+                        &file_separator,
+                        #[cfg(not(target_os = "macos"))]
+                        &settings,
+                        #[cfg(not(target_os = "macos"))]
+                        &settings_separator,
+                        &close,
+                        #[cfg(not(target_os = "macos"))]
+                        &quit,
+                    ],
+                )?;
+                menu.prepend(&file_menu)?;
             }
 
             Ok(menu)

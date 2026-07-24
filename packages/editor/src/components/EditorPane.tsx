@@ -10,6 +10,7 @@ import { FieldTemplateActions } from "./FieldTemplateActions";
 import type { ProjectType } from "@posto/core/project/detect";
 import type { ComponentSchemaSource, ProjectIO } from "@posto/core/project/adapter";
 import type { EntryIdSource } from "@posto/core/project/entryIds";
+import { parseFile } from "@posto/core/pagescms/frontmatter";
 import { ProjectIOProvider } from "../projectIO";
 
 export type EditorTab = "content" | "raw";
@@ -24,6 +25,12 @@ export function editorTabsForFile(input: {
   if (!input.filePath) return [];
   const showForm = input.entry !== null || /\.(md|mdx|markdown)$/i.test(input.filePath);
   if (!showForm) return ["raw"];
+  // Raw source is normally a developer-only escape hatch, but malformed
+  // frontmatter cannot be repaired through the form editor. Open only the raw
+  // view in that case so every user has a recovery path.
+  if (/\.(md|mdx|markdown)$/i.test(input.filePath) && parseFile(input.fileContent).error) {
+    return ["raw"];
+  }
   return ["content", ...((input.developerMode ?? true) ? (["raw"] as const) : [])];
 }
 
