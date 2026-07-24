@@ -352,6 +352,21 @@ export function onFsChanged(handler: (paths: string[]) => void): () => void {
   };
 }
 
+/** Subscribes to the native File menu's recognized-file picker command. */
+export function onOpenFile(handler: () => void): () => void {
+  if (!inTauri) return () => {};
+  const unlisten = listen("open-file", handler);
+  return () => {
+    void unlisten.then((fn) => fn());
+  };
+}
+
+/** Keeps the native open-file item disabled until a project is active. */
+export function setOpenFileMenuEnabled(enabled: boolean): Promise<void> {
+  if (!inTauri) return Promise.resolve();
+  return invoke("set_open_file_menu_enabled", { enabled });
+}
+
 /** Subscribes to the native File menu's repository-opening commands. */
 export function onOpenRepository(handler: () => void): () => void {
   if (!inTauri) return () => {};

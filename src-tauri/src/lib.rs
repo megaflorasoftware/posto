@@ -19,6 +19,8 @@ mod workspace;
 #[cfg(target_os = "macos")]
 const FULLSCREEN_EDITOR_MENU_ID: &str = "fullscreen-editor";
 #[cfg(target_os = "macos")]
+const OPEN_FILE_MENU_ID: &str = "open-file";
+#[cfg(target_os = "macos")]
 const OPEN_REPOSITORY_MENU_ID: &str = "open-repository";
 #[cfg(target_os = "macos")]
 const OPEN_RECENT_MENU_ID: &str = "open-recent";
@@ -66,6 +68,37 @@ fn set_repository_menu_items_enabled(
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (app, has_recent, can_open_sibling);
+        Ok(())
+    }
+}
+
+#[cfg(desktop)]
+#[tauri::command]
+fn set_open_file_menu_enabled(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::menu::MenuItemKind;
+
+        let menu = app
+            .menu()
+            .ok_or_else(|| "application menu is unavailable".to_string())?;
+        for item in menu.items().map_err(|error| error.to_string())? {
+            let MenuItemKind::Submenu(submenu) = item else {
+                continue;
+            };
+            if submenu.text().map_err(|error| error.to_string())? != "File" {
+                continue;
+            }
+            if let Some(MenuItemKind::MenuItem(item)) = submenu.get(OPEN_FILE_MENU_ID) {
+                return item.set_enabled(enabled).map_err(|error| error.to_string());
+            }
+        }
+        Err("open file menu item is unavailable".to_string())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, enabled);
         Ok(())
     }
 }
@@ -154,6 +187,10 @@ pub fn run() {
             use tauri::menu::{Menu, MenuItemBuilder, MenuItemKind, PredefinedMenuItem};
 
             let menu = Menu::default(app)?;
+            let open_file = MenuItemBuilder::with_id(OPEN_FILE_MENU_ID, "Open File…")
+                .accelerator("Cmd+O")
+                .enabled(false)
+                .build(app)?;
             let fullscreen_editor =
                 MenuItemBuilder::with_id(FULLSCREEN_EDITOR_MENU_ID, "Fullscreen Editor")
                     .accelerator("Cmd+Shift+F")
@@ -184,12 +221,15 @@ pub fn run() {
                     continue;
                 };
                 if file_menu.text()? == "File" {
-                    let separator = PredefinedMenuItem::separator(app)?;
+                    let open_file_separator = PredefinedMenuItem::separator(app)?;
+                    let repository_separator = PredefinedMenuItem::separator(app)?;
                     file_menu.prepend_items(&[
+                        &open_file,
+                        &open_file_separator,
                         &open_repository,
                         &open_recent,
                         &open_sibling,
-                        &separator,
+                        &repository_separator,
                     ])?;
                     break;
                 }
@@ -199,6 +239,9 @@ pub fn run() {
         .on_menu_event(|app, event| {
             use tauri::Emitter;
 
+            if event.id().as_ref() == OPEN_FILE_MENU_ID {
+                let _ = app.emit("open-file", ());
+            }
             if event.id().as_ref() == FULLSCREEN_EDITOR_MENU_ID {
                 let _ = app.emit("open-fullscreen-editor", ());
             }
@@ -259,6 +302,7 @@ pub fn run() {
         git::publish,
         workspace::scan_projects,
         watch::watch_root,
+        set_open_file_menu_enabled,
         set_repository_menu_items_enabled,
         set_fullscreen_editor_menu_enabled
     ]);

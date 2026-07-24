@@ -4,11 +4,13 @@ import { Notifications, notifications } from "@mantine/notifications";
 import {
   invoke,
   onFsChanged,
+  onOpenFile,
   onOpenFullscreenEditor,
   onOpenRecent,
   onOpenRepository,
   onOpenSiblingProject,
   openDirectory,
+  setOpenFileMenuEnabled,
   setFullscreenEditorMenuEnabled,
   setRepositoryMenuItemsEnabled,
 } from "@posto/ipc";
@@ -25,6 +27,7 @@ import {
 import {
   EditorPane,
   ImageLibraryDropImport,
+  OpenFileSpotlight,
   PublishModal,
   Sidebar,
   buildNewFile,
@@ -79,6 +82,7 @@ function App() {
   const [publishOpen, setPublishOpen] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
   const [fullscreenEditorOpen, setFullscreenEditorOpen] = useState(false);
+  const [openFileSpotlightOpen, setOpenFileSpotlightOpen] = useState(false);
   const [recentProjectsSpotlightOpen, setRecentProjectsSpotlightOpen] = useState(false);
   // Bumped after each successful save so the SEO preview refetches the page.
   const [saveTick, setSaveTick] = useState(0);
@@ -472,6 +476,9 @@ function App() {
 
   useEffect(() => {
     const unlistenFs = onFsChanged((paths) => externalChangesRef.current(paths));
+    const unlistenOpenFile = onOpenFile(() => {
+      if (rootRef.current) setOpenFileSpotlightOpen(true);
+    });
     const unlistenOpenRepository = onOpenRepository(() => {
       void chooseDirectoryRef.current();
     });
@@ -496,6 +503,7 @@ function App() {
     })();
     return () => {
       unlistenFs();
+      unlistenOpenFile();
       unlistenOpenRepository();
       unlistenOpenRecent();
       unlistenOpenSiblingProject();
@@ -604,6 +612,11 @@ function App() {
   }, [fullscreenEditorOpen]);
 
   useEffect(() => {
+    if (!root) setOpenFileSpotlightOpen(false);
+    void setOpenFileMenuEnabled(root !== null).catch(notifyError);
+  }, [root, notifyError]);
+
+  useEffect(() => {
     const hasRecent = recentRoots.some((repository) => repository !== repoRoot);
     void setRepositoryMenuItemsEnabled(hasRecent, projectSession.hasMultipleProjects).catch(
       notifyError,
@@ -656,6 +669,18 @@ function App() {
     <MantineProvider defaultColorScheme="auto">
       <Notifications position="bottom-right" />
       <div className="app">
+        {openFileSpotlightOpen && root && (
+          <OpenFileSpotlight
+            root={root}
+            groups={files.groups}
+            config={config}
+            onClose={() => setOpenFileSpotlightOpen(false)}
+            onOpen={(file) => {
+              setOpenFileSpotlightOpen(false);
+              openFile(file);
+            }}
+          />
+        )}
         {recentProjectsSpotlightOpen && (
           <RecentProjectsSpotlight
             roots={recentRoots}

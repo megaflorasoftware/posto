@@ -13,6 +13,7 @@ export * from "./components/ImageLibraryBrowser";
 export * from "./components/RichTextImagePickerDialog";
 export * from "./components/ImageLibraryDropImport";
 export * from "./components/FileList";
+export * from "./components/OpenFileSpotlight";
 export * from "./newFile";
 export * from "./dataEntries";
 export * from "./components/PublishModal";
