@@ -3152,7 +3152,7 @@ dependencies = [
 
 [[package]]
 name = "posto"
-version = "0.8.6"
+version = "0.9.0"
 dependencies = [
  "android-native-keyring-store",
  "apple-native-keyring-store",
