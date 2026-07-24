@@ -1298,14 +1298,6 @@ button.picker-card:focus-visible .picker-card-preview,
   object-fit: contain;
 }
 
-.image-edit-rotate-action {
-  position: absolute;
-  z-index: 2;
-  top: 0.5rem;
-  right: 0.5rem;
-  box-shadow: var(--mantine-shadow-sm);
-}
-
 .image-library-import-pager-btn {
   position: absolute;
   top: 50%;

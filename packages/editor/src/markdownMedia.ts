@@ -44,13 +44,6 @@ export function markdownMediaKind(path: string): MarkdownMediaKind {
   return "link";
 }
 
-const ROTATABLE_IMAGE_EXTENSIONS = new Set(["jpeg", "jpg", "png", "tif", "tiff", "webp"]);
-
-/** Native formats that can be safely decoded and re-encoded for in-place rotation. */
-export function canRotateMediaImage(path: string): boolean {
-  return ROTATABLE_IMAGE_EXTENSIONS.has(extension(path));
-}
-
 function encodePathSegment(segment: string): string {
   return encodeURIComponent(segment).replace(
     /[!'()*]/g,

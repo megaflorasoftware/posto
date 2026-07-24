@@ -859,45 +859,6 @@ pub fn rename_media_file(
         .map_err(|error| format!("Failed to rename media file: {error}"))
 }
 
-/// Normalizes embedded orientation and rotates a managed raster image 90° clockwise.
-#[tauri::command]
-pub fn rotate_media_image(media_root: String, image_path: String) -> Result<(), String> {
-    let canonical_root = canonical_root(&media_root)?;
-    let image_path = managed_target(Path::new(&media_root), &image_path, false)?;
-    let canonical_image = std::fs::canonicalize(&image_path)
-        .map_err(|error| format!("Invalid media image: {error}"))?;
-    if !canonical_image.starts_with(&canonical_root) || !canonical_image.is_file() {
-        return Err("Invalid media image".to_string());
-    }
-
-    let permissions = canonical_image
-        .metadata()
-        .map_err(|error| format!("Could not inspect image: {error}"))?
-        .permissions();
-    let (image, format) = decode_oriented_image(&canonical_image)?;
-    let staged = transaction_temp(&canonical_image, "rotate")?;
-    let backup = transaction_temp(&canonical_image, "rotate-backup")?;
-    if staged.exists() || backup.exists() {
-        return Err("A previous image rotation is still pending".to_string());
-    }
-    if let Err(error) = image.rotate90().save_with_format(&staged, format) {
-        let _ = std::fs::remove_file(&staged);
-        return Err(format!("Could not rotate image: {error}"));
-    }
-    let _ = std::fs::set_permissions(&staged, permissions);
-    if let Err(error) = std::fs::rename(&canonical_image, &backup) {
-        let _ = std::fs::remove_file(&staged);
-        return Err(format!("Could not stage image rotation: {error}"));
-    }
-    if let Err(error) = std::fs::rename(&staged, &canonical_image) {
-        let _ = std::fs::rename(&backup, &canonical_image);
-        let _ = std::fs::remove_file(&staged);
-        return Err(format!("Could not finish image rotation: {error}"));
-    }
-    let _ = std::fs::remove_file(&backup);
-    Ok(())
-}
-
 /// Moves one file into an existing directory below the same file-based media root.
 #[tauri::command]
 pub fn move_media_file(
@@ -1428,26 +1389,29 @@ mod tests {
     }
 
     #[test]
-    fn media_images_rotate_clockwise_in_place() {
-        let root = tempfile::tempdir().unwrap();
-        let source = root.path().join("portrait.png");
-        let mut pixels = image::RgbaImage::new(2, 3);
-        pixels.put_pixel(0, 0, image::Rgba([255, 0, 0, 255]));
-        pixels.put_pixel(1, 0, image::Rgba([0, 255, 0, 255]));
-        pixels.put_pixel(0, 2, image::Rgba([0, 0, 255, 255]));
-        pixels.save(&source).unwrap();
+    fn image_thumbnails_apply_exif_orientation_for_import_previews() {
+        let source_dir = tempfile::tempdir().unwrap();
+        let cache_dir = tempfile::tempdir().unwrap();
+        let source = source_dir.path().join("portrait.jpg");
+        image::RgbImage::from_pixel(2, 3, image::Rgb([25, 100, 200]))
+            .save(&source)
+            .unwrap();
 
-        rotate_media_image(
-            root.path().to_string_lossy().to_string(),
-            source.to_string_lossy().to_string(),
-        )
-        .unwrap();
+        // EXIF orientation 6 means the stored pixels should display 90° clockwise.
+        let exif_orientation_6: [u8; 36] = [
+            0xff, 0xe1, 0x00, 0x22, b'E', b'x', b'i', b'f', 0x00, 0x00, b'I', b'I', 0x2a, 0x00,
+            0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00,
+            0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
+        let encoded = std::fs::read(&source).unwrap();
+        let mut oriented = Vec::with_capacity(encoded.len() + exif_orientation_6.len());
+        oriented.extend_from_slice(&encoded[..2]);
+        oriented.extend_from_slice(&exif_orientation_6);
+        oriented.extend_from_slice(&encoded[2..]);
+        std::fs::write(&source, oriented).unwrap();
 
-        let rotated = image::open(&source).unwrap().to_rgba8();
-        assert_eq!(rotated.dimensions(), (3, 2));
-        assert_eq!(rotated.get_pixel(2, 0), &image::Rgba([255, 0, 0, 255]));
-        assert_eq!(rotated.get_pixel(2, 1), &image::Rgba([0, 255, 0, 255]));
-        assert_eq!(rotated.get_pixel(0, 0), &image::Rgba([0, 0, 255, 255]));
+        let preview = cached_image_thumbnail(cache_dir.path(), &source, 3, 3).unwrap();
+        assert_eq!(image::image_dimensions(preview).unwrap(), (3, 2));
     }
 
     #[test]

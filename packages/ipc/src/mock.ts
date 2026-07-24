@@ -622,14 +622,6 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       mockDeleted.delete(target);
       return null;
     }
-    case "rotate_media_image": {
-      const mediaRoot = args?.mediaRoot as string;
-      const path = args?.imagePath as string;
-      if (!path.startsWith(`${mediaRoot}/`) || !(path in mockFiles)) {
-        throw new Error("Media image is outside its root or does not exist");
-      }
-      return null;
-    }
     case "move_media_file": {
       const mediaRoot = args?.mediaRoot as string;
       const path = args?.filePath as string;
