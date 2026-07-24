@@ -10,6 +10,7 @@ import { projectAdapter } from "@posto/core/project/registry";
 import {
   decideWorkspace,
   scanWorkspace,
+  workspaceProjects,
   type ProjectInventory,
   type WorkspaceDecision,
   type WorkspaceScan,
@@ -21,6 +22,7 @@ export function useProjectSession(services: {
   getRememberedWorkDir: (root: string) => Promise<string | null>;
 }) {
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
+  const [projectCount, setProjectCount] = useState(0);
   const adapter = useMemo(() => projectAdapter(projectInfo?.type ?? "generic"), [projectInfo]);
 
   async function inspect(dir: string): Promise<ProjectInfo> {
@@ -47,13 +49,18 @@ export function useProjectSession(services: {
   }
 
   async function scanRepository(root: string): Promise<WorkspaceScan> {
-    return scanWorkspace(root, await services.scanProjects(root));
+    const scan = await scanWorkspace(root, await services.scanProjects(root));
+    setProjectCount(workspaceProjects(root, scan).length);
+    return scan;
   }
 
   async function resolveRepository(root: string): Promise<WorkspaceDecision> {
+    const scan = await scanRepository(root);
+    const decision = decideWorkspace(root, scan);
+    if (decision.kind === "choose") return decision;
     const remembered = await services.getRememberedWorkDir(root);
     if (remembered) return { kind: "open", workDir: remembered, automatic: true };
-    return decideWorkspace(root, await scanRepository(root));
+    return decision;
   }
 
   function invalidations(root: string, paths: string[], config?: PagesConfig | null) {
@@ -62,6 +69,7 @@ export function useProjectSession(services: {
 
   return {
     projectInfo,
+    hasMultipleProjects: projectCount > 1,
     adapter,
     inspect,
     prepare,

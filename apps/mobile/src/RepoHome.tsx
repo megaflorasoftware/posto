@@ -47,7 +47,11 @@ import {
 } from "@posto/core/pagescms/config";
 import { parseFile } from "@posto/core/pagescms/frontmatter";
 import type { ProjectAdapter } from "@posto/core/project/adapter";
-import { type ProjectCandidate, type ProjectInventory } from "@posto/core/project/workspace";
+import {
+  type ProjectCandidate,
+  type ProjectInventory,
+  workspaceProjects,
+} from "@posto/core/project/workspace";
 import { invoke } from "@posto/ipc";
 import type { ChangedFile, FileEntry, FileGroup, GitHubRepo } from "@posto/ipc";
 import {
@@ -157,7 +161,7 @@ export default function RepoHome({
     try {
       const scan = await projectSession.scanRepository(repoRoot);
       if (generation !== selectionGenerationRef.current) return;
-      const candidates = [{ dir: repoRoot, ...scan.root }, ...scan.candidates];
+      const candidates = workspaceProjects(repoRoot, scan);
       if (!(await ipcProjectIO.pathExists(dir, "directory"))) {
         currentFile.clearPendingSave();
         currentFile.closeFile();
@@ -304,7 +308,7 @@ export default function RepoHome({
     try {
       const scan = await projectSession.scanRepository(repoRoot);
       setWorkspaceChooserFromSettings(true);
-      setWorkspaceCandidates([{ dir: repoRoot, ...scan.root }, ...scan.candidates]);
+      setWorkspaceCandidates(workspaceProjects(repoRoot, scan));
       setShowSettings(false);
     } catch (workspaceError) {
       setError(`Could not inspect project: ${message(workspaceError)}`);
@@ -613,9 +617,6 @@ export default function RepoHome({
     <>
       <RepoHeader
         repoName={repo?.name ?? "Repository"}
-        repoRoot={repoRoot}
-        root={root}
-        projectInfo={projectInfo}
         showEditor={showEditor}
         showSettings={showSettings}
         showDeployments={showDeployments}
@@ -707,6 +708,7 @@ export default function RepoHome({
           mediaEnabled={adapter.capabilities.mediaLibraries}
           mediaLibraryCount={config?.mediaLibraries?.length ?? 0}
           projectDirectory={root === repoRoot ? "Repository root" : root.slice(repoRoot.length + 1)}
+          canSwitchProject={projectSession.hasMultipleProjects}
           removing={removingRepo}
           confirmingRemove={confirmingRemoveRepo}
           onOpenDeployments={() => setShowDeployments(true)}

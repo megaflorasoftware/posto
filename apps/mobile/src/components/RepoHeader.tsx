@@ -1,13 +1,9 @@
 import { ActionIcon, Button, Group, Tabs, Text } from "@mantine/core";
 import { ChevronLeft, Menu, Trash2 } from "lucide-react";
-import type { ProjectInfo } from "@posto/core/project/detect";
 import type { EditorTab } from "@posto/editor";
 
 export function RepoHeader(props: {
   repoName: string;
-  repoRoot: string;
-  root: string;
-  projectInfo: ProjectInfo | null;
   showEditor: boolean;
   showSettings: boolean;
   showDeployments: boolean;
@@ -39,22 +35,9 @@ export function RepoHeader(props: {
           <ChevronLeft size={22} />
         </ActionIcon>
         {!props.showEditor && (
-          <Group gap="xs" wrap="nowrap">
-            <Text fw={600} size="sm" truncate>
-              {title}
-            </Text>
-            {!props.showDeployments &&
-              !props.showMedia &&
-              !props.showSettings &&
-              props.projectInfo && (
-                <Text size="xs" c="dimmed">
-                  {props.root !== props.repoRoot
-                    ? `${props.root.slice(props.repoRoot.length + 1)} · `
-                    : ""}
-                  <span style={{ textTransform: "capitalize" }}>{props.projectInfo.type}</span>
-                </Text>
-              )}
-          </Group>
+          <Text fw={600} size="sm" truncate>
+            {title}
+          </Text>
         )}
       </Group>
       {props.showEditor && (

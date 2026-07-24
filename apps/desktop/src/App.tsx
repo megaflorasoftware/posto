@@ -10,6 +10,7 @@ import {
   type ProjectCandidate,
   type ProjectInventory,
   workspaceLayoutChanged,
+  workspaceProjects,
 } from "@posto/core/project/workspace";
 import {
   EditorPane,
@@ -278,7 +279,7 @@ function App() {
     if (!repoRoot) return;
     try {
       const scan = await projectSession.scanRepository(repoRoot);
-      setWorkspaceCandidates([{ dir: repoRoot, ...scan.root }, ...scan.candidates]);
+      setWorkspaceCandidates(workspaceProjects(repoRoot, scan));
     } catch (error) {
       notify(
         `Could not inspect project: ${error instanceof Error ? error.message : String(error)}`,
@@ -289,7 +290,7 @@ function App() {
 
   async function browseWithinRepository() {
     if (!repoRoot) return;
-    const dir = await openDirectory();
+    const dir = await openDirectory(repoRoot);
     if (typeof dir !== "string") return;
     if (dir !== repoRoot && !dir.startsWith(`${repoRoot}/`)) {
       notify("Choose a folder inside the current repository.", "error");
@@ -566,7 +567,7 @@ function App() {
         <AppHeader
           root={root}
           repoRoot={repoRoot}
-          projectInfo={projectInfo}
+          canSwitchProject={projectSession.hasMultipleProjects}
           recentRoots={recentRoots}
           behindUpstream={git.behindUpstream}
           pulling={git.pulling}

@@ -18,6 +18,12 @@ export interface WorkspaceScan {
   hasWorkspaceManifest: boolean;
 }
 
+/** Directories available from the context the user opened. The opened root
+ * remains an explicit option even when it is only a generic container. */
+export function workspaceProjects(root: string, scan: WorkspaceScan): ProjectCandidate[] {
+  return [{ dir: root, ...scan.root }, ...scan.candidates];
+}
+
 const WORKSPACE_LAYOUT_FILES = [
   "package.json",
   "pnpm-workspace.yaml",
@@ -83,12 +89,8 @@ export type WorkspaceDecision =
   | { kind: "choose"; candidates: ProjectCandidate[] };
 
 export function decideWorkspace(root: string, scan: WorkspaceScan): WorkspaceDecision {
-  if (scan.root.type !== "generic") return { kind: "open", workDir: root, automatic: false };
-  if (scan.candidates.length === 1) {
-    return { kind: "open", workDir: scan.candidates[0].dir, automatic: true };
-  }
-  if (scan.candidates.length >= 2 || scan.hasWorkspaceManifest) {
-    return { kind: "choose", candidates: scan.candidates };
+  if (scan.candidates.length > 0) {
+    return { kind: "choose", candidates: workspaceProjects(root, scan) };
   }
   return { kind: "open", workDir: root, automatic: false };
 }

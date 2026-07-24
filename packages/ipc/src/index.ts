@@ -128,7 +128,7 @@ export interface ImageLibraryImportResult {
 
 type BrowserBackend = {
   invoke: typeof tauriInvoke;
-  openDirectory: () => Promise<string | null>;
+  openDirectory: (defaultPath?: string) => Promise<string | null>;
   openImageFile: () => Promise<string | null>;
   openImageFiles: () => Promise<string[]>;
   onCloneProgress: (handler: (progress: CloneProgress) => void) => () => void;
@@ -162,9 +162,9 @@ export function importImageLibraryAsset(
   return invoke("import_image_library_asset", { plan });
 }
 
-export const openDirectory: () => Promise<string | null> = inTauri
-  ? () => tauriOpen({ directory: true })
-  : () => requireBrowserBackend().openDirectory();
+export const openDirectory: (defaultPath?: string) => Promise<string | null> = inTauri
+  ? (defaultPath) => tauriOpen({ directory: true, defaultPath })
+  : (defaultPath) => requireBrowserBackend().openDirectory(defaultPath);
 
 const IMAGE_FILE_FILTERS = [
   {

@@ -58,10 +58,30 @@ test("shares bounded workspace decisions when no directory is remembered", async
     }),
   );
   expect(await result.current.resolveRepository("/repo")).toEqual({
-    kind: "open",
-    workDir: "/repo/apps/site",
-    automatic: true,
+    kind: "choose",
+    candidates: [
+      expect.objectContaining({ dir: "/repo", type: "generic" }),
+      expect.objectContaining({ dir: "/repo/apps/site", type: "astro" }),
+    ],
   });
+});
+
+test("a remembered project does not bypass the opened root picker", async () => {
+  const { result } = renderHook(() =>
+    useProjectSession({
+      io,
+      async scanProjects() {
+        return [
+          { dir: "/repo", markers: ["pnpm-workspace.yaml"] },
+          { dir: "/repo/apps/site", markers: ["astro.config.mjs"] },
+        ];
+      },
+      async getRememberedWorkDir() {
+        return "/repo/apps/site";
+      },
+    }),
+  );
+  expect((await result.current.resolveRepository("/repo")).kind).toBe("choose");
 });
 
 test("preparing an activation does not commit it before the caller accepts it", async () => {

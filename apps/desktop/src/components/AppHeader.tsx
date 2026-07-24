@@ -2,14 +2,13 @@ import { ActionIcon, Button, Menu, Tooltip } from "@mantine/core";
 import { ChevronDown, Image as ImageIcon } from "lucide-react";
 import { DeploymentControl } from "./DeploymentControl";
 import type { Deployment } from "../hooks/useDeployment";
-import type { ProjectInfo } from "@posto/core/project/detect";
 
 /** The top bar: site chooser with recents, a media browser shortcut,
  * deployment status, and the Publish / Fetch Changes action. */
 export function AppHeader(props: {
   root: string | null;
   repoRoot: string | null;
-  projectInfo: ProjectInfo | null;
+  canSwitchProject: boolean;
   recentRoots: string[];
   behindUpstream: boolean;
   pulling: boolean;
@@ -45,13 +44,13 @@ export function AppHeader(props: {
               variant="default"
               px={6}
               aria-label="Recent sites"
-              disabled={recentOptions.length === 0 && !props.repoRoot}
+              disabled={recentOptions.length === 0 && !props.canSwitchProject}
             >
               <ChevronDown size={14} />
             </Button>
           </Menu.Target>
           <Menu.Dropdown>
-            {props.repoRoot && (
+            {props.repoRoot && props.canSwitchProject && (
               <>
                 <Menu.Label>Current repository</Menu.Label>
                 <Menu.Item onClick={props.onSwitchProject}>Switch project…</Menu.Item>
@@ -66,17 +65,6 @@ export function AppHeader(props: {
           </Menu.Dropdown>
         </Menu>
       </Button.Group>
-      {props.projectInfo && (
-        <Tooltip
-          label={
-            props.projectInfo.diagnostic ||
-            props.projectInfo.signals.join(", ") ||
-            "No framework markers found"
-          }
-        >
-          <span className="project-type-badge">{props.projectInfo.type}</span>
-        </Tooltip>
-      )}
       <span className="navbar-spacer" />
       {props.root && <DeploymentControl deployment={props.deployment} />}
       {props.root && (

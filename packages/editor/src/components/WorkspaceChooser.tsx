@@ -21,33 +21,24 @@ export function WorkspaceChooser(props: {
           variant="default"
           h="auto"
           py="sm"
-          justify="space-between"
+          styles={{ label: { width: "100%" } }}
           onClick={() => props.onChoose(candidate)}
         >
-          <Stack gap={2} align="flex-start">
-            <Text size="sm">
-              {candidate.dir === props.repoRoot
-                ? "Repository root"
-                : candidate.dir.slice(props.repoRoot.length + 1)}
-            </Text>
-            <Text size="xs" c="dimmed">
-              {candidate.signals.join(", ") || "Schema configuration"}
-            </Text>
-          </Stack>
-          <Group gap={4}>
-            <Badge size="xs" variant="light">
-              {candidate.type}
-            </Badge>
-            {candidate.hasPagesYml && (
-              <Badge size="xs" variant="outline">
-                pages cms
-              </Badge>
-            )}
-            {candidate.hasPostoDir && (
-              <Badge size="xs" variant="outline">
-                posto
-              </Badge>
-            )}
+          <Group justify="space-between" wrap="nowrap" w="100%">
+            <Stack gap={2} align="flex-start" style={{ minWidth: 0 }}>
+              <Text size="sm">
+                {candidate.dir === props.repoRoot
+                  ? "Repository root"
+                  : candidate.dir.slice(props.repoRoot.length + 1)}
+              </Text>
+            </Stack>
+            <Group gap={4} wrap="nowrap">
+              {candidate.type !== "generic" && (
+                <Badge size="xs" variant="light">
+                  {candidate.type}
+                </Badge>
+              )}
+            </Group>
           </Group>
         </Button>
       ))}
@@ -57,7 +48,7 @@ export function WorkspaceChooser(props: {
         </Text>
       )}
       <Button variant="subtle" onClick={props.onBrowse}>
-        Browse for another folder
+        Browse inside this repository
       </Button>
     </Stack>
   );

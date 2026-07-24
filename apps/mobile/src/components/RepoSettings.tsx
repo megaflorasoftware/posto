@@ -6,6 +6,7 @@ export function RepoSettings(props: {
   mediaEnabled: boolean;
   mediaLibraryCount: number;
   projectDirectory: string;
+  canSwitchProject: boolean;
   removing: boolean;
   confirmingRemove: boolean;
   onOpenDeployments: () => void;
@@ -61,21 +62,23 @@ export function RepoSettings(props: {
             </div>
           </div>
         )}
-        <button
-          type="button"
-          className="mobile-settings-row mobile-settings-link"
-          onClick={props.onOpenProjects}
-        >
-          <div>
-            <Text fw={600} size="sm">
-              Project directory
-            </Text>
-            <Text c="dimmed" size="xs">
-              {props.projectDirectory}
-            </Text>
-          </div>
-          <ChevronRight size={18} />
-        </button>
+        {props.canSwitchProject && (
+          <button
+            type="button"
+            className="mobile-settings-row mobile-settings-link"
+            onClick={props.onOpenProjects}
+          >
+            <div>
+              <Text fw={600} size="sm">
+                Switch project…
+              </Text>
+              <Text c="dimmed" size="xs">
+                {props.projectDirectory}
+              </Text>
+            </div>
+            <ChevronRight size={18} />
+          </button>
+        )}
       </Stack>
       <div className="mobile-settings-danger">
         <Text c="dimmed" size="xs">
