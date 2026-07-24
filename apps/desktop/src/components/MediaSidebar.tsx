@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button, Select, Text } from "@mantine/core";
-import { Upload } from "lucide-react";
+import { FolderPlus, Upload } from "lucide-react";
 import type { MediaLibrary, PagesConfig } from "@posto/core/pagescms/config";
 import {
   CreateImageLibraryFolderDialog,
@@ -72,16 +72,10 @@ function MediaBrowserContent(props: {
             directories={state.directories}
             assets={state.assets}
             onDirectoryChange={setCurrentDirectory}
-            onCreateFolder={() => setCreatingFolder(true)}
             onEdit={setEditing}
             selectionMode={selectionMode}
             selectedAssetIds={selected}
             selectedDirectoryPaths={selectedDirectories}
-            onStartSelection={() => {
-              setSelected(new Set());
-              setSelectedDirectories(new Set());
-              setSelectionMode((current) => !current);
-            }}
             onToggleSelection={(asset) =>
               setSelected((current) => {
                 const next = new Set(current);
@@ -126,9 +120,32 @@ function MediaBrowserContent(props: {
             </Button>
           </div>
         ) : (
-          <Button fullWidth leftSection={<Upload size={16} />} onClick={() => setImporting(true)}>
-            Import images
-          </Button>
+          <div className="media-primary-actions">
+            <div className="media-secondary-actions">
+              <Button
+                fullWidth
+                variant={selectionMode ? "light" : "default"}
+                onClick={() => {
+                  setSelected(new Set());
+                  setSelectedDirectories(new Set());
+                  setSelectionMode((current) => !current);
+                }}
+              >
+                Select
+              </Button>
+              <Button
+                fullWidth
+                variant="default"
+                leftSection={<FolderPlus size={16} />}
+                onClick={() => setCreatingFolder(true)}
+              >
+                New folder
+              </Button>
+            </div>
+            <Button fullWidth leftSection={<Upload size={16} />} onClick={() => setImporting(true)}>
+              Import images
+            </Button>
+          </div>
         )}
       </div>
       {creatingFolder && (

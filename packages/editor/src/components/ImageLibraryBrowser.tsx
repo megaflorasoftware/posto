@@ -1,5 +1,4 @@
-import { Folder, FolderPlus, FolderUp, Pencil } from "lucide-react";
-import { ActionIcon, Button, Group, Tooltip } from "@mantine/core";
+import { Folder, FolderUp, Pencil } from "lucide-react";
 import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
 import { CachedImage } from "./CachedImage";
 
@@ -42,12 +41,10 @@ export function ImageLibraryBrowser(props: {
   assets: ImageLibraryAsset[];
   onDirectoryChange: (directory: string) => void;
   onPick?: (asset: ImageLibraryAsset) => void;
-  onCreateFolder?: () => void;
   onEdit?: (asset: ImageLibraryAsset) => void;
   selectionMode?: boolean;
   selectedAssetIds?: Set<string>;
   selectedDirectoryPaths?: Set<string>;
-  onStartSelection?: () => void;
   onToggleSelection?: (asset: ImageLibraryAsset) => void;
   onToggleDirectorySelection?: (directory: string) => void;
 }) {
@@ -66,32 +63,7 @@ export function ImageLibraryBrowser(props: {
 
   return (
     <>
-      <div className="image-library-browser-header">
-        <div className="image-library-browser-path">/{props.currentDirectory}</div>
-        <Group gap={4} wrap="nowrap">
-          {props.onStartSelection && (
-            <Button
-              variant={props.selectionMode ? "light" : "subtle"}
-              size="compact-xs"
-              onClick={props.onStartSelection}
-            >
-              Select
-            </Button>
-          )}
-          {props.onCreateFolder && (
-            <Tooltip label="New folder">
-              <ActionIcon
-                variant="subtle"
-                size="sm"
-                aria-label="New folder"
-                onClick={props.onCreateFolder}
-              >
-                <FolderPlus size={17} />
-              </ActionIcon>
-            </Tooltip>
-          )}
-        </Group>
-      </div>
+      <div className="image-library-browser-path">/{props.currentDirectory}</div>
       {empty ? (
         <div className="picker-empty">No image entries or directories here.</div>
       ) : (
@@ -190,7 +162,7 @@ export function ImageLibraryBrowser(props: {
                   )}
                 </span>
                 <span className="picker-item-name">{asset.entryId.split("/").pop()}</span>
-                <span className="picker-item-path">{valid ? alt : asset.health.join(", ")}</span>
+                {!valid && <span className="picker-item-path">{asset.health.join(", ")}</span>}
               </>
             );
             return props.selectionMode ? (

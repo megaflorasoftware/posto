@@ -704,15 +704,6 @@
   overflow-y: auto;
 }
 
-.image-library-browser-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  min-height: 1.75rem;
-  margin-bottom: 0.5rem;
-}
-
 .image-library-browser-path {
   min-width: 0;
   overflow: hidden;
@@ -721,6 +712,7 @@
   color: var(--mantine-color-dimmed);
   font-family: var(--mantine-font-family-monospace);
   font-size: var(--mantine-font-size-xs);
+  margin-bottom: 0.5rem;
 }
 
 .image-library-list {
@@ -863,6 +855,18 @@
 .media-selection-actions {
   display: flex;
   flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+
+.media-primary-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+
+.media-secondary-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--mantine-spacing-xs);
 }
 
