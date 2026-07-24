@@ -27,10 +27,19 @@ export function useProjectSession(services: {
     return detectProject(dir, services.io);
   }
 
-  async function activate(dir: string): Promise<{ info: ProjectInfo; adapter: ProjectAdapter }> {
+  async function prepare(dir: string): Promise<{ info: ProjectInfo; adapter: ProjectAdapter }> {
     const info = await inspect(dir);
-    setProjectInfo(info);
     return { info, adapter: projectAdapter(info.type) };
+  }
+
+  function commit(activation: { info: ProjectInfo }) {
+    setProjectInfo(activation.info);
+  }
+
+  async function activate(dir: string): Promise<{ info: ProjectInfo; adapter: ProjectAdapter }> {
+    const activation = await prepare(dir);
+    commit(activation);
+    return activation;
   }
 
   function clear() {
@@ -55,6 +64,8 @@ export function useProjectSession(services: {
     projectInfo,
     adapter,
     inspect,
+    prepare,
+    commit,
     activate,
     setProjectInfo,
     clear,

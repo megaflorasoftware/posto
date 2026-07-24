@@ -65,7 +65,7 @@ import { MediaLibraryPane } from "./MediaLibraryPane";
 import { RepoHeader } from "./components/RepoHeader";
 import { RepoSettings } from "./components/RepoSettings";
 import { usePullRefresh } from "./hooks/usePullRefresh";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const TRANSIENT_NOTICE_MS = 5_000;
 
@@ -93,6 +93,7 @@ export default function RepoHome({
   const [workspaceChooserFromSettings, setWorkspaceChooserFromSettings] = useState(false);
   const [browsingWorkspace, setBrowsingWorkspace] = useState(false);
   const [loading, setLoading] = useState(true);
+  const selectionGenerationRef = useRef(0);
   const projectSession = useProjectSession({
     io: ipcProjectIO,
     scanProjects: (repository) => invoke<ProjectInventory[]>("scan_projects", { root: repository }),
@@ -139,9 +140,12 @@ export default function RepoHome({
     );
   }
 
-  async function redetectProject(dir: string) {
+  async function redetectProject(dir: string, generation = selectionGenerationRef.current) {
     try {
-      const { adapter: selectedAdapter } = await projectSession.activate(dir);
+      const activation = await projectSession.prepare(dir);
+      if (generation !== selectionGenerationRef.current) return;
+      projectSession.commit(activation);
+      const selectedAdapter = activation.adapter;
       await refreshRepositoryContent(dir, selectedAdapter);
     } catch (detectionError) {
       setError(`Could not inspect project: ${message(detectionError)}`);
@@ -149,8 +153,10 @@ export default function RepoHome({
   }
 
   async function refreshAfterPull(dir: string) {
+    const generation = selectionGenerationRef.current;
     try {
       const scan = await projectSession.scanRepository(repoRoot);
+      if (generation !== selectionGenerationRef.current) return;
       const candidates = [{ dir: repoRoot, ...scan.root }, ...scan.candidates];
       if (!(await ipcProjectIO.pathExists(dir, "directory"))) {
         currentFile.clearPendingSave();
@@ -163,7 +169,8 @@ export default function RepoHome({
         return;
       }
       setWorkspaceCandidates((current) => (current ? candidates : current));
-      await redetectProject(dir);
+      await redetectProject(dir, generation);
+      if (generation !== selectionGenerationRef.current) return;
       setSiteUrlVersion((version) => version + 1);
     } catch (refreshError) {
       setError(`Could not refresh workspace: ${message(refreshError)}`);
@@ -225,6 +232,7 @@ export default function RepoHome({
   });
 
   useEffect(() => {
+    const generation = ++selectionGenerationRef.current;
     let active = true;
     setLoading(true);
     setError(null);
@@ -241,6 +249,7 @@ export default function RepoHome({
       }
       try {
         const decision = await projectSession.resolveRepository(repoRoot);
+        if (!active || generation !== selectionGenerationRef.current) return;
         if (decision.kind === "choose") {
           if (active) {
             setWorkspaceChooserFromSettings(false);
@@ -249,8 +258,10 @@ export default function RepoHome({
           return;
         }
         const selectedRoot = decision.workDir;
-        const { adapter: selectedAdapter } = await projectSession.activate(selectedRoot);
-        if (active) {
+        const activation = await projectSession.prepare(selectedRoot);
+        if (active && generation === selectionGenerationRef.current) {
+          projectSession.commit(activation);
+          const selectedAdapter = activation.adapter;
           setWorkDir(selectedRoot);
           await refreshRepositoryContent(selectedRoot, selectedAdapter);
           void git.refreshLocalChanges(selectedRoot);
@@ -269,15 +280,20 @@ export default function RepoHome({
   }, [repoRoot]);
 
   async function chooseWorkspace(candidate: Pick<ProjectCandidate, "dir"> | null) {
+    const generation = ++selectionGenerationRef.current;
     try {
       const selectedRoot = candidate?.dir ?? repoRoot;
-      const { adapter: selectedAdapter } = await projectSession.activate(selectedRoot);
+      const activation = await projectSession.prepare(selectedRoot);
+      if (generation !== selectionGenerationRef.current) return;
+      projectSession.commit(activation);
+      const selectedAdapter = activation.adapter;
       setWorkDir(selectedRoot);
       setWorkspaceCandidates(null);
       setWorkspaceChooserFromSettings(false);
       setBrowsingWorkspace(false);
       void invoke("set_last_root", { root: repoRoot, workDir: selectedRoot });
       await refreshRepositoryContent(selectedRoot, selectedAdapter);
+      if (generation !== selectionGenerationRef.current) return;
       void git.refreshLocalChanges(selectedRoot);
     } catch (chooseError) {
       setError(`Could not inspect project: ${message(chooseError)}`);

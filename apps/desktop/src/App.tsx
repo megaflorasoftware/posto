@@ -6,7 +6,6 @@ import { checkForAppUpdate } from "./updater";
 import type { ChangedFile, FileEntry, FileGroup } from "@posto/ipc";
 import { EMPTY_CONFIG, matchEntry, renamedFilename } from "@posto/core/pagescms/config";
 import { parseFile } from "@posto/core/pagescms/frontmatter";
-import type { ProjectAdapter } from "@posto/core/project/adapter";
 import {
   type ProjectCandidate,
   type ProjectInventory,
@@ -72,6 +71,7 @@ function App() {
   // Latest values for callbacks that outlive the render they were created in.
   const rootRef = useRef(root);
   rootRef.current = root;
+  const selectionGenerationRef = useRef(0);
 
   const schemas = useSchemas(adapter, ipcProjectIO);
   const notify = useCallback((message: string, severity: "progress" | "success" | "error") => {
@@ -176,17 +176,22 @@ function App() {
     await files.refreshDataGroups(dir, schemas.configRef.current);
   }
 
-  async function selectRoot(repository: string, dir: string) {
-    let selectedAdapter: ProjectAdapter;
+  async function selectRoot(repository: string, dir: string, requestedGeneration?: number) {
+    const generation = requestedGeneration ?? ++selectionGenerationRef.current;
+    let activation;
     try {
-      ({ adapter: selectedAdapter } = await projectSession.activate(dir));
+      activation = await projectSession.prepare(dir);
     } catch (error) {
+      if (generation !== selectionGenerationRef.current) return;
       notify(
         `Could not inspect project: ${error instanceof Error ? error.message : String(error)}`,
         "error",
       );
       return;
     }
+    if (generation !== selectionGenerationRef.current) return;
+    projectSession.commit(activation);
+    const selectedAdapter = activation.adapter;
     void currentFile.flushPendingSave();
     setRoot(dir);
     setRepoRoot(repository);
@@ -194,7 +199,9 @@ function App() {
     currentFile.closeFile();
     preview.resetRoute();
     await schemas.loadSchemas(dir, selectedAdapter);
+    if (generation !== selectionGenerationRef.current) return;
     await refreshGroups(dir);
+    if (generation !== selectionGenerationRef.current) return;
     void devServer.startServer(dir);
     void invoke("set_last_root", { root: repository, workDir: dir }).then(() =>
       refreshRecentRoots(),
@@ -214,8 +221,10 @@ function App() {
   }
 
   async function selectRepository(repository: string) {
+    const generation = ++selectionGenerationRef.current;
     try {
       const decision = await projectSession.resolveRepository(repository);
+      if (generation !== selectionGenerationRef.current) return;
       if (decision.kind === "choose") {
         setRepoRoot(repository);
         setRoot(null);
@@ -223,8 +232,9 @@ function App() {
         setWorkspaceCandidates(decision.candidates);
         return;
       }
-      await selectRoot(repository, decision.workDir);
+      await selectRoot(repository, decision.workDir, generation);
     } catch (error) {
+      if (generation !== selectionGenerationRef.current) return;
       notify(
         `Could not inspect project: ${error instanceof Error ? error.message : String(error)}`,
         "error",

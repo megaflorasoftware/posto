@@ -63,3 +63,22 @@ test("shares bounded workspace decisions when no directory is remembered", async
     automatic: true,
   });
 });
+
+test("preparing an activation does not commit it before the caller accepts it", async () => {
+  const { result } = renderHook(() =>
+    useProjectSession({
+      io,
+      async scanProjects() {
+        return [];
+      },
+      async getRememberedWorkDir() {
+        return null;
+      },
+    }),
+  );
+
+  const activation = await result.current.prepare("/repo/apps/site");
+  expect(result.current.projectInfo).toBeNull();
+  act(() => result.current.commit(activation));
+  expect(result.current.projectInfo?.type).toBe("astro");
+});
