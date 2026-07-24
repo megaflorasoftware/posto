@@ -160,12 +160,7 @@ function App() {
     onStatus: notify,
     onPublishError: notifyError,
     beforeSync: () => currentFile.flushPendingSave(),
-    afterPull(dir) {
-      // The fs watcher also reacts to git's writes, but refresh explicitly so
-      // the sidebar and open file update even when watching hiccups.
-      void refreshGroups(dir);
-      void currentFile.reloadFromDisk();
-    },
+    afterPull: refreshAfterPull,
   });
 
   // Every event that can change git status also refreshes the sidebar, so
@@ -174,6 +169,43 @@ function App() {
     void git.refreshLocalChanges(dir);
     await files.refreshGroups(dir);
     await files.refreshDataGroups(dir, schemas.configRef.current);
+  }
+
+  async function recoverMissingWorkDir(repository: string, dir: string): Promise<boolean> {
+    if (await ipcProjectIO.pathExists(dir, "directory")) return false;
+    const scan = await projectSession.scanRepository(repository);
+    ++selectionGenerationRef.current;
+    currentFile.clearPendingSave();
+    currentFile.closeFile();
+    projectSession.clear();
+    setRoot(null);
+    setRepoRoot(repository);
+    setWorkspaceCandidates([{ dir: repository, ...scan.root }, ...scan.candidates]);
+    preview.resetRoute();
+    void invoke("stop_dev_server");
+    notify(
+      "The selected project directory moved or was removed. Choose a project to continue.",
+      "error",
+    );
+    return true;
+  }
+
+  async function refreshAfterPull(dir: string) {
+    const repository = repoRoot ?? dir;
+    try {
+      if (await recoverMissingWorkDir(repository, dir)) return;
+      const scan = await projectSession.scanRepository(repository);
+      setWorkspaceCandidates((current) =>
+        current ? [{ dir: repository, ...scan.root }, ...scan.candidates] : current,
+      );
+      await refreshGroups(dir);
+      await currentFile.reloadFromDisk();
+    } catch (error) {
+      notify(
+        `Could not refresh workspace: ${error instanceof Error ? error.message : String(error)}`,
+        "error",
+      );
+    }
   }
 
   async function selectRoot(repository: string, dir: string, requestedGeneration?: number) {
@@ -389,15 +421,12 @@ function App() {
   async function invalidateAdapterPaths(paths: string[]) {
     const dir = rootRef.current;
     if (!dir) return;
+    if (repoRoot && (await recoverMissingWorkDir(repoRoot, dir))) return;
     if (repoRoot && workspaceLayoutChanged(repoRoot, dir, paths)) {
       const scan = await projectSession.scanRepository(repoRoot);
       setWorkspaceCandidates((current) =>
         current ? [{ dir: repoRoot, ...scan.root }, ...scan.candidates] : current,
       );
-      if (!(await ipcProjectIO.pathExists(dir, "directory"))) {
-        setWorkspaceCandidates([{ dir: repoRoot, ...scan.root }, ...scan.candidates]);
-        return;
-      }
     }
     const scopes = projectSession.invalidations(dir, paths, schemas.configRef.current);
     if (scopes.has("projectType")) {
