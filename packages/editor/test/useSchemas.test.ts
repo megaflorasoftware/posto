@@ -131,3 +131,76 @@ test("an obsolete project load cannot overwrite the active schemas", async () =>
   });
   expect(result.current.config.content.map((entry) => entry.name)).toEqual(["second"]);
 });
+
+test("a same-project parse failure preserves the last good schemas", async () => {
+  let pages = "content:\n  - name: posts\n    path: posts\n    type: collection\n    fields: []\n";
+  const io = projectIO({
+    read(path) {
+      return path.endsWith("/.pages.yml") ? pages : null;
+    },
+  });
+  const { result } = renderHook(() => useSchemas(genericAdapter, io));
+
+  await act(async () => {
+    await result.current.loadSchemas("/site", genericAdapter);
+  });
+  pages = "content: [";
+  await act(async () => {
+    await result.current.loadSchemas("/site", genericAdapter);
+  });
+
+  expect(result.current.config.content.map((entry) => entry.name)).toEqual(["posts"]);
+  expect(result.current.configError).not.toBeNull();
+});
+
+test("a different project cannot inherit last-good schemas", async () => {
+  const io = projectIO({
+    read(path) {
+      if (path === "/first/.pages.yml") {
+        return "content:\n  - name: first\n    path: posts\n    type: collection\n    fields: []\n";
+      }
+      if (path === "/second/.pages.yml") return "content: [";
+      return null;
+    },
+  });
+  const { result } = renderHook(() => useSchemas(genericAdapter, io));
+
+  await act(async () => {
+    await result.current.loadSchemas("/first", genericAdapter);
+    await result.current.loadSchemas("/second", genericAdapter);
+  });
+
+  expect(result.current.config.content).toEqual([]);
+  expect(result.current.configError).not.toBeNull();
+});
+
+test("changing adapters clears obsolete derived schemas", async () => {
+  const derivedAdapter = {
+    ...genericAdapter,
+    type: "astro" as const,
+    async loadDerivedConfig() {
+      return {
+        config: {
+          media: [],
+          content: [
+            {
+              name: "astro-posts",
+              path: "src/content/posts",
+              type: "collection" as const,
+              fields: [],
+            },
+          ],
+        },
+        diagnostics: [],
+      };
+    },
+  };
+  const { result } = renderHook(() => useSchemas(genericAdapter, projectIO({})));
+
+  await act(async () => {
+    await result.current.loadSchemas("/site", derivedAdapter);
+    await result.current.loadSchemas("/site", genericAdapter);
+  });
+
+  expect(result.current.config.content).toEqual([]);
+});

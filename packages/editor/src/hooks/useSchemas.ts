@@ -34,6 +34,7 @@ export function resolveEffectiveConfig(
 
 export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
   const generationRef = useRef(0);
+  const activeSourceRef = useRef<{ dir: string; adapterType: string } | null>(null);
   const adapterRef = useRef(adapter);
   adapterRef.current = adapter;
   const ioRef = useRef(io);
@@ -79,6 +80,7 @@ export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
     dir: string,
     generation = generationRef.current,
     commit = true,
+    fallback = pagesConfigRef.current,
   ): Promise<PagesConfig | null> {
     if (generation === generationRef.current) setSourceError("pages", null);
     let source: string | null;
@@ -88,7 +90,7 @@ export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
       if (generation === generationRef.current) {
         setSourceError("pages", e instanceof Error ? e.message : String(e));
       }
-      return pagesConfigRef.current;
+      return fallback;
     }
     if (source === null) {
       if (commit && generation === generationRef.current) commitPagesConfig(null);
@@ -102,7 +104,7 @@ export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
       if (generation === generationRef.current) {
         setSourceError("pages", e instanceof Error ? e.message : String(e));
       }
-      return pagesConfigRef.current;
+      return fallback;
     }
   }
 
@@ -115,6 +117,7 @@ export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
     dir: string,
     generation = generationRef.current,
     commit = true,
+    fallback = postoConfigRef.current,
   ): Promise<PostoConfig | null> {
     if (generation === generationRef.current) setSourceError("posto", null);
     const config: PostoConfig = { collections: {} };
@@ -125,7 +128,7 @@ export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
       if (generation === generationRef.current) {
         setSourceError("posto", e instanceof Error ? e.message : String(e));
       }
-      return postoConfigRef.current;
+      return fallback;
     }
     if (indexSource !== null) {
       config.collectionOrder = parsePostoIndex(indexSource).collectionOrder;
@@ -139,7 +142,7 @@ export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
       if (generation === generationRef.current) {
         setSourceError("posto", e instanceof Error ? e.message : String(e));
       }
-      return postoConfigRef.current;
+      return fallback;
     }
     for (const file of listed ?? []) {
       if (!file.name.endsWith(".json")) continue;
@@ -150,7 +153,7 @@ export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
         if (generation === generationRef.current) {
           setSourceError("posto", e instanceof Error ? e.message : String(e));
         }
-        return postoConfigRef.current;
+        return fallback;
       }
       if (source === null) continue;
       const settings = parsePostoCollection(source);
@@ -169,6 +172,7 @@ export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
     selectedAdapter: ProjectAdapter = adapterRef.current,
     generation = generationRef.current,
     commit = true,
+    fallback = derivedConfigRef.current,
   ): Promise<PagesConfig | null> {
     if (generation === generationRef.current) setSourceError("derived", null);
     try {
@@ -193,7 +197,7 @@ export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
       if (generation === generationRef.current) {
         setSourceError("derived", e instanceof Error ? e.message : String(e));
       }
-      return derivedConfigRef.current;
+      return fallback;
     }
   }
 
@@ -206,19 +210,27 @@ export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
     selectedAdapter: ProjectAdapter = adapterRef.current,
   ): Promise<PagesConfig> {
     const generation = ++generationRef.current;
-    commitPagesConfig(null);
-    commitDerivedConfig(null);
-    commitPostoConfig(null);
+    const sameSource =
+      activeSourceRef.current?.dir === dir &&
+      activeSourceRef.current.adapterType === selectedAdapter.type;
+    const baseline = sameSource
+      ? {
+          pages: pagesConfigRef.current,
+          derived: derivedConfigRef.current,
+          posto: postoConfigRef.current,
+        }
+      : { pages: null, derived: null, posto: null };
     setConfigErrors({});
     const [pages, derived, posto] = await Promise.all([
-      loadPagesConfig(dir, generation, false),
-      loadDerivedConfig(dir, selectedAdapter, generation, false),
-      loadPostoConfig(dir, generation, false),
+      loadPagesConfig(dir, generation, false, baseline.pages),
+      loadDerivedConfig(dir, selectedAdapter, generation, false, baseline.derived),
+      loadPostoConfig(dir, generation, false, baseline.posto),
     ]);
     if (generation !== generationRef.current) return configRef.current;
     commitPagesConfig(pages);
     commitDerivedConfig(derived);
     commitPostoConfig(posto);
+    activeSourceRef.current = { dir, adapterType: selectedAdapter.type };
     return resolveEffectiveConfig(pages, derived, posto, selectedAdapter.defaultMedia);
   }
 
