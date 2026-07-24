@@ -1,10 +1,10 @@
 ---
 title: Posto
-description: An editor for static, Markdown-based websites, with typed forms built from a site's own schema.
+description: Edit and publish static, Markdown-based websites through forms generated from each site's own schema.
 template: splash
 hero:
   title: Posto
-  tagline: An editor for static, Markdown-based websites — with typed forms built from a site's own schema.
+  tagline: Edit and publish static, Markdown-based websites through forms generated from each site's own schema.
   actions:
     - text: Download
       link: "#download"
@@ -21,17 +21,20 @@ import { Card, CardGrid } from "@astrojs/starlight/components";
 ## Key features
 
 <CardGrid>
-  <Card title="Editor and preview side by side" icon="laptop">
-    Edit content on one side and see the running site on the other. See [Editing a site](/features/editing-a-site/) and [Previewing a site](/features/previewing-a-site/).
+  <Card title="Content and preview side by side" icon="laptop">
+    Edit frontmatter and page content in one continuous workspace while the running site updates beside it. See [Editing a site](/features/editing-a-site/) and [Previewing a site](/features/previewing-a-site/).
   </Card>
   <Card title="Local environment setup" icon="setting">
-    The desktop app detects and installs Node, the package manager, and dependencies, then runs the site's dev server, so a non-programmer can get a site running the way a developer would.
+    The desktop app installs the required Node version, package manager, and dependencies, then starts the site's development server.
   </Card>
   <Card title="Native Astro support" icon="astro">
-    Rich-text `.mdx` editing with a site's own components, forms generated from [content collections](https://docs.astro.build/en/guides/content-collections/), and [media libraries](/frameworks/astro/media-libraries/) built from image collections. See [Typed collections](/frameworks/astro/typed-collections/).
+    Edit `.mdx` with the site's own components, generate forms from [content collections](https://docs.astro.build/en/guides/content-collections/), and manage image collections as [media libraries](/frameworks/astro/media-libraries/).
+  </Card>
+  <Card title="Media management" icon="seti:image">
+    Import, organize, and reuse public media or metadata-backed image libraries. Drag media into content and move it between folders without repairing references by hand. See [Managing site media](/features/managing-site-media/).
   </Card>
   <Card title="Publishing" icon="github">
-    Commit and push changes without running Git directly, and preview how a page appears in search results and when shared. See [Publishing a site](/features/publishing-a-site/).
+    Review, commit, and push changes without running Git directly. Then follow a GitHub Actions deployment from Posto. See [Publishing a site](/features/publishing-a-site/).
   </Card>
 </CardGrid>
 
@@ -39,13 +42,34 @@ import { Card, CardGrid } from "@astrojs/starlight/components";
 
 <CardGrid>
   <Card title="macOS" icon="apple">
-    - [Apple Silicon (.dmg)](https://github.com/megaflorasoftware/posto/releases/latest/download/Posto_aarch64.dmg) - [Intel (.dmg)](https://github.com/megaflorasoftware/posto/releases/latest/download/Posto_x64.dmg)
+    <ul>
+      <li>
+        <a href="https://github.com/megaflorasoftware/posto/releases/latest/download/Posto_aarch64.dmg">Apple Silicon (.dmg)</a>
+      </li>
+      <li>
+        <a href="https://github.com/megaflorasoftware/posto/releases/latest/download/Posto_x64.dmg">Intel (.dmg)</a>
+      </li>
+    </ul>
   </Card>
   <Card title="Windows" icon="seti:windows">
-    - [Installer (.exe)](https://github.com/megaflorasoftware/posto/releases/latest/download/Posto_x64-setup.exe) - [MSI (.msi)](https://github.com/megaflorasoftware/posto/releases/latest/download/Posto_x64_en-US.msi)
+    <ul>
+      <li>
+        <a href="https://github.com/megaflorasoftware/posto/releases/latest/download/Posto_x64-setup.exe">Installer (.exe)</a>
+      </li>
+      <li>
+        <a href="https://github.com/megaflorasoftware/posto/releases/latest/download/Posto_x64_en-US.msi">MSI (.msi)</a>
+      </li>
+    </ul>
   </Card>
   <Card title="Linux" icon="linux">
-    - [AppImage](https://github.com/megaflorasoftware/posto/releases/latest/download/Posto_amd64.AppImage) - [Debian/Ubuntu (.deb)](https://github.com/megaflorasoftware/posto/releases/latest/download/Posto_amd64.deb)
+    <ul>
+      <li>
+        <a href="https://github.com/megaflorasoftware/posto/releases/latest/download/Posto_amd64.AppImage">AppImage</a>
+      </li>
+      <li>
+        <a href="https://github.com/megaflorasoftware/posto/releases/latest/download/Posto_amd64.deb">Debian/Ubuntu (.deb)</a>
+      </li>
+    </ul>
   </Card>
   <Card title="Mobile" icon="phone">
     iOS and Android builds aren't distributed yet — download links will appear here when they are.

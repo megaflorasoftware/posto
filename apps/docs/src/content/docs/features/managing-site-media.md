@@ -1,23 +1,40 @@
 ---
 title: Managing site media
-description: The media pane, importing images, and reusable image metadata.
+description: Browse, import, organize, edit, and reuse public media and metadata-backed image libraries.
 ---
 
-Posto browses and imports images through a media pane, and can reuse image metadata across the site when the site is structured for it.
+The **Media** sidebar brings the site's media sources into one place. It always includes files under `public/` and adds a tab for each detected metadata-backed image library.
 
-## The media pane
+## Public media and image libraries
 
-The **Media** view lists the site's image libraries — their folders and the assets inside, shown as a grid of thumbnails. New images are added with the **Import** action. On the desktop app, an image can also be dragged onto the window to import it.
+Posto distinguishes between two kinds of media:
 
-Posto generates thumbnails for browsing and converts formats that browsers can't display (such as HEIC/HEIF) on import.
+- **Public media** includes images, audio, video, and other downloadable files under `public/`. Content stores the site's public URL, such as `/images/harbor.jpg`.
+- **Image libraries** pair each image with a YAML or JSON record containing reusable metadata such as alt text, caption, or credit. They are detected from supported Astro content collections.
 
-## Reusable image metadata
+Pages CMS media sources can point image fields at public directories or other repository folders, but they do not create paired-metadata image libraries. Files under `public/` also appear in the public-media workflow. See the setup guides for [Astro](/frameworks/astro/media-libraries/) and [Pages CMS](/frameworks/pages-cms/media-libraries/).
 
-When the site models images as a collection that pairs an image with metadata — alt text, caption, credit — Posto treats that collection as a **media library**. The metadata is entered once when the image is imported. When you then reference that image (in a frontmatter field or in the body), Posto selects it from the library, and its metadata is carried with it.
+## Importing media
 
-## Setting this up
+Use **Import files** on the **Public** tab to add public media. Use **Import images** in an image-library tab to choose images, their destination folder, and required metadata.
 
-What qualifies as a media library, and how to structure one, depends on the framework:
+On desktop, you can also drag image files from your computer:
 
-- [Astro — Media libraries](/frameworks/astro/media-libraries/)
-- [Pages CMS — Media libraries](/frameworks/pages-cms/media-libraries/)
+- Drop them onto an open media folder to import them there.
+- Drop them into the rich-text body to choose a library and insert them at that position after import.
+
+Posto generates thumbnails for browsing. HEIC and HEIF images are converted to a browser-compatible format during import when necessary.
+
+## Organizing files and folders
+
+Each tab supports folders. Create a folder with **New folder**, or drag media and folders onto another folder to move them. Select several items with their selection controls or by holding Shift while clicking, then move or delete the group from the footer. Press Escape to clear the selection.
+
+Open an individual item to rename it or, for an image-library asset, edit its metadata. When recognized references point to a file that is moved or renamed, Posto updates those references in schema-backed fields and Markdown or MDX content. Updating library alt text also updates direct Markdown image references to that asset.
+
+Check where an item is used before deleting it. Deletion removes the selected files and folders but does not repair references that now point to a missing item.
+
+## Using media in content
+
+Drag one or more media items from the sidebar into the rich-text body. Images become Markdown images, audio and video become HTML media elements, and other files become links. Drag an image onto an image field to replace its value, or use the field's clear action to remove an optional image.
+
+Images already in the body can be dragged to a new position, edited, or removed from the document without deleting the underlying media file.

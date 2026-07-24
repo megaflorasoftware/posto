@@ -1,9 +1,9 @@
 ---
-title: Getting Started
+title: Getting started
 description: Set up the Posto monorepo and run the app, tests, linting, and formatting locally.
 ---
 
-Posto is a [pnpm](https://pnpm.io) workspace wrapped around a [Tauri](https://tauri.app) (Rust) backend. The frontend apps and shared packages live under `apps/` and `packages/`; the native backend lives in `src-tauri/`.
+Posto is a [pnpm](https://pnpm.io) workspace with a [Tauri](https://tauri.app) backend written in Rust. Frontend apps and shared TypeScript packages live under `apps/` and `packages/`; native code lives in `src-tauri/`.
 
 ```
 apps/
@@ -11,7 +11,7 @@ apps/
   mobile/    Tauri mobile app
   docs/      This documentation site (Astro Starlight)
 packages/
-  core/      Framework-agnostic parsing/config logic (has the test suite)
+  core/      Framework adapters, parsing, and configuration logic
   editor/    Shared rich-text editor components
   ipc/       Typed wrappers around Tauri commands
 src-tauri/   Rust backend
@@ -19,7 +19,8 @@ src-tauri/   Rust backend
 
 ## Prerequisites
 
-- **Node 22+** and **pnpm 11+**
+- **Node 24** (the exact development version is in `.nvmrc`)
+- **pnpm 11.8.0** (pinned in `package.json`)
 - The **[Rust toolchain](https://www.rust-lang.org/tools/install)** and **[Tauri's system dependencies](https://tauri.app/start/prerequisites/)**
 
 Install workspace dependencies from the repo root:
@@ -38,7 +39,9 @@ Run these from the repo root:
 | `pnpm build`     | Type-check and build the desktop app                        |
 | `pnpm test`      | Run the TypeScript test suites (Vitest) across all packages |
 | `pnpm typecheck` | Type-check every package and app (`tsc --noEmit`)           |
-| `pnpm check`     | Format, lint, and type-aware checks via Vite+ (`vp check`)  |
+| `pnpm check`     | Run formatting, lint, and type-aware Vite+ checks           |
+| `pnpm format`    | Format supported files with Vite+                           |
+| `pnpm lint`      | Run Vite+ lint checks                                       |
 
 Rust checks run from `src-tauri/`:
 
@@ -60,28 +63,27 @@ pnpm --filter @posto/core test:watch   # watch mode for a single package
 
 Rust tests run with `cargo test` from `src-tauri/`.
 
-## Linting & formatting (Vite+)
+## Linting and formatting with Vite+
 
-Formatting, linting, and type-aware analysis go through [Vite+](https://viteplus.dev) (`vp`), which bundles Oxfmt, Oxlint, and tsgolint into a single command:
+Formatting, linting, and type-aware analysis use [Vite+](https://viteplus.dev) (`vp`), which combines Oxfmt, Oxlint, and tsgolint:
 
 ```sh
-vp check           # format + lint + type-aware checks
-vp check --fix      # auto-fix formatting and lint issues
+pnpm check          # format, lint, and type-aware checks
+pnpm format         # write formatting changes
+pnpm lint           # lint without formatting
 ```
 
-Root configuration lives in `vite.config.ts` (ignore patterns and type-aware linting); each app keeps its own `vite.config.ts` for dev and build.
+The root `vite.config.ts` defines repository-wide formatting, ignore patterns, and type-aware linting. Each app keeps a separate `vite.config.ts` for development and builds.
 
-:::note[Installing Vite+] Install Vite+ with the official script: `curl -fsSL https://vite.plus | bash`. If `vp` fails with "Cannot find native binding", the install is missing its platform-native Oxfmt/Oxlint bindings — reinstall with the script above. :::
-
-:::note[First run reports existing differences] The source predates this tooling, so `vp check` currently reports formatting differences and a set of type-aware lint warnings. Run `vp check --fix` once (as its own commit) to normalize formatting, then triage the remaining lint warnings. Until then the Vite+ step in CI is informational (non-blocking). :::
+:::note[Installing Vite+] Install Vite+ with the official script: `curl -fsSL https://vite.plus | bash`. If `vp` reports that it cannot find a native binding, reinstall it with the same script to restore the platform-specific Oxfmt and Oxlint packages. :::
 
 ## Continuous integration
 
-`.github/workflows/check.yml` runs on every pull request:
+`.github/workflows/check.yml` runs on pull requests and pushes to `main`:
 
-- **TypeScript** — `pnpm typecheck` and `pnpm test`
+- **TypeScript** — install with the lockfile, type-check, test, verify formatting, and lint with warnings denied
 - **Rust** — `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo test`
 
-The Rust checks only run when files under `src-tauri/` (or the workflow itself) change, so a docs- or frontend-only pull request skips the Rust compile while the check still reports as passing. The Rust version and components are pinned in `src-tauri/rust-toolchain.toml`, which both CI and local `cargo` pick up automatically.
+The Rust job always reports a result, but its expensive steps run only when `src-tauri/` or the workflow changes. A documentation-only or frontend-only pull request therefore skips the Rust compile. The Rust version and components are pinned in `src-tauri/rust-toolchain.toml` for both CI and local commands.
 
 A separate `release.yml` builds and publishes the app on tagged releases.

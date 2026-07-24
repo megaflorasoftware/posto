@@ -1,9 +1,9 @@
 ---
 title: Media libraries
-description: The Astro collection shape Posto recognizes as a media library, with examples and the rules it applies.
+description: Define an Astro image collection that Posto can import, organize, and reuse with its metadata.
 ---
 
-A media library in Posto is an Astro content collection that pairs images with metadata. When a collection matches the shape below, Posto manages its images and metadata together: metadata is entered once on import, and referencing the image elsewhere carries the metadata with it (see [Managing site media](/features/managing-site-media/)).
+A Posto media library is an Astro content collection that pairs each image with reusable metadata. When a collection matches the shape below, Posto imports, moves, renames, and deletes each image together with its metadata record. Selecting the image elsewhere carries that metadata with it. See [Managing site media](/features/managing-site-media/).
 
 ## What Posto recognizes
 
@@ -13,11 +13,11 @@ A collection is treated as a media library when all of these hold:
 2. Its schema has **exactly one** [`image()`](https://docs.astro.build/en/guides/images/#images-in-content-collections) field, and that field is a scalar (nested only through objects, never inside a list).
 3. The loader's `pattern` matches **YAML or JSON** metadata files.
 
-Recognized image formats: `avif`, `gif`, `jpeg`, `jpg`, `png`, `svg`, `tif`, `tiff`, `webp`.
+Recognized image formats are `avif`, `gif`, `jpeg`, `jpg`, `png`, `svg`, `tif`, `tiff`, and `webp`.
 
 ## Example
 
-A photo library where each entry is a YAML file describing one image:
+This example defines a photo library in which each YAML entry describes one image:
 
 ```ts
 // src/content.config.ts
@@ -44,11 +44,11 @@ alt: Fishing boats moored in a harbor at first light
 credit: Jane Rivera
 ```
 
-JSON metadata works the same way; point the pattern at `**/*.json` and write the entry as JSON. The image field may also be nested inside an object (for example `z.object({ image: image(), focalPoint: z.string() })`), as long as it is not inside a list.
+JSON metadata works the same way: use `**/*.json` as the pattern and store each entry as JSON. The image field may be nested inside an object, such as `z.object({ image: image(), focalPoint: z.string() })`, but it cannot be inside a list.
 
 ## When a collection is skipped
 
-If a collection resembles a media library but breaks one of the rules, Posto shows a diagnostic in the editor explaining why:
+If a collection resembles a media library but does not meet these requirements, Posto shows a diagnostic with the relevant resolution:
 
 | Reason                               | Resolution                                                    |
 | ------------------------------------ | ------------------------------------------------------------- |

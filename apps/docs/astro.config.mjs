@@ -7,6 +7,10 @@ export default defineConfig({
   integrations: [
     starlight({
       title: "Posto",
+      logo: {
+        src: "../desktop/public/icon.png",
+        alt: "Posto app logo",
+      },
       social: [
         {
           icon: "github",
@@ -15,8 +19,13 @@ export default defineConfig({
         },
       ],
       sidebar: [
-        { label: "What is Posto?", slug: "what-is-posto" },
-        { label: "Opening your first site", slug: "getting-started" },
+        {
+          label: "Getting started",
+          items: [
+            { label: "What is Posto?", slug: "what-is-posto" },
+            { label: "Opening your first site", slug: "getting-started" },
+          ],
+        },
         {
           label: "Features",
           items: [

@@ -1,22 +1,26 @@
 ---
 title: Publishing a site
-description: How publishing commits and pushes changes, and how pulling updates works.
+description: Review and publish local changes, pull remote updates, and understand how Posto scopes Git operations.
 ---
 
-Posto stores changes with Git. Publishing commits and pushes your edits; pulling brings in changes made elsewhere. You don't run Git commands directly.
+Posto uses Git to publish local edits and pull changes made elsewhere. You do not need to run Git commands directly.
 
 ## Publishing changes
 
-When there are uncommitted changes, the **Publish** button is enabled. It opens a view listing the changed files and a field for a commit message. Publishing commits those changes and pushes them to the site's repository. Pushing to the default branch typically triggers the host's deploy.
+When there are unpublished changes in the selected site, **Publish** opens a review showing each added, changed, renamed, or deleted file. Enter a commit message, then publish to commit and push those changes. Pushing to the default branch typically starts the host's deployment.
 
-Individual changes can be reverted from the same view before publishing.
+You can revert an individual file from the review. Reverting a new file deletes it, so Posto asks for confirmation first.
 
-Pushing uses the credentials the repository already has: on desktop, whatever `git push` from a terminal would use; on mobile, the GitHub sign-in used to clone the site.
+On desktop, Posto uses the credentials that the repository would use for `git push`. On mobile, it uses the GitHub account that cloned the repository.
+
+In a repository with several projects, the review and commit include only changes under the selected project directory. Unrelated changes elsewhere in the repository remain unpublished.
 
 :::caution[Publishing goes directly to the default branch] Publishing commits and pushes straight to the repository's default branch (usually `main`). There is no draft branch or review step — once the host finishes deploying, the change is live. :::
 
 ## Pulling in updates
 
-When the repository has changed elsewhere — another person published, or you edited from another device — Posto detects that the local copy is behind its upstream and shows a **Fetch Changes** / **Pull** action.
+When the upstream branch has new commits—because another person published or you edited from another device—Posto replaces **Publish** with **Fetch Changes** on desktop and shows a **Pull** action on mobile.
 
-Pulling updates the local copy to match the latest published version and refreshes the file list and the open file. Pull before editing so your changes apply on top of the current state of the repository rather than an older one.
+Pulling updates the local repository, then refreshes project detection, the file list, schemas, and the open file. Posto preserves local edits around the update when it can. A pull is blocked if unpublished changes outside the selected project conflict with incoming changes; resolve those repository changes with Git before trying again.
+
+Pull before starting a new edit so your work begins from the latest published version.
