@@ -7,7 +7,7 @@ import type {
   PagesConfig,
   SchemaDiagnostic,
 } from "../pagescms/config";
-import { DEFAULT_MEDIA } from "../pagescms/config";
+import { ASTRO_MEDIA } from "../pagescms/config";
 import { schemaImageFields, type SchemaImageField } from "./schemaAnalysis";
 
 // Builds a PagesConfig from Astro content collections, used as a fallback
@@ -622,7 +622,7 @@ export function buildAstroConfig(
     });
   }
   return {
-    media: DEFAULT_MEDIA,
+    media: ASTRO_MEDIA,
     content,
     collectionSchemas,
     mediaLibraries: discovered.libraries,

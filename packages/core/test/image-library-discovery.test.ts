@@ -32,7 +32,11 @@ const generatedImages = defineCollection({
 });
 const blog = defineCollection({
   loader: glob({ pattern: "**/*.md", base: "./src/blog" }),
-  schema: z.object({ hero: reference("images"), cards: z.array(z.object({ art: reference("images") })) }),
+  schema: z.object({
+    hero: reference("images"),
+    heroImage: z.optional(image()),
+    cards: z.array(z.object({ art: reference("images") })),
+  }),
 });
 export const collections = { images, jsonImages, gallery, imageList, generatedImages, blog };
 `);
@@ -80,6 +84,7 @@ const config = buildAstroConfig(
       name: "blog",
       fields: [
         { name: "hero", type: "reference" },
+        { name: "heroImage", type: "string" },
         { name: "cards", type: "object", list: true, fields: [{ name: "art", type: "reference" }] },
       ],
     },
@@ -111,8 +116,9 @@ test("discovers image libraries and their diagnostics", () => {
     blog?.fields[0].options?.idScheme === "framework",
     "top-level reference keeps Astro ID semantics",
   );
+  assert(blog?.fields[1].type === "image", "wrapped image() field is restored");
   assert(
-    blog?.fields[1].fields?.[0].options?.idScheme === "framework",
+    blog?.fields[2].fields?.[0].options?.idScheme === "framework",
     "nested reference keeps Astro ID semantics",
   );
 });

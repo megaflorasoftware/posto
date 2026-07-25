@@ -62,10 +62,20 @@ export interface MediaEntry {
   label?: string;
   input: string;
   output: string;
+  /** Stores paths relative to the edited document instead of a public URL.
+   * Astro `image()` fields use this for images imported from `src`. */
+  relative?: boolean;
 }
 
 /** Conventional public asset directory when a project declares no media source. */
 export const DEFAULT_MEDIA: MediaEntry[] = [{ name: "default", input: "public", output: "/" }];
+
+/** Astro can optimize images anywhere under `src`, and its `image()` schema
+ * stores the selected image as a path relative to the content document. */
+export const ASTRO_MEDIA: MediaEntry[] = [
+  { name: "src", input: "src", output: "src", relative: true },
+  ...DEFAULT_MEDIA,
+];
 
 export interface ContentEntry {
   name: string;
@@ -748,21 +758,97 @@ function normalizedOutput(media: MediaEntry): string {
   return trimmed.startsWith("/") ? trimmed : "/" + trimmed;
 }
 
+function normalizePath(path: string): string {
+  const source = path.replace(/\\/g, "/");
+  const prefix = source.startsWith("/") ? "/" : (source.match(/^[A-Za-z]:\//)?.[0] ?? "");
+  const parts: string[] = [];
+  for (const part of source.slice(prefix.length).split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part);
+  }
+  return prefix + parts.join("/");
+}
+
+function pathDirname(path: string): string {
+  const normalized = normalizePath(path);
+  const index = normalized.lastIndexOf("/");
+  return index <= 0 ? (normalized.startsWith("/") ? "/" : "") : normalized.slice(0, index);
+}
+
+/** Converts an absolute repository image path to the value stored by an
+ * Astro `image()` field for one content document. */
+export function relativeMediaPath(documentPath: string, absolutePath: string): string {
+  const fromParts = pathDirname(documentPath).replace(/\/+$/, "").split("/");
+  const toParts = normalizePath(absolutePath).split("/");
+  const windows = /^[A-Za-z]:$/.test(fromParts[0] ?? "");
+  const equal = (left: string, right: string) =>
+    windows ? left.toLowerCase() === right.toLowerCase() : left === right;
+  let shared = 0;
+  while (
+    shared < fromParts.length &&
+    shared < toParts.length &&
+    equal(fromParts[shared], toParts[shared])
+  ) {
+    shared++;
+  }
+  return [
+    ...Array.from({ length: fromParts.length - shared }, () => ".."),
+    ...toParts.slice(shared),
+  ].join("/");
+}
+
+/** Resolves a document-relative media value to an absolute filesystem path. */
+export function resolveRelativeMediaPath(documentPath: string, value: string): string | null {
+  if (
+    value === "" ||
+    value.startsWith("/") ||
+    /^[A-Za-z]:[\\/]/.test(value) ||
+    /^[a-z][a-z0-9+.-]*:/i.test(value) ||
+    value.startsWith("//")
+  ) {
+    return null;
+  }
+  let decoded = value;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    // Keep malformed percent escapes resolvable as their literal filename.
+  }
+  return normalizePath(`${pathDirname(documentPath)}/${decoded}`);
+}
+
 export function mediaOutputPath(
   root: string,
   media: MediaEntry,
   absolutePath: string,
+  documentPath?: string,
 ): string | null {
-  const inputDir = root + "/" + media.input + "/";
-  if (!absolutePath.startsWith(inputDir)) return null;
-  const rel = absolutePath.slice(inputDir.length);
+  const inputDir = normalizePath(root + "/" + media.input).replace(/\/+$/, "");
+  const path = normalizePath(absolutePath);
+  if (!path.startsWith(inputDir + "/")) return null;
+  if (media.relative) return documentPath ? relativeMediaPath(documentPath, path) : null;
+  const rel = path.slice(inputDir.length + 1);
   return normalizedOutput(media) + "/" + rel;
 }
 
 /** Inverse of {@link mediaOutputPath}: public output path → absolute file path. */
-export function mediaInputPath(root: string, media: MediaEntry, outputPath: string): string | null {
+export function mediaInputPath(
+  root: string,
+  media: MediaEntry,
+  outputPath: string,
+  documentPath?: string,
+): string | null {
+  if (media.relative) {
+    if (!documentPath) return null;
+    const path = resolveRelativeMediaPath(documentPath, outputPath);
+    const input = normalizePath(root + "/" + media.input).replace(/\/+$/, "");
+    return path && path.startsWith(input + "/") ? path : null;
+  }
   const output = normalizedOutput(media);
   const value = outputPath.startsWith("/") ? outputPath : "/" + outputPath;
   if (!value.startsWith(output + "/")) return null;
-  return root + "/" + media.input + "/" + value.slice(output.length + 1);
+  const input = normalizePath(root + "/" + media.input).replace(/\/+$/, "");
+  const path = normalizePath(input + "/" + value.slice(output.length + 1));
+  return path.startsWith(input + "/") ? path : null;
 }

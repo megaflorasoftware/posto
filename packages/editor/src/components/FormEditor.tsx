@@ -189,6 +189,7 @@ export function FormEditor(props: {
     config: props.config,
     root: props.root,
     entry: props.entry,
+    documentPath: props.path,
     groups: props.groups,
     entryIds: props.entryIds,
     errors: () => errors,

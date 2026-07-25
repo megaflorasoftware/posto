@@ -15,11 +15,37 @@ import {
   MoveFileMediaItemsDialog,
   MoveImageLibraryAssetsDialog,
   PUBLIC_MEDIA_TAB,
+  SOURCE_MEDIA_TAB,
   PublicMediaBrowser,
   chooseAndImportPublicMedia,
   useImageLibraryAssets,
   usePublicMediaFiles,
+  useSourceImageFiles,
 } from "@posto/editor";
+
+function SourceMediaPane(props: { root: string; tabs: ReactNode }) {
+  const state = useSourceImageFiles(props.root);
+  const [currentDirectory, setCurrentDirectory] = useState("");
+  return (
+    <div className="mobile-media-pane">
+      <div className="mobile-media-pane-scroll">
+        {state.error && (
+          <Alert color="red" m="xs">
+            Could not read src images: {state.error}
+          </Alert>
+        )}
+        <PublicMediaBrowser
+          rootDirectory={state.sourceRoot}
+          currentDirectory={currentDirectory}
+          directories={state.directories}
+          files={state.files}
+          toolbar={props.tabs}
+          onDirectoryChange={setCurrentDirectory}
+        />
+      </div>
+    </div>
+  );
+}
 
 /** Mobile image-library browser with the shared grid and sticky actions. */
 function LibraryMediaPane(props: {
@@ -402,12 +428,20 @@ export function MediaLibraryPane(props: {
   onBeforeChange: () => Promise<void>;
   onChanged: (library: MediaLibrary | null, options?: { silent?: boolean }) => void;
 }) {
-  const [selected, setSelected] = useState(props.libraries[0]?.collection ?? PUBLIC_MEDIA_TAB);
+  const showSource = props.config.media.some((media) => media.relative && media.input === "src");
+  const [selected, setSelected] = useState(
+    props.libraries[0]?.collection ?? (showSource ? SOURCE_MEDIA_TAB : PUBLIC_MEDIA_TAB),
+  );
   const library = props.libraries.find((candidate) => candidate.collection === selected);
-  const effectiveSelected = library ? selected : PUBLIC_MEDIA_TAB;
+  const effectiveSelected = library
+    ? selected
+    : selected === SOURCE_MEDIA_TAB && showSource
+      ? SOURCE_MEDIA_TAB
+      : PUBLIC_MEDIA_TAB;
   const tabs = (
     <MediaLibraryTabs
       libraries={props.libraries}
+      showSource={showSource}
       selected={effectiveSelected}
       onSelect={setSelected}
     />
@@ -424,6 +458,8 @@ export function MediaLibraryPane(props: {
       onBeforeChange={props.onBeforeChange}
       onChanged={(changedLibrary, options) => props.onChanged(changedLibrary, options)}
     />
+  ) : effectiveSelected === SOURCE_MEDIA_TAB ? (
+    <SourceMediaPane key={SOURCE_MEDIA_TAB} root={props.root} tabs={tabs} />
   ) : (
     <PublicMediaPane
       key={PUBLIC_MEDIA_TAB}

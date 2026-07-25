@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { importPublicMediaFile, invoke, openFile, openFiles, type FileEntry } from "@posto/ipc";
+import { markdownMediaKind } from "../markdownMedia";
 
 const TEXT_EXTENSIONS = new Set([
   "astro",
@@ -72,8 +73,26 @@ export function isPublicMediaFile(path: string): boolean {
   return ext !== "" && !TEXT_EXTENSIONS.has(ext);
 }
 
-export function usePublicMediaFiles(root: string) {
-  const publicRoot = `${root}/public`;
+export function directoriesContainingFiles(root: string, files: FileEntry[]): string[] {
+  const normalizedRoot = root.replace(/\\/g, "/").replace(/\/+$/, "");
+  const directories = new Set<string>();
+  for (const file of files) {
+    let directory = file.path
+      .replace(/\\/g, "/")
+      .slice(0, file.path.replace(/\\/g, "/").lastIndexOf("/"));
+    while (directory.startsWith(`${normalizedRoot}/`)) {
+      directories.add(directory);
+      directory = directory.slice(0, directory.lastIndexOf("/"));
+    }
+  }
+  return [...directories].sort();
+}
+
+function useMediaDirectoryFiles(
+  directoryRoot: string,
+  accepts: (path: string) => boolean,
+  imageDirectoriesOnly = false,
+) {
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [directories, setDirectories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,7 +103,7 @@ export function usePublicMediaFiles(root: string) {
     setError(null);
     try {
       const listed = await invoke<FileEntry[] | null>("list_dir_files_optional", {
-        dir: publicRoot,
+        dir: directoryRoot,
         extensions: [],
       });
       if (listed === null) {
@@ -92,21 +111,40 @@ export function usePublicMediaFiles(root: string) {
         setDirectories([]);
         return;
       }
-      const listedDirectories = await invoke<string[]>("list_directories", { dir: publicRoot });
-      setFiles(listed.filter((file) => isPublicMediaFile(file.path)));
-      setDirectories(listedDirectories);
+      const acceptedFiles = listed.filter((file) => accepts(file.path));
+      setFiles(acceptedFiles);
+      setDirectories(
+        imageDirectoriesOnly
+          ? directoriesContainingFiles(directoryRoot, acceptedFiles)
+          : await invoke<string[]>("list_directories", { dir: directoryRoot }),
+      );
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
       setLoading(false);
     }
-  }, [publicRoot]);
+  }, [accepts, directoryRoot, imageDirectoriesOnly]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  return { publicRoot, files, directories, loading, error, refresh };
+  return { directoryRoot, files, directories, loading, error, refresh };
+}
+
+const acceptsPublicMedia = (path: string) => isPublicMediaFile(path);
+const acceptsSourceImage = (path: string) => markdownMediaKind(path) === "image";
+
+export function usePublicMediaFiles(root: string) {
+  const state = useMediaDirectoryFiles(`${root}/public`, acceptsPublicMedia);
+  return { ...state, publicRoot: state.directoryRoot };
+}
+
+/** Astro source images are browsable as a generic, read-only image library.
+ * Directories without an image anywhere below them are omitted. */
+export function useSourceImageFiles(root: string) {
+  const state = useMediaDirectoryFiles(`${root}/src`, acceptsSourceImage, true);
+  return { ...state, sourceRoot: state.directoryRoot };
 }
 
 export async function chooseAndImportPublicMedia(

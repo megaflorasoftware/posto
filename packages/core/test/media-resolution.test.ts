@@ -1,5 +1,9 @@
 import { test } from "vitest";
 import {
+  mediaInputPath,
+  mediaOutputPath,
+  relativeMediaPath,
+  resolveRelativeMediaPath,
   resolveMediaForValue,
   type ContentEntry,
   type Field,
@@ -33,6 +37,36 @@ test("resolves the owning media folder for a value", () => {
     resolveMediaForValue(config, { ...src, options: { media: "avatars" } }, "/projects/posto.jpg")
       ?.name === "avatars",
     "explicit source remains authoritative",
+  );
+});
+
+test("round-trips Astro image paths relative to the content document", () => {
+  const root = "/repo";
+  const document = "/repo/src/content/blog/first-post.md";
+  const image = "/repo/src/assets/blog-placeholder-3.jpg";
+  const media = { name: "src", input: "src", output: "src", relative: true };
+
+  assert(
+    relativeMediaPath(document, image) === "../../assets/blog-placeholder-3.jpg",
+    "fixture image path is document-relative",
+  );
+  assert(
+    resolveRelativeMediaPath(document, "../../assets/blog-placeholder-3.jpg") === image,
+    "relative value resolves to the source image",
+  );
+  const output = mediaOutputPath(root, media, image, document);
+  assert(output === "../../assets/blog-placeholder-3.jpg", "picker stores a relative value");
+  assert(
+    mediaInputPath(root, media, output, document) === image,
+    "relative media source resolves the stored value",
+  );
+  assert(
+    mediaInputPath(
+      root,
+      { name: "default", input: "public", output: "/" },
+      "../../assets/blog-placeholder-3.jpg",
+    ) === null,
+    "public media cannot claim a relative path that escapes public",
   );
 });
 

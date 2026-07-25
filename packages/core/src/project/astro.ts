@@ -5,7 +5,7 @@ import {
   type LoaderInfo,
 } from "../astro/collections";
 import {
-  DEFAULT_MEDIA,
+  ASTRO_MEDIA,
   type Field,
   type PagesConfig,
   type SchemaDiagnostic,
@@ -165,7 +165,7 @@ const SITE_FIELD = /(?:^|[\s,{(])site\s*:\s*(['"`])([^'"`]+)\1/m;
 
 export const astroAdapter: ProjectAdapter = {
   type: "astro",
-  defaultMedia: DEFAULT_MEDIA,
+  defaultMedia: ASTRO_MEDIA,
   loadDerivedConfig: loadAstroDerivedConfig,
   invalidations(root, config) {
     return [

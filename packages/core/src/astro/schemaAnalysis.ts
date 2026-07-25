@@ -36,11 +36,14 @@ function imageFields(source: string): SchemaImageField[] {
         else if (char === "," && braces === 0 && parens === 0 && brackets === 0) break;
       }
       const value = block.slice(start, end).trim();
-      const listWrapped = /^(?:z\s*\.\s*)?array\s*\(/.test(value);
-      if (/^(?:(?:z\s*\.\s*)?array\s*\(\s*)*(?:image|\w+\s*\.\s*image)\s*\(/.test(value)) {
+      const image = /(?:^|[^\w$.])(?:image|\w+\s*\.\s*image)\s*\(/.exec(value);
+      const object = /(?:z\s*\.\s*)?object\s*\(\s*\{/.exec(value);
+      const imageBeforeObject = !!image && (!object || image.index < object.index);
+      const listWrapped =
+        !!image && /(?:z\s*\.\s*)?array\s*\(/.test(value.slice(0, image.index + image[0].length));
+      if (imageBeforeObject) {
         fields.push({ path: [...prefix, name], writable: !insideList && !listWrapped });
       } else {
-        const object = value.match(/(?:z\s*\.\s*)?object\s*\(\s*\{/);
         const plain = !object && value.startsWith("{") ? 0 : -1;
         const open = object ? value.indexOf("{", object.index) : plain;
         if (open >= 0) {

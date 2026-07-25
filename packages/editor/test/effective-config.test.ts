@@ -131,6 +131,13 @@ describe("effective config snapshots", () => {
     });
   });
 
+  test("framework-relative media stays available beside configured media", () => {
+    const source = { name: "src", input: "src", output: "src", relative: true };
+    expect(
+      resolveEffectiveConfig(pages, { ...derived, media: [source] }, null, [source]).media,
+    ).toEqual([source, ...pages.media]);
+  });
+
   test("the adapter fallback survives when both schema layers are absent", () => {
     const fallback = [{ name: "default", input: "public", output: "/" }];
     expect(resolveEffectiveConfig(null, null, null, fallback)).toEqual({

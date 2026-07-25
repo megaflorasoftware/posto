@@ -4,6 +4,8 @@ export type MarkdownMediaKind = "image" | "audio" | "video" | "link";
 
 export interface MarkdownMediaPick {
   outputPath: string;
+  /** Absolute source file used to derive a document-relative path at drop time. */
+  sourcePath?: string;
   label: string;
   kind: MarkdownMediaKind;
   alt?: string;

@@ -772,60 +772,6 @@
   font-size: 0.85rem;
 }
 
-.image-field {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.image-field-wrap {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.65rem;
-}
-
-.image-field-wrap > .image-field {
-  flex: 1;
-  min-width: 0;
-}
-
-.image-field-preview {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 4.5rem;
-  width: 4.5rem;
-  aspect-ratio: 1;
-  padding: 0;
-  overflow: hidden;
-  border: 1px solid var(--mantine-color-default-border);
-  border-radius: var(--mantine-radius-sm);
-  color: var(--mantine-color-dimmed);
-  background: var(--mantine-color-default-hover);
-  cursor: pointer;
-}
-
-.image-field-preview:disabled {
-  cursor: default;
-}
-
-.image-field-preview img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.image-field-preview.is-drag-over {
-  border-color: var(--mantine-primary-color-filled);
-  box-shadow: 0 0 0 2px var(--mantine-primary-color-light-color);
-  background: var(--mantine-primary-color-light);
-}
-
-.image-field .mantine-TextInput-root {
-  flex: 1;
-  min-width: 0;
-}
-
 .picker-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
