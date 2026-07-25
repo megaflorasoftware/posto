@@ -14,6 +14,8 @@ import {
   expandMediaEntry,
   mediaInputPath,
   mediaOutputPath,
+  relativeMediaPath,
+  resolveRelativeMediaPath,
   type MediaLibrary,
   type ContentEntry,
   type MediaEntry,
@@ -528,7 +530,10 @@ export function BodyEditor(props: {
   // The display resolver is read through a ref so the Image extension (created
   // once) always sees the current root/media libraries.
   const resolveSrc = (src: string): string => {
-    if (!src.startsWith("/")) return src;
+    if (!src.startsWith("/")) {
+      const relative = resolveRelativeMediaPath(props.path, src);
+      return (relative && assetUrl(relative)) || src;
+    }
     let filesystemSrc = src;
     try {
       filesystemSrc = decodeURIComponent(src);
@@ -766,7 +771,15 @@ export function BodyEditor(props: {
         return;
       }
     }
-    insertMediaBatchAtLocation(editor, media, location);
+    insertMediaBatchAtLocation(
+      editor,
+      media.map((item) =>
+        item.sourcePath
+          ? { ...item, outputPath: relativeMediaPath(props.path, item.sourcePath) }
+          : item,
+      ),
+      location,
+    );
   };
 
   const moveBodyNode = (source: BodyNodeDragSource, details: BodyNodeDragDetails) => {
@@ -1081,6 +1094,7 @@ export function BodyEditor(props: {
             {(pickerOpen || externalImageDrop) && (
               <RichTextImagePickerDialog
                 root={props.root}
+                documentPath={props.path}
                 config={props.config}
                 configuredMedia={props.configuredMedia}
                 templateValues={props.templateValues}
@@ -1092,9 +1106,15 @@ export function BodyEditor(props: {
                   externalDropLocationRef.current = null;
                 }}
                 onPick={(media) => {
+                  const resolved = media.sourcePath
+                    ? {
+                        ...media,
+                        outputPath: relativeMediaPath(props.path, media.sourcePath),
+                      }
+                    : media;
                   const externalLocation = externalDropLocationRef.current;
                   if (editor && externalLocation) {
-                    const nextPosition = insertMediaAtLocation(editor, media, externalLocation);
+                    const nextPosition = insertMediaAtLocation(editor, resolved, externalLocation);
                     externalDropLocationRef.current = {
                       ...externalLocation,
                       pos: nextPosition,
@@ -1102,7 +1122,7 @@ export function BodyEditor(props: {
                     return;
                   }
                   setPickerOpen(false);
-                  editor?.chain().focus().insertContent(markdownMediaEditorContent(media)).run();
+                  editor?.chain().focus().insertContent(markdownMediaEditorContent(resolved)).run();
                 }}
               />
             )}

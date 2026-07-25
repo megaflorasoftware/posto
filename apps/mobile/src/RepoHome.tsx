@@ -1,5 +1,4 @@
 import {
-  ActionIcon,
   Alert,
   Button,
   Center,
@@ -19,8 +18,8 @@ import {
   ImageLibraryImportDialog,
   PublishModal,
   buildNewFile,
-  canCreateFileInGroup,
   createDataDocumentEntry,
+  defaultEditorTabForFile,
   deleteDataDocumentEntry,
   editorTabsForFile,
   renameTargetForContent,
@@ -28,7 +27,7 @@ import {
   refreshImageLibraryAssets,
   resolveEditorTab,
   SchemaDiagnostics,
-  sidebarDisplayGroups,
+  sidebarDisplayTree,
   useCurrentFile,
   useFileGroups,
   useGitSync,
@@ -36,6 +35,7 @@ import {
   useSchemas,
   ipcProjectIO,
   WorkspaceChooser,
+  FileTree,
   type EditorTab,
 } from "@posto/editor";
 import {
@@ -62,10 +62,7 @@ import type {
 } from "@posto/ipc";
 import {
   CloudDownload,
-  ChevronDown,
   GitCommitHorizontal,
-  Pin,
-  Plus,
   RefreshCw,
   SlidersHorizontal,
   TriangleAlert,
@@ -150,6 +147,7 @@ export default function RepoHome({
 
   useEffect(() => {
     if (developerMode) return;
+    setEditorTab("content");
     setSettingsFor(null);
     setOrderOpen(false);
   }, [developerMode]);
@@ -230,11 +228,7 @@ export default function RepoHome({
       void renameForTemplate(path, content);
     },
     onOpened(path, _content, file) {
-      if (file?.dataEntry) {
-        setEditorTab("content");
-        return;
-      }
-      if (!/\.(md|mdx|markdown)$/i.test(path)) setEditorTab("raw");
+      setEditorTab(defaultEditorTabForFile(path, file?.dataEntry));
     },
     onOpenError: setError,
   });
@@ -345,8 +339,8 @@ export default function RepoHome({
 
   // Same ordering, labels, and `.posto` collection preferences as the
   // desktop sidebar.
-  const displayGroups = useMemo(
-    () => sidebarDisplayGroups(files.groups, schemas.config, root),
+  const displayTree = useMemo(
+    () => sidebarDisplayTree(files.groups, schemas.config, root),
     [files.groups, schemas.config, root],
   );
 
@@ -660,6 +654,7 @@ export default function RepoHome({
         <main className="mobile-settings-screen">
           {browsingWorkspace ? (
             <DirectoryBrowser
+              key={repoRoot}
               repoRoot={repoRoot}
               onChoose={(dir) => void chooseBrowsedWorkspace(dir)}
               onCancel={() => setBrowsingWorkspace(false)}
@@ -879,76 +874,18 @@ export default function RepoHome({
                 </Center>
               ) : (
                 <div className="mobile-document-list">
-                  {displayGroups.map(({ group, collection, exact }) =>
-                    group.label ? (
-                      <details key={`${group.kind ?? ""}:${group.path}`} open>
-                        <summary>
-                          <span className="mobile-group-label" title={group.label}>
-                            {group.label}
-                          </span>
-                          {canCreateFileInGroup(root, group) && (
-                            <ActionIcon
-                              className="mobile-group-action"
-                              variant="subtle"
-                              color="gray"
-                              aria-label={`New file in ${group.label}`}
-                              title="New file"
-                              onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                void createNewFile(group);
-                              }}
-                            >
-                              <Plus size={16} />
-                            </ActionIcon>
-                          )}
-                          {developerMode && collection && exact && (
-                            <ActionIcon
-                              className="mobile-group-action"
-                              variant="subtle"
-                              color="gray"
-                              aria-label={`Settings for ${group.label}`}
-                              title="Collection settings"
-                              onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                setSettingsFor({ collection, files: group.files });
-                              }}
-                            >
-                              <SlidersHorizontal size={16} />
-                            </ActionIcon>
-                          )}
-                          <ChevronDown size={14} className="mobile-group-chevron" />
-                        </summary>
-                        {group.files.map((file) => (
-                          <button
-                            className="mobile-file-item"
-                            key={file.key ?? file.path}
-                            title={file.name}
-                            onClick={() => void openFile(file)}
-                          >
-                            {file.title ?? file.name}
-                            {collection?.pinned?.includes(file.name) && (
-                              <Pin size={13} className="mobile-file-pin" aria-label="Pinned" />
-                            )}
-                          </button>
-                        ))}
-                      </details>
-                    ) : (
-                      <div key={`${group.kind ?? ""}:${group.path}`}>
-                        {group.files.map((file) => (
-                          <button
-                            className="mobile-file-item"
-                            key={file.key ?? file.path}
-                            title={file.name}
-                            onClick={() => void openFile(file)}
-                          >
-                            {file.title ?? file.name}
-                          </button>
-                        ))}
-                      </div>
-                    ),
-                  )}
+                  <FileTree
+                    root={root}
+                    nodes={displayTree}
+                    activeKey={currentFile.activeKey}
+                    variant="mobile"
+                    developerMode={developerMode}
+                    onOpen={(file) => void openFile(file)}
+                    onNewFile={(group) => void createNewFile(group)}
+                    onSettings={(collection, groupFiles) =>
+                      setSettingsFor({ collection, files: groupFiles })
+                    }
+                  />
                   {developerMode && orderableCollections(schemas.config).length > 1 && (
                     <button
                       type="button"

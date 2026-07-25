@@ -66,9 +66,9 @@ async function loadFixture(name: string) {
 
 describe("repository config fixtures", () => {
   test.each([
-    ["astro-overlay", "astro", ["posts", "authors"], "uploads"],
-    ["astro-derived", "astro", ["posts"], "default"],
-    ["eleventy-pages", "eleventy", ["notes"], "default"],
+    ["astro-overlay", "astro", ["posts", "authors"], ["src", "uploads"]],
+    ["astro-derived", "astro", ["posts"], ["src", "default"]],
+    ["eleventy-pages", "eleventy", ["notes"], ["default"]],
   ])(
     "loads %s through detection and adapter orchestration",
     async (name, type, collections, media) => {
@@ -93,7 +93,7 @@ describe("repository config fixtures", () => {
               ? ["Posts"]
               : collections.map(() => null),
         order: name === "astro-overlay" ? [1, 0] : collections.map(() => null),
-        media: [media],
+        media,
       });
     },
   );

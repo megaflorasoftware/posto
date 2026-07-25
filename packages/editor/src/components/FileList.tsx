@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { Pin, X } from "lucide-react";
 import type { FileEntry } from "@posto/ipc";
 
@@ -38,6 +39,9 @@ export function FileList(props: {
   /** Filenames pinned to the top of the group (`.posto` collection settings);
    * their rows get a pin marker. */
   pinned?: string[];
+  leadingIcon?: ReactNode;
+  /** Overrides the default frontmatter-title/file-name label for each row. */
+  fileLabel?: (file: FileEntry) => string;
   onOpen: (file: FileEntry) => void;
   onDelete: (file: FileEntry) => void;
 }) {
@@ -48,8 +52,9 @@ export function FileList(props: {
           key={file.key ?? file.path}
           className={`file-item${props.activeKey === (file.key ?? file.path) ? " active" : ""}`}
         >
+          {props.leadingIcon && <span className="file-item-icon">{props.leadingIcon}</span>}
           <button className="file-item-name" onClick={() => props.onOpen(file)} title={file.name}>
-            {file.title ?? file.name}
+            {props.fileLabel?.(file) ?? file.title ?? file.name}
           </button>
           {props.pinned?.includes(file.name) && (
             <Pin size={12} className="file-pin" aria-label="Pinned" />

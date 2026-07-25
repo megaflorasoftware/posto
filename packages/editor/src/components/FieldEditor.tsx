@@ -10,12 +10,14 @@ import {
   expandFieldTemplate,
   matchCollectionForDir,
   mediaInputPath,
+  mediaOutputPath,
   resolveMedia,
   resolveMediaForValue,
 } from "@posto/core/pagescms/config";
 import type { EntryIdSource } from "@posto/core/project/entryIds";
 import { expandEntryName } from "@posto/core/posto/config";
 import { applyCollectionPrefs } from "../collectionPrefs";
+import { dateControlValue, dateValueFromControl } from "../dateValues";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 import type { Errors } from "@posto/core/pagescms/validate";
 import type { FileEntry, FileGroup } from "@posto/ipc";
@@ -32,6 +34,8 @@ export interface FieldContext {
   root: string;
   /** Collection entry the edited file belongs to; scopes media resolution. */
   entry: ContentEntry | null;
+  /** Absolute path of the document that owns relative Astro image values. */
+  documentPath?: string;
   groups: FileGroup[];
   /** Adapter-owned entry ID behavior; absent adapters store reference paths. */
   entryIds?: EntryIdSource | null;
@@ -125,6 +129,7 @@ function PickImageCta(props: { field: Field; path: ValuePath; ctx: FieldContext 
         <ImagePicker
           root={props.ctx.root}
           media={media}
+          documentPath={props.ctx.documentPath}
           onClose={() => setOpen(false)}
           onPick={(outputPath) => {
             setOpen(false);
@@ -261,10 +266,29 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
           />
         );
       case "date":
+        if (!field.options?.time) {
+          const rawValue = asString(value);
+          const controlValue = dateControlValue(rawValue);
+          const nativeControl = rawValue === "" || controlValue !== "";
+          return (
+            <TextInput
+              size="xs"
+              type={nativeControl ? "date" : "text"}
+              value={nativeControl ? controlValue : rawValue}
+              onChange={(event) =>
+                editText(
+                  nativeControl
+                    ? dateValueFromControl(event.currentTarget.value, rawValue)
+                    : event.currentTarget.value,
+                )
+              }
+            />
+          );
+        }
         return (
           <TextInput
             size="xs"
-            type={field.options?.time ? "datetime-local" : "date"}
+            type="datetime-local"
             value={asString(value)}
             onChange={(e) => {
               let raw = e.currentTarget.value;
@@ -509,7 +533,7 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
       props.ctx.templateValues(),
     );
     if (!media) return null;
-    const absolute = mediaInputPath(props.ctx.root, media, value);
+    const absolute = mediaInputPath(props.ctx.root, media, value, props.ctx.documentPath);
     return absolute;
   }
 
@@ -660,7 +684,9 @@ function ImageField(props: { field: Field; path: ValuePath; ctx: FieldContext })
   const previewPath = value
     ? ([valueMedia, media, ...props.ctx.config.media, ...libraryMedia]
         .filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null)
-        .map((candidate) => mediaInputPath(props.ctx.root, candidate, value))
+        .map((candidate) =>
+          mediaInputPath(props.ctx.root, candidate, value, props.ctx.documentPath),
+        )
         .find((candidate): candidate is string => candidate !== null) ??
       (value.startsWith("/") ? `${props.ctx.root}/public${decodedValue}` : null))
     : null;
@@ -668,56 +694,60 @@ function ImageField(props: { field: Field; path: ValuePath; ctx: FieldContext })
   const imageDrop = useMediaDropZone({
     id: `image-field:${props.ctx.root}:${props.path.join(".")}`,
     category: "single-image",
-    onDrop: (dragged) => props.ctx.edit(props.path, dragged[0]?.outputPath),
+    onDrop: (dragged) => {
+      const picked = dragged[0];
+      const output =
+        picked?.sourcePath && media
+          ? mediaOutputPath(props.ctx.root, media, picked.sourcePath, props.ctx.documentPath)
+          : picked?.outputPath;
+      if (output) props.ctx.edit(props.path, output);
+    },
   });
 
   return (
-    <div className="image-field-wrap">
+    <>
       <button
         ref={imageDrop.setNodeRef}
         type="button"
-        className={`image-field-preview${imageDrop.isAccepting ? " is-drag-over" : ""}`}
+        className={`image-library-reference${imageDrop.isAccepting ? " is-drag-over" : ""}`}
         aria-label={value ? "Change image" : "Choose image"}
         aria-disabled={!media}
         onClick={() => media && setPickerOpen(true)}
       >
-        <CachedImage
-          path={previewPath}
-          alt=""
-          thumbnailWidth={160}
-          thumbnailHeight={160}
-          fallback={<Image size={22} />}
-        />
-      </button>
-      <div className="image-field">
-        <TextInput size="xs" readOnly placeholder="No image selected" value={value} />
-        <Button size="xs" variant="default" disabled={!media} onClick={() => setPickerOpen(true)}>
-          Browse…
-        </Button>
-        {value && (
-          <ActionIcon
-            variant="subtle"
-            color="gray"
-            size="sm"
-            title="Clear"
-            onClick={() => props.ctx.edit(props.path, undefined)}
-          >
-            <X size={14} />
-          </ActionIcon>
-        )}
-        {pickerOpen && media && (
-          <ImagePicker
-            root={props.ctx.root}
-            media={media}
-            onClose={() => setPickerOpen(false)}
-            onPick={(outputPath) => {
-              setPickerOpen(false);
-              props.ctx.edit(props.path, outputPath);
-            }}
+        <span className="image-library-reference-preview">
+          <CachedImage
+            path={previewPath}
+            alt=""
+            thumbnailWidth={160}
+            thumbnailHeight={160}
+            fallback={<Image size={22} />}
           />
-        )}
-      </div>
-    </div>
+        </span>
+        <span className="image-library-reference-edit">
+          <Pencil size={20} />
+        </span>
+      </button>
+      {pickerOpen && media && (
+        <ImagePicker
+          root={props.ctx.root}
+          media={media}
+          documentPath={props.ctx.documentPath}
+          onClose={() => setPickerOpen(false)}
+          onClear={
+            value
+              ? () => {
+                  props.ctx.edit(props.path, undefined);
+                  setPickerOpen(false);
+                }
+              : undefined
+          }
+          onPick={(outputPath) => {
+            setPickerOpen(false);
+            props.ctx.edit(props.path, outputPath);
+          }}
+        />
+      )}
+    </>
   );
 }
 

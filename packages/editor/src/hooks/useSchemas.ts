@@ -16,13 +16,25 @@ export function resolveEffectiveConfig(
   postoConfig: PostoConfig | null,
   defaultMedia: PagesConfig["media"],
 ): PagesConfig {
+  const configuredMedia = pagesConfig?.media.length
+    ? pagesConfig.media
+    : derivedConfig?.media.length
+      ? derivedConfig.media
+      : defaultMedia;
+  const relativeMedia = [...(derivedConfig?.media ?? []), ...defaultMedia].filter(
+    (candidate, index, all) =>
+      candidate.relative &&
+      !configuredMedia.some(
+        (configured) =>
+          configured.relative &&
+          (configured.name === candidate.name || configured.input === candidate.input),
+      ) &&
+      all.findIndex((other) => other.name === candidate.name || other.input === candidate.input) ===
+        index,
+  );
   return mergePostoConfig(
     {
-      media: pagesConfig?.media.length
-        ? pagesConfig.media
-        : derivedConfig?.media.length
-          ? derivedConfig.media
-          : defaultMedia,
+      media: [...relativeMedia, ...configuredMedia],
       content: [...(pagesConfig?.content ?? []), ...(derivedConfig?.content ?? [])],
       collectionSchemas: derivedConfig?.collectionSchemas,
       mediaLibraries: derivedConfig?.mediaLibraries,

@@ -293,6 +293,7 @@ function PropsForm(formProps: {
     // Image props picked inside a collection entry's body use the
     // collection's media source, same as its frontmatter fields.
     entry: env.entry,
+    documentPath: env.editorId,
     groups: env.groups,
     entryIds: env.entryIds,
     errors: () => errors,

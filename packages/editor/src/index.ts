@@ -17,6 +17,7 @@ export * from "./components/ImageLibraryManageDialogs";
 export * from "./components/RichTextImagePickerDialog";
 export * from "./components/ImageLibraryDropImport";
 export * from "./components/FileList";
+export * from "./components/FileTree";
 export * from "./components/OpenFileSpotlight";
 export * from "./newFile";
 export * from "./dataEntries";

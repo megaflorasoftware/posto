@@ -1,9 +1,11 @@
 import type { MediaLibrary } from "@posto/core/pagescms/config";
 
 export const PUBLIC_MEDIA_TAB = "__posto_public__";
+export const SOURCE_MEDIA_TAB = "__posto_src__";
 
 export function MediaLibraryTabs(props: {
   libraries: MediaLibrary[];
+  showSource?: boolean;
   selected: string;
   onSelect: (value: string) => void;
 }) {
@@ -12,6 +14,7 @@ export function MediaLibraryTabs(props: {
       value: library.collection,
       label: library.collection,
     })),
+    ...(props.showSource ? [{ value: SOURCE_MEDIA_TAB, label: "src" }] : []),
     { value: PUBLIC_MEDIA_TAB, label: "public" },
   ];
   return (

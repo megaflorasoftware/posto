@@ -189,36 +189,33 @@ body,
   overflow: auto;
 }
 
-.sidebar details {
-  margin-top: 0.5rem;
+.file-tree {
+  padding-block: 0.25rem;
 }
 
-/* Heading rows lay out as `label … [+] [chevron]`; the native disclosure
-   marker is hidden in favor of the right-aligned chevron. */
-.sidebar summary {
+.file-tree-directory {
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  padding: 0.25rem 0.25rem;
+  min-height: 28px;
+  padding-block: 0.25rem;
+  padding-inline-end: 0.25rem;
   font-weight: 600;
   font-size: 0.8rem;
   color: var(--mantine-color-dimmed);
-  cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
-  list-style: none;
 }
 
-.sidebar summary::-webkit-details-marker {
-  display: none;
-}
-
-.group-label {
+.file-tree-directory-label {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.file-tree-type-icon {
+  flex-shrink: 0;
+  color: var(--mantine-color-dimmed);
 }
 
 .group-action {
@@ -241,16 +238,6 @@ body,
   color: inherit;
 }
 
-.group-chevron {
-  flex-shrink: 0;
-  color: var(--mantine-color-dimmed);
-  transition: transform 120ms ease;
-}
-
-.sidebar details:not([open]) .group-chevron {
-  transform: rotate(-90deg);
-}
-
 .file-item {
   display: flex;
   align-items: center;
@@ -263,6 +250,21 @@ body,
 
 .file-item.active {
   background: var(--mantine-primary-color-light);
+}
+
+.file-tree-file[data-selected] {
+  background: var(--mantine-primary-color-light);
+  border-radius: 4px;
+}
+
+.file-tree-file[data-selected] .file-item.active {
+  background: transparent;
+}
+
+.file-item-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-left: 0.25rem;
 }
 
 .file-item-name {
@@ -422,11 +424,6 @@ body,
 
 .fullscreen-editor-pane > .pane-header .pane-header-actions {
   margin-left: auto;
-}
-
-.fullscreen-sidebar-toggle {
-  position: absolute;
-  right: 0.75rem;
 }
 
 /* Fullscreen keeps both navigation surfaces above the editor instead of

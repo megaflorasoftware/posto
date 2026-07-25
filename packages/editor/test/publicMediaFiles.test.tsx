@@ -7,7 +7,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import type { MediaLibrary } from "@posto/core/pagescms/config";
 import { MediaLibraryTabs, PUBLIC_MEDIA_TAB } from "../src/components/MediaLibraryTabs";
 import { FileMediaBrowser } from "../src/components/PublicMediaBrowser";
-import { isPublicMediaFile } from "../src/hooks/usePublicMediaFiles";
+import { directoriesContainingFiles, isPublicMediaFile } from "../src/hooks/usePublicMediaFiles";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 Object.defineProperty(window, "matchMedia", {
@@ -38,10 +38,11 @@ function library(collection: string): MediaLibrary {
 }
 
 describe("public media", () => {
-  test("shows explicit libraries first and public last", () => {
+  test("shows explicit libraries first, then src, and public last", () => {
     render(
       <MediaLibraryTabs
         libraries={[library("photos"), library("illustrations")]}
+        showSource
         selected={PUBLIC_MEDIA_TAB}
         onSelect={vi.fn()}
       />,
@@ -50,9 +51,24 @@ describe("public media", () => {
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
       "photos",
       "illustrations",
+      "src",
       "public",
     ]);
     expect(screen.getByRole("tab", { name: "public" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  test("only includes src directories that contain images", () => {
+    expect(
+      directoriesContainingFiles("/repo/src", [
+        { name: "hero.jpg", path: "/repo/src/assets/blog/hero.jpg" },
+        { name: "logo.svg", path: "/repo/src/components/brand/logo.svg" },
+      ]),
+    ).toEqual([
+      "/repo/src/assets",
+      "/repo/src/assets/blog",
+      "/repo/src/components",
+      "/repo/src/components/brand",
+    ]);
   });
 
   test("includes binary media formats while excluding text and code files", () => {

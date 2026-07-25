@@ -35,6 +35,7 @@ import {
   Sidebar,
   buildNewFile,
   createDataDocumentEntry,
+  defaultEditorTabForFile,
   deleteDataDocumentEntry,
   renameTargetForContent,
   useCurrentFile,
@@ -99,6 +100,10 @@ function App() {
   const [componentSchemaVersion, setComponentSchemaVersion] = useState(0);
   const [siteUrlVersion, setSiteUrlVersion] = useState(0);
 
+  useEffect(() => {
+    if (!developerMode) setEditorTab("content");
+  }, [developerMode]);
+
   // Latest values for callbacks that outlive the render they were created in.
   const rootRef = useRef(root);
   rootRef.current = root;
@@ -143,11 +148,7 @@ function App() {
       void renameForTemplate(path, content);
     },
     onOpened(path, content, file) {
-      if (file?.dataEntry) {
-        setEditorTab("content");
-        return;
-      }
-      if (!/\.(md|mdx|markdown)$/i.test(path)) setEditorTab("raw");
+      setEditorTab(defaultEditorTabForFile(path, file?.dataEntry));
       if (navigatePreviewRef.current) void preview.navigateForFile(path, content);
     },
     onOpenError(message) {

@@ -13,12 +13,16 @@ import {
 } from "@posto/core/pagescms/config";
 import { openPath, type FileGroup } from "@posto/ipc";
 import { refreshImageLibraryAssets, useImageLibraryAssets } from "../hooks/useImageLibraryAssets";
-import { chooseAndImportPublicMedia, usePublicMediaFiles } from "../hooks/usePublicMediaFiles";
+import {
+  chooseAndImportPublicMedia,
+  usePublicMediaFiles,
+  useSourceImageFiles,
+} from "../hooks/usePublicMediaFiles";
 import { markdownMediaKind, publicMediaOutputPath, type MarkdownMediaPick } from "../markdownMedia";
 import { Dialog } from "./Dialog";
 import { ImageLibraryImportDialog } from "./ImageLibraryImportDialog";
 import { ImageLibraryPickerDialog } from "./ImageLibraryPickerDialog";
-import { MediaLibraryTabs, PUBLIC_MEDIA_TAB } from "./MediaLibraryTabs";
+import { MediaLibraryTabs, PUBLIC_MEDIA_TAB, SOURCE_MEDIA_TAB } from "./MediaLibraryTabs";
 import { PublicMediaBrowser } from "./PublicMediaBrowser";
 
 function defaultMedia(library: MediaLibrary): MediaEntry {
@@ -178,10 +182,46 @@ function PublicGrid(props: {
   );
 }
 
+function SourceGrid(props: {
+  root: string;
+  documentPath: string;
+  media: MediaEntry;
+  toolbar: ReactNode;
+  onClose: () => void;
+  onPick: (media: MarkdownMediaPick) => void;
+}) {
+  const state = useSourceImageFiles(props.root);
+  const [currentDirectory, setCurrentDirectory] = useState("");
+  const pick = (path: string, name: string) => {
+    const outputPath = mediaOutputPath(props.root, props.media, path, props.documentPath);
+    if (!outputPath) return;
+    props.onPick({ outputPath, sourcePath: path, label: name, kind: "image" });
+  };
+  return (
+    <Dialog opened onClose={props.onClose} title="Choose from src" size="xl">
+      {state.error && (
+        <Alert color="red" mb="sm">
+          Could not read src images: {state.error}
+        </Alert>
+      )}
+      <PublicMediaBrowser
+        rootDirectory={state.sourceRoot}
+        currentDirectory={currentDirectory}
+        directories={state.directories}
+        files={state.files}
+        toolbar={props.toolbar}
+        onDirectoryChange={setCurrentDirectory}
+        onPick={(file) => pick(file.path, file.name)}
+      />
+    </Dialog>
+  );
+}
+
 /** Media insertion for Markdown/MDX bodies. Images use Markdown image syntax,
  * audio/video use CommonMark raw HTML, and other public files use links. */
 export function RichTextImagePickerDialog(props: {
   root: string;
+  documentPath: string;
   config: PagesConfig;
   configuredMedia: MediaEntry | null;
   templateValues: Record<string, unknown>;
@@ -192,6 +232,8 @@ export function RichTextImagePickerDialog(props: {
   onPick: (media: MarkdownMediaPick) => void;
 }) {
   const libraries = props.config.mediaLibraries ?? [];
+  const sourceMedia =
+    props.config.media.find((media) => media.relative && media.input === "src") ?? null;
   const expandedMedia = props.configuredMedia
     ? expandMediaEntry(props.configuredMedia, props.templateValues)
     : null;
@@ -204,13 +246,18 @@ export function RichTextImagePickerDialog(props: {
         ? (libraries[0]?.collection ?? PUBLIC_MEDIA_TAB)
         : props.configuredMedia
           ? PUBLIC_MEDIA_TAB
-          : (libraries[0]?.collection ?? PUBLIC_MEDIA_TAB)),
+          : (libraries[0]?.collection ?? (sourceMedia ? SOURCE_MEDIA_TAB : PUBLIC_MEDIA_TAB))),
   );
   const selected = libraries.find((library) => library.collection === selectedCollection) ?? null;
-  const effectiveSelection = selected ? selectedCollection : PUBLIC_MEDIA_TAB;
+  const effectiveSelection = selected
+    ? selectedCollection
+    : selectedCollection === SOURCE_MEDIA_TAB && sourceMedia
+      ? SOURCE_MEDIA_TAB
+      : PUBLIC_MEDIA_TAB;
   const toolbar = (
     <MediaLibraryTabs
       libraries={libraries}
+      showSource={!!sourceMedia}
       selected={effectiveSelection}
       onSelect={setSelectedCollection}
     />
@@ -231,6 +278,19 @@ export function RichTextImagePickerDialog(props: {
         groups={props.groups}
         toolbar={toolbar}
         importSourcePaths={props.importSourcePaths}
+        onClose={props.onClose}
+        onPick={props.onPick}
+      />
+    );
+  }
+
+  if (effectiveSelection === SOURCE_MEDIA_TAB && sourceMedia) {
+    return (
+      <SourceGrid
+        root={props.root}
+        documentPath={props.documentPath}
+        media={sourceMedia}
+        toolbar={toolbar}
         onClose={props.onClose}
         onPick={props.onPick}
       />

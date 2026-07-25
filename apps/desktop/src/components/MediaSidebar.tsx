@@ -14,6 +14,7 @@ import {
   MoveImageLibraryAssetsDialog,
   MoveFileMediaItemsDialog,
   PUBLIC_MEDIA_TAB,
+  SOURCE_MEDIA_TAB,
   PublicMediaBrowser,
   chooseAndImportPublicMedia,
   droppedImageDirectory,
@@ -21,6 +22,7 @@ import {
   refreshImageLibraryAssets,
   useImageLibraryAssets,
   usePublicMediaFiles,
+  useSourceImageFiles,
   markdownMediaKind,
   moveFileMediaItems,
   moveImageLibraryItems,
@@ -31,6 +33,44 @@ import {
 } from "@posto/editor";
 import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
 import { importPublicMediaFile, onFileDrop, type FileEntry, type FileGroup } from "@posto/ipc";
+
+function SourceMediaBrowserContent(props: { root: string; tabs: ReactNode }) {
+  const state = useSourceImageFiles(props.root);
+  const [currentDirectory, setCurrentDirectory] = useState("");
+  const mediaForFile = (file: FileEntry): MarkdownMediaPick => ({
+    outputPath: file.path,
+    sourcePath: file.path,
+    label: file.name,
+    kind: "image",
+  });
+  return (
+    <div className="media-drawer" data-media-pane-directory={currentDirectory}>
+      <div className="media-drawer-scroll">
+        {state.error && (
+          <Alert color="red" mb="sm">
+            Could not read src images: {state.error}
+          </Alert>
+        )}
+        <PublicMediaBrowser
+          rootDirectory={state.sourceRoot}
+          currentDirectory={currentDirectory}
+          directories={state.directories}
+          files={state.files}
+          toolbar={props.tabs}
+          onDirectoryChange={setCurrentDirectory}
+          dragPayload={(file) => ({
+            media: [mediaForFile(file)],
+            source: {
+              kind: "media-sidebar",
+              scope: "src",
+              items: [{ id: file.path, kind: "image" }],
+            },
+          })}
+        />
+      </div>
+    </div>
+  );
+}
 
 /** Browses one library's directories and assets (read-only, like the import
  * picker) with a sticky Import action — the desktop mirror of the mobile
@@ -687,12 +727,20 @@ function MediaBrowserContent(props: {
   onBeforeChange: () => Promise<void>;
   onChanged: (options?: { silent?: boolean }) => void;
 }) {
-  const [selected, setSelected] = useState(props.libraries[0]?.collection ?? PUBLIC_MEDIA_TAB);
+  const showSource = props.config.media.some((media) => media.relative && media.input === "src");
+  const [selected, setSelected] = useState(
+    props.libraries[0]?.collection ?? (showSource ? SOURCE_MEDIA_TAB : PUBLIC_MEDIA_TAB),
+  );
   const library = props.libraries.find((candidate) => candidate.collection === selected);
-  const effectiveSelected = library ? selected : PUBLIC_MEDIA_TAB;
+  const effectiveSelected = library
+    ? selected
+    : selected === SOURCE_MEDIA_TAB && showSource
+      ? SOURCE_MEDIA_TAB
+      : PUBLIC_MEDIA_TAB;
   const tabs = (
     <MediaLibraryTabs
       libraries={props.libraries}
+      showSource={showSource}
       selected={effectiveSelected}
       onSelect={setSelected}
     />
@@ -708,6 +756,8 @@ function MediaBrowserContent(props: {
       onBeforeChange={props.onBeforeChange}
       onChanged={props.onChanged}
     />
+  ) : effectiveSelected === SOURCE_MEDIA_TAB ? (
+    <SourceMediaBrowserContent key={SOURCE_MEDIA_TAB} root={props.root} tabs={tabs} />
   ) : (
     <PublicMediaBrowserContent
       key={PUBLIC_MEDIA_TAB}

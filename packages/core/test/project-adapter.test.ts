@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { astroAdapter } from "../src/project/astro";
 import { eleventyAdapter, genericAdapter } from "../src/project/generic";
-import { invalidationScopesForPaths } from "../src/project/adapter";
+import { invalidationScopesForPaths, routesEqual } from "../src/project/adapter";
 
 test("Astro routes are adapter-owned", () => {
   expect(astroAdapter.routeForFile("/site", "/site/src/pages/about.mdx", "")).toEqual({
@@ -16,6 +16,12 @@ test("Astro routes are adapter-owned", () => {
     ),
   ).toEqual({ route: "/posts/welcome", certain: false });
   expect(genericAdapter.routeForFile("/site", "/site/src/pages/about.mdx", "")).toBeNull();
+});
+
+test("preview routes ignore a trailing slash", () => {
+  expect(routesEqual("/blog/first-post", "/blog/first-post/")).toBe(true);
+  expect(routesEqual("/", "/")).toBe(true);
+  expect(routesEqual("/blog/first-post", "/blog/second-post/")).toBe(false);
 });
 
 test("Astro owns its entry id behavior", () => {

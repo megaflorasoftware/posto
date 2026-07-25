@@ -17,7 +17,9 @@ function errorMessage(error: unknown): string {
 export function ImagePicker(props: {
   root: string;
   media: MediaEntry;
+  documentPath?: string;
   onClose: () => void;
+  onClear?: () => void;
   onPick: (outputPath: string) => void;
 }) {
   const [files, setFiles] = useState<FileEntry[] | null>(null);
@@ -53,7 +55,12 @@ export function ImagePicker(props: {
         ) : (
           <div className="picker-grid">
             {files.map((file) => {
-              const output = mediaOutputPath(props.root, props.media, file.path);
+              const output = mediaOutputPath(
+                props.root,
+                props.media,
+                file.path,
+                props.documentPath,
+              );
               return (
                 <button
                   key={file.path}
@@ -76,9 +83,15 @@ export function ImagePicker(props: {
             })}
           </div>
         ))}
-      <Button fullWidth variant="light" mt="sm" onClick={() => void openPath(dir)}>
-        Open Media Folder
-      </Button>
+      {props.onClear ? (
+        <Button fullWidth variant="outline" color="red" mt="sm" onClick={props.onClear}>
+          Clear Image Selection
+        </Button>
+      ) : (
+        <Button fullWidth variant="light" mt="sm" onClick={() => void openPath(dir)}>
+          Open Media Folder
+        </Button>
+      )}
     </Dialog>
   );
 }
