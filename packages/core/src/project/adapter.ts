@@ -23,6 +23,14 @@ export interface FileRoute {
   certain: boolean;
 }
 
+/** Astro and other static-site generators commonly serve both `/post` and
+ * `/post/`. Treat those spellings as the same page when syncing preview
+ * navigation back to a source file. */
+export function routesEqual(left: string, right: string): boolean {
+  const normalized = (route: string) => (route === "/" ? route : route.replace(/\/+$/, ""));
+  return normalized(left) === normalized(right);
+}
+
 export interface SiteUrlSource {
   path: string;
   extract(source: string): string | null;

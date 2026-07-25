@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@posto/ipc";
 import type { FileGroup } from "@posto/ipc";
-import type { ProjectAdapter } from "@posto/core/project/adapter";
+import { routesEqual, type ProjectAdapter } from "@posto/core/project/adapter";
 import type { ServerStatus } from "./useDevServer";
 
 type Options = {
@@ -93,7 +93,7 @@ export function usePreview(options: Options) {
   async function navigateForFile(path: string, content: string) {
     const root = opts.current.root;
     const match = root ? opts.current.adapter.routeForFile(root, path, content) : null;
-    if (!match || match.route === previewRouteRef.current) return;
+    if (!match || routesEqual(match.route, previewRouteRef.current)) return;
     if (!(await routeServes(match.route, match.certain))) return;
     // Bail if the user already opened another file during the check.
     if (opts.current.filePathRef.current === path) setPreviewRoute(match.route);
@@ -109,7 +109,10 @@ export function usePreview(options: Options) {
     for (const group of opts.current.groupsRef.current) {
       for (const file of group.files) {
         const root = opts.current.root;
-        if (root && opts.current.adapter.routeForFile(root, file.path, "")?.route === route) {
+        const fileRoute = root
+          ? opts.current.adapter.routeForFile(root, file.path, "")?.route
+          : null;
+        if (fileRoute && routesEqual(fileRoute, route)) {
           return file.path;
         }
       }
@@ -129,7 +132,7 @@ export function usePreview(options: Options) {
       if (route === lastServedRoute.current) return;
       lastServedRoute.current = route;
       if (route) setServedRoute(route);
-      if (!route || route === previewRouteRef.current) return;
+      if (!route || routesEqual(route, previewRouteRef.current)) return;
       // The user navigated inside the preview: sync route state without
       // re-navigating the iframe, and select the matching file.
       lastNavigatedRoute.current = route;

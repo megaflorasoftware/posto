@@ -17,6 +17,7 @@ import {
 import type { EntryIdSource } from "@posto/core/project/entryIds";
 import { expandEntryName } from "@posto/core/posto/config";
 import { applyCollectionPrefs } from "../collectionPrefs";
+import { dateControlValue, dateValueFromControl } from "../dateValues";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 import type { Errors } from "@posto/core/pagescms/validate";
 import type { FileEntry, FileGroup } from "@posto/ipc";
@@ -265,10 +266,29 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
           />
         );
       case "date":
+        if (!field.options?.time) {
+          const rawValue = asString(value);
+          const controlValue = dateControlValue(rawValue);
+          const nativeControl = rawValue === "" || controlValue !== "";
+          return (
+            <TextInput
+              size="xs"
+              type={nativeControl ? "date" : "text"}
+              value={nativeControl ? controlValue : rawValue}
+              onChange={(event) =>
+                editText(
+                  nativeControl
+                    ? dateValueFromControl(event.currentTarget.value, rawValue)
+                    : event.currentTarget.value,
+                )
+              }
+            />
+          );
+        }
         return (
           <TextInput
             size="xs"
-            type={field.options?.time ? "datetime-local" : "date"}
+            type="datetime-local"
             value={asString(value)}
             onChange={(e) => {
               let raw = e.currentTarget.value;
