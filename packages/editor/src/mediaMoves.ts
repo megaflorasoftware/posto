@@ -124,6 +124,8 @@ export async function moveFileMediaItems(input: {
   }
   const referencePlan = await planMarkdownMediaReferenceUpdates({
     groups: input.groups,
+    root: input.root,
+    relocations: [...relocationTargets].map(([from, to]) => ({ from, to })),
     replacements: markdownReferenceReplacements(
       input.root,
       [...relocationTargets].map(([from, to]) => ({ from, to })),

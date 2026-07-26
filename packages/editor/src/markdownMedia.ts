@@ -1,3 +1,4 @@
+import { relativeMediaPath } from "@posto/core/pagescms/config";
 import { normalizeFilePath } from "./filePaths";
 
 export type MarkdownMediaKind = "image" | "audio" | "video" | "link";
@@ -63,6 +64,16 @@ export function publicMediaOutputPath(root: string, absolutePath: string): strin
     : normalizedPath.startsWith(prefix);
   if (!matches) return null;
   return `/${normalizedPath.slice(prefix.length).split("/").map(encodePathSegment).join("/")}`;
+}
+
+/** Returns the path a Markdown/MDX document should store for an on-disk asset.
+ * Public files are site-root URLs; all other files are document-relative. */
+export function markdownMediaOutputPath(
+  root: string,
+  documentPath: string,
+  absolutePath: string,
+): string {
+  return publicMediaOutputPath(root, absolutePath) ?? relativeMediaPath(documentPath, absolutePath);
 }
 
 function escapeHtmlAttribute(value: string): string {

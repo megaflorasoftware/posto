@@ -72,6 +72,8 @@ export function FileMediaEditDialog(props: {
       await props.onBeforeChange();
       const referencePlan = await planMarkdownMediaReferenceUpdates({
         groups: props.groups,
+        root: props.root,
+        relocations: [{ from: sourcePath, to: targetPath }],
         replacements: markdownReferenceReplacements(props.root, [
           { from: sourcePath, to: targetPath },
         ]),
