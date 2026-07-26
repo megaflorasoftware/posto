@@ -372,6 +372,7 @@ export default function RepoHome({
       await onRedownloadRepo();
     } catch (removeError) {
       setRepairError(`Could not remove the damaged repository: ${message(removeError)}`);
+    } finally {
       setRedownloading(false);
     }
   }

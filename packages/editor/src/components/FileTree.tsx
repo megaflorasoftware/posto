@@ -94,7 +94,7 @@ export function FileTree(props: {
 }) {
   const data = useMemo(() => fileTreeData(props.nodes), [props.nodes]);
   const rootDirectories = useMemo(
-    () => data.filter((node) => nodeProps(node).type === "directory").map((node) => node.value),
+    () => data.flatMap((node) => (nodeProps(node).type === "directory" ? [node.value] : [])),
     [data],
   );
   const [expandedState, setExpandedState] = useState(() =>
