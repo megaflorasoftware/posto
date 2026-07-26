@@ -169,37 +169,39 @@ export function imageGapLocation(
       const left = group[index];
       const right = group[index + 1];
       if (!hasOnlyWhitespaceBetween(left, right)) continue;
+      const leftRect = left.rect;
+      const rightRect = right.rect;
       const leftCenter = {
-        x: left.rect.left + left.rect.width / 2,
-        y: left.rect.top + left.rect.height / 2,
+        x: leftRect.left + leftRect.width / 2,
+        y: leftRect.top + leftRect.height / 2,
       };
       const rightCenter = {
-        x: right.rect.left + right.rect.width / 2,
-        y: right.rect.top + right.rect.height / 2,
+        x: rightRect.left + rightRect.width / 2,
+        y: rightRect.top + rightRect.height / 2,
       };
       const verticalOverlap =
-        Math.min(left.rect.bottom, right.rect.bottom) - Math.max(left.rect.top, right.rect.top);
-      const sameRow = verticalOverlap >= Math.min(left.rect.height, right.rect.height) * 0.4;
+        Math.min(leftRect.bottom, rightRect.bottom) - Math.max(leftRect.top, rightRect.top);
+      const sameRow = verticalOverlap >= Math.min(leftRect.height, rightRect.height) * 0.4;
       if (
         sameRow &&
         inRange(pointer.x, leftCenter.x, rightCenter.x) &&
         inRange(
           pointer.y,
-          Math.min(left.rect.top, right.rect.top),
-          Math.max(left.rect.bottom, right.rect.bottom),
+          Math.min(leftRect.top, rightRect.top),
+          Math.max(leftRect.bottom, rightRect.bottom),
           12,
         )
       ) {
-        const caretLeft = (left.rect.right + right.rect.left) / 2;
+        const caretLeft = (leftRect.right + rightRect.left) / 2;
         gaps.push({
           location: {
             pos: right.pos,
             left: caretLeft,
-            top: Math.min(left.rect.top, right.rect.top),
+            top: Math.min(leftRect.top, rightRect.top),
             width: 3,
             height:
-              Math.max(left.rect.bottom, right.rect.bottom) -
-              Math.min(left.rect.top, right.rect.top),
+              Math.max(leftRect.bottom, rightRect.bottom) -
+              Math.min(leftRect.top, rightRect.top),
             orientation: "vertical",
             blockBoundary: false,
           },
