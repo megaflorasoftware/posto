@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Popover, Stack, Text } from "@mantine/core";
 import { SlidersHorizontal, TriangleAlert } from "lucide-react";
 import type { FileEntry, FileGroup } from "@posto/ipc";
@@ -279,7 +279,7 @@ export function SchemaDiagnostics({ config }: { config: PagesConfig | null }) {
   );
 }
 
-export function Sidebar(props: {
+type SidebarProps = {
   root: string;
   groups: FileGroup[];
   config: PagesConfig | null;
@@ -291,7 +291,13 @@ export function Sidebar(props: {
   developerMode?: boolean;
   /** `.posto` settings were saved; reload the overlay. */
   onPostoSaved: () => void;
-}) {
+};
+
+export function Sidebar(props: SidebarProps) {
+  return <SidebarContent key={String(props.developerMode === true)} {...props} />;
+}
+
+function SidebarContent(props: SidebarProps) {
   const { root, groups, config } = props;
   const developerMode = props.developerMode === true;
 
@@ -302,12 +308,6 @@ export function Sidebar(props: {
     files: FileEntry[];
   } | null>(null);
   const [orderOpen, setOrderOpen] = useState(false);
-
-  useEffect(() => {
-    if (developerMode) return;
-    setSettingsFor(null);
-    setOrderOpen(false);
-  }, [developerMode]);
 
   const displayTree = useMemo(
     () => sidebarDisplayTree(groups, config, root),

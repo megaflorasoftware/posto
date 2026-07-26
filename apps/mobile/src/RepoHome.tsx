@@ -108,7 +108,7 @@ export default function RepoHome({
 }: Props) {
   const [root, setWorkDir] = useState(repoRoot);
   const [workspaceCandidates, setWorkspaceCandidates] = useState<ProjectCandidate[] | null>(null);
-  const [workspaceChooserFromSettings, setWorkspaceChooserFromSettings] = useState(false);
+  const workspaceChooserFromSettings = useRef(false);
   const [browsingWorkspace, setBrowsingWorkspace] = useState(false);
   const [loading, setLoading] = useState(true);
   const selectionGenerationRef = useRef(0);
@@ -187,7 +187,7 @@ export default function RepoHome({
         currentFile.closeFile();
         projectSession.clear();
         setShowEditor(false);
-        setWorkspaceChooserFromSettings(false);
+        workspaceChooserFromSettings.current = false;
         setBrowsingWorkspace(false);
         setWorkspaceCandidates(candidates);
         return;
@@ -261,7 +261,7 @@ export default function RepoHome({
         if (!active || generation !== selectionGenerationRef.current) return;
         if (decision.kind === "choose") {
           if (active) {
-            setWorkspaceChooserFromSettings(false);
+            workspaceChooserFromSettings.current = false;
             setWorkspaceCandidates(decision.candidates);
           }
           return;
@@ -298,7 +298,7 @@ export default function RepoHome({
       const selectedAdapter = activation.adapter;
       setWorkDir(selectedRoot);
       setWorkspaceCandidates(null);
-      setWorkspaceChooserFromSettings(false);
+      workspaceChooserFromSettings.current = false;
       setBrowsingWorkspace(false);
       void invoke("set_last_root", { root: repoRoot, workDir: selectedRoot });
       await refreshRepositoryContent(selectedRoot, selectedAdapter);
@@ -312,7 +312,7 @@ export default function RepoHome({
   async function openWorkspaceChooser() {
     try {
       const scan = await projectSession.scanRepository(repoRoot);
-      setWorkspaceChooserFromSettings(true);
+      workspaceChooserFromSettings.current = true;
       setWorkspaceCandidates(workspaceProjects(repoRoot, scan));
       setShowSettings(false);
     } catch (workspaceError) {
@@ -556,9 +556,9 @@ export default function RepoHome({
   function navigateBack() {
     if (workspaceCandidates && browsingWorkspace) {
       setBrowsingWorkspace(false);
-    } else if (workspaceCandidates && workspaceChooserFromSettings) {
+    } else if (workspaceCandidates && workspaceChooserFromSettings.current) {
       setWorkspaceCandidates(null);
-      setWorkspaceChooserFromSettings(false);
+      workspaceChooserFromSettings.current = false;
       setShowSettings(true);
     } else if (showEditor || showSettings || showDeployments || showMedia) {
       closeSecondaryView();
