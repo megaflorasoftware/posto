@@ -986,29 +986,41 @@ export function BodyEditor(props: {
         .sort((left, right) => right.media.output.length - left.media.output.length)
         .find((candidate) => outputContains(candidate.media.output, editingImage.src)) ?? null)
     : null;
+  const mdxFieldEnvironment = useMemo(
+    () => ({
+      editorId: props.path,
+      config: props.config,
+      root: props.root,
+      groups: props.groups,
+      entryIds: props.entryIds,
+      entry: props.entry ?? null,
+      templateValues: props.templateValues,
+    }),
+    [
+      props.path,
+      props.config,
+      props.root,
+      props.groups,
+      props.entryIds,
+      props.entry,
+      props.templateValues,
+    ],
+  );
+  const editableImageEnvironment = useMemo(
+    () => ({
+      editorId: props.path,
+      resolveSrc: (src: string) => resolveRef.current(src),
+      edit: setEditingImage,
+    }),
+    [props.path],
+  );
 
   return (
     // Component-card node views render through portals inside the content
     // element, so these providers reach them.
     <MdxSchemaContext.Provider value={schemas}>
-      <MdxFieldEnvContext.Provider
-        value={{
-          editorId: props.path,
-          config: props.config,
-          root: props.root,
-          groups: props.groups,
-          entryIds: props.entryIds,
-          entry: props.entry ?? null,
-          templateValues: props.templateValues,
-        }}
-      >
-        <EditableImageContext.Provider
-          value={{
-            editorId: props.path,
-            resolveSrc: (src) => resolveRef.current(src),
-            edit: setEditingImage,
-          }}
-        >
+      <MdxFieldEnvContext.Provider value={mdxFieldEnvironment}>
+        <EditableImageContext.Provider value={editableImageEnvironment}>
           <RichTextEditor
             editor={editor}
             className="body-rich-editor"

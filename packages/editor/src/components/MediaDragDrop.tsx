@@ -1,4 +1,12 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   DndContext,
   DragOverlay,
@@ -234,6 +242,10 @@ export function MediaDragDropProvider(props: { children: ReactNode }) {
   const [activeSource, setActiveSource] = useState<MediaDragSource | null>(null);
   const [activeBodyNode, setActiveBodyNode] = useState<BodyNodeDragData | null>(null);
   const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
+  const contextValue = useMemo(
+    () => ({ activeMedia, activeItems, activeSource, activeBodyNode, pointer }),
+    [activeMedia, activeItems, activeSource, activeBodyNode, pointer],
+  );
   const startPointer = useRef<{ x: number; y: number } | null>(null);
   const livePointer = useRef<{ x: number; y: number } | null>(null);
   const dragSource = useRef<MediaDragSource | null>(null);
@@ -345,9 +357,7 @@ export function MediaDragDropProvider(props: { children: ReactNode }) {
         clearDrag();
       }}
     >
-      <MediaDragContext.Provider
-        value={{ activeMedia, activeItems, activeSource, activeBodyNode, pointer }}
-      >
+      <MediaDragContext.Provider value={contextValue}>
         {props.children}
         <DragOverlay dropAnimation={null}>
           {activeItems.length > 0 ? (
