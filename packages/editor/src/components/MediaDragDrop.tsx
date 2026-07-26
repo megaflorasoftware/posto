@@ -3,8 +3,8 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
-  useState,
   type ReactNode,
 } from "react";
 import {
@@ -237,11 +237,21 @@ function pointerFromEvent(event: Event): { x: number; y: number } | null {
 
 /** App-level dnd-kit context for sidebar media and editor/field drop zones. */
 export function MediaDragDropProvider(props: { children: ReactNode }) {
-  const [activeMedia, setActiveMedia] = useState<MarkdownMediaPick | null>(null);
-  const [activeItems, setActiveItems] = useState<MediaDragItem[]>([]);
-  const [activeSource, setActiveSource] = useState<MediaDragSource | null>(null);
-  const [activeBodyNode, setActiveBodyNode] = useState<BodyNodeDragData | null>(null);
-  const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
+  const initialDragState = {
+    activeMedia: null as MarkdownMediaPick | null,
+    activeItems: [] as MediaDragItem[],
+    activeSource: null as MediaDragSource | null,
+    activeBodyNode: null as BodyNodeDragData | null,
+    pointer: null as { x: number; y: number } | null,
+  };
+  const [dragState, updateDragState] = useReducer(
+    (current: typeof initialDragState, update: Partial<typeof initialDragState>) => ({
+      ...current,
+      ...update,
+    }),
+    initialDragState,
+  );
+  const { activeMedia, activeItems, activeSource, activeBodyNode, pointer } = dragState;
   const contextValue = useMemo(
     () => ({ activeMedia, activeItems, activeSource, activeBodyNode, pointer }),
     [activeMedia, activeItems, activeSource, activeBodyNode, pointer],
@@ -267,11 +277,7 @@ export function MediaDragDropProvider(props: { children: ReactNode }) {
     dragSource.current = null;
     dragSourcePosition.current = undefined;
     bodyNodeSourcePosition.current = undefined;
-    setPointer(null);
-    setActiveMedia(null);
-    setActiveItems([]);
-    setActiveSource(null);
-    setActiveBodyNode(null);
+    updateDragState(initialDragState);
   };
 
   // dnd-kit owns the drag lifecycle; keep the actual pointer separately so
@@ -281,7 +287,7 @@ export function MediaDragDropProvider(props: { children: ReactNode }) {
     const updatePointer = (event: PointerEvent) => {
       const next = { x: event.clientX, y: event.clientY };
       livePointer.current = next;
-      setPointer(next);
+      updateDragState({ pointer: next });
     };
     window.addEventListener("pointermove", updatePointer);
     return () => window.removeEventListener("pointermove", updatePointer);
@@ -301,14 +307,16 @@ export function MediaDragDropProvider(props: { children: ReactNode }) {
         dragSourcePosition.current =
           source?.kind === "body-image" ? source.getPosition() : undefined;
         bodyNodeSourcePosition.current = bodyNode?.source.getPosition();
-        setPointer(start);
         const selection = draggedSelection(event.active.data.current);
-        setActiveMedia(selection.media[0] ?? null);
-        setActiveItems(selection.items);
-        setActiveSource(source);
-        setActiveBodyNode(bodyNode);
+        updateDragState({
+          pointer: start,
+          activeMedia: selection.media[0] ?? null,
+          activeItems: selection.items,
+          activeSource: source,
+          activeBodyNode: bodyNode,
+        });
       }}
-      onDragMove={(event) => setPointer(pointerForEvent(event))}
+      onDragMove={(event) => updateDragState({ pointer: pointerForEvent(event) })}
       onDragCancel={clearDrag}
       onDragEnd={(event) => {
         const selection = draggedSelection(event.active.data.current);

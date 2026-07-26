@@ -48,15 +48,16 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
 
   /** Fetches the remote and updates the behind-upstream flag. Errors (no
    * remote/upstream, offline) just mean there is nothing to fetch. */
-  async function checkUpstream() {
+  function checkUpstream(): Promise<void> {
     const dir = rootRef.current;
-    if (!dir) return;
-    try {
-      const behind = await invoke<boolean>("fetch_upstream", { root: dir });
-      if (rootRef.current === dir) setBehindUpstream(behind);
-    } catch {
-      if (rootRef.current === dir) setBehindUpstream(false);
-    }
+    if (!dir) return Promise.resolve();
+    return invoke<boolean>("fetch_upstream", { root: dir })
+      .then((behind) => {
+        if (rootRef.current === dir) setBehindUpstream(behind);
+      })
+      .catch(() => {
+        if (rootRef.current === dir) setBehindUpstream(false);
+      });
   }
 
   // Poll the remote so the header can offer "Fetch Changes" soon after
