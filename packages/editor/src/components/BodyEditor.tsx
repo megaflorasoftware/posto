@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useReducer,
@@ -520,11 +521,13 @@ export function BodyEditor(props: {
 
   // MDX only: leading imports live here, not in the document. The initial
   // split runs once — the component remounts per file (keyed upstream).
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const initial = useMemo(
-    () => (mdx ? splitLeadingImports(props.value) : { imports: [], body: props.value }),
-    [],
-  );
+  const initialRef = useRef<ReturnType<typeof splitLeadingImports> | null>(null);
+  if (initialRef.current === null) {
+    initialRef.current = mdx
+      ? splitLeadingImports(props.value)
+      : { imports: [], body: props.value };
+  }
+  const initial = initialRef.current;
   const initialImports = useMemo(() => toManagedImports(initial.imports, initial.body), [initial]);
   const importsRef = useRef<ManagedImport[]>(initialImports);
 
@@ -826,11 +829,12 @@ export function BodyEditor(props: {
     onMediaDrop: (media, _event, details) => insertOrMoveImages(media, details),
     onBodyNodeDrop: (source, _event, details) => moveBodyNode(source, details),
   });
+  const locateDropForEffect = useEffectEvent(dropLocationAtPointer);
 
   useLayoutEffect(() => {
     const container = bodyDropContainer.current;
     const activeSource = bodyDrop.activeBodySource ?? bodyDrop.activeMediaSource;
-    const location = dropLocationAtPointer(bodyDrop.pointer, activeSource);
+    const location = locateDropForEffect(bodyDrop.pointer, activeSource);
     if (!editor || !container || !bodyDrop.isAccepting || location === null) {
       dropLocationRef.current = null;
       setDropCaret(null);
@@ -862,7 +866,7 @@ export function BodyEditor(props: {
     if (next.body === editor.getMarkdown()) return;
     editor.commands.setContent(next.body, { contentType: "markdown", emitUpdate: false });
     editor.view.dom.dataset.empty = editor.isEmpty ? "true" : "false";
-  }, [editor, props.value]);
+  }, [editor, props.value, mdx]);
 
   // The active adapter owns component discovery and prop parsing. The editor
   // only consumes neutral fields and slot metadata for components imported by

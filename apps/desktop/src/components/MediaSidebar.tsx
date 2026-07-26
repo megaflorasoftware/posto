@@ -506,7 +506,14 @@ function PublicMediaBrowserContent(props: {
         accepts: (paths, details) => droppedDirectory(paths, details.pointer) !== null,
       },
     );
-  }, [currentDirectory, importing, props.root, state.publicRoot]);
+  }, [
+    currentDirectory,
+    importing,
+    props.root,
+    props.onChanged,
+    state.publicRoot,
+    state.refresh,
+  ]);
   const mediaForFile = (file: FileEntry): MarkdownMediaPick | null => {
     if (markdownMediaKind(file.path) !== "image") return null;
     const outputPath = publicMediaOutputPath(props.root, file.path);
