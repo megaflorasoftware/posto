@@ -40,9 +40,11 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
   const changedFilesRef = useRef<{ root: string; files: ChangedFile[] } | null>(null);
 
   const rootRef = useRef(root);
-  rootRef.current = root;
   const cb = useRef(callbacks);
-  cb.current = callbacks;
+  useEffect(() => {
+    rootRef.current = root;
+    cb.current = callbacks;
+  });
 
   /** Fetches the remote and updates the behind-upstream flag. Errors (no
    * remote/upstream, offline) just mean there is nothing to fetch. */

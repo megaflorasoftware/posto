@@ -560,7 +560,9 @@ export function BodyEditor(props: {
     );
   };
   const resolveRef = useRef(resolveSrc);
-  resolveRef.current = resolveSrc;
+  useEffect(() => {
+    resolveRef.current = resolveSrc;
+  });
 
   const extensions = useMemo(
     () => [

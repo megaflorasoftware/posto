@@ -798,6 +798,10 @@ function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContex
   if (props.field.options?.idScheme === "framework" && props.ctx.entryIds && imageLibrary) {
     return <ImageLibraryReferenceField {...props} library={imageLibrary} />;
   }
+  return <FileReferenceField {...props} />;
+}
+
+function FileReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
   const collection = props.ctx.config.content.find(
     (entry) => entry.type === "collection" && entry.name === props.field.options?.collection,
   );

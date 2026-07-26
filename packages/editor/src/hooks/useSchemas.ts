@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { parsePagesConfig, type PagesConfig } from "@posto/core/pagescms/config";
 import type { ProjectAdapter, ProjectIO } from "@posto/core/project/adapter";
 import {
@@ -48,9 +48,11 @@ export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
   const generationRef = useRef(0);
   const activeSourceRef = useRef<{ dir: string; adapterType: string } | null>(null);
   const adapterRef = useRef(adapter);
-  adapterRef.current = adapter;
   const ioRef = useRef(io);
-  ioRef.current = io;
+  useEffect(() => {
+    adapterRef.current = adapter;
+    ioRef.current = io;
+  }, [adapter, io]);
   const [pagesConfig, setPagesConfig] = useState<PagesConfig | null>(null);
   const pagesConfigRef = useRef<PagesConfig | null>(null);
   // Fallback schemas derived from Astro content collections; `.pages.yml`
@@ -254,7 +256,9 @@ export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
     [pagesConfig, derivedConfig, postoConfig, adapter.defaultMedia],
   );
   const configRef = useRef(config);
-  configRef.current = config;
+  useEffect(() => {
+    configRef.current = config;
+  }, [config]);
   const configError = Object.values(configErrors).join(" ") || null;
 
   return {

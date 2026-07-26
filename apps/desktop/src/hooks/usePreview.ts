@@ -31,9 +31,11 @@ export function usePreview(options: Options) {
   const [split, setSplit] = useState(40);
 
   const previewRouteRef = useRef(previewRoute);
-  previewRouteRef.current = previewRoute;
   const opts = useRef(options);
-  opts.current = options;
+  useEffect(() => {
+    previewRouteRef.current = previewRoute;
+    opts.current = options;
+  });
 
   const previewFrame = useRef<HTMLIFrameElement | null>(null);
   const lastNavigatedRoute = useRef<string | undefined>(undefined);

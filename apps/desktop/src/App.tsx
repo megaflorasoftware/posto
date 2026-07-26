@@ -106,10 +106,12 @@ function App() {
 
   // Latest values for callbacks that outlive the render they were created in.
   const rootRef = useRef(root);
-  rootRef.current = root;
   const fullscreenEditorOpenRef = useRef(fullscreenEditorOpen);
-  fullscreenEditorOpenRef.current = fullscreenEditorOpen;
   const selectionGenerationRef = useRef(0);
+  useEffect(() => {
+    rootRef.current = root;
+    fullscreenEditorOpenRef.current = fullscreenEditorOpen;
+  }, [root, fullscreenEditorOpen]);
 
   const schemas = useSchemas(adapter, ipcProjectIO);
   const notify = useCallback((message: string, severity: "progress" | "success" | "error") => {
@@ -468,11 +470,13 @@ function App() {
   }
 
   const externalChangesRef = useRef(onExternalChanges);
-  externalChangesRef.current = onExternalChanges;
   const chooseDirectoryRef = useRef(chooseDirectory);
-  chooseDirectoryRef.current = chooseDirectory;
   const chooseProjectInRepositoryRef = useRef(chooseProjectInRepository);
-  chooseProjectInRepositoryRef.current = chooseProjectInRepository;
+  useEffect(() => {
+    externalChangesRef.current = onExternalChanges;
+    chooseDirectoryRef.current = chooseDirectory;
+    chooseProjectInRepositoryRef.current = chooseProjectInRepository;
+  });
 
   useEffect(() => {
     const unlistenFs = onFsChanged((paths) => externalChangesRef.current(paths));

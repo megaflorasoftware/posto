@@ -66,25 +66,20 @@ export function FormEditor(props: {
   onChange: (content: string, valid: boolean) => void;
   onPostoSaved?: () => void;
 }) {
-  const parsedRef = useRef<ParsedFile>(null as unknown as ParsedFile);
+  const [initialParsed] = useState(() => parseFile(props.content));
+  const parsedRef = useRef<ParsedFile>(initialParsed);
   // Content emitted by this component; used to ignore the echo when it comes
   // back through props and only re-parse genuinely external changes.
   const lastEmitted = useRef<string | null>(null);
   // Content already reflected in local state, so the effect below only reacts
   // to changes it hasn't seen (React re-runs it after our own setStates too).
-  const processed = useRef<string | null>(null);
+  const processed = useRef<string | null>(props.content);
   // Opening a file never dirties it: schema defaults for absent keys are
   // written together with the first real edit.
   const defaultsApplied = useRef(false);
   // The blank line separating frontmatter from body is kept out of the body
   // textarea but restored verbatim on save.
-  const bodyPrefix = useRef("");
-
-  if (processed.current === null) {
-    parsedRef.current = parseFile(props.content);
-    bodyPrefix.current = parsedRef.current.body.match(/^\r?\n/)?.[0] ?? "";
-    processed.current = props.content;
-  }
+  const bodyPrefix = useRef(initialParsed.body.match(/^\r?\n/)?.[0] ?? "");
 
   // Inferred fields are recomputed only when external content arrives (file
   // switch, raw edits) — never from this component's own edits, so fields

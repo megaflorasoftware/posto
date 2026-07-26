@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@posto/ipc";
 import type { FileGroup } from "@posto/ipc";
 import { scalarFrontmatter } from "@posto/core/pagescms/frontmatterScalars";
@@ -18,7 +18,9 @@ export function useFileGroups(onError: (message: string) => void, dataDocumentsE
   const [groups, setGroups] = useState<FileGroup[]>([]);
   // Latest value for callbacks that outlive the render they were created in.
   const groupsRef = useRef(groups);
-  groupsRef.current = groups;
+  useEffect(() => {
+    groupsRef.current = groups;
+  }, [groups]);
   const physicalGroups = useRef<FileGroup[]>([]);
   const dataGroups = useRef<FileGroup[]>([]);
 

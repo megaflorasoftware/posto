@@ -24,13 +24,15 @@ export function useCurrentFile(callbacks: Callbacks) {
   // Latest values for callbacks that outlive the render they were created in
   // (autosave timer, awaited file opens).
   const filePathRef = useRef(filePath);
-  filePathRef.current = filePath;
   const fileContentRef = useRef(fileContent);
-  fileContentRef.current = fileContent;
   const activeKeyRef = useRef(activeKey);
-  activeKeyRef.current = activeKey;
   const cb = useRef(callbacks);
-  cb.current = callbacks;
+  useEffect(() => {
+    filePathRef.current = filePath;
+    fileContentRef.current = fileContent;
+    activeKeyRef.current = activeKey;
+    cb.current = callbacks;
+  });
 
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const activeSave = useRef<Promise<void> | null>(null);

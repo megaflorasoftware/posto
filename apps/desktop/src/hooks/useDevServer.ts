@@ -34,7 +34,9 @@ export type ServerStatus =
 export function useDevServer() {
   const [server, setServer] = useState<ServerStatus>({ state: "idle" });
   const serverRef = useRef(server);
-  serverRef.current = server;
+  useEffect(() => {
+    serverRef.current = server;
+  }, [server]);
 
   const pingTimer = useRef<ReturnType<typeof setInterval>>(undefined);
 
