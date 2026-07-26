@@ -867,27 +867,31 @@ export function BodyEditor(props: {
         }
         return;
       }
-      for (const statement of importsKey === "" ? [] : importsKey.split("\u0000")) {
-        const { names, spec } = importInfo(statement);
-        if (!spec || names.length === 0) continue;
-        const file = resolveImportPath(props.path, spec);
-        if (!file) continue;
-        try {
-          const result = await source.componentFields(
-            { name: names[0], path: file },
-            projectIO,
-            props.config,
-          );
-          if (!result) continue;
-          for (const name of names) {
-            loaded[name] = {
-              fields: result.fields,
-              slots: result.slots ?? [],
-              hasDefaultSlot: result.hasDefaultSlot ?? false,
-            };
+      await Promise.all(
+        (importsKey === "" ? [] : importsKey.split("\u0000")).map(async (statement) => {
+          const { names, spec } = importInfo(statement);
+          if (!spec || names.length === 0) return;
+          const file = resolveImportPath(props.path, spec);
+          if (!file) return;
+          try {
+            const result = await source.componentFields(
+              { name: names[0], path: file },
+              projectIO,
+              props.config,
+            );
+            if (!result) return;
+            for (const name of names) {
+              loaded[name] = {
+                fields: result.fields,
+                slots: result.slots ?? [],
+                hasDefaultSlot: result.hasDefaultSlot ?? false,
+              };
+            }
+          } catch {
+            // One broken import should not hide schemas for the rest.
           }
-        } catch {}
-      }
+        }),
+      );
       if (cancelled) return;
       setSchemas(loaded);
       // The markdown pipeline and the slot-sync plugin read schemas outside

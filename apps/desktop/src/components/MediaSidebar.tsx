@@ -483,13 +483,15 @@ function PublicMediaBrowserContent(props: {
         const relativeDirectory = directory.slice(state.publicRoot.length).replace(/^\/+/, "");
         void (async () => {
           try {
-            for (const sourceFilePath of droppedImagePaths(paths)) {
-              await importPublicMediaFile({
-                repositoryRoot: props.root,
-                sourceFilePath,
-                directory: relativeDirectory,
-              });
-            }
+            await Promise.all(
+              droppedImagePaths(paths).map((sourceFilePath) =>
+                importPublicMediaFile({
+                  repositoryRoot: props.root,
+                  sourceFilePath,
+                  directory: relativeDirectory,
+                }),
+              ),
+            );
             await state.refresh();
             props.onChanged();
           } catch (caught) {
