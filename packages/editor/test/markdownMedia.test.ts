@@ -3,6 +3,7 @@ import {
   markdownMediaEditorContent,
   markdownMediaHtml,
   markdownMediaKind,
+  markdownMediaOutputPath,
   publicMediaOutputPath,
 } from "../src/markdownMedia";
 
@@ -86,5 +87,22 @@ describe("Markdown media insertion", () => {
     expect(
       publicMediaOutputPath("C:\\Projects\\Site", "c:\\projects\\site\\public\\hero.png"),
     ).toBe("/hero.png");
+  });
+
+  test("uses root-absolute public paths and document-relative paths elsewhere", () => {
+    expect(
+      markdownMediaOutputPath(
+        "/site",
+        "/site/src/content/posts/hello.mdx",
+        "/site/public/images/hero.png",
+      ),
+    ).toBe("/images/hero.png");
+    expect(
+      markdownMediaOutputPath(
+        "/site",
+        "/site/src/content/posts/hello.mdx",
+        "/site/src/assets/hero.png",
+      ),
+    ).toBe("../../assets/hero.png");
   });
 });

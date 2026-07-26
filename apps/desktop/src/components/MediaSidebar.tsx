@@ -123,6 +123,7 @@ function LibraryMediaBrowserContent(props: {
     return outputPath
       ? {
           outputPath,
+          sourcePath: asset.imagePath,
           label: asset.imagePath.split("/").pop() ?? asset.entryId,
           kind: "image",
           alt: typeof asset.metadata.alt === "string" ? asset.metadata.alt : undefined,
@@ -504,7 +505,9 @@ function PublicMediaBrowserContent(props: {
   const mediaForFile = (file: FileEntry): MarkdownMediaPick | null => {
     if (markdownMediaKind(file.path) !== "image") return null;
     const outputPath = publicMediaOutputPath(props.root, file.path);
-    return outputPath ? { outputPath, label: file.name, kind: "image" } : null;
+    return outputPath
+      ? { outputPath, sourcePath: file.path, label: file.name, kind: "image" }
+      : null;
   };
   const dragPayload = (input: { file?: FileEntry; directory?: string }) => {
     const grouped = input.file

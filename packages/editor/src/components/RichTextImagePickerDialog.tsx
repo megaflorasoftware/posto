@@ -72,6 +72,7 @@ function LibraryGrid(props: {
         if (output) {
           props.onPick({
             outputPath: output,
+            sourcePath: result.imagePath,
             label: result.imagePath.split("/").pop() ?? "image",
             kind: "image",
             alt: typeof draft.metadata.alt === "string" ? draft.metadata.alt : undefined,
@@ -83,6 +84,7 @@ function LibraryGrid(props: {
         if (!outputPath) return;
         props.onPick({
           outputPath,
+          sourcePath: path,
           label: path.split("/").pop() ?? "image",
           kind: markdownMediaKind(path),
         });
@@ -106,6 +108,7 @@ function LibraryGrid(props: {
         if (output) {
           props.onPick({
             outputPath: output,
+            sourcePath: asset.imagePath ?? undefined,
             label: asset.imagePath?.split("/").pop() ?? asset.entryId,
             kind: "image",
             alt: typeof asset.metadata.alt === "string" ? asset.metadata.alt : undefined,
@@ -133,7 +136,7 @@ function PublicGrid(props: {
   const pick = (path: string, name: string) => {
     const outputPath = publicMediaOutputPath(props.root, path);
     if (!outputPath) return;
-    props.onPick({ outputPath, label: name, kind: markdownMediaKind(path) });
+    props.onPick({ outputPath, sourcePath: path, label: name, kind: markdownMediaKind(path) });
   };
 
   const importFile = async () => {

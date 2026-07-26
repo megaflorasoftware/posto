@@ -94,6 +94,57 @@ describe("image library reference updates", () => {
     expect(files.get(path)).toContain("![Photo](/images/archive/photo.jpg)");
   });
 
+  test("rewrites document-relative library images when an asset outside public moves", async () => {
+    const root = "/site";
+    const path = `${root}/src/content/posts/hello.mdx`;
+    files.set(path, "![Photo](../photos/old/photo.jpg)\n");
+    const library: MediaLibrary = {
+      collection: "photos",
+      base: "src/content/photos",
+      patterns: ["**/*.yml"],
+      metadataExtensions: ["yml"],
+      imageFieldPath: ["image"],
+      fields: [],
+    };
+    const config: PagesConfig = {
+      media: [],
+      mediaLibraries: [library],
+      content: [
+        {
+          name: "posts",
+          type: "collection",
+          path: "src/content/posts",
+          fields: [{ name: "body", type: "rich-text" }],
+        },
+      ],
+    };
+
+    const plan = await planImageLibraryReferenceUpdates({
+      root,
+      config,
+      groups: [
+        {
+          label: "posts",
+          path: `${root}/src/content/posts`,
+          files: [{ name: "hello.mdx", path }],
+        },
+      ],
+      library,
+      relocations: [
+        {
+          oldEntryId: "old/photo",
+          newEntryId: "archive/photo",
+          oldImagePath: `${root}/src/content/photos/old/photo.jpg`,
+          newImagePath: `${root}/src/content/photos/archive/photo.jpg`,
+        },
+      ],
+    });
+
+    expect(plan.replacements).toBe(1);
+    await applyImageLibraryReferenceUpdates(plan);
+    expect(files.get(path)).toBe("![Photo](../photos/archive/photo.jpg)\n");
+  });
+
   test("does not rewrite Markdown examples in fenced code", () => {
     const result = rewriteMarkdownImageDestinations(
       "![live](/old.jpg)\n```md\n![example](/old.jpg)\n```\n",
@@ -157,6 +208,40 @@ describe("image library reference updates", () => {
     expect(result.content).toBe(
       '[file](/new.pdf)\n<video src="/new.pdf"></video>\n```md\n[file](/old.pdf)\n```\n',
     );
+  });
+
+  test("plans document-relative rewrites for moved media outside public", async () => {
+    const first = "/site/src/content/posts/one.md";
+    const nested = "/site/src/content/posts/nested/two.mdx";
+    files.set(first, "![One](../../assets/old.jpg)\n");
+    files.set(nested, '<img src="../../../assets/old.jpg" />\n');
+    const groups: FileGroup[] = [
+      {
+        label: "posts",
+        path: "/site/src/content/posts",
+        files: [
+          { name: "one.md", path: first },
+          { name: "two.mdx", path: nested },
+        ],
+      },
+    ];
+
+    const plan = await planMarkdownMediaReferenceUpdates({
+      root: "/site",
+      groups,
+      replacements: new Map(),
+      relocations: [
+        {
+          from: "/site/src/assets/old.jpg",
+          to: "/site/src/assets/archive/new.jpg",
+        },
+      ],
+    });
+
+    expect(plan.replacements).toBe(2);
+    await applyImageLibraryReferenceUpdates(plan);
+    expect(files.get(first)).toBe("![One](../../assets/archive/new.jpg)\n");
+    expect(files.get(nested)).toBe('<img src="../../../assets/archive/new.jpg" />\n');
   });
 
   test("syncs metadata alt text to direct Markdown images in md and mdx files only", async () => {

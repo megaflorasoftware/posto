@@ -14,7 +14,6 @@ import {
   expandMediaEntry,
   mediaInputPath,
   mediaOutputPath,
-  relativeMediaPath,
   resolveRelativeMediaPath,
   type MediaLibrary,
   type ContentEntry,
@@ -43,7 +42,11 @@ import {
   type ComponentBlockSchema,
 } from "./MdxNodes";
 import { useProjectIO } from "../projectIO";
-import { markdownMediaEditorContent, type MarkdownMediaPick } from "../markdownMedia";
+import {
+  markdownMediaEditorContent,
+  markdownMediaOutputPath,
+  type MarkdownMediaPick,
+} from "../markdownMedia";
 import { droppedImagePaths } from "../droppedImages";
 import { resolveImageLibraryLocation } from "@posto/core/project/mediaLibrary";
 import { useImageLibraryAssets } from "../hooks/useImageLibraryAssets";
@@ -775,7 +778,10 @@ export function BodyEditor(props: {
       editor,
       media.map((item) =>
         item.sourcePath
-          ? { ...item, outputPath: relativeMediaPath(props.path, item.sourcePath) }
+          ? {
+              ...item,
+              outputPath: markdownMediaOutputPath(props.root, props.path, item.sourcePath),
+            }
           : item,
       ),
       location,
@@ -1109,7 +1115,11 @@ export function BodyEditor(props: {
                   const resolved = media.sourcePath
                     ? {
                         ...media,
-                        outputPath: relativeMediaPath(props.path, media.sourcePath),
+                        outputPath: markdownMediaOutputPath(
+                          props.root,
+                          props.path,
+                          media.sourcePath,
+                        ),
                       }
                     : media;
                   const externalLocation = externalDropLocationRef.current;
