@@ -429,12 +429,13 @@ function descendantString(value: unknown, path: string[]): string | null {
  */
 function SortableRow(props: {
   groupId: string;
+  itemId: string;
   index: number;
   className: string;
   onMove: (from: number, to: number) => void;
   children: ReactNode;
 }) {
-  const id = `${props.groupId}:${props.index}`;
+  const id = `${props.groupId}:${props.itemId}`;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id,
     data: {
@@ -469,6 +470,13 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
   const isObjectList = props.field.type === "object";
   const previewImage = imageDescendant(props.field);
   const sortableGroupId = `field-list:${props.ctx.root}:${props.path.join(".")}`;
+  const occurrences = new Map<string, number>();
+  const itemIds = items.map((item) => {
+    const value = JSON.stringify(item) ?? String(item);
+    const occurrence = occurrences.get(value) ?? 0;
+    occurrences.set(value, occurrence + 1);
+    return `${value}:${occurrence}`;
+  });
 
   // Object-list items collapse to a summary row; existing items start
   // collapsed, newly added ones open for editing.
@@ -537,12 +545,13 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
     return absolute;
   }
 
-  const objectRow = (index: number) => {
+  const objectRow = (index: number, itemId: string) => {
     const thumb = thumbPath(index);
     return expanded.has(index) ? (
       <SortableRow
-        key={index}
+        key={itemId}
         groupId={sortableGroupId}
+        itemId={itemId}
         index={index}
         className="list-item expanded-item"
         onMove={moveItem}
@@ -564,8 +573,9 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
       </SortableRow>
     ) : (
       <SortableRow
-        key={index}
+        key={itemId}
         groupId={sortableGroupId}
+        itemId={itemId}
         index={index}
         className="list-item collapsed-item"
         onMove={moveItem}
@@ -615,10 +625,11 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
     );
   };
 
-  const scalarRow = (index: number) => (
+  const scalarRow = (index: number, itemId: string) => (
     <SortableRow
-      key={index}
+      key={itemId}
       groupId={sortableGroupId}
+      itemId={itemId}
       index={index}
       className="list-item scalar-item"
       onMove={moveItem}
@@ -645,10 +656,12 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
     <FieldShell field={props.field} path={props.path} ctx={props.ctx}>
       <div className="list-field">
         <SortableContext
-          items={items.map((_item, index) => `${sortableGroupId}:${index}`)}
+          items={itemIds.map((itemId) => `${sortableGroupId}:${itemId}`)}
           strategy={verticalListSortingStrategy}
         >
-          {items.map((_item, index) => (isObjectList ? objectRow(index) : scalarRow(index)))}
+          {itemIds.map((itemId, index) =>
+            isObjectList ? objectRow(index, itemId) : scalarRow(index, itemId),
+          )}
         </SortableContext>
         <Button
           size="xs"

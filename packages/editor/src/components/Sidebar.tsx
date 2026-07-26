@@ -263,8 +263,10 @@ export function SchemaDiagnostics({ config }: { config: PagesConfig | null }) {
       </Popover.Target>
       <Popover.Dropdown aria-label={label}>
         <Stack gap="sm">
-          {diagnostics.map((diagnostic, index) => (
-            <div key={`${diagnostic.collection}:${diagnostic.code}:${index}`}>
+          {diagnostics.map((diagnostic) => (
+            <div
+              key={`${diagnostic.collection}:${diagnostic.code}:${diagnostic.message}`}
+            >
               <Text size="xs" fw={700} c="yellow.7">
                 {diagnostic.collection ?? "Project"}
               </Text>

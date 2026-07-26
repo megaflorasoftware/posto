@@ -52,8 +52,8 @@ export function PickerDirectoryCard(props: {
     >
       {previews.length > 0 ? (
         <>
-          {previews.map((path, index) => (
-            <CachedImage key={`${path}:${index}`} path={path} alt="" loading="lazy" />
+          {previews.map((path) => (
+            <CachedImage key={path} path={path} alt="" loading="lazy" />
           ))}
           <span className="picker-directory-preview-badge">
             <Folder size={16} />
