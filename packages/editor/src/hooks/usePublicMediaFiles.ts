@@ -160,9 +160,9 @@ export async function chooseAndImportPublicMedia(
   if (selected.length > 0 && sources.length === 0) {
     throw new Error("Choose non-text media files to import into public.");
   }
-  const imported: string[] = [];
-  for (const sourceFilePath of sources) {
-    imported.push(await importPublicMediaFile({ repositoryRoot, sourceFilePath, directory }));
-  }
-  return imported;
+  return Promise.all(
+    sources.map((sourceFilePath) =>
+      importPublicMediaFile({ repositoryRoot, sourceFilePath, directory }),
+    ),
+  );
 }

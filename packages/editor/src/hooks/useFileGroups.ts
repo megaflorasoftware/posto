@@ -54,8 +54,9 @@ export function useFileGroups(onError: (message: string) => void, dataDocumentsE
       commitGroups();
       return;
     }
-    for (const collection of config?.content ?? []) {
-      if (!collection.dataFile) continue;
+    const loaded = await Promise.all(
+      (config?.content ?? []).map(async (collection): Promise<FileGroup | null> => {
+      if (!collection.dataFile) return null;
       const dataFile = collection.dataFile;
       const path = `${dir}/${dataFile.path}`;
       try {
@@ -63,7 +64,7 @@ export function useFileGroups(onError: (message: string) => void, dataDocumentsE
           await invoke<string>("read_text_file", { path }),
           dataFile.format,
         );
-        if (parsed.error) continue;
+        if (parsed.error) return null;
         const files = dataDocumentEntries(parsed).flatMap((locator) => {
           const values = dataEntryValues(parsed, locator);
           if (!values) return [];
@@ -98,17 +99,20 @@ export function useFileGroups(onError: (message: string) => void, dataDocumentsE
             },
           ];
         });
-        next.push({
+        return {
           label: collection.label ?? collection.name,
           path,
           kind: "data",
           dataCollection: collection.name,
           files,
-        });
+        };
       } catch {
         // Missing/unreadable backing files do not hide ordinary file groups.
+        return null;
       }
-    }
+      }),
+    );
+    next.push(...loaded.filter((group): group is FileGroup => group !== null));
     dataGroups.current = next;
     commitGroups();
   }

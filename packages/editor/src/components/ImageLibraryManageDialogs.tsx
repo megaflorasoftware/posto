@@ -104,20 +104,24 @@ export function CreateImageLibraryFolderDialog(props: {
 }
 
 async function deleteAssets(libraryRoot: string, assets: ImageLibraryAsset[]): Promise<void> {
-  for (const asset of assets) {
+  await Promise.all(
+    assets.map((asset) => {
     if (!asset.imagePath) throw new Error(`${asset.entryId} has no image to delete.`);
-    await invoke("delete_image_library_asset", {
+      return invoke("delete_image_library_asset", {
       libraryRoot,
       imagePath: asset.imagePath,
       metadataPath: asset.metadataPath,
     });
-  }
+    }),
+  );
 }
 
 async function deleteDirectories(libraryRoot: string, directories: string[]): Promise<void> {
-  for (const directoryPath of directories) {
-    await invoke("delete_image_library_directory", { libraryRoot, directoryPath });
-  }
+  await Promise.all(
+    directories.map((directoryPath) =>
+      invoke("delete_image_library_directory", { libraryRoot, directoryPath }),
+    ),
+  );
 }
 
 function metadataAlt(metadata: Record<string, unknown>): string | undefined {

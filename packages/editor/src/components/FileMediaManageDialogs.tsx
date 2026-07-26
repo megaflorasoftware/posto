@@ -174,15 +174,16 @@ export function DeleteFileMediaItemsDialog(props: {
     setPending(true);
     setError(null);
     try {
-      for (const file of props.files) {
-        await deleteFileMediaItem({ mediaRoot: props.mediaRoot, path: file.path });
-      }
-      for (const directoryPath of props.directories) {
-        await deleteFileMediaDirectory({
-          mediaRoot: props.mediaRoot,
-          path: directoryPath,
-        });
-      }
+      await Promise.all(
+        props.files.map((file) =>
+          deleteFileMediaItem({ mediaRoot: props.mediaRoot, path: file.path }),
+        ),
+      );
+      await Promise.all(
+        props.directories.map((directoryPath) =>
+          deleteFileMediaDirectory({ mediaRoot: props.mediaRoot, path: directoryPath }),
+        ),
+      );
       props.onDeleted();
       props.onClose();
     } catch (caught) {

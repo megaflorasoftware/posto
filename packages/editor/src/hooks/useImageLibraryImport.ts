@@ -137,20 +137,24 @@ export function useImageLibraryImport(input: {
     setPending(true);
     setError(null);
     let imported = 0;
+    const importFrom = async (draftIndex: number): Promise<void> => {
+      const draft = drafts[draftIndex];
+      if (!draft) return;
+      const operation = await plan(draft);
+      const result = await importImageLibraryAsset({
+        libraryRoot: operation.libraryRoot,
+        sourceImagePath: operation.sourceImagePath,
+        destinationImagePath: operation.destinationImagePath,
+        destinationMetadataPath: operation.destinationMetadataPath,
+        serializedMetadata: operation.serializedMetadata,
+        entryId: operation.entryId,
+      });
+      input.onImported?.(result, draft);
+      imported = draftIndex + 1;
+      await importFrom(draftIndex + 1);
+    };
     try {
-      for (const draft of drafts) {
-        const operation = await plan(draft);
-        const result = await importImageLibraryAsset({
-          libraryRoot: operation.libraryRoot,
-          sourceImagePath: operation.sourceImagePath,
-          destinationImagePath: operation.destinationImagePath,
-          destinationMetadataPath: operation.destinationMetadataPath,
-          serializedMetadata: operation.serializedMetadata,
-          entryId: operation.entryId,
-        });
-        input.onImported?.(result, draft);
-        imported += 1;
-      }
+      await importFrom(0);
       return true;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
