@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useReducer, useState } from "react";
 import { Alert, Button, Group, Stack, Text, TextInput } from "@mantine/core";
 import { Trash2 } from "lucide-react";
 import {
@@ -42,7 +42,10 @@ export function FileMediaEditDialog(props: {
   onClose: () => void;
   onChanged: (options?: { silent?: boolean }) => void;
 }) {
-  const [filename, setFilename] = useState(props.file.name);
+  const [filename, setFilename] = useReducer(
+    (_current: string, next: string) => next,
+    props.file.name,
+  );
   const [pending, setPending] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);

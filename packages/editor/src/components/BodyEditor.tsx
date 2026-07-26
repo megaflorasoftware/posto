@@ -1,4 +1,12 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Link, RichTextEditor } from "@mantine/tiptap";
 import { Alert, Button, Group, Loader, TextInput } from "@mantine/core";
 import { useEditor } from "@tiptap/react";
@@ -336,20 +344,26 @@ export function imageMoveTransaction(
 }
 
 function StandaloneImageEditDialog(props: { request: EditableImageRequest; onClose: () => void }) {
-  const [src, setSrc] = useState(props.request.src);
-  const [alt, setAlt] = useState(props.request.alt);
+  const [{ src, alt }, updateDraft] = useReducer(
+    (current: { src: string; alt: string }, update: Partial<{ src: string; alt: string }>) => ({
+      ...current,
+      ...update,
+    }),
+    props.request,
+    (request) => ({ src: request.src, alt: request.alt }),
+  );
   return (
     <Dialog opened onClose={props.onClose} title="Edit image" size="sm">
       <TextInput
         label="Image path"
         value={src}
-        onChange={(event) => setSrc(event.currentTarget.value)}
+        onChange={(event) => updateDraft({ src: event.currentTarget.value })}
       />
       <TextInput
         mt="sm"
         label="Alternative text"
         value={alt}
-        onChange={(event) => setAlt(event.currentTarget.value)}
+        onChange={(event) => updateDraft({ alt: event.currentTarget.value })}
       />
       <Group justify="flex-end" mt="md">
         <Button variant="default" onClick={props.onClose}>
