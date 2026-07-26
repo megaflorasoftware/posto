@@ -154,10 +154,10 @@ function FieldShell(props: {
     <div className={`form-field${error ? " invalid" : ""}`}>
       {props.field.label !== false && (
         <div className="field-label-row">
-          <label className="field-label">
+          <div className="field-label">
             {typeof props.field.label === "string" ? props.field.label : props.field.name}
             {props.field.required && <span className="field-required">*</span>}
-          </label>
+          </div>
           {imagePickable(props.field) && (
             <PickImageCta field={props.field} path={props.path} ctx={props.ctx} />
           )}

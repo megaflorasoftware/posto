@@ -270,13 +270,19 @@ export function FormEditor(props: {
       onChange={onBodyEdit}
     />
   ) : (
-    <textarea
-      className="editor"
-      spellCheck={false}
-      placeholder="Start writing..."
-      value={body}
-      onChange={(e) => onBodyEdit(e.currentTarget.value)}
-    />
+    <>
+      <label className="field-label" htmlFor="form-editor-body">
+        Body
+      </label>
+      <textarea
+        id="form-editor-body"
+        className="editor"
+        spellCheck={false}
+        placeholder="Start writing..."
+        value={body}
+        onChange={(e) => onBodyEdit(e.currentTarget.value)}
+      />
+    </>
   );
 
   return (

@@ -220,6 +220,7 @@ export function FileTree(props: {
           className={`${payload.elementProps.className} mobile-file-tree-file`}
         >
           <button
+            type="button"
             className="mobile-file-item"
             title={item.file.name}
             onClick={() => props.onOpen(item.file)}

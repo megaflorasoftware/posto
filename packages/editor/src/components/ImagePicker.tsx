@@ -63,6 +63,7 @@ export function ImagePicker(props: {
               );
               return (
                 <button
+                  type="button"
                   key={file.path}
                   className="picker-card"
                   disabled={output === null}

@@ -45,7 +45,7 @@ function htmlInputMatch(text: string, block: boolean, mdx: boolean): InputRuleMa
   return null;
 }
 
-function HtmlChipView(inline: boolean) {
+function createHtmlChipView(inline: boolean) {
   return function View(props: NodeViewProps) {
     const source = String(props.node.attrs.source ?? "");
     const dragEnvironment = useContext(MdxFieldEnvContext);
@@ -122,7 +122,7 @@ export const HtmlInline = Node.create({
     return ["span", { "data-html-inline": "" }];
   },
   addNodeView() {
-    return ReactNodeViewRenderer(HtmlChipView(true));
+    return ReactNodeViewRenderer(createHtmlChipView(true));
   },
   addInputRules() {
     const mdx = this.editor.extensionManager.extensions.some(
@@ -163,7 +163,7 @@ export const HtmlBlock = Node.create({
     return ["div", { "data-html-block": "" }];
   },
   addNodeView() {
-    return ReactNodeViewRenderer(HtmlChipView(false));
+    return ReactNodeViewRenderer(createHtmlChipView(false));
   },
   addInputRules() {
     const mdx = this.editor.extensionManager.extensions.some(

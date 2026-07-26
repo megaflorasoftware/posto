@@ -958,9 +958,8 @@ function App() {
                   {fullscreenEditorOpen && (
                     <>
                       <div className="fullscreen-sidebar-rail fullscreen-sidebar-rail-left">
-                        <div
+                        <aside
                           className="fullscreen-floating-sidebar"
-                          role="complementary"
                           aria-label="Files sidebar"
                         >
                           <div className="fullscreen-floating-sidebar-header">
@@ -970,13 +969,12 @@ function App() {
                           <div className="fullscreen-floating-sidebar-content">
                             {renderFileSidebar()}
                           </div>
-                        </div>
+                        </aside>
                       </div>
                       {config && (
                         <div className="fullscreen-sidebar-rail fullscreen-sidebar-rail-right">
-                          <div
+                          <aside
                             className="fullscreen-floating-sidebar"
-                            role="complementary"
                             aria-label="Media sidebar"
                           >
                             <div className="fullscreen-floating-sidebar-header">
@@ -986,7 +984,7 @@ function App() {
                             <div className="fullscreen-floating-sidebar-content">
                               {renderMediaSidebar()}
                             </div>
-                          </div>
+                          </aside>
                         </div>
                       )}
                     </>

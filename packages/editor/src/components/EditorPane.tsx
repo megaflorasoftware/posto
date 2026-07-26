@@ -148,6 +148,7 @@ export function EditorPane(props: {
   const rawEditor = (
     <textarea
       className="editor"
+      aria-label="File content"
       spellCheck={false}
       value={fileContent}
       onChange={(e) => props.onEdit(e.currentTarget.value)}
