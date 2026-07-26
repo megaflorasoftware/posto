@@ -80,9 +80,14 @@ function scanOpenTagWith(
 }
 
 /** Component tags start with a capital; any-element scanning also takes
- * lowercase HTML tags (used when splitting children into slots). */
+ * arbitrary HTML/XML names (used when splitting children into slots). */
 const COMPONENT_NAME = /^<([A-Z][\w.]*)/;
-const ANY_TAG_NAME = /^<([A-Za-z][\w.-]*)/;
+const ANY_TAG_NAME = /^<([A-Za-z_:][A-Za-z0-9_.:-]*)(?=[\s/>])/;
+const ANY_CLOSE_TAG = /^<\/([A-Za-z_:][A-Za-z0-9_.:-]*)\s*>/;
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 /**
  * Scans a full JSX element (`<Name …/>` or `<Name …>…</Name>`) at the start
@@ -99,7 +104,8 @@ function scanElementWith(src: string, namePattern: RegExp): JsxBlock | null {
       children: null,
     };
   }
-  const tagRe = new RegExp(`<${open.name}(?=[\\s/>])|</${open.name}\\s*>`, "g");
+  const escapedName = escapeRegExp(open.name);
+  const tagRe = new RegExp(`<${escapedName}(?=[\\s/>])|</${escapedName}\\s*>`, "g");
   tagRe.lastIndex = open.end;
   let depth = 1;
   let match: RegExpExecArray | null;
@@ -130,11 +136,6 @@ export function scanJsxBlock(src: string): JsxBlock | null {
   return scanElementWith(src, COMPONENT_NAME);
 }
 
-/** Like `scanJsxBlock`, but also matches lowercase HTML elements. */
-export function scanAnyElement(src: string): JsxBlock | null {
-  return scanElementWith(src, ANY_TAG_NAME);
-}
-
 /** HTML elements with no closing tag, per the HTML spec. */
 const VOID_ELEMENTS = new Set([
   "area",
@@ -152,6 +153,68 @@ const VOID_ELEMENTS = new Set([
   "track",
   "wbr",
 ]);
+
+/** Scans a complete arbitrary HTML/XML element while requiring every nested
+ * non-void element to close in the correct order. */
+function scanArbitraryElement(src: string): JsxBlock | null {
+  const open = scanOpenTagWith(src, ANY_TAG_NAME);
+  if (!open) return null;
+  if (open.selfClosing || VOID_ELEMENTS.has(open.name.toLowerCase())) {
+    return {
+      raw: src.slice(0, open.end),
+      name: open.name,
+      propsSource: open.propsSource,
+      children: null,
+    };
+  }
+
+  const stack = [open.name];
+  let position = open.end;
+  while (position < src.length) {
+    const tagStart = src.indexOf("<", position);
+    if (tagStart === -1) return null;
+    const rest = src.slice(tagStart);
+
+    if (rest.startsWith("<!--")) {
+      const commentEnd = src.indexOf("-->", tagStart + 4);
+      if (commentEnd === -1) return null;
+      position = commentEnd + 3;
+      continue;
+    }
+
+    const close = ANY_CLOSE_TAG.exec(rest);
+    if (close) {
+      if (close[1] !== stack[stack.length - 1]) return null;
+      stack.pop();
+      position = tagStart + close[0].length;
+      if (stack.length === 0) {
+        return {
+          raw: src.slice(0, position),
+          name: open.name,
+          propsSource: open.propsSource,
+          children: src.slice(open.end, tagStart),
+        };
+      }
+      continue;
+    }
+
+    const nested = scanOpenTagWith(rest, ANY_TAG_NAME);
+    if (!nested) {
+      position = tagStart + 1;
+      continue;
+    }
+    if (!nested.selfClosing && !VOID_ELEMENTS.has(nested.name.toLowerCase())) {
+      stack.push(nested.name);
+    }
+    position = tagStart + nested.end;
+  }
+  return null;
+}
+
+/** Like `scanJsxBlock`, but also matches arbitrary HTML/XML elements. */
+export function scanAnyElement(src: string): JsxBlock | null {
+  return scanArbitraryElement(src);
+}
 
 /** Elements that read as standalone blocks when they open a line; anything
  * else (`<kbd>`, `<abbr>`, …) stays inline even at a line start, matching how
@@ -194,22 +257,10 @@ export const BLOCK_HTML_TAGS = new Set([
   "video",
 ]);
 
-/** Scans a lowercase HTML element at the start of `src`: paired tags (with
- * nesting), self-closing tags, and void elements written without a slash. */
+/** Scans an arbitrary HTML/XML element at the start of `src`: paired tags
+ * (with nesting), self-closing tags, and HTML void elements without a slash. */
 export function scanHtmlElement(src: string): JsxBlock | null {
-  if (!/^<[a-z]/.test(src)) return null;
-  const el = scanAnyElement(src);
-  if (el) return el;
-  const open = scanOpenTagWith(src, ANY_TAG_NAME);
-  if (open && VOID_ELEMENTS.has(open.name)) {
-    return {
-      raw: src.slice(0, open.end),
-      name: open.name,
-      propsSource: open.propsSource,
-      children: null,
-    };
-  }
-  return null;
+  return scanArbitraryElement(src);
 }
 
 /** Value of a tag's `slot="…"` attribute, or null when absent/dynamic. */
