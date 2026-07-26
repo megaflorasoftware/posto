@@ -25,6 +25,7 @@ import {
   setDataValue,
 } from "@posto/core/project/dataDocument";
 import { invoke, type FileGroup } from "@posto/ipc";
+import { markdownMediaOutputPath } from "./markdownMedia";
 
 export interface ImageLibraryRelocation {
   oldEntryId: string;
@@ -143,6 +144,7 @@ function fieldUpdates(
 }
 
 function markdownOutputMap(
+  documentPath: string,
   entry: ContentEntry,
   values: Record<string, unknown>,
   root: string,
@@ -158,6 +160,14 @@ function markdownOutputMap(
       return expanded ? [expanded] : [];
     });
   const result = new Map<string, { destination: string; alt?: string }>();
+  for (const relocation of relocations) {
+    const oldOutput = markdownMediaOutputPath(root, documentPath, relocation.oldImagePath);
+    const newOutput = markdownMediaOutputPath(root, documentPath, relocation.newImagePath);
+    const alt = includeAlt ? relocation.newAlt : undefined;
+    if (oldOutput !== newOutput || alt !== undefined) {
+      result.set(oldOutput, { destination: newOutput, alt });
+    }
+  }
   for (const media of candidates) {
     for (const relocation of relocations) {
       const oldOutput = mediaOutputPath(root, media, relocation.oldImagePath);
@@ -305,12 +315,14 @@ export function rewriteMarkdownMediaDestinations(
   return { content, replacements: replacementsCount };
 }
 
-/** Plans path-only rewrites for public-media references in `.md` and `.mdx`
- * files. Public-file media uses this smaller plan because it has no metadata
- * collection IDs or schema-scoped image fields to relocate. */
+/** Plans path-only media rewrites in `.md` and `.mdx` files. Filesystem
+ * relocations are resolved per document so non-public relative paths remain
+ * correct at every nesting depth. */
 export async function planMarkdownMediaReferenceUpdates(input: {
   groups: FileGroup[];
   replacements: Map<string, string>;
+  root?: string;
+  relocations?: Array<{ from: string; to: string }>;
 }): Promise<ImageLibraryReferenceUpdatePlan> {
   const writes: ImageLibraryReferenceUpdatePlan["writes"] = [];
   let replacements = 0;
@@ -323,7 +335,15 @@ export async function planMarkdownMediaReferenceUpdates(input: {
     if (parsed.error) {
       throw new Error(`Could not update media references in ${path}: ${parsed.error}`);
     }
-    const markdown = rewriteMarkdownMediaDestinations(parsed.body, input.replacements);
+    const pathReplacements = new Map(input.replacements);
+    if (input.root) {
+      for (const relocation of input.relocations ?? []) {
+        const from = markdownMediaOutputPath(input.root, path, relocation.from);
+        const to = markdownMediaOutputPath(input.root, path, relocation.to);
+        if (from !== to) pathReplacements.set(from, to);
+      }
+    }
+    const markdown = rewriteMarkdownMediaDestinations(parsed.body, pathReplacements);
     if (markdown.replacements === 0) continue;
     parsed.body = markdown.content;
     replacements += markdown.replacements;
@@ -392,6 +412,7 @@ export async function planImageLibraryReferenceUpdates(input: {
     const markdown = rewriteMarkdownImages(
       parsed.body,
       markdownOutputMap(
+        path,
         entry,
         values,
         input.root,
