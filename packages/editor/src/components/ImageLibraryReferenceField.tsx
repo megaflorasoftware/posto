@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { Alert } from "@mantine/core";
 import { Image as ImageIcon, Pencil } from "lucide-react";
 import { serializeImageLibraryMetadata } from "@posto/core/project/mediaLibrary";
@@ -52,7 +52,7 @@ export function ImageLibraryReferenceField(props: {
     metadataSaveTimer.current = undefined;
     setMetadata(next);
     setMetadataError(null);
-  }, [selectedAsset?.metadataPath]);
+  }, [selectedAsset?.metadata, selectedAsset?.metadataPath]);
 
   const writeMetadata = (
     asset: NonNullable<typeof selectedAsset>,
@@ -99,19 +99,20 @@ export function ImageLibraryReferenceField(props: {
     }
     return activeMetadataSave.current ?? Promise.resolve();
   };
+  const flushMetadataOnCleanup = useEffectEvent(() => {
+    clearTimeout(metadataSaveTimer.current);
+    if (
+      selectedAsset &&
+      metadataDirtyRef.current &&
+      validateForm(metadataFields, metadataRef.current).size === 0
+    ) {
+      void writeMetadata(selectedAsset, metadataRef.current, metadataRevisionRef.current);
+    }
+  });
 
   useEffect(
-    () => () => {
-      clearTimeout(metadataSaveTimer.current);
-      if (
-        selectedAsset &&
-        metadataDirtyRef.current &&
-        validateForm(metadataFields, metadataRef.current).size === 0
-      ) {
-        void writeMetadata(selectedAsset, metadataRef.current, metadataRevisionRef.current);
-      }
-    },
-    [selectedAsset?.metadataPath, metadataFields],
+    () => () => flushMetadataOnCleanup(),
+    [selectedAsset?.metadataPath],
   );
 
   const updateMetadata = (path: ValuePath, value: unknown) => {

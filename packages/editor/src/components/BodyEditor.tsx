@@ -853,6 +853,7 @@ export function BodyEditor(props: {
     bodyDrop.activeBodySource,
     bodyDrop.activeMediaSource,
     bodyDrop.isAccepting,
+    bodyDrop.pointer,
     bodyDrop.pointer?.x,
     bodyDrop.pointer?.y,
   ]);
