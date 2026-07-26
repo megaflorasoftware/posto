@@ -113,14 +113,13 @@ export function useImageLibraryImport(input: {
       metadata: draft.metadata,
       metadataExtension: draft.metadataExtension,
       existingPaths: files.map((file) => file.path),
-      existingEntryIds: files
-        .filter(
-          (file) =>
-            metadataExts.has(
-              file.name.split(".").pop()?.toLowerCase() as MediaLibraryMetadataExtension,
-            ) && matchesImageLibraryPath(input.library, file.path.slice(prefix.length)),
-        )
-        .map((file) => pathEntryId(file.path.slice(prefix.length))),
+      existingEntryIds: files.flatMap((file) =>
+        metadataExts.has(
+          file.name.split(".").pop()?.toLowerCase() as MediaLibraryMetadataExtension,
+        ) && matchesImageLibraryPath(input.library, file.path.slice(prefix.length))
+          ? [pathEntryId(file.path.slice(prefix.length))]
+          : [],
+      ),
     });
   }
 

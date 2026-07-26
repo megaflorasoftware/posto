@@ -128,7 +128,7 @@ export function useDevServer() {
   /** Runs the pending steps in order, then starts the dev server. */
   async function runSetup(dir: string, steps: SetupStep[]) {
     setServer({ state: "setup", steps, awaitingInstall: false });
-    const pending = new Set(steps.filter((s) => s.status === "pending").map((s) => s.id));
+    const pending = new Set(steps.flatMap((step) => (step.status === "pending" ? [step.id] : [])));
     let current: SetupStepId = "node";
     try {
       if (pending.has("node")) {

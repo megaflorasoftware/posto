@@ -875,8 +875,8 @@ function FileReferenceField(props: { field: Field; path: ValuePath; ctx: FieldCo
     props.field.options?.idScheme === "framework" && props.ctx.entryIds && collection
       ? props.ctx.root + "/" + collection.path + "/"
       : null;
-  const files = ordered
-    .map((file) => ({
+  const files = ordered.flatMap((file) => {
+    const option = {
       // Pages CMS stores the repo-root-relative path by default.
       value: frameworkBase
         ? (file.dataEntry?.id ??
@@ -888,12 +888,11 @@ function FileReferenceField(props: { field: Field; path: ValuePath; ctx: FieldCo
         (labelTemplate
           ? referenceTemplate(labelTemplate, props.ctx.root, file)
           : (file.title ?? file.name)) || file.name,
-    }))
-    .filter((option) => {
-      if (option.value === "" || seen.has(option.value)) return false;
-      seen.add(option.value);
-      return true;
-    });
+    };
+    if (option.value === "" || seen.has(option.value)) return [];
+    seen.add(option.value);
+    return [option];
+  });
   const value = asString(props.ctx.value(props.path));
   const missing = value !== "" && !files.some((f) => f.value === value);
 

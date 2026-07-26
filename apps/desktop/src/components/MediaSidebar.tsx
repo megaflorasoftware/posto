@@ -165,9 +165,9 @@ function LibraryMediaBrowserContent(props: {
   const dropIntoDirectory = (source: MediaSidebarDragSource, destinationDirectory: string) => {
     const movingIds = new Set(source.items.map((item) => item.id));
     const movingAssets = state.assets.filter((asset) => movingIds.has(asset.metadataPath));
-    const movingDirectories = source.items
-      .filter((item) => item.kind === "directory")
-      .map((item) => item.id);
+    const movingDirectories = source.items.flatMap((item) =>
+      item.kind === "directory" ? [item.id] : [],
+    );
     if (movingAssets.length + movingDirectories.length === 0) return;
     setMoveError(null);
     void moveImageLibraryItems({
@@ -541,9 +541,9 @@ function PublicMediaBrowserContent(props: {
   const dropIntoDirectory = (source: MediaSidebarDragSource, destinationDirectory: string) => {
     const movingIds = new Set(source.items.map((item) => item.id));
     const movingFiles = state.files.filter((file) => movingIds.has(file.path));
-    const movingDirectories = source.items
-      .filter((item) => item.kind === "directory")
-      .map((item) => item.id);
+    const movingDirectories = source.items.flatMap((item) =>
+      item.kind === "directory" ? [item.id] : [],
+    );
     if (movingFiles.length + movingDirectories.length === 0) return;
     setMoveError(null);
     void moveFileMediaItems({
