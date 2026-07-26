@@ -15,7 +15,9 @@ export function imageLibraryMetadataFields(library: MediaLibrary): Field[] {
       )
         return [];
       const children = field.fields ? omitImageField(field.fields, path) : undefined;
-      const imageIsInside = path.every((part, index) => library.imageFieldPath[index] === part);
+      const imageIsInside =
+        path.length <= library.imageFieldPath.length &&
+        path.every((part, index) => library.imageFieldPath[index] === part);
       if (field.fields && children?.length === 0 && imageIsInside) return [];
       return [{ ...field, fields: children }];
     });

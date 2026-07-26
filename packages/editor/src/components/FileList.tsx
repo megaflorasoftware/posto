@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { Pin, X } from "lucide-react";
 import type { FileEntry } from "@posto/ipc";
@@ -45,6 +45,7 @@ export function FileList(props: {
   onOpen: (file: FileEntry) => void;
   onDelete: (file: FileEntry) => void;
 }) {
+  const pinned = useMemo(() => new Set(props.pinned), [props.pinned]);
   return (
     <>
       {props.files.map((file) => (
@@ -61,7 +62,7 @@ export function FileList(props: {
           >
             {props.fileLabel?.(file) ?? file.title ?? file.name}
           </button>
-          {props.pinned?.includes(file.name) && (
+          {pinned.has(file.name) && (
             <Pin size={12} className="file-pin" aria-label="Pinned" />
           )}
           <DeleteFileButton file={file} onDelete={props.onDelete} />

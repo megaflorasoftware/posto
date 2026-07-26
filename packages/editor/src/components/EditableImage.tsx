@@ -3,7 +3,7 @@ import { ActionIcon } from "@mantine/core";
 import TiptapImage from "@tiptap/extension-image";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import { Pencil, Trash2 } from "lucide-react";
-import { bodyNodePosition, registerBodyNodePosition, useMediaDraggable } from "./MediaDragDrop";
+import { registerBodyNodePosition, useMediaDraggable } from "./MediaDragDrop";
 
 export interface EditableImageRequest {
   src: string;
@@ -22,10 +22,6 @@ export const EditableImageContext = createContext<EditableImageEnvironment>({
   resolveSrc: (src) => src,
   edit: () => undefined,
 });
-
-export function editableImagePosition(element: HTMLElement): number | undefined {
-  return bodyNodePosition(element);
-}
 
 function EditableImageView(props: NodeViewProps) {
   const environment = useContext(EditableImageContext);

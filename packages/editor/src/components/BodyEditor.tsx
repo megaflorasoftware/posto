@@ -509,7 +509,8 @@ export function BodyEditor(props: {
     () => (mdx ? splitLeadingImports(props.value) : { imports: [], body: props.value }),
     [],
   );
-  const importsRef = useRef<ManagedImport[]>(toManagedImports(initial.imports, initial.body));
+  const initialImports = useMemo(() => toManagedImports(initial.imports, initial.body), [initial]);
+  const importsRef = useRef<ManagedImport[]>(initialImports);
 
   /** Emitted markdown: managed imports (filtered to what the body still
    * uses) above the document's markdown. */

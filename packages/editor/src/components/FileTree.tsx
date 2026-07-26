@@ -100,7 +100,7 @@ export function FileTree(props: {
   const [expandedState, setExpandedState] = useState(() =>
     getTreeExpandedState(data, rootDirectories),
   );
-  const initializedRoots = useRef(new Set(rootDirectories));
+  const initializedRoots = useRef(new Set<string>());
 
   useEffect(() => {
     const newRoots = rootDirectories.filter((value) => !initializedRoots.current.has(value));

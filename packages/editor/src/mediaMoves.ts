@@ -61,8 +61,8 @@ export async function moveFileMediaItems(input: {
   }));
   const movingFilePaths = new Set(input.movingFiles.map((file) => normalizeFilePath(file.path)));
   const existingFilePaths = new Set(input.files.map((file) => normalizeFilePath(file.path)));
-  const existingDirectories = input.directories.map((directory) =>
-    normalizeFilePath(directory).replace(/\/+$/, ""),
+  const existingDirectories = new Set(
+    input.directories.map((directory) => normalizeFilePath(directory).replace(/\/+$/, "")),
   );
   const movingDirectoryPaths = directoryOperations.map((operation) => operation.from);
   const targets = new Set<string>();
@@ -72,7 +72,7 @@ export async function moveFileMediaItems(input: {
     }
     if (
       targets.has(operation.to) ||
-      existingDirectories.includes(operation.to) ||
+      existingDirectories.has(operation.to) ||
       (existingFilePaths.has(operation.to) && !movingFilePaths.has(operation.to))
     ) {
       throw new Error("A file or folder with that name already exists in the destination.");
@@ -91,7 +91,7 @@ export async function moveFileMediaItems(input: {
     if (
       directoryTargets.has(operation.to) ||
       existingFilePaths.has(operation.to) ||
-      existingDirectories.some(
+      [...existingDirectories].some(
         (directory) =>
           directory === operation.to &&
           !movingDirectoryPaths.some(
@@ -109,7 +109,7 @@ export async function moveFileMediaItems(input: {
   const relocationTargets = new Map(
     fileOperations.map((operation) => [operation.from, operation.to]),
   );
-  const orderedDirectories = [...directoryOperations].sort(
+  const orderedDirectories = directoryOperations.slice().sort(
     (left, right) => right.from.length - left.from.length,
   );
   for (const file of input.files) {
