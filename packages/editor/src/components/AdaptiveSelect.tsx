@@ -61,6 +61,7 @@ function MobileOptionDrawer(props: {
   const filtered = props.options.filter(
     (option) => !normalized || option.label.toLocaleLowerCase().includes(normalized),
   );
+  const selectedValues = new Set(props.selected);
   const custom =
     props.allowCustom &&
     query.trim() !== "" &&
@@ -83,7 +84,7 @@ function MobileOptionDrawer(props: {
             </button>
           )}
           {filtered.map((option) => {
-            const selected = props.selected.includes(option.value);
+            const selected = selectedValues.has(option.value);
             return (
               <button
                 type="button"

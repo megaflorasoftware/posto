@@ -65,6 +65,15 @@ export async function moveFileMediaItems(input: {
     input.directories.map((directory) => normalizeFilePath(directory).replace(/\/+$/, "")),
   );
   const movingDirectoryPaths = directoryOperations.map((operation) => operation.from);
+  const stationaryDirectories = new Set(
+    [...existingDirectories].filter(
+      (directory) =>
+        !movingDirectoryPaths.some(
+          (movingDirectory) =>
+            directory === movingDirectory || directory.startsWith(`${movingDirectory}/`),
+        ),
+    ),
+  );
   const targets = new Set<string>();
   for (const operation of fileOperations) {
     if (operation.from === operation.to) {
@@ -91,14 +100,7 @@ export async function moveFileMediaItems(input: {
     if (
       directoryTargets.has(operation.to) ||
       existingFilePaths.has(operation.to) ||
-      [...existingDirectories].some(
-        (directory) =>
-          directory === operation.to &&
-          !movingDirectoryPaths.some(
-            (movingDirectory) =>
-              directory === movingDirectory || directory.startsWith(`${movingDirectory}/`),
-          ),
-      )
+      stationaryDirectories.has(operation.to)
     ) {
       throw new Error("A file or folder with that name already exists in the destination.");
     }

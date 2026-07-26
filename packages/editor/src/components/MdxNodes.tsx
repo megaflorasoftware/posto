@@ -394,8 +394,12 @@ function SlotChildrenFields(fieldProps: {
   const schema = schemas[fieldProps.name];
   const buckets = splitSlots(fieldProps.childrenSource);
   const names = buckets.named.map((b) => b.name);
+  const knownNames = new Set(names);
   for (const declared of schema?.slots ?? []) {
-    if (!names.includes(declared)) names.push(declared);
+    if (!knownNames.has(declared)) {
+      names.push(declared);
+      knownNames.add(declared);
+    }
   }
   // Hide the default-children field for components whose source declares no
   // unnamed <slot> (unless content is already there); unknown schemas keep it.
@@ -1106,12 +1110,13 @@ export const MdxSlotSync = Extension.create({
 
             let hasDefault = false;
             const presentNamed = new Set<string>();
+            const declaredSlots = new Set(schema.slots);
             let childPos = pos + 1;
             node.forEach((child) => {
               const slot = child.attrs.slot as string | null;
               if (slot === null) hasDefault = true;
               else presentNamed.add(slot);
-              const declared = slot === null ? schema.hasDefaultSlot : schema.slots.includes(slot);
+              const declared = slot === null ? schema.hasDefaultSlot : declaredSlots.has(slot);
               if (!declared && slotIsEmpty(child)) {
                 ops.push({ kind: "delete", from: childPos, to: childPos + child.nodeSize });
               }
@@ -1194,8 +1199,8 @@ export const MdxImportCleanup = Extension.create({
           if (!transactions.some((tr) => tr.docChanged)) return null;
           const before = usedComponentNames(oldState.doc);
           const after = usedComponentNames(newState.doc);
-          const dropped = [...before].filter((name) => !after.has(name));
-          if (dropped.length === 0) return null;
+          const dropped = new Set([...before].filter((name) => !after.has(name)));
+          if (dropped.size === 0) return null;
 
           // Remove imports whose bindings all became unused by this change.
           // Imports that were already unused before it are left alone.
@@ -1206,7 +1211,7 @@ export const MdxImportCleanup = Extension.create({
             if (
               names.length > 0 &&
               names.every((name) => !after.has(name)) &&
-              names.some((name) => dropped.includes(name))
+              names.some((name) => dropped.has(name))
             ) {
               ranges.push({ from: pos, to: pos + node.nodeSize });
             }
