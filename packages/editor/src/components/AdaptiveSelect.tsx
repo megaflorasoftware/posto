@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Button,
   NativeSelect,
@@ -54,9 +54,6 @@ function MobileOptionDrawer(props: {
   onClear?: () => void;
 }) {
   const [query, setQuery] = useState("");
-  useEffect(() => {
-    if (props.opened) setQuery("");
-  }, [props.opened]);
   const normalized = query.trim().toLocaleLowerCase();
   const filtered = props.options.filter(
     (option) => !normalized || option.label.toLocaleLowerCase().includes(normalized),
@@ -198,6 +195,7 @@ export function AdaptiveSelect(props: SelectProps) {
         onClick={() => !props.disabled && setOpened(true)}
       />
       <MobileOptionDrawer
+        key={opened ? "opened" : "closed"}
         opened={opened}
         title={drawerTitle}
         options={options}
@@ -257,6 +255,7 @@ export function AdaptiveTagsInput(props: TagsInputProps) {
         onClick={() => !props.disabled && setOpened(true)}
       />
       <MobileOptionDrawer
+        key={opened ? "opened" : "closed"}
         opened={opened}
         title={drawerTitle}
         options={options}

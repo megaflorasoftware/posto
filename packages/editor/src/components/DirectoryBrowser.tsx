@@ -45,6 +45,14 @@ export function DirectoryBrowser(props: {
   onChoose: (dir: string) => void;
   onCancel: () => void;
 }) {
+  return <DirectoryBrowserContent key={props.repoRoot} {...props} />;
+}
+
+function DirectoryBrowserContent(props: {
+  repoRoot: string;
+  onChoose: (dir: string) => void;
+  onCancel: () => void;
+}) {
   const [data, setData] = useState<TreeNodeData[]>([
     directoryNode(props.repoRoot, "Repository root"),
   ]);
@@ -72,10 +80,6 @@ export function DirectoryBrowser(props: {
 
   useEffect(() => {
     let cancelled = false;
-    setData([directoryNode(props.repoRoot, "Repository root")]);
-    setSelected([props.repoRoot]);
-    setLoadingRoot(true);
-    setError(null);
     void invoke<string[]>("list_child_directories", { dir: props.repoRoot })
       .then((listed) => {
         if (cancelled) return;
