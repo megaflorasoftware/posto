@@ -24,6 +24,22 @@ function basename(path: string): string {
   return path.replace(/\\/g, "/").split("/").pop() ?? path;
 }
 
+function renderDirectory(payload: RenderTreeNodePayload) {
+  const label =
+    typeof payload.node.label === "string" ? payload.node.label : basename(payload.node.value);
+  return (
+    <div
+      {...payload.elementProps}
+      className={`${payload.elementProps.className} directory-browser-node`}
+      title={payload.loadError?.message ?? label}
+    >
+      {payload.expanded ? <FolderOpen size={16} /> : <Folder size={16} />}
+      <span className="directory-browser-label">{payload.node.label}</span>
+      {payload.loadError && <TriangleAlert size={15} color="var(--mantine-color-red-6)" />}
+    </div>
+  );
+}
+
 export function DirectoryBrowser(props: {
   repoRoot: string;
   onChoose: (dir: string) => void;
@@ -88,21 +104,6 @@ export function DirectoryBrowser(props: {
       ? "Repository root"
       : selectedDir.slice(props.repoRoot.length + 1);
 
-  function renderDirectory(payload: RenderTreeNodePayload) {
-    const label =
-      typeof payload.node.label === "string" ? payload.node.label : basename(payload.node.value);
-    return (
-      <div
-        {...payload.elementProps}
-        className={`${payload.elementProps.className} directory-browser-node`}
-        title={payload.loadError?.message ?? label}
-      >
-        {payload.expanded ? <FolderOpen size={16} /> : <Folder size={16} />}
-        <span className="directory-browser-label">{payload.node.label}</span>
-        {payload.loadError && <TriangleAlert size={15} color="var(--mantine-color-red-6)" />}
-      </div>
-    );
-  }
 
   return (
     <Stack className="workspace-chooser" gap="sm">

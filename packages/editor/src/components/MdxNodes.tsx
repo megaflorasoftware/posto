@@ -84,6 +84,26 @@ export const MdxFieldEnvContext = createContext<MdxFieldEnv>({
   templateValues: {},
 });
 
+function setNestedValue(
+  container: unknown,
+  path: (string | number)[],
+  update: (current: unknown) => unknown,
+): unknown {
+  if (path.length === 0) return update(container);
+  const [key, ...rest] = path;
+  if (typeof key === "number") {
+    const items = Array.isArray(container) ? [...container] : [];
+    items[key] = setNestedValue(items[key], rest, update);
+    return items;
+  }
+  const record =
+    container && typeof container === "object" && !Array.isArray(container)
+      ? { ...(container as Record<string, unknown>) }
+      : {};
+  record[key] = setNestedValue(record[key], rest, update);
+  return record;
+}
+
 /**
  * The same schemas, readable outside React: the markdown pipeline and the
  * slot-sync plugin run without access to context. BodyEditor keeps both in
@@ -255,33 +275,10 @@ function PropsForm(formProps: {
     setProp(propName, jsValueProp(propName, value, field?.required === true));
   }
 
-  /** Copy-on-write set along a path inside a prop's parsed value; numeric
-   * keys are list indices, string keys object members. Missing containers
-   * materialize on the way down. */
-  function setIn(
-    container: unknown,
-    path: (string | number)[],
-    update: (current: unknown) => unknown,
-  ): unknown {
-    if (path.length === 0) return update(container);
-    const [key, ...rest] = path;
-    if (typeof key === "number") {
-      const items = Array.isArray(container) ? [...container] : [];
-      items[key] = setIn(items[key], rest, update);
-      return items;
-    }
-    const record =
-      container && typeof container === "object" && !Array.isArray(container)
-        ? { ...(container as Record<string, unknown>) }
-        : {};
-    record[key] = setIn(record[key], rest, update);
-    return record;
-  }
-
   function updateProp(path: (string | number)[], update: (current: unknown) => unknown) {
     const propName = String(path[0]);
     const root = values[propName] === UNPARSED ? undefined : values[propName];
-    editJs(propName, setIn(root, path.slice(1), update));
+    editJs(propName, setNestedValue(root, path.slice(1), update));
   }
 
   // FieldEditor's context, backed by the prop list instead of a YAML doc.

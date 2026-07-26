@@ -110,6 +110,14 @@ function CardImage(props: { source: LocalAsset; modifier: string }) {
   );
 }
 
+function missingSeo(what: string) {
+  return <span className="seo-missing">Missing {what}</span>;
+}
+
+function cardImageArea(source: LocalAsset, modifier: string) {
+  return <CardImage source={source} modifier={modifier} />;
+}
+
 export function SeoPreview(props: {
   route: string;
   root: string;
@@ -176,10 +184,6 @@ export function SeoPreview(props: {
   const fbTitle = seo?.ogTitle ?? seo?.title;
   const fbDescription = seo?.ogDescription ?? seo?.description;
 
-  const missing = (what: string) => <span className="seo-missing">Missing {what}</span>;
-
-  const cardImageArea = (modifier: string) => <CardImage source={cardImage} modifier={modifier} />;
-
   return (
     <div className="seo-preview">
       <div className="seo-toolbar">
@@ -220,10 +224,12 @@ export function SeoPreview(props: {
                 </div>
               </div>
               <div className="seo-google-title">
-                {googleTitle ? truncate(googleTitle, 60) : missing("<title>")}
+                {googleTitle ? truncate(googleTitle, 60) : missingSeo("<title>")}
               </div>
               <div className="seo-google-desc">
-                {googleDescription ? truncate(googleDescription, 160) : missing("meta description")}
+                {googleDescription
+                  ? truncate(googleDescription, 160)
+                  : missingSeo("meta description")}
               </div>
             </div>
           </section>
@@ -236,14 +242,16 @@ export function SeoPreview(props: {
               )}
             </h3>
             <div className="seo-card seo-card-large">
-              {cardImageArea("seo-card-image-large")}
+              {cardImageArea(cardImage, "seo-card-image-large")}
               <div className="seo-card-text">
                 <div className="seo-card-domain">{displayUrl.host}</div>
                 <div className="seo-card-title">
-                  {cardTitle ? truncate(cardTitle, 70) : missing("og:title")}
+                  {cardTitle ? truncate(cardTitle, 70) : missingSeo("og:title")}
                 </div>
                 <div className="seo-card-desc">
-                  {cardDescription ? truncate(cardDescription, 125) : missing("og:description")}
+                  {cardDescription
+                    ? truncate(cardDescription, 125)
+                    : missingSeo("og:description")}
                 </div>
               </div>
             </div>
@@ -252,14 +260,16 @@ export function SeoPreview(props: {
           <section className="seo-section">
             <h3 className="seo-heading">Twitter / X — small card</h3>
             <div className="seo-card seo-card-small">
-              {cardImageArea("seo-card-image-small")}
+              {cardImageArea(cardImage, "seo-card-image-small")}
               <div className="seo-card-text">
                 <div className="seo-card-domain">{displayUrl.host}</div>
                 <div className="seo-card-title">
-                  {cardTitle ? truncate(cardTitle, 70) : missing("og:title")}
+                  {cardTitle ? truncate(cardTitle, 70) : missingSeo("og:title")}
                 </div>
                 <div className="seo-card-desc">
-                  {cardDescription ? truncate(cardDescription, 125) : missing("og:description")}
+                  {cardDescription
+                    ? truncate(cardDescription, 125)
+                    : missingSeo("og:description")}
                 </div>
               </div>
             </div>
@@ -268,14 +278,14 @@ export function SeoPreview(props: {
           <section className="seo-section">
             <h3 className="seo-heading">Facebook / Open Graph</h3>
             <div className="seo-card seo-card-facebook">
-              {cardImageArea("seo-card-image-large")}
+              {cardImageArea(cardImage, "seo-card-image-large")}
               <div className="seo-card-text seo-facebook-text">
                 <div className="seo-facebook-domain">{displayUrl.host.toUpperCase()}</div>
                 <div className="seo-facebook-title">
-                  {fbTitle ? truncate(fbTitle, 90) : missing("og:title")}
+                  {fbTitle ? truncate(fbTitle, 90) : missingSeo("og:title")}
                 </div>
                 <div className="seo-card-desc">
-                  {fbDescription ? truncate(fbDescription, 110) : missing("og:description")}
+                  {fbDescription ? truncate(fbDescription, 110) : missingSeo("og:description")}
                 </div>
               </div>
             </div>

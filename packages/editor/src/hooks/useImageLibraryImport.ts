@@ -87,10 +87,6 @@ export function useImageLibraryImport(input: {
     setDrafts((current) => current.map((draft, i) => (i === at ? update(draft) : draft)));
   }
 
-  async function chooseSources(): Promise<string[]> {
-    return openImageFiles();
-  }
-
   async function plan(draft: ImageLibraryImportDraft): Promise<MediaImportPlan> {
     const libraryRoot = `${input.root}/${input.library.base}`;
     let files: FileEntry[] = [];
@@ -177,7 +173,7 @@ export function useImageLibraryImport(input: {
     setSources,
     retarget,
     updateDraft,
-    chooseSources,
+    chooseSources: openImageFiles,
     plan,
     execute,
     pending,

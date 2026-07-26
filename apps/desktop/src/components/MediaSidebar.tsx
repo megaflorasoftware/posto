@@ -34,15 +34,18 @@ import {
 import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
 import { importPublicMediaFile, onFileDrop, type FileEntry, type FileGroup } from "@posto/ipc";
 
-function SourceMediaBrowserContent(props: { root: string; tabs: ReactNode }) {
-  const state = useSourceImageFiles(props.root);
-  const [currentDirectory, setCurrentDirectory] = useState("");
-  const mediaForFile = (file: FileEntry): MarkdownMediaPick => ({
+function sourceMediaForFile(file: FileEntry): MarkdownMediaPick {
+  return {
     outputPath: file.path,
     sourcePath: file.path,
     label: file.name,
     kind: "image",
-  });
+  };
+}
+
+function SourceMediaBrowserContent(props: { root: string; tabs: ReactNode }) {
+  const state = useSourceImageFiles(props.root);
+  const [currentDirectory, setCurrentDirectory] = useState("");
   return (
     <div className="media-drawer" data-media-pane-directory={currentDirectory}>
       <div className="media-drawer-scroll">
@@ -59,7 +62,7 @@ function SourceMediaBrowserContent(props: { root: string; tabs: ReactNode }) {
           toolbar={props.tabs}
           onDirectoryChange={setCurrentDirectory}
           dragPayload={(file) => ({
-            media: [mediaForFile(file)],
+            media: [sourceMediaForFile(file)],
             source: {
               kind: "media-sidebar",
               scope: "src",

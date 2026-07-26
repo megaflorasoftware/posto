@@ -17,6 +17,11 @@ interface EditableImageEnvironment {
   edit: (request: EditableImageRequest) => void;
 }
 
+function stopPointer(event: React.PointerEvent) {
+  event.preventDefault();
+  event.stopPropagation();
+}
+
 export const EditableImageContext = createContext<EditableImageEnvironment>({
   editorId: "",
   resolveSrc: (src) => src,
@@ -46,10 +51,6 @@ function EditableImageView(props: NodeViewProps) {
       getPosition,
     },
   });
-  const stopPointer = (event: React.PointerEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-  };
   const deleteImage = () => {
     const position = props.getPos();
     if (typeof position !== "number") return;
