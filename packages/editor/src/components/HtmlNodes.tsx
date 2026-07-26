@@ -1,5 +1,5 @@
 import { useContext, useId } from "react";
-import { Node } from "@tiptap/core";
+import { Node, nodeInputRule, type InputRuleMatch } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import { Textarea } from "@mantine/core";
 import { CodeXml } from "lucide-react";
@@ -21,6 +21,28 @@ function chipLabel(source: string): string {
   const trimmed = source.trim();
   const el = scanHtmlElement(trimmed);
   return el && el.raw === trimmed ? el.name : "HTML";
+}
+
+/** Matches a complete element only after its final `>` has been entered.
+ * This lets tags typed into an existing rich-text paragraph become the same
+ * atomic HTML nodes as tags loaded through the Markdown parser. */
+function htmlInputMatch(text: string, block: boolean, mdx: boolean): InputRuleMatch | null {
+  let index = text.indexOf("<");
+  while (index !== -1) {
+    const source = text.slice(index);
+    const element = scanHtmlElement(source);
+    if (element?.raw.length === source.length) {
+      // In MDX, capitalized elements retain their JSX component semantics.
+      if (mdx && /^[A-Z]/.test(element.name)) return null;
+      if (block !== (index === 0)) return null;
+      return { index, text: source, data: { source } };
+    }
+    // A valid-looking opening tag before the candidate is still incomplete.
+    // Do not collapse a completed child while one of its ancestors is open.
+    if (/^<[A-Za-z_:][A-Za-z0-9_.:-]*(?=[\s/>])/.test(source)) return null;
+    index = text.indexOf("<", index + 1);
+  }
+  return null;
 }
 
 function HtmlChipView(inline: boolean) {
@@ -102,10 +124,22 @@ export const HtmlInline = Node.create({
   addNodeView() {
     return ReactNodeViewRenderer(HtmlChipView(true));
   },
+  addInputRules() {
+    const mdx = this.editor.extensionManager.extensions.some(
+      (extension) => extension.name === "mdxComponent",
+    );
+    return [
+      nodeInputRule({
+        find: (text) => htmlInputMatch(text, false, mdx),
+        type: this.type,
+        getAttributes: (match) => ({ source: match.data?.source ?? match[0] }),
+      }),
+    ];
+  },
   markdownTokenizer: {
     name: "htmlInline",
     level: "inline",
-    start: (src: string) => src.search(/<[a-z]/),
+    start: (src: string) => src.search(/<[A-Za-z_:]/),
     tokenize: (src: string) => {
       const el = scanHtmlElement(src);
       return el ? { type: "htmlInline", raw: el.raw } : undefined;
@@ -131,11 +165,23 @@ export const HtmlBlock = Node.create({
   addNodeView() {
     return ReactNodeViewRenderer(HtmlChipView(false));
   },
+  addInputRules() {
+    const mdx = this.editor.extensionManager.extensions.some(
+      (extension) => extension.name === "mdxComponent",
+    );
+    return [
+      nodeInputRule({
+        find: (text) => htmlInputMatch(text, true, mdx),
+        type: this.type,
+        getAttributes: (match) => ({ source: match.data?.source ?? match[0] }),
+      }),
+    ];
+  },
   markdownTokenizer: {
     name: "htmlBlock",
     level: "block",
     start: (src: string) => {
-      const match = /(^|\n)<[a-z]/.exec(src);
+      const match = /(^|\n)<[A-Za-z_:]/.exec(src);
       return match ? match.index + match[1].length : -1;
     },
     tokenize: (src: string) => {
@@ -148,7 +194,10 @@ export const HtmlBlock = Node.create({
       // (`<kbd>Ctrl</kbd> + C`) stays in the paragraph for the inline
       // tokenizer; a bare `<marquee>…</marquee>` block is preserved as raw
       // HTML instead of being escaped to `&lt;marquee&gt;` on save.
-      if (BLOCK_HTML_TAGS.has(el.name) || /^[ \t\r]*(\n|$)/.test(src.slice(el.raw.length))) {
+      if (
+        BLOCK_HTML_TAGS.has(el.name.toLowerCase()) ||
+        /^[ \t\r]*(\n|$)/.test(src.slice(el.raw.length))
+      ) {
         return { type: "htmlBlock", raw: el.raw };
       }
       return undefined;
