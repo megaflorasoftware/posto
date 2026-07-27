@@ -209,8 +209,7 @@ export function imageGapLocation(
             top: Math.min(leftRect.top, rightRect.top),
             width: 3,
             height:
-              Math.max(leftRect.bottom, rightRect.bottom) -
-              Math.min(leftRect.top, rightRect.top),
+              Math.max(leftRect.bottom, rightRect.bottom) - Math.min(leftRect.top, rightRect.top),
             orientation: "vertical",
             blockBoundary: false,
           },

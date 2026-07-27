@@ -1098,37 +1098,57 @@ fn transaction_temp(target: &Path, label: &str) -> Result<PathBuf, String> {
 }
 
 struct TransactionReservation {
-    _file: std::fs::File,
+    _files: Vec<std::fs::File>,
 }
 
 impl TransactionReservation {
-    fn acquire(targets: &[&Path], label: &str) -> Result<Self, String> {
+    fn acquire(targets: &[&Path]) -> Result<Self, String> {
         if targets.is_empty() {
             return Err("Cannot reserve an empty transaction".to_string());
         }
-        let mut hasher = DefaultHasher::new();
-        label.hash(&mut hasher);
+        let mut canonical_targets = Vec::with_capacity(targets.len());
         for target in targets {
-            target.hash(&mut hasher);
+            let parent = target
+                .parent()
+                .ok_or_else(|| format!("Invalid import destination: {}", target.display()))?;
+            let name = target
+                .file_name()
+                .ok_or_else(|| format!("Invalid import destination: {}", target.display()))?;
+            let canonical_parent = std::fs::canonicalize(parent)
+                .map_err(|error| format!("Invalid import destination: {error}"))?;
+            canonical_targets.push(canonical_parent.join(name));
         }
+        canonical_targets.sort();
+        canonical_targets.dedup();
+
         let directory = std::env::temp_dir().join("posto-import-locks");
         std::fs::create_dir_all(&directory)
             .map_err(|error| format!("Failed to create import lock directory: {error}"))?;
-        let path = directory.join(format!("{label}-{:016x}.lock", hasher.finish()));
-        let file = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(&path)
-            .map_err(|error| format!("Failed to open import destination lock: {error}"))?;
-        file.try_lock_exclusive().map_err(|error| {
-            if error.kind() == std::io::ErrorKind::WouldBlock {
-                "The import destination is already being written".to_string()
-            } else {
-                format!("Failed to lock import destination: {error}")
-            }
-        })?;
-        Ok(Self { _file: file })
+        let mut files = Vec::with_capacity(canonical_targets.len());
+        for target in canonical_targets {
+            let mut hasher = DefaultHasher::new();
+            target.hash(&mut hasher);
+            let path = directory.join(format!("{:016x}.lock", hasher.finish()));
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&path)
+                .map_err(|error| format!("Failed to open import destination lock: {error}"))?;
+            file.try_lock_exclusive().map_err(|error| {
+                if error.kind() == std::io::ErrorKind::WouldBlock {
+                    format!(
+                        "Import destination is already being written: {}",
+                        target.display()
+                    )
+                } else {
+                    format!("Failed to lock import destination: {error}")
+                }
+            })?;
+            files.push(file);
+        }
+        Ok(Self { _files: files })
     }
 }
 
@@ -1185,7 +1205,7 @@ fn execute_image_library_import(
         cleanup();
         return Err("simulated import failure".into());
     }
-    let _reservation = match TransactionReservation::acquire(&[&image, &metadata], "image-import") {
+    let _reservation = match TransactionReservation::acquire(&[&image, &metadata]) {
         Ok(reservation) => reservation,
         Err(error) => {
             cleanup();
@@ -1262,11 +1282,9 @@ pub fn import_file_media_item(request: FileMediaImportRequest) -> Result<String,
         let _ = std::fs::remove_file(&staged);
         return Err(format!("Failed to stage file media: {error}"));
     }
-    let _reservation =
-        TransactionReservation::acquire(&[&target], "file-media-import").map_err(|error| {
-            let _ = std::fs::remove_file(&staged);
-            error
-        })?;
+    let _reservation = TransactionReservation::acquire(&[&target]).inspect_err(|_| {
+        let _ = std::fs::remove_file(&staged);
+    })?;
     if target.exists() {
         let _ = std::fs::remove_file(&staged);
         return Err(format!("File already exists: {}", target.display()));
@@ -1608,9 +1626,24 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let target = temp.path().join("photo.jpg");
         {
-            let _reservation = TransactionReservation::acquire(&[&target], "test-import").unwrap();
+            let _reservation = TransactionReservation::acquire(&[&target]).unwrap();
         }
-        let _reservation = TransactionReservation::acquire(&[&target], "test-import").unwrap();
+        let _reservation = TransactionReservation::acquire(&[&target]).unwrap();
+    }
+
+    #[test]
+    fn destination_reservations_conflict_on_any_shared_target() {
+        let temp = tempfile::tempdir().unwrap();
+        let image = temp.path().join("photo.jpg");
+        let metadata = temp.path().join("photo.yml");
+        let other_metadata = temp.path().join("other.yml");
+        let paired = TransactionReservation::acquire(&[&metadata, &image]).unwrap();
+
+        assert!(TransactionReservation::acquire(&[&image]).is_err());
+        assert!(TransactionReservation::acquire(&[&other_metadata, &image]).is_err());
+
+        drop(paired);
+        assert!(TransactionReservation::acquire(&[&image, &metadata]).is_ok());
     }
 
     #[test]

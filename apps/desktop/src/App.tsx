@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ActionIcon, Button, MantineProvider, Modal, Switch } from "@mantine/core";
 import { Notifications, notifications } from "@mantine/notifications";
 import {
@@ -113,7 +113,7 @@ function App() {
   const rootRef = useRef(root);
   const fullscreenEditorOpenRef = useRef(fullscreenEditorOpen);
   const selectionGenerationRef = useRef(0);
-  useEffect(() => {
+  useLayoutEffect(() => {
     rootRef.current = root;
     fullscreenEditorOpenRef.current = fullscreenEditorOpen;
   }, [root, fullscreenEditorOpen]);
@@ -480,7 +480,7 @@ function App() {
   const externalChangesRef = useRef(onExternalChanges);
   const chooseDirectoryRef = useRef(chooseDirectory);
   const chooseProjectInRepositoryRef = useRef(chooseProjectInRepository);
-  useEffect(() => {
+  useLayoutEffect(() => {
     externalChangesRef.current = onExternalChanges;
     chooseDirectoryRef.current = chooseDirectory;
     chooseProjectInRepositoryRef.current = chooseProjectInRepository;
@@ -966,10 +966,7 @@ function App() {
                   {fullscreenEditorOpen && (
                     <>
                       <div className="fullscreen-sidebar-rail fullscreen-sidebar-rail-left">
-                        <aside
-                          className="fullscreen-floating-sidebar"
-                          aria-label="Files sidebar"
-                        >
+                        <aside className="fullscreen-floating-sidebar" aria-label="Files sidebar">
                           <div className="fullscreen-floating-sidebar-header">
                             <Files size={16} />
                             <span>Files</span>
@@ -981,10 +978,7 @@ function App() {
                       </div>
                       {config && (
                         <div className="fullscreen-sidebar-rail fullscreen-sidebar-rail-right">
-                          <aside
-                            className="fullscreen-floating-sidebar"
-                            aria-label="Media sidebar"
-                          >
+                          <aside className="fullscreen-floating-sidebar" aria-label="Media sidebar">
                             <div className="fullscreen-floating-sidebar-header">
                               <ImageIcon size={16} />
                               <span>Media</span>

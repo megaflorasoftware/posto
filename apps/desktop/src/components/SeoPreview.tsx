@@ -249,9 +249,7 @@ export function SeoPreview(props: {
                   {cardTitle ? truncate(cardTitle, 70) : missingSeo("og:title")}
                 </div>
                 <div className="seo-card-desc">
-                  {cardDescription
-                    ? truncate(cardDescription, 125)
-                    : missingSeo("og:description")}
+                  {cardDescription ? truncate(cardDescription, 125) : missingSeo("og:description")}
                 </div>
               </div>
             </div>
@@ -267,9 +265,7 @@ export function SeoPreview(props: {
                   {cardTitle ? truncate(cardTitle, 70) : missingSeo("og:title")}
                 </div>
                 <div className="seo-card-desc">
-                  {cardDescription
-                    ? truncate(cardDescription, 125)
-                    : missingSeo("og:description")}
+                  {cardDescription ? truncate(cardDescription, 125) : missingSeo("og:description")}
                 </div>
               </div>
             </div>

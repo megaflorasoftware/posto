@@ -48,7 +48,7 @@ async function mapWithConcurrency<T, Result>(
   concurrency: number,
   task: (item: T) => Promise<Result>,
 ): Promise<Result[]> {
-  const results = new Array<Result>(items.length);
+  const results: Result[] = [];
   let nextIndex = 0;
   let failed = false;
   let failure: unknown;

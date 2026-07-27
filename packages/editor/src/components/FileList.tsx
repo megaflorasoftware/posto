@@ -62,9 +62,7 @@ export function FileList(props: {
           >
             {props.fileLabel?.(file) ?? file.title ?? file.name}
           </button>
-          {pinned.has(file.name) && (
-            <Pin size={12} className="file-pin" aria-label="Pinned" />
-          )}
+          {pinned.has(file.name) && <Pin size={12} className="file-pin" aria-label="Pinned" />}
           <DeleteFileButton file={file} onDelete={props.onDelete} />
         </div>
       ))}

@@ -31,17 +31,19 @@ export function applyCollectionPrefs(files: FileEntry[], collection: ContentEntr
       sort.by === LABEL_SORT ? (file.title ?? file.name) : sortValue(file.frontmatter, sort),
     );
     const mode = sortComparisonMode(values);
-    result = result.slice().sort((a, b) =>
-      sort.by === LABEL_SORT
-        ? compareSortValues(a.title ?? a.name, b.title ?? b.name, sort.direction, mode)
-        : compareBySort(a.frontmatter, b.frontmatter, sort, mode),
-    );
+    result = result
+      .slice()
+      .sort((a, b) =>
+        sort.by === LABEL_SORT
+          ? compareSortValues(a.title ?? a.name, b.title ?? b.name, sort.direction, mode)
+          : compareBySort(a.frontmatter, b.frontmatter, sort, mode),
+      );
   }
   if (pinned?.length) {
     const rank = new Map(pinned.map((name, i) => [name, i]));
-    result = result.slice().sort(
-      (a, b) => (rank.get(a.name) ?? Infinity) - (rank.get(b.name) ?? Infinity),
-    );
+    result = result
+      .slice()
+      .sort((a, b) => (rank.get(a.name) ?? Infinity) - (rank.get(b.name) ?? Infinity));
   }
   return result;
 }

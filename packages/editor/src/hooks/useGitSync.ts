@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@posto/ipc";
 import type { ChangedFile } from "@posto/ipc";
 
@@ -41,10 +41,10 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
 
   const rootRef = useRef(root);
   const cb = useRef(callbacks);
-  useEffect(() => {
+  useLayoutEffect(() => {
     rootRef.current = root;
     cb.current = callbacks;
-  });
+  }, [root, callbacks]);
 
   /** Fetches the remote and updates the behind-upstream flag. Errors (no
    * remote/upstream, offline) just mean there is nothing to fetch. */

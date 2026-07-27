@@ -12,10 +12,7 @@ export function ImageLibraryDropImport(props: {
   onError?: (message: string) => void;
 }) {
   const [sources, setSources] = useState<string[] | null>(null);
-  const libraries = useMemo(
-    () => props.config.mediaLibraries ?? [],
-    [props.config.mediaLibraries],
-  );
+  const libraries = useMemo(() => props.config.mediaLibraries ?? [], [props.config.mediaLibraries]);
   const onError = props.onError;
   useEffect(
     () =>

@@ -108,7 +108,6 @@ function DirectoryBrowserContent(props: {
       ? "Repository root"
       : selectedDir.slice(props.repoRoot.length + 1);
 
-
   return (
     <Stack className="workspace-chooser" gap="sm">
       <div>

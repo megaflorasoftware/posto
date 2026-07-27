@@ -56,60 +56,60 @@ export function useFileGroups(onError: (message: string) => void, dataDocumentsE
     }
     const loaded = await Promise.all(
       (config?.content ?? []).map(async (collection): Promise<FileGroup | null> => {
-      if (!collection.dataFile) return null;
-      const dataFile = collection.dataFile;
-      const path = `${dir}/${dataFile.path}`;
-      try {
-        const parsed = parseDataDocument(
-          await invoke<string>("read_text_file", { path }),
-          dataFile.format,
-        );
-        if (parsed.error) return null;
-        const files = dataDocumentEntries(parsed).flatMap((locator) => {
-          const values = dataEntryValues(parsed, locator);
-          if (!values) return [];
-          const frontmatter: Record<string, string> = {};
-          for (const [key, value] of Object.entries(values)) {
-            if (
-              typeof value === "string" ||
-              typeof value === "number" ||
-              typeof value === "boolean"
-            ) {
-              frontmatter[key] = String(value);
+        if (!collection.dataFile) return null;
+        const dataFile = collection.dataFile;
+        const path = `${dir}/${dataFile.path}`;
+        try {
+          const parsed = parseDataDocument(
+            await invoke<string>("read_text_file", { path }),
+            dataFile.format,
+          );
+          if (parsed.error) return null;
+          const files = dataDocumentEntries(parsed).flatMap((locator) => {
+            const values = dataEntryValues(parsed, locator);
+            if (!values) return [];
+            const frontmatter: Record<string, string> = {};
+            for (const [key, value] of Object.entries(values)) {
+              if (
+                typeof value === "string" ||
+                typeof value === "number" ||
+                typeof value === "boolean"
+              ) {
+                frontmatter[key] = String(value);
+              }
             }
-          }
-          return [
-            {
-              name: locator.id,
-              path,
-              key: `${path}#${collection.name}:${locator.path.join(".")}`,
-              title:
-                typeof values.title === "string"
-                  ? values.title
-                  : typeof values.name === "string"
-                    ? values.name
-                    : locator.id,
-              frontmatter,
-              dataEntry: {
-                collection: collection.name,
-                id: locator.id,
-                path: locator.path,
-                format: dataFile.format,
+            return [
+              {
+                name: locator.id,
+                path,
+                key: `${path}#${collection.name}:${locator.path.join(".")}`,
+                title:
+                  typeof values.title === "string"
+                    ? values.title
+                    : typeof values.name === "string"
+                      ? values.name
+                      : locator.id,
+                frontmatter,
+                dataEntry: {
+                  collection: collection.name,
+                  id: locator.id,
+                  path: locator.path,
+                  format: dataFile.format,
+                },
               },
-            },
-          ];
-        });
-        return {
-          label: collection.label ?? collection.name,
-          path,
-          kind: "data",
-          dataCollection: collection.name,
-          files,
-        };
-      } catch {
-        // Missing/unreadable backing files do not hide ordinary file groups.
-        return null;
-      }
+            ];
+          });
+          return {
+            label: collection.label ?? collection.name,
+            path,
+            kind: "data",
+            dataCollection: collection.name,
+            files,
+          };
+        } catch {
+          // Missing/unreadable backing files do not hide ordinary file groups.
+          return null;
+        }
       }),
     );
     next.push(...loaded.filter((group): group is FileGroup => group !== null));

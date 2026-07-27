@@ -85,8 +85,7 @@ async function loadStore(store: LibraryStore): Promise<void> {
           ?.toLowerCase() as MediaLibraryMetadataExtension;
         const relativePath = file.path.slice(store.libraryRoot.length + 1);
         return (
-          metadataExtensions.has(extension) &&
-          matchesImageLibraryPath(store.library, relativePath)
+          metadataExtensions.has(extension) && matchesImageLibraryPath(store.library, relativePath)
         );
       });
       const documents = await Promise.all(
