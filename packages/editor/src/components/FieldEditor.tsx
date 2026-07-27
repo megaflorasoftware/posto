@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { ActionIcon, Button, NumberInput, Switch, Textarea, TextInput } from "@mantine/core";
 import { Check, GripVertical, Image, Pencil, RefreshCw, X } from "lucide-react";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -471,20 +471,22 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
   const previewImage = imageDescendant(props.field);
   const sortableGroupId = `field-list:${props.ctx.root}:${props.path.join(".")}`;
   const rowIdPrefix = useId();
-  const nextRowId = useRef(items.length);
-  const [rowIds, setRowIds] = useState(() =>
-    items.map((_item, index) => `${rowIdPrefix}:${index}`),
-  );
+  const [rowIdentity, setRowIdentity] = useState(() => ({
+    ids: items.map((_item, index) => `${rowIdPrefix}:${index}`),
+    nextId: items.length,
+  }));
+  const rowIds = rowIdentity.ids;
   const itemIds = items.map((_item, index) => rowIds[index] ?? `${rowIdPrefix}:external:${index}`);
   useEffect(() => {
     if (rowIds.length === items.length) return;
-    setRowIds((current) => {
-      const next = current.slice(0, items.length);
-      while (next.length < items.length) {
-        next.push(`${rowIdPrefix}:${nextRowId.current}`);
-        nextRowId.current += 1;
+    setRowIdentity((current) => {
+      const ids = current.ids.slice(0, items.length);
+      let nextId = current.nextId;
+      while (ids.length < items.length) {
+        ids.push(`${rowIdPrefix}:${nextId}`);
+        nextId += 1;
       }
-      return next;
+      return { ids, nextId };
     });
   }, [items.length, rowIdPrefix, rowIds.length]);
 
@@ -503,25 +505,29 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
 
   function addItem() {
     const newIndex = items.length;
-    const id = `${rowIdPrefix}:${nextRowId.current}`;
-    nextRowId.current += 1;
-    setRowIds((current) => [...current, id]);
+    setRowIdentity((current) => ({
+      ids: [...current.ids, `${rowIdPrefix}:${current.nextId}`],
+      nextId: current.nextId + 1,
+    }));
     props.ctx.listAppend(props.path, newItemValue(props.field));
     if (isObjectList) setItemExpanded(newIndex, true);
   }
 
   function removeItem(index: number) {
-    setRowIds((current) => current.filter((_id, at) => at !== index));
+    setRowIdentity((current) => ({
+      ...current,
+      ids: current.ids.filter((_id, at) => at !== index),
+    }));
     props.ctx.listRemove(props.path, index);
     setExpanded((current) => remapAfterRemove(current, index));
   }
 
   function moveItem(from: number, to: number) {
-    setRowIds((current) => {
-      const next = [...current];
-      const [moved] = next.splice(from, 1);
-      if (moved !== undefined) next.splice(to, 0, moved);
-      return next;
+    setRowIdentity((current) => {
+      const ids = [...current.ids];
+      const [moved] = ids.splice(from, 1);
+      if (moved !== undefined) ids.splice(to, 0, moved);
+      return { ...current, ids };
     });
     props.ctx.listMove(props.path, from, to);
     setExpanded((current) => remapAfterMove(current, from, to));

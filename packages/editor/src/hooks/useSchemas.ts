@@ -241,11 +241,18 @@ export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
       loadPostoConfig(dir, generation, false, baseline.posto),
     ]);
     if (generation !== generationRef.current) return configRef.current;
+    const effectiveConfig = resolveEffectiveConfig(
+      pages,
+      derived,
+      posto,
+      selectedAdapter.defaultMedia,
+    );
+    configRef.current = effectiveConfig;
     commitPagesConfig(pages);
     commitDerivedConfig(derived);
     commitPostoConfig(posto);
     activeSourceRef.current = { dir, adapterType: selectedAdapter.type };
-    return resolveEffectiveConfig(pages, derived, posto, selectedAdapter.defaultMedia);
+    return effectiveConfig;
   }
 
   // Effective schema config: `.pages.yml` entries first (higher resolution —

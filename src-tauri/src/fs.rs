@@ -1,3 +1,4 @@
+use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Component, Path, PathBuf};
@@ -1097,39 +1098,37 @@ fn transaction_temp(target: &Path, label: &str) -> Result<PathBuf, String> {
 }
 
 struct TransactionReservation {
-    path: PathBuf,
+    _file: std::fs::File,
 }
 
 impl TransactionReservation {
     fn acquire(targets: &[&Path], label: &str) -> Result<Self, String> {
-        let directory = targets
-            .first()
-            .and_then(|target| target.parent())
-            .ok_or_else(|| "Cannot reserve an empty transaction".to_string())?;
+        if targets.is_empty() {
+            return Err("Cannot reserve an empty transaction".to_string());
+        }
         let mut hasher = DefaultHasher::new();
         label.hash(&mut hasher);
         for target in targets {
             target.hash(&mut hasher);
         }
-        let path = directory.join(format!(".posto-{label}-{:016x}.lock", hasher.finish()));
-        std::fs::OpenOptions::new()
+        let directory = std::env::temp_dir().join("posto-import-locks");
+        std::fs::create_dir_all(&directory)
+            .map_err(|error| format!("Failed to create import lock directory: {error}"))?;
+        let path = directory.join(format!("{label}-{:016x}.lock", hasher.finish()));
+        let file = std::fs::OpenOptions::new()
+            .read(true)
             .write(true)
-            .create_new(true)
+            .create(true)
             .open(&path)
-            .map_err(|error| {
-                if error.kind() == std::io::ErrorKind::AlreadyExists {
-                    "The import destination is already being written".to_string()
-                } else {
-                    format!("Failed to reserve import destination: {error}")
-                }
-            })?;
-        Ok(Self { path })
-    }
-}
-
-impl Drop for TransactionReservation {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
+            .map_err(|error| format!("Failed to open import destination lock: {error}"))?;
+        file.try_lock_exclusive().map_err(|error| {
+            if error.kind() == std::io::ErrorKind::WouldBlock {
+                "The import destination is already being written".to_string()
+            } else {
+                format!("Failed to lock import destination: {error}")
+            }
+        })?;
+        Ok(Self { _file: file })
     }
 }
 
@@ -1602,6 +1601,16 @@ mod tests {
                 .count(),
             2
         );
+    }
+
+    #[test]
+    fn destination_reservation_reuses_an_unlocked_lock_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("photo.jpg");
+        {
+            let _reservation = TransactionReservation::acquire(&[&target], "test-import").unwrap();
+        }
+        let _reservation = TransactionReservation::acquire(&[&target], "test-import").unwrap();
     }
 
     #[test]

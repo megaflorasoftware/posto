@@ -18,7 +18,12 @@ import {
 } from "@posto/ipc";
 import { checkForAppUpdate } from "./updater";
 import type { ChangedFile, FileEntry, FileGroup } from "@posto/ipc";
-import { EMPTY_CONFIG, matchEntry, renamedFilename } from "@posto/core/pagescms/config";
+import {
+  EMPTY_CONFIG,
+  matchEntry,
+  renamedFilename,
+  type PagesConfig,
+} from "@posto/core/pagescms/config";
 import { parseFile } from "@posto/core/pagescms/frontmatter";
 import {
   type ProjectCandidate,
@@ -186,10 +191,13 @@ function App() {
 
   // Every event that can change git status also refreshes the sidebar, so
   // this keeps the header's Publish button state current too.
-  async function refreshGroups(dir: string) {
+  async function refreshGroups(
+    dir: string,
+    config: PagesConfig | null = schemas.configRef.current,
+  ) {
     void git.refreshLocalChanges(dir);
     await files.refreshGroups(dir);
-    await files.refreshDataGroups(dir, schemas.configRef.current);
+    await files.refreshDataGroups(dir, config);
   }
 
   async function recoverMissingWorkDir(repository: string, dir: string): Promise<boolean> {
@@ -251,9 +259,9 @@ function App() {
     setWorkspaceCandidates(null);
     currentFile.closeFile();
     preview.resetRoute();
-    await schemas.loadSchemas(dir, selectedAdapter);
+    const config = await schemas.loadSchemas(dir, selectedAdapter);
     if (generation !== selectionGenerationRef.current) return;
-    await refreshGroups(dir);
+    await refreshGroups(dir, config);
     if (generation !== selectionGenerationRef.current) return;
     void devServer.startServer(dir);
     void invoke("set_last_root", { root: repository, workDir: dir }).then(() =>
