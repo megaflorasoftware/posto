@@ -30,6 +30,7 @@ const assets: ImageLibraryAsset[] = [
     health: ["valid"],
   },
 ];
+let currentAssets = assets;
 
 vi.mock("@posto/ipc", () => ({
   invoke: mocks.invoke,
@@ -38,7 +39,7 @@ vi.mock("@posto/ipc", () => ({
 
 vi.mock("../src/hooks/useImageLibraryAssets", () => ({
   useImageLibraryAssets: () => ({
-    assets,
+    assets: currentAssets,
     directories: [],
     error: null,
     loading: false,
@@ -63,6 +64,7 @@ Object.defineProperty(window, "matchMedia", {
 
 afterEach(() => {
   cleanup();
+  currentAssets = assets;
   mocks.invoke.mockClear();
 });
 
@@ -119,4 +121,46 @@ test("flushes pending metadata to the asset being left", async () => {
   expect(write?.[1]).toMatchObject({ path: "/repo/photos/a.yml" });
   expect(String(write?.[1]?.content)).toContain("Edited A");
   expect(String(write?.[1]?.path)).not.toContain("/b.yml");
+});
+
+test("preserves dirty metadata when the selected asset is refreshed", async () => {
+  const ctx: FieldContext = {
+    config: { media: [], content: [], mediaLibraries: [library] },
+    root: "/repo",
+    entry: null,
+    documentPath: "/repo/post.md",
+    groups: [],
+    errors: () => new Map(),
+    templateValues: () => ({}),
+    value: () => "a",
+    edit: vi.fn(),
+    listAppend: vi.fn(),
+    listRemove: vi.fn(),
+    listMove: vi.fn(),
+  };
+  const view = () => (
+    <MantineProvider forceColorScheme="light">
+      <MediaDragDropProvider>
+        <ImageLibraryReferenceField
+          field={{ name: "photo", type: "reference" }}
+          path={["photo"]}
+          ctx={ctx}
+          library={library}
+        />
+      </MediaDragDropProvider>
+    </MantineProvider>
+  );
+  const rendered = render(view());
+
+  fireEvent.change(await screen.findByDisplayValue("Old A"), {
+    target: { value: "Unsaved edit" },
+  });
+  currentAssets = assets.map((asset) => ({
+    ...asset,
+    metadata: structuredClone(asset.metadata),
+  }));
+  rendered.rerender(view());
+  await act(async () => undefined);
+
+  expect(screen.getByDisplayValue("Unsaved edit")).toBeTruthy();
 });

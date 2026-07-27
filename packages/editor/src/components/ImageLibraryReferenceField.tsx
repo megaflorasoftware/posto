@@ -31,6 +31,7 @@ export function ImageLibraryReferenceField(props: {
   const [metadata, setMetadata] = useState<Record<string, unknown>>({});
   const [metadataError, setMetadataError] = useState<string | null>(null);
   const metadataRef = useRef(metadata);
+  const metadataAssetPathRef = useRef<string | null>(null);
   const metadataDirtyRef = useRef(false);
   const metadataRevisionRef = useRef(0);
   const metadataSaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -44,7 +45,10 @@ export function ImageLibraryReferenceField(props: {
   const metadataErrors = validateForm(metadataFields, metadata);
 
   useEffect(() => {
+    const assetPath = selectedAsset?.metadataPath ?? null;
+    if (metadataAssetPathRef.current === assetPath && metadataDirtyRef.current) return;
     const next = structuredClone(selectedAsset?.metadata ?? {});
+    metadataAssetPathRef.current = assetPath;
     metadataRef.current = next;
     metadataDirtyRef.current = false;
     metadataRevisionRef.current += 1;

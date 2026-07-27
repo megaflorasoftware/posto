@@ -41,6 +41,33 @@ export interface ImageLibraryReferenceUpdatePlan {
 }
 
 const IMAGE_NAME = /^(src|image|img|imgsrc)$/i;
+const REFERENCE_READ_CONCURRENCY = 8;
+
+async function mapWithConcurrency<T, Result>(
+  items: T[],
+  concurrency: number,
+  task: (item: T) => Promise<Result>,
+): Promise<Result[]> {
+  const results = new Array<Result>(items.length);
+  let nextIndex = 0;
+  let failed = false;
+  let failure: unknown;
+  const worker = async () => {
+    while (!failed && nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      try {
+        results[index] = await task(items[index]);
+      } catch (error) {
+        failed = true;
+        failure = error;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
+  if (failed) throw failure;
+  return results;
+}
 
 function valueAt(root: unknown, path: ValuePath): unknown {
   let value = root;
@@ -325,35 +352,32 @@ export async function planMarkdownMediaReferenceUpdates(input: {
   relocations?: Array<{ from: string; to: string }>;
 }): Promise<ImageLibraryReferenceUpdatePlan> {
   const paths = new Set(input.groups.flatMap((group) => group.files.map((file) => file.path)));
-  const results = await Promise.all(
-    [...paths].flatMap((path) =>
-      /\.(md|mdx)$/i.test(path)
-        ? [
-            (async () => {
-              const previous = await invoke<string>("read_text_file", { path });
-              const parsed = parseFile(previous);
-              if (parsed.error) {
-                throw new Error(`Could not update media references in ${path}: ${parsed.error}`);
-              }
-              const pathReplacements = new Map(input.replacements);
-              if (input.root) {
-                for (const relocation of input.relocations ?? []) {
-                  const from = markdownMediaOutputPath(input.root, path, relocation.from);
-                  const to = markdownMediaOutputPath(input.root, path, relocation.to);
-                  if (from !== to) pathReplacements.set(from, to);
-                }
-              }
-              const markdown = rewriteMarkdownMediaDestinations(parsed.body, pathReplacements);
-              if (markdown.replacements === 0) return null;
-              parsed.body = markdown.content;
-              return {
-                write: { path, previous, content: serializeFile(parsed) },
-                replacements: markdown.replacements,
-              };
-            })(),
-          ]
-        : [],
-    ),
+  const documentPaths = [...paths].filter((path) => /\.(md|mdx)$/i.test(path));
+  const results = await mapWithConcurrency(
+    documentPaths,
+    REFERENCE_READ_CONCURRENCY,
+    async (path) => {
+      const previous = await invoke<string>("read_text_file", { path });
+      const parsed = parseFile(previous);
+      if (parsed.error) {
+        throw new Error(`Could not update media references in ${path}: ${parsed.error}`);
+      }
+      const pathReplacements = new Map(input.replacements);
+      if (input.root) {
+        for (const relocation of input.relocations ?? []) {
+          const from = markdownMediaOutputPath(input.root, path, relocation.from);
+          const to = markdownMediaOutputPath(input.root, path, relocation.to);
+          if (from !== to) pathReplacements.set(from, to);
+        }
+      }
+      const markdown = rewriteMarkdownMediaDestinations(parsed.body, pathReplacements);
+      if (markdown.replacements === 0) return null;
+      parsed.body = markdown.content;
+      return {
+        write: { path, previous, content: serializeFile(parsed) },
+        replacements: markdown.replacements,
+      };
+    },
   );
   return {
     writes: results.flatMap((result) => (result ? [result.write] : [])),
@@ -371,76 +395,73 @@ export async function planImageLibraryReferenceUpdates(input: {
   relocations: ImageLibraryRelocation[];
 }): Promise<ImageLibraryReferenceUpdatePlan> {
   const paths = new Set(input.groups.flatMap((group) => group.files.map((file) => file.path)));
-  const results = await Promise.all(
-    [...paths].map(async (path) => {
-      const entry = entryForPath(input.config, input.root, path);
-      if (!entry) return null;
-      const previous = await invoke<string>("read_text_file", { path });
-      let replacements = 0;
-      if (entry.dataFile) {
-        const parsed = parseDataDocument(previous, entry.dataFile.format);
-        if (parsed.error)
-          throw new Error(`Could not update references in ${path}: ${parsed.error}`);
-        for (const locator of dataDocumentEntries(parsed)) {
-          const values = dataEntryValues(parsed, locator);
-          if (!values) continue;
-          const updates = fieldUpdates(
-            entry.fields,
-            values,
-            locator.path,
-            entry,
-            input.root,
-            input.config,
-            input.library,
-            input.relocations,
-          );
-          for (const update of updates) setDataValue(parsed, update.path, update.value);
-          replacements += updates.length;
-        }
-        const content = serializeDataDocument(parsed);
-        return {
-          write: content !== previous ? { path, previous, content } : null,
-          replacements,
-        };
-      }
-      if (!/\.(md|mdx|markdown)$/i.test(path)) return null;
-      const parsed = parseFile(previous);
+  const results = await mapWithConcurrency([...paths], REFERENCE_READ_CONCURRENCY, async (path) => {
+    const entry = entryForPath(input.config, input.root, path);
+    if (!entry) return null;
+    const previous = await invoke<string>("read_text_file", { path });
+    let replacements = 0;
+    if (entry.dataFile) {
+      const parsed = parseDataDocument(previous, entry.dataFile.format);
       if (parsed.error) throw new Error(`Could not update references in ${path}: ${parsed.error}`);
-      const values = (parsed.doc.toJS() ?? {}) as Record<string, unknown>;
-      const updates = fieldUpdates(
-        entry.fields,
-        values,
-        [],
-        entry,
-        input.root,
-        input.config,
-        input.library,
-        input.relocations,
-      );
-      for (const update of updates) setValue(parsed.doc, update.path, update.value);
-      replacements += updates.length;
-      const markdown = rewriteMarkdownImages(
-        parsed.body,
-        markdownOutputMap(
-          path,
-          entry,
+      for (const locator of dataDocumentEntries(parsed)) {
+        const values = dataEntryValues(parsed, locator);
+        if (!values) continue;
+        const updates = fieldUpdates(
+          entry.fields,
           values,
+          locator.path,
+          entry,
           input.root,
           input.config,
           input.library,
           input.relocations,
-          /\.(md|mdx)$/i.test(path),
-        ),
-      );
-      parsed.body = markdown.content;
-      replacements += markdown.replacements;
-      const content = serializeFile(parsed);
+        );
+        for (const update of updates) setDataValue(parsed, update.path, update.value);
+        replacements += updates.length;
+      }
+      const content = serializeDataDocument(parsed);
       return {
         write: content !== previous ? { path, previous, content } : null,
         replacements,
       };
-    }),
-  );
+    }
+    if (!/\.(md|mdx|markdown)$/i.test(path)) return null;
+    const parsed = parseFile(previous);
+    if (parsed.error) throw new Error(`Could not update references in ${path}: ${parsed.error}`);
+    const values = (parsed.doc.toJS() ?? {}) as Record<string, unknown>;
+    const updates = fieldUpdates(
+      entry.fields,
+      values,
+      [],
+      entry,
+      input.root,
+      input.config,
+      input.library,
+      input.relocations,
+    );
+    for (const update of updates) setValue(parsed.doc, update.path, update.value);
+    replacements += updates.length;
+    const markdown = rewriteMarkdownImages(
+      parsed.body,
+      markdownOutputMap(
+        path,
+        entry,
+        values,
+        input.root,
+        input.config,
+        input.library,
+        input.relocations,
+        /\.(md|mdx)$/i.test(path),
+      ),
+    );
+    parsed.body = markdown.content;
+    replacements += markdown.replacements;
+    const content = serializeFile(parsed);
+    return {
+      write: content !== previous ? { path, previous, content } : null,
+      replacements,
+    };
+  });
   return {
     writes: results.flatMap((result) => (result?.write ? [result.write] : [])),
     replacements: results.reduce((total, result) => total + (result?.replacements ?? 0), 0),

@@ -1096,6 +1096,43 @@ fn transaction_temp(target: &Path, label: &str) -> Result<PathBuf, String> {
     )))
 }
 
+struct TransactionReservation {
+    path: PathBuf,
+}
+
+impl TransactionReservation {
+    fn acquire(targets: &[&Path], label: &str) -> Result<Self, String> {
+        let directory = targets
+            .first()
+            .and_then(|target| target.parent())
+            .ok_or_else(|| "Cannot reserve an empty transaction".to_string())?;
+        let mut hasher = DefaultHasher::new();
+        label.hash(&mut hasher);
+        for target in targets {
+            target.hash(&mut hasher);
+        }
+        let path = directory.join(format!(".posto-{label}-{:016x}.lock", hasher.finish()));
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(|error| {
+                if error.kind() == std::io::ErrorKind::AlreadyExists {
+                    "The import destination is already being written".to_string()
+                } else {
+                    format!("Failed to reserve import destination: {error}")
+                }
+            })?;
+        Ok(Self { path })
+    }
+}
+
+impl Drop for TransactionReservation {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
 fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
     use std::io::Write;
     let mut file = std::fs::OpenOptions::new()
@@ -1149,6 +1186,13 @@ fn execute_image_library_import(
         cleanup();
         return Err("simulated import failure".into());
     }
+    let _reservation = match TransactionReservation::acquire(&[&image, &metadata], "image-import") {
+        Ok(reservation) => reservation,
+        Err(error) => {
+            cleanup();
+            return Err(error);
+        }
+    };
     if image.exists() || metadata.exists() {
         cleanup();
         return Err("An image-library destination appeared during import".into());
@@ -1219,15 +1263,19 @@ pub fn import_file_media_item(request: FileMediaImportRequest) -> Result<String,
         let _ = std::fs::remove_file(&staged);
         return Err(format!("Failed to stage file media: {error}"));
     }
-    std::fs::hard_link(&staged, &target).map_err(|error| {
+    let _reservation =
+        TransactionReservation::acquire(&[&target], "file-media-import").map_err(|error| {
+            let _ = std::fs::remove_file(&staged);
+            error
+        })?;
+    if target.exists() {
         let _ = std::fs::remove_file(&staged);
-        if target.exists() {
-            format!("File already exists: {}", target.display())
-        } else {
-            format!("Failed to import file media: {error}")
-        }
+        return Err(format!("File already exists: {}", target.display()));
+    }
+    std::fs::rename(&staged, &target).map_err(|error| {
+        let _ = std::fs::remove_file(&staged);
+        format!("Failed to import file media: {error}")
     })?;
-    let _ = std::fs::remove_file(&staged);
     Ok(target.to_string_lossy().to_string())
 }
 
@@ -1505,6 +1553,55 @@ mod tests {
         let collision = import_plan(temp.path());
         assert!(execute_image_library_import(collision, None).is_err());
         assert_eq!(std::fs::read(&image).unwrap(), b"image");
+    }
+
+    #[test]
+    fn concurrent_paired_import_keeps_image_and_metadata_from_one_source() {
+        let temp = tempfile::tempdir().unwrap();
+        let first = import_plan(temp.path());
+        let image = first.destination_image_path.clone();
+        let metadata = first.destination_metadata_path.clone();
+        let second_source = temp.path().join("second-source.jpg");
+        std::fs::write(&second_source, b"second-image").unwrap();
+        let second = ImageLibraryImportPlan {
+            library_root: first.library_root.clone(),
+            source_image_path: second_source.to_string_lossy().to_string(),
+            destination_image_path: image.clone(),
+            destination_metadata_path: metadata.clone(),
+            serialized_metadata: "image: ./photo.jpg\nalt: Second\n".into(),
+            entry_id: first.entry_id.clone(),
+        };
+
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
+        let first_barrier = barrier.clone();
+        let first_import = std::thread::spawn(move || {
+            first_barrier.wait();
+            execute_image_library_import(first, None)
+        });
+        let second_barrier = barrier.clone();
+        let second_import = std::thread::spawn(move || {
+            second_barrier.wait();
+            execute_image_library_import(second, None)
+        });
+        barrier.wait();
+        let results = [first_import.join().unwrap(), second_import.join().unwrap()];
+
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(results.iter().filter(|result| result.is_err()).count(), 1);
+        let image_content = std::fs::read(&image).unwrap();
+        let metadata_content = std::fs::read_to_string(&metadata).unwrap();
+        if image_content == b"image" {
+            assert!(metadata_content.contains("alt: Photo"));
+        } else {
+            assert_eq!(image_content, b"second-image");
+            assert!(metadata_content.contains("alt: Second"));
+        }
+        assert_eq!(
+            std::fs::read_dir(Path::new(&image).parent().unwrap())
+                .unwrap()
+                .count(),
+            2
+        );
     }
 
     #[test]
@@ -1806,6 +1903,8 @@ mod tests {
                 !Path::new(&image).exists() && !Path::new(&metadata).exists(),
                 "left files after {stage}"
             );
+            execute_image_library_import(import_plan(temp.path()), None)
+                .unwrap_or_else(|error| panic!("reservation remained after {stage}: {error}"));
         }
     }
 
