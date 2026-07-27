@@ -439,16 +439,26 @@ function PublicMediaBrowserContent(props: {
   const importFiles = async () => {
     setImporting(true);
     setError(null);
+    let importedAny = false;
     try {
-      const imported = await chooseAndImportPublicMedia(props.root, currentDirectory);
-      if (imported.length > 0) {
-        await state.refresh();
-        props.onChanged();
-      }
+      await chooseAndImportPublicMedia(props.root, currentDirectory, {
+        onImported: () => {
+          importedAny = true;
+        },
+      });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
-      setImporting(false);
+      try {
+        if (importedAny) {
+          await state.refresh();
+          props.onChanged();
+        }
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      } finally {
+        setImporting(false);
+      }
     }
   };
   useEffect(() => {
@@ -482,22 +492,29 @@ function PublicMediaBrowserContent(props: {
         setError(null);
         const relativeDirectory = directory.slice(state.publicRoot.length).replace(/^\/+/, "");
         void (async () => {
+          let imported = 0;
           try {
-            await Promise.all(
-              droppedImagePaths(paths).map((sourceFilePath) =>
-                importPublicMediaFile({
-                  repositoryRoot: props.root,
-                  sourceFilePath,
-                  directory: relativeDirectory,
-                }),
-              ),
-            );
-            await state.refresh();
-            props.onChanged();
+            for (const sourceFilePath of droppedImagePaths(paths)) {
+              await importPublicMediaFile({
+                repositoryRoot: props.root,
+                sourceFilePath,
+                directory: relativeDirectory,
+              });
+              imported += 1;
+            }
           } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught));
           } finally {
-            setImporting(false);
+            try {
+              if (imported > 0) {
+                await state.refresh();
+                props.onChanged();
+              }
+            } catch (caught) {
+              setError(caught instanceof Error ? caught.message : String(caught));
+            } finally {
+              setImporting(false);
+            }
           }
         })();
       },
@@ -506,14 +523,7 @@ function PublicMediaBrowserContent(props: {
         accepts: (paths, details) => droppedDirectory(paths, details.pointer) !== null,
       },
     );
-  }, [
-    currentDirectory,
-    importing,
-    props.root,
-    props.onChanged,
-    state.publicRoot,
-    state.refresh,
-  ]);
+  }, [currentDirectory, importing, props.root, props.onChanged, state.publicRoot, state.refresh]);
   const mediaForFile = (file: FileEntry): MarkdownMediaPick | null => {
     if (markdownMediaKind(file.path) !== "image") return null;
     const outputPath = publicMediaOutputPath(props.root, file.path);

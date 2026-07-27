@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::UNIX_EPOCH;
 use tauri::Manager;
 
@@ -16,6 +17,7 @@ const MAX_THUMBNAIL_CACHE_BYTES: u64 = 48 * 1024 * 1024;
 const MAX_THUMBNAIL_CACHE_BYTES: u64 = 96 * 1024 * 1024;
 
 pub(crate) const SKIP_DIRS: &[&str] = &["node_modules", "_site", "dist", "build", "out", "target"];
+static TRANSACTION_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Serialize)]
 pub struct FileEntry {
@@ -1087,7 +1089,11 @@ fn transaction_temp(target: &Path, label: &str) -> Result<PathBuf, String> {
         .file_name()
         .ok_or_else(|| format!("Invalid path: {}", target.display()))?
         .to_string_lossy();
-    Ok(target.with_file_name(format!(".{name}.posto-{label}-{}", std::process::id())))
+    let sequence = TRANSACTION_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    Ok(target.with_file_name(format!(
+        ".{name}.posto-{label}-{}-{sequence}",
+        std::process::id()
+    )))
 }
 
 fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
@@ -1213,14 +1219,15 @@ pub fn import_file_media_item(request: FileMediaImportRequest) -> Result<String,
         let _ = std::fs::remove_file(&staged);
         return Err(format!("Failed to stage file media: {error}"));
     }
-    if target.exists() {
+    std::fs::hard_link(&staged, &target).map_err(|error| {
         let _ = std::fs::remove_file(&staged);
-        return Err(format!("File already exists: {}", target.display()));
-    }
-    std::fs::rename(&staged, &target).map_err(|error| {
-        let _ = std::fs::remove_file(&staged);
-        format!("Failed to import file media: {error}")
+        if target.exists() {
+            format!("File already exists: {}", target.display())
+        } else {
+            format!("Failed to import file media: {error}")
+        }
     })?;
+    let _ = std::fs::remove_file(&staged);
     Ok(target.to_string_lossy().to_string())
 }
 
@@ -1545,6 +1552,55 @@ mod tests {
             ..request()
         };
         assert!(import_public_media_file(traversal).is_err());
+    }
+
+    #[test]
+    fn concurrent_public_media_import_never_overwrites_the_winner() {
+        let temp = tempfile::tempdir().unwrap();
+        let first_source = tempfile::tempdir().unwrap();
+        let second_source = tempfile::tempdir().unwrap();
+        let first_file = first_source.path().join("shared.pdf");
+        let second_file = second_source.path().join("shared.pdf");
+        std::fs::write(&first_file, b"first").unwrap();
+        std::fs::write(&second_file, b"second").unwrap();
+        create_public_media_directory(
+            temp.path().to_string_lossy().to_string(),
+            "downloads".into(),
+        )
+        .unwrap();
+
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
+        let request = |source_file: &Path| PublicMediaImportRequest {
+            repository_root: temp.path().to_string_lossy().to_string(),
+            source_file_path: source_file.to_string_lossy().to_string(),
+            directory: "downloads".into(),
+        };
+        let first_request = request(&first_file);
+        let second_request = request(&second_file);
+        let first_barrier = barrier.clone();
+        let first = std::thread::spawn(move || {
+            first_barrier.wait();
+            import_public_media_file(first_request)
+        });
+        let second_barrier = barrier.clone();
+        let second = std::thread::spawn(move || {
+            second_barrier.wait();
+            import_public_media_file(second_request)
+        });
+        barrier.wait();
+        let results = [first.join().unwrap(), second.join().unwrap()];
+
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(results.iter().filter(|result| result.is_err()).count(), 1);
+        let imported = temp.path().join("public/downloads/shared.pdf");
+        let content = std::fs::read(&imported).unwrap();
+        assert!(content == b"first" || content == b"second");
+        assert_eq!(
+            std::fs::read_dir(imported.parent().unwrap())
+                .unwrap()
+                .count(),
+            1
+        );
     }
 
     #[test]

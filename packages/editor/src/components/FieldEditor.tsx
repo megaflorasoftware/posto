@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ActionIcon, Button, NumberInput, Switch, Textarea, TextInput } from "@mantine/core";
 import { Check, GripVertical, Image, Pencil, RefreshCw, X } from "lucide-react";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -470,13 +470,23 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
   const isObjectList = props.field.type === "object";
   const previewImage = imageDescendant(props.field);
   const sortableGroupId = `field-list:${props.ctx.root}:${props.path.join(".")}`;
-  const occurrences = new Map<string, number>();
-  const itemIds = items.map((item) => {
-    const value = JSON.stringify(item) ?? String(item);
-    const occurrence = occurrences.get(value) ?? 0;
-    occurrences.set(value, occurrence + 1);
-    return `${value}:${occurrence}`;
-  });
+  const rowIdPrefix = useId();
+  const nextRowId = useRef(items.length);
+  const [rowIds, setRowIds] = useState(() =>
+    items.map((_item, index) => `${rowIdPrefix}:${index}`),
+  );
+  const itemIds = items.map((_item, index) => rowIds[index] ?? `${rowIdPrefix}:external:${index}`);
+  useEffect(() => {
+    if (rowIds.length === items.length) return;
+    setRowIds((current) => {
+      const next = current.slice(0, items.length);
+      while (next.length < items.length) {
+        next.push(`${rowIdPrefix}:${nextRowId.current}`);
+        nextRowId.current += 1;
+      }
+      return next;
+    });
+  }, [items.length, rowIdPrefix, rowIds.length]);
 
   // Object-list items collapse to a summary row; existing items start
   // collapsed, newly added ones open for editing.
@@ -493,16 +503,26 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
 
   function addItem() {
     const newIndex = items.length;
+    const id = `${rowIdPrefix}:${nextRowId.current}`;
+    nextRowId.current += 1;
+    setRowIds((current) => [...current, id]);
     props.ctx.listAppend(props.path, newItemValue(props.field));
     if (isObjectList) setItemExpanded(newIndex, true);
   }
 
   function removeItem(index: number) {
+    setRowIds((current) => current.filter((_id, at) => at !== index));
     props.ctx.listRemove(props.path, index);
     setExpanded((current) => remapAfterRemove(current, index));
   }
 
   function moveItem(from: number, to: number) {
+    setRowIds((current) => {
+      const next = [...current];
+      const [moved] = next.splice(from, 1);
+      if (moved !== undefined) next.splice(to, 0, moved);
+      return next;
+    });
     props.ctx.listMove(props.path, from, to);
     setExpanded((current) => remapAfterMove(current, from, to));
   }

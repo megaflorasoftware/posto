@@ -150,7 +150,7 @@ export function useSourceImageFiles(root: string) {
 export async function chooseAndImportPublicMedia(
   repositoryRoot: string,
   directory: string,
-  options: { multiple?: boolean } = {},
+  options: { multiple?: boolean; onImported?: (path: string) => void } = {},
 ): Promise<string[]> {
   const selected =
     options.multiple === false
@@ -160,9 +160,11 @@ export async function chooseAndImportPublicMedia(
   if (selected.length > 0 && sources.length === 0) {
     throw new Error("Choose non-text media files to import into public.");
   }
-  return Promise.all(
-    sources.map((sourceFilePath) =>
-      importPublicMediaFile({ repositoryRoot, sourceFilePath, directory }),
-    ),
-  );
+  const imported: string[] = [];
+  for (const sourceFilePath of sources) {
+    const path = await importPublicMediaFile({ repositoryRoot, sourceFilePath, directory });
+    imported.push(path);
+    options.onImported?.(path);
+  }
+  return imported;
 }

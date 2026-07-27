@@ -176,22 +176,24 @@ export function DeleteFileMediaItemsDialog(props: {
   const remove = async () => {
     setPending(true);
     setError(null);
+    let deletedAny = false;
     try {
-      await Promise.all(
-        props.files.map((file) =>
-          deleteFileMediaItem({ mediaRoot: props.mediaRoot, path: file.path }),
-        ),
-      );
-      await Promise.all(
-        props.directories.map((directoryPath) =>
-          deleteFileMediaDirectory({ mediaRoot: props.mediaRoot, path: directoryPath }),
-        ),
-      );
-      props.onDeleted();
+      for (const file of props.files) {
+        await deleteFileMediaItem({ mediaRoot: props.mediaRoot, path: file.path });
+        deletedAny = true;
+      }
+      for (const directoryPath of props.directories) {
+        await deleteFileMediaDirectory({
+          mediaRoot: props.mediaRoot,
+          path: directoryPath,
+        });
+        deletedAny = true;
+      }
       props.onClose();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
+      if (deletedAny) props.onDeleted();
       setPending(false);
     }
   };

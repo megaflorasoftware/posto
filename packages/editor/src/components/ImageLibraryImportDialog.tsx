@@ -179,21 +179,24 @@ export function ImageLibraryImportDialog(props: {
   const importIntoPublic = async () => {
     setPublicImportPending(true);
     importer.setError(null);
+    let imported = 0;
     try {
-      const paths = await Promise.all(
-        drafts.map((item) =>
-          importPublicMediaFile({
-            repositoryRoot: props.root,
-            sourceFilePath: item.sourceImagePath,
-            directory: currentDirectory,
-          }),
-        ),
-      );
-      paths.forEach((path) => props.onPublicImported?.(path));
+      for (const item of drafts) {
+        const path = await importPublicMediaFile({
+          repositoryRoot: props.root,
+          sourceFilePath: item.sourceImagePath,
+          directory: currentDirectory,
+        });
+        imported += 1;
+        props.onPublicImported?.(path);
+      }
       props.onClose();
     } catch (caught) {
       importer.setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
+      if (imported > 0) {
+        importer.setSources(drafts.slice(imported).map((draft) => draft.sourceImagePath));
+      }
       setPublicImportPending(false);
     }
   };

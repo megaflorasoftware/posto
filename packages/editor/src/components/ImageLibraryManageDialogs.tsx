@@ -103,31 +103,19 @@ export function CreateImageLibraryFolderDialog(props: {
   );
 }
 
-async function deleteAssets(libraryRoot: string, assets: ImageLibraryAsset[]): Promise<void> {
-  await Promise.all(
-    assets.map((asset) => {
-    if (!asset.imagePath) throw new Error(`${asset.entryId} has no image to delete.`);
-      return invoke("delete_image_library_asset", {
-      libraryRoot,
-      imagePath: asset.imagePath,
-      metadataPath: asset.metadataPath,
-    });
-    }),
-  );
-}
-
-async function deleteDirectories(libraryRoot: string, directories: string[]): Promise<void> {
-  await Promise.all(
-    directories.map((directoryPath) =>
-      invoke("delete_image_library_directory", { libraryRoot, directoryPath }),
-    ),
-  );
-}
-
 function metadataAlt(metadata: Record<string, unknown>): string | undefined {
   return Object.prototype.hasOwnProperty.call(metadata, "alt") && typeof metadata.alt === "string"
     ? metadata.alt
     : undefined;
+}
+
+async function deleteAsset(libraryRoot: string, asset: ImageLibraryAsset): Promise<void> {
+  if (!asset.imagePath) throw new Error(`${asset.entryId} has no image to delete.`);
+  await invoke("delete_image_library_asset", {
+    libraryRoot,
+    imagePath: asset.imagePath,
+    metadataPath: asset.metadataPath,
+  });
 }
 
 export function DeleteImageLibraryAssetsDialog(props: {
@@ -145,14 +133,24 @@ export function DeleteImageLibraryAssetsDialog(props: {
   const remove = async () => {
     setPending(true);
     setError(null);
+    let deletedAny = false;
     try {
-      await deleteAssets(props.libraryRoot, props.assets);
-      await deleteDirectories(props.libraryRoot, directories);
-      props.onDeleted();
+      for (const asset of props.assets) {
+        await deleteAsset(props.libraryRoot, asset);
+        deletedAny = true;
+      }
+      for (const directoryPath of directories) {
+        await invoke("delete_image_library_directory", {
+          libraryRoot: props.libraryRoot,
+          directoryPath,
+        });
+        deletedAny = true;
+      }
       props.onClose();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
+      if (deletedAny) props.onDeleted();
       setPending(false);
     }
   };
@@ -452,7 +450,7 @@ export function ImageLibraryEditDialog(props: {
     setDeleting(true);
     setError(null);
     try {
-      await deleteAssets(libraryRoot, [props.asset]);
+      await deleteAsset(libraryRoot, props.asset);
       props.onChanged({ silent: true });
       props.onClose();
     } catch (caught) {
