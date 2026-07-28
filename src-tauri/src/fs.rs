@@ -1102,33 +1102,32 @@ struct TransactionReservation {
 }
 
 impl TransactionReservation {
-    fn acquire(targets: &[&Path]) -> Result<Self, String> {
+    fn acquire(lock_directory: &Path, targets: &[&Path]) -> Result<Self, String> {
         if targets.is_empty() {
             return Err("Cannot reserve an empty transaction".to_string());
         }
-        let mut canonical_targets = Vec::with_capacity(targets.len());
+        // Reserve canonical parent directories rather than individual names.
+        // Case-insensitive and Unicode-normalizing filesystems can resolve
+        // distinct Path values to the same destination before the file exists.
+        let mut canonical_directories = Vec::with_capacity(targets.len());
         for target in targets {
             let parent = target
                 .parent()
                 .ok_or_else(|| format!("Invalid import destination: {}", target.display()))?;
-            let name = target
-                .file_name()
-                .ok_or_else(|| format!("Invalid import destination: {}", target.display()))?;
             let canonical_parent = std::fs::canonicalize(parent)
                 .map_err(|error| format!("Invalid import destination: {error}"))?;
-            canonical_targets.push(canonical_parent.join(name));
+            canonical_directories.push(canonical_parent);
         }
-        canonical_targets.sort();
-        canonical_targets.dedup();
+        canonical_directories.sort();
+        canonical_directories.dedup();
 
-        let directory = std::env::temp_dir().join("posto-import-locks");
-        std::fs::create_dir_all(&directory)
+        std::fs::create_dir_all(lock_directory)
             .map_err(|error| format!("Failed to create import lock directory: {error}"))?;
-        let mut files = Vec::with_capacity(canonical_targets.len());
-        for target in canonical_targets {
+        let mut files = Vec::with_capacity(canonical_directories.len());
+        for directory in canonical_directories {
             let mut hasher = DefaultHasher::new();
-            target.hash(&mut hasher);
-            let path = directory.join(format!("{:016x}.lock", hasher.finish()));
+            directory.hash(&mut hasher);
+            let path = lock_directory.join(format!("{:016x}.lock", hasher.finish()));
             let file = std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
@@ -1139,8 +1138,8 @@ impl TransactionReservation {
             file.try_lock_exclusive().map_err(|error| {
                 if error.kind() == std::io::ErrorKind::WouldBlock {
                     format!(
-                        "Import destination is already being written: {}",
-                        target.display()
+                        "Import destination directory is already being written: {}",
+                        directory.display()
                     )
                 } else {
                     format!("Failed to lock import destination: {error}")
@@ -1150,6 +1149,13 @@ impl TransactionReservation {
         }
         Ok(Self { _files: files })
     }
+}
+
+fn import_lock_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_cache_dir()
+        .map(|directory| directory.join("import-locks"))
+        .map_err(|error| format!("Could not locate app cache: {error}"))
 }
 
 fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
@@ -1165,6 +1171,7 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
 
 fn execute_image_library_import(
     plan: ImageLibraryImportPlan,
+    lock_directory: &Path,
     fail_at: Option<&str>,
 ) -> Result<ImageLibraryImportResult, String> {
     canonical_root(&plan.library_root)?;
@@ -1205,7 +1212,7 @@ fn execute_image_library_import(
         cleanup();
         return Err("simulated import failure".into());
     }
-    let _reservation = match TransactionReservation::acquire(&[&image, &metadata]) {
+    let _reservation = match TransactionReservation::acquire(lock_directory, &[&image, &metadata]) {
         Ok(reservation) => reservation,
         Err(error) => {
             cleanup();
@@ -1243,13 +1250,16 @@ fn execute_image_library_import(
 
 #[tauri::command]
 pub fn import_image_library_asset(
+    app: tauri::AppHandle,
     plan: ImageLibraryImportPlan,
 ) -> Result<ImageLibraryImportResult, String> {
-    execute_image_library_import(plan, None)
+    execute_image_library_import(plan, &import_lock_directory(&app)?, None)
 }
 
-#[tauri::command]
-pub fn import_file_media_item(request: FileMediaImportRequest) -> Result<String, String> {
+fn execute_file_media_import(
+    request: FileMediaImportRequest,
+    lock_directory: &Path,
+) -> Result<String, String> {
     let media_root = file_media_root(&request.repository_root, &request.media_root)?;
     if !request.directory.is_empty()
         && (Path::new(&request.directory).is_absolute()
@@ -1282,9 +1292,10 @@ pub fn import_file_media_item(request: FileMediaImportRequest) -> Result<String,
         let _ = std::fs::remove_file(&staged);
         return Err(format!("Failed to stage file media: {error}"));
     }
-    let _reservation = TransactionReservation::acquire(&[&target]).inspect_err(|_| {
-        let _ = std::fs::remove_file(&staged);
-    })?;
+    let _reservation =
+        TransactionReservation::acquire(lock_directory, &[&target]).inspect_err(|_| {
+            let _ = std::fs::remove_file(&staged);
+        })?;
     if target.exists() {
         let _ = std::fs::remove_file(&staged);
         return Err(format!("File already exists: {}", target.display()));
@@ -1296,16 +1307,37 @@ pub fn import_file_media_item(request: FileMediaImportRequest) -> Result<String,
     Ok(target.to_string_lossy().to_string())
 }
 
-/// Compatibility command for the conventional public media root.
 #[tauri::command]
-pub fn import_public_media_file(request: PublicMediaImportRequest) -> Result<String, String> {
+pub fn import_file_media_item(
+    app: tauri::AppHandle,
+    request: FileMediaImportRequest,
+) -> Result<String, String> {
+    execute_file_media_import(request, &import_lock_directory(&app)?)
+}
+
+/// Compatibility command for the conventional public media root.
+fn execute_public_media_import(
+    request: PublicMediaImportRequest,
+    lock_directory: &Path,
+) -> Result<String, String> {
     let media_root = Path::new(&request.repository_root).join("public");
-    import_file_media_item(FileMediaImportRequest {
-        repository_root: request.repository_root,
-        media_root: media_root.to_string_lossy().to_string(),
-        source_file_path: request.source_file_path,
-        directory: request.directory,
-    })
+    execute_file_media_import(
+        FileMediaImportRequest {
+            repository_root: request.repository_root,
+            media_root: media_root.to_string_lossy().to_string(),
+            source_file_path: request.source_file_path,
+            directory: request.directory,
+        },
+        lock_directory,
+    )
+}
+
+#[tauri::command]
+pub fn import_public_media_file(
+    app: tauri::AppHandle,
+    request: PublicMediaImportRequest,
+) -> Result<String, String> {
+    execute_public_media_import(request, &import_lock_directory(&app)?)
 }
 
 /// Reads a picked image's raw bytes so the webview can decode it same-origin
@@ -1557,18 +1589,23 @@ mod tests {
         }
     }
 
+    fn test_lock_directory(dir: &Path) -> PathBuf {
+        dir.join(".cache/import-locks")
+    }
+
     #[test]
     fn paired_import_is_atomic_and_collision_safe() {
         let temp = tempfile::tempdir().unwrap();
         let plan = import_plan(temp.path());
         let image = plan.destination_image_path.clone();
         let metadata = plan.destination_metadata_path.clone();
-        let result = execute_image_library_import(plan, None).unwrap();
+        let locks = test_lock_directory(temp.path());
+        let result = execute_image_library_import(plan, &locks, None).unwrap();
         assert_eq!(result.entry_id, "nested/photo");
         assert!(Path::new(&image).exists() && Path::new(&metadata).exists());
 
         let collision = import_plan(temp.path());
-        assert!(execute_image_library_import(collision, None).is_err());
+        assert!(execute_image_library_import(collision, &locks, None).is_err());
         assert_eq!(std::fs::read(&image).unwrap(), b"image");
     }
 
@@ -1590,15 +1627,18 @@ mod tests {
         };
 
         let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
+        let locks = test_lock_directory(temp.path());
         let first_barrier = barrier.clone();
+        let first_locks = locks.clone();
         let first_import = std::thread::spawn(move || {
             first_barrier.wait();
-            execute_image_library_import(first, None)
+            execute_image_library_import(first, &first_locks, None)
         });
         let second_barrier = barrier.clone();
+        let second_locks = locks.clone();
         let second_import = std::thread::spawn(move || {
             second_barrier.wait();
-            execute_image_library_import(second, None)
+            execute_image_library_import(second, &second_locks, None)
         });
         barrier.wait();
         let results = [first_import.join().unwrap(), second_import.join().unwrap()];
@@ -1625,25 +1665,48 @@ mod tests {
     fn destination_reservation_reuses_an_unlocked_lock_file() {
         let temp = tempfile::tempdir().unwrap();
         let target = temp.path().join("photo.jpg");
+        let locks = test_lock_directory(temp.path());
         {
-            let _reservation = TransactionReservation::acquire(&[&target]).unwrap();
+            let _reservation = TransactionReservation::acquire(&locks, &[&target]).unwrap();
         }
-        let _reservation = TransactionReservation::acquire(&[&target]).unwrap();
+        let _reservation = TransactionReservation::acquire(&locks, &[&target]).unwrap();
     }
 
     #[test]
-    fn destination_reservations_conflict_on_any_shared_target() {
+    fn destination_reservations_conflict_in_the_same_directory() {
         let temp = tempfile::tempdir().unwrap();
         let image = temp.path().join("photo.jpg");
         let metadata = temp.path().join("photo.yml");
         let other_metadata = temp.path().join("other.yml");
-        let paired = TransactionReservation::acquire(&[&metadata, &image]).unwrap();
+        let locks = test_lock_directory(temp.path());
+        let paired = TransactionReservation::acquire(&locks, &[&metadata, &image]).unwrap();
 
-        assert!(TransactionReservation::acquire(&[&image]).is_err());
-        assert!(TransactionReservation::acquire(&[&other_metadata, &image]).is_err());
+        assert!(TransactionReservation::acquire(&locks, &[&image]).is_err());
+        assert!(TransactionReservation::acquire(&locks, &[&other_metadata, &image]).is_err());
 
         drop(paired);
-        assert!(TransactionReservation::acquire(&[&image, &metadata]).is_ok());
+        assert!(TransactionReservation::acquire(&locks, &[&image, &metadata]).is_ok());
+    }
+
+    #[test]
+    fn concurrent_destination_reservations_conflict_across_filename_casing() {
+        let temp = tempfile::tempdir().unwrap();
+        let locks = test_lock_directory(temp.path());
+        let uppercase = temp.path().join("Photo.jpg");
+        let lowercase = temp.path().join("photo.jpg");
+        let first = TransactionReservation::acquire(&locks, &[&uppercase]).unwrap();
+
+        let competing_locks = locks.clone();
+        let competing_target = lowercase.clone();
+        let competing = std::thread::spawn(move || {
+            TransactionReservation::acquire(&competing_locks, &[&competing_target])
+        })
+        .join()
+        .unwrap();
+
+        assert!(competing.is_err());
+        drop(first);
+        assert!(TransactionReservation::acquire(&locks, &[&lowercase]).is_ok());
     }
 
     #[test]
@@ -1670,7 +1733,8 @@ mod tests {
         )
         .is_err());
 
-        let imported = import_public_media_file(request()).unwrap();
+        let locks = test_lock_directory(temp.path());
+        let imported = execute_public_media_import(request(), &locks).unwrap();
         assert_eq!(
             Path::new(&imported),
             std::fs::canonicalize(temp.path())
@@ -1684,13 +1748,13 @@ mod tests {
                 .count(),
             1
         );
-        assert!(import_public_media_file(request()).is_err());
+        assert!(execute_public_media_import(request(), &locks).is_err());
 
         let traversal = PublicMediaImportRequest {
             directory: "../outside".into(),
             ..request()
         };
-        assert!(import_public_media_file(traversal).is_err());
+        assert!(execute_public_media_import(traversal, &locks).is_err());
     }
 
     #[test]
@@ -1716,15 +1780,18 @@ mod tests {
         };
         let first_request = request(&first_file);
         let second_request = request(&second_file);
+        let locks = test_lock_directory(temp.path());
         let first_barrier = barrier.clone();
+        let first_locks = locks.clone();
         let first = std::thread::spawn(move || {
             first_barrier.wait();
-            import_public_media_file(first_request)
+            execute_public_media_import(first_request, &first_locks)
         });
         let second_barrier = barrier.clone();
+        let second_locks = locks.clone();
         let second = std::thread::spawn(move || {
             second_barrier.wait();
-            import_public_media_file(second_request)
+            execute_public_media_import(second_request, &second_locks)
         });
         barrier.wait();
         let results = [first.join().unwrap(), second.join().unwrap()];
@@ -1872,12 +1939,15 @@ mod tests {
         }
         let picked = temp.path().join("clip.mp4");
         std::fs::write(&picked, b"video").unwrap();
-        let imported = import_file_media_item(FileMediaImportRequest {
-            repository_root: temp.path().to_string_lossy().to_string(),
-            media_root: media_root.to_string_lossy().to_string(),
-            source_file_path: picked.to_string_lossy().to_string(),
-            directory: "source".to_string(),
-        })
+        let imported = execute_file_media_import(
+            FileMediaImportRequest {
+                repository_root: temp.path().to_string_lossy().to_string(),
+                media_root: media_root.to_string_lossy().to_string(),
+                source_file_path: picked.to_string_lossy().to_string(),
+                directory: "source".to_string(),
+            },
+            &test_lock_directory(temp.path()),
+        )
         .unwrap();
         let file = PathBuf::from(imported);
 
@@ -1940,12 +2010,13 @@ mod tests {
             let plan = import_plan(temp.path());
             let image = plan.destination_image_path.clone();
             let metadata = plan.destination_metadata_path.clone();
-            assert!(execute_image_library_import(plan, Some(stage)).is_err());
+            let locks = test_lock_directory(temp.path());
+            assert!(execute_image_library_import(plan, &locks, Some(stage)).is_err());
             assert!(
                 !Path::new(&image).exists() && !Path::new(&metadata).exists(),
                 "left files after {stage}"
             );
-            execute_image_library_import(import_plan(temp.path()), None)
+            execute_image_library_import(import_plan(temp.path()), &locks, None)
                 .unwrap_or_else(|error| panic!("reservation remained after {stage}: {error}"));
         }
     }

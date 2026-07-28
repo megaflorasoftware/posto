@@ -2,6 +2,7 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { invoke } from "@posto/ipc";
+import { useLayoutEffect, useRef } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { AUTOSAVE_DELAY_MS } from "../src/autosave";
 import { useCurrentFile } from "../src/hooks/useCurrentFile";
@@ -118,6 +119,67 @@ describe("useCurrentFile concurrency", () => {
       ["read_text_file", { path: "/site/next.md" }],
     ]);
     expect(result.current.filePath).toBe("/site/next.md");
+  });
+
+  test("a post-commit layout-phase flush writes the latest raw edit", async () => {
+    invokeMock.mockImplementation(async (command) => {
+      if (command === "read_text_file") return "before";
+      return undefined;
+    });
+    let layoutFlush: Promise<void> | undefined;
+    const { result } = renderHook(() => {
+      const currentFile = useCurrentFile({});
+      const flushAfterCommit = useRef(false);
+      useLayoutEffect(() => {
+        if (!flushAfterCommit.current) return;
+        flushAfterCommit.current = false;
+        layoutFlush = currentFile.flushPendingSave();
+      });
+      return {
+        currentFile,
+        editAndFlushAfterCommit(content: string) {
+          flushAfterCommit.current = true;
+          currentFile.onEdit(content);
+        },
+      };
+    });
+    await act(() => result.current.currentFile.openFile("/site/post.md"));
+
+    act(() => result.current.editAndFlushAfterCommit("after"));
+    expect(layoutFlush).toBeDefined();
+    await act(() => layoutFlush);
+
+    expect(commandCalls("write_text_file").at(-1)?.[1]).toEqual({
+      path: "/site/post.md",
+      content: "after",
+    });
+  });
+
+  test("an immediate flush writes the latest valid form edit", async () => {
+    const { result } = renderHook(() => useCurrentFile({}));
+    await act(() => result.current.openFile("/site/post.md"));
+
+    let flush!: Promise<void>;
+    act(() => {
+      result.current.onFormEdit("latest form edit", true);
+      flush = result.current.flushPendingSave();
+    });
+    await act(() => flush);
+
+    expect(commandCalls("write_text_file").at(-1)?.[1]).toEqual({
+      path: "/site/post.md",
+      content: "latest form edit",
+    });
+  });
+
+  test("an invalid form edit updates the latest-content ref without saving", async () => {
+    const { result } = renderHook(() => useCurrentFile({}));
+    await act(() => result.current.openFile("/site/post.md"));
+
+    act(() => result.current.onFormEdit("invalid draft", false));
+
+    expect(result.current.fileContentRef.current).toBe("invalid draft");
+    expect(commandCalls("write_text_file")).toHaveLength(0);
   });
 
   test("clearPendingSave prevents a deleted or reverted file from being rewritten", () => {

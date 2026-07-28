@@ -119,6 +119,7 @@ export function useCurrentFile(callbacks: Callbacks) {
 
   function onEdit(content: string) {
     setFileContent(content);
+    fileContentRef.current = content;
     setSaveState("saving");
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
@@ -135,6 +136,7 @@ export function useCurrentFile(callbacks: Callbacks) {
       onEdit(content);
     } else {
       setFileContent(content);
+      fileContentRef.current = content;
       clearPendingSave();
       setSaveState("invalid");
     }
