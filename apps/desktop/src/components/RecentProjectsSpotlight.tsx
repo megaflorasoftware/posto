@@ -14,8 +14,6 @@ function RecentProjectIcon({ repository }: { repository: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    setWorkDir(null);
-    setCandidate(0);
     void invoke<string | null>("get_work_dir", { root: repository })
       .then((dir) => {
         if (!cancelled) setWorkDir(dir ?? repository);

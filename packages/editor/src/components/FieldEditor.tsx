@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { ActionIcon, Button, NumberInput, Switch, Textarea, TextInput } from "@mantine/core";
 import { Check, GripVertical, Image, Pencil, RefreshCw, X } from "lucide-react";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -154,10 +154,10 @@ function FieldShell(props: {
     <div className={`form-field${error ? " invalid" : ""}`}>
       {props.field.label !== false && (
         <div className="field-label-row">
-          <label className="field-label">
+          <div className="field-label">
             {typeof props.field.label === "string" ? props.field.label : props.field.name}
             {props.field.required && <span className="field-required">*</span>}
-          </label>
+          </div>
           {imagePickable(props.field) && (
             <PickImageCta field={props.field} path={props.path} ctx={props.ctx} />
           )}
@@ -429,12 +429,13 @@ function descendantString(value: unknown, path: string[]): string | null {
  */
 function SortableRow(props: {
   groupId: string;
+  itemId: string;
   index: number;
   className: string;
   onMove: (from: number, to: number) => void;
   children: ReactNode;
 }) {
-  const id = `${props.groupId}:${props.index}`;
+  const id = `${props.groupId}:${props.itemId}`;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id,
     data: {
@@ -469,6 +470,25 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
   const isObjectList = props.field.type === "object";
   const previewImage = imageDescendant(props.field);
   const sortableGroupId = `field-list:${props.ctx.root}:${props.path.join(".")}`;
+  const rowIdPrefix = useId();
+  const [rowIdentity, setRowIdentity] = useState(() => ({
+    ids: items.map((_item, index) => `${rowIdPrefix}:${index}`),
+    nextId: items.length,
+  }));
+  const rowIds = rowIdentity.ids;
+  const itemIds = items.map((_item, index) => rowIds[index] ?? `${rowIdPrefix}:external:${index}`);
+  useEffect(() => {
+    if (rowIds.length === items.length) return;
+    setRowIdentity((current) => {
+      const ids = current.ids.slice(0, items.length);
+      let nextId = current.nextId;
+      while (ids.length < items.length) {
+        ids.push(`${rowIdPrefix}:${nextId}`);
+        nextId += 1;
+      }
+      return { ids, nextId };
+    });
+  }, [items.length, rowIdPrefix, rowIds.length]);
 
   // Object-list items collapse to a summary row; existing items start
   // collapsed, newly added ones open for editing.
@@ -485,16 +505,30 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
 
   function addItem() {
     const newIndex = items.length;
+    setRowIdentity((current) => ({
+      ids: [...current.ids, `${rowIdPrefix}:${current.nextId}`],
+      nextId: current.nextId + 1,
+    }));
     props.ctx.listAppend(props.path, newItemValue(props.field));
     if (isObjectList) setItemExpanded(newIndex, true);
   }
 
   function removeItem(index: number) {
+    setRowIdentity((current) => ({
+      ...current,
+      ids: current.ids.filter((_id, at) => at !== index),
+    }));
     props.ctx.listRemove(props.path, index);
     setExpanded((current) => remapAfterRemove(current, index));
   }
 
   function moveItem(from: number, to: number) {
+    setRowIdentity((current) => {
+      const ids = [...current.ids];
+      const [moved] = ids.splice(from, 1);
+      if (moved !== undefined) ids.splice(to, 0, moved);
+      return { ...current, ids };
+    });
     props.ctx.listMove(props.path, from, to);
     setExpanded((current) => remapAfterMove(current, from, to));
   }
@@ -537,12 +571,13 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
     return absolute;
   }
 
-  const objectRow = (index: number) => {
+  const objectRow = (index: number, itemId: string) => {
     const thumb = thumbPath(index);
     return expanded.has(index) ? (
       <SortableRow
-        key={index}
+        key={itemId}
         groupId={sortableGroupId}
+        itemId={itemId}
         index={index}
         className="list-item expanded-item"
         onMove={moveItem}
@@ -564,8 +599,9 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
       </SortableRow>
     ) : (
       <SortableRow
-        key={index}
+        key={itemId}
         groupId={sortableGroupId}
+        itemId={itemId}
         index={index}
         className="list-item collapsed-item"
         onMove={moveItem}
@@ -615,10 +651,11 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
     );
   };
 
-  const scalarRow = (index: number) => (
+  const scalarRow = (index: number, itemId: string) => (
     <SortableRow
-      key={index}
+      key={itemId}
       groupId={sortableGroupId}
+      itemId={itemId}
       index={index}
       className="list-item scalar-item"
       onMove={moveItem}
@@ -645,10 +682,12 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
     <FieldShell field={props.field} path={props.path} ctx={props.ctx}>
       <div className="list-field">
         <SortableContext
-          items={items.map((_item, index) => `${sortableGroupId}:${index}`)}
+          items={itemIds.map((itemId) => `${sortableGroupId}:${itemId}`)}
           strategy={verticalListSortingStrategy}
         >
-          {items.map((_item, index) => (isObjectList ? objectRow(index) : scalarRow(index)))}
+          {itemIds.map((itemId, index) =>
+            isObjectList ? objectRow(index, itemId) : scalarRow(index, itemId),
+          )}
         </SortableContext>
         <Button
           size="xs"
@@ -798,6 +837,10 @@ function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContex
   if (props.field.options?.idScheme === "framework" && props.ctx.entryIds && imageLibrary) {
     return <ImageLibraryReferenceField {...props} library={imageLibrary} />;
   }
+  return <FileReferenceField {...props} />;
+}
+
+function FileReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
   const collection = props.ctx.config.content.find(
     (entry) => entry.type === "collection" && entry.name === props.field.options?.collection,
   );
@@ -858,8 +901,8 @@ function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContex
     props.field.options?.idScheme === "framework" && props.ctx.entryIds && collection
       ? props.ctx.root + "/" + collection.path + "/"
       : null;
-  const files = ordered
-    .map((file) => ({
+  const files = ordered.flatMap((file) => {
+    const option = {
       // Pages CMS stores the repo-root-relative path by default.
       value: frameworkBase
         ? (file.dataEntry?.id ??
@@ -871,12 +914,11 @@ function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContex
         (labelTemplate
           ? referenceTemplate(labelTemplate, props.ctx.root, file)
           : (file.title ?? file.name)) || file.name,
-    }))
-    .filter((option) => {
-      if (option.value === "" || seen.has(option.value)) return false;
-      seen.add(option.value);
-      return true;
-    });
+    };
+    if (option.value === "" || seen.has(option.value)) return [];
+    seen.add(option.value);
+    return [option];
+  });
   const value = asString(props.ctx.value(props.path));
   const missing = value !== "" && !files.some((f) => f.value === value);
 

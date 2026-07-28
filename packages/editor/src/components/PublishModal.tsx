@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ActionIcon, Alert, Badge, Button, Loader, TextInput } from "@mantine/core";
 import { Dialog } from "./Dialog";
 import { Undo2 } from "lucide-react";
@@ -66,12 +66,19 @@ export function PublishModal(props: {
   onPublish: (message: string) => void;
   scopeLabel?: string;
 }) {
-  const [commitMessage, setCommitMessage] = useState(DEFAULT_COMMIT_MESSAGE);
+  return <PublishModalContent key={props.opened ? "opened" : "closed"} {...props} />;
+}
 
-  // Every open starts from the default message, as before extraction.
-  useEffect(() => {
-    if (props.opened) setCommitMessage(DEFAULT_COMMIT_MESSAGE);
-  }, [props.opened]);
+function PublishModalContent(props: {
+  opened: boolean;
+  changes: ChangedFile[] | null;
+  error: string | null;
+  onClose: () => void;
+  onRevert: (file: ChangedFile) => void;
+  onPublish: (message: string) => void;
+  scopeLabel?: string;
+}) {
+  const [commitMessage, setCommitMessage] = useState(DEFAULT_COMMIT_MESSAGE);
 
   return (
     <Dialog opened={props.opened} onClose={props.onClose} title="Publish changes">

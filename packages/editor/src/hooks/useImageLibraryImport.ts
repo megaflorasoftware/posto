@@ -87,10 +87,6 @@ export function useImageLibraryImport(input: {
     setDrafts((current) => current.map((draft, i) => (i === at ? update(draft) : draft)));
   }
 
-  async function chooseSources(): Promise<string[]> {
-    return openImageFiles();
-  }
-
   async function plan(draft: ImageLibraryImportDraft): Promise<MediaImportPlan> {
     const libraryRoot = `${input.root}/${input.library.base}`;
     let files: FileEntry[] = [];
@@ -113,14 +109,13 @@ export function useImageLibraryImport(input: {
       metadata: draft.metadata,
       metadataExtension: draft.metadataExtension,
       existingPaths: files.map((file) => file.path),
-      existingEntryIds: files
-        .filter(
-          (file) =>
-            metadataExts.has(
-              file.name.split(".").pop()?.toLowerCase() as MediaLibraryMetadataExtension,
-            ) && matchesImageLibraryPath(input.library, file.path.slice(prefix.length)),
-        )
-        .map((file) => pathEntryId(file.path.slice(prefix.length))),
+      existingEntryIds: files.flatMap((file) =>
+        metadataExts.has(
+          file.name.split(".").pop()?.toLowerCase() as MediaLibraryMetadataExtension,
+        ) && matchesImageLibraryPath(input.library, file.path.slice(prefix.length))
+          ? [pathEntryId(file.path.slice(prefix.length))]
+          : [],
+      ),
     });
   }
 
@@ -138,20 +133,24 @@ export function useImageLibraryImport(input: {
     setPending(true);
     setError(null);
     let imported = 0;
+    const importFrom = async (draftIndex: number): Promise<void> => {
+      const draft = drafts[draftIndex];
+      if (!draft) return;
+      const operation = await plan(draft);
+      const result = await importImageLibraryAsset({
+        libraryRoot: operation.libraryRoot,
+        sourceImagePath: operation.sourceImagePath,
+        destinationImagePath: operation.destinationImagePath,
+        destinationMetadataPath: operation.destinationMetadataPath,
+        serializedMetadata: operation.serializedMetadata,
+        entryId: operation.entryId,
+      });
+      input.onImported?.(result, draft);
+      imported = draftIndex + 1;
+      await importFrom(draftIndex + 1);
+    };
     try {
-      for (const draft of drafts) {
-        const operation = await plan(draft);
-        const result = await importImageLibraryAsset({
-          libraryRoot: operation.libraryRoot,
-          sourceImagePath: operation.sourceImagePath,
-          destinationImagePath: operation.destinationImagePath,
-          destinationMetadataPath: operation.destinationMetadataPath,
-          serializedMetadata: operation.serializedMetadata,
-          entryId: operation.entryId,
-        });
-        input.onImported?.(result, draft);
-        imported += 1;
-      }
+      await importFrom(0);
       return true;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -174,7 +173,7 @@ export function useImageLibraryImport(input: {
     setSources,
     retarget,
     updateDraft,
-    chooseSources,
+    chooseSources: openImageFiles,
     plan,
     execute,
     pending,

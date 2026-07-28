@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FieldContext } from "./FieldEditor";
 import { onFileDrop } from "@posto/ipc";
 import { ImageLibraryImportDialog } from "./ImageLibraryImportDialog";
@@ -12,7 +12,8 @@ export function ImageLibraryDropImport(props: {
   onError?: (message: string) => void;
 }) {
   const [sources, setSources] = useState<string[] | null>(null);
-  const libraries = props.config.mediaLibraries ?? [];
+  const libraries = useMemo(() => props.config.mediaLibraries ?? [], [props.config.mediaLibraries]);
+  const onError = props.onError;
   useEffect(
     () =>
       onFileDrop(
@@ -20,14 +21,14 @@ export function ImageLibraryDropImport(props: {
           const images = droppedImagePaths(paths);
           if (images.length === 0) return;
           if (libraries.length === 0) {
-            props.onError?.("This project has no editable media library.");
+            onError?.("This project has no editable media library.");
             return;
           }
           setSources(images);
         },
         { priority: 0 },
       ),
-    [libraries, props.onError],
+    [libraries, onError],
   );
   const close = () => {
     setSources(null);

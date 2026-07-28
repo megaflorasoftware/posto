@@ -1,4 +1,4 @@
-import { useRef, useState, type TouchEvent as ReactTouchEvent } from "react";
+import { useEffect, useRef, useState, type TouchEvent as ReactTouchEvent } from "react";
 
 const PULL_REFRESH_THRESHOLD = 60;
 
@@ -8,7 +8,9 @@ export function usePullRefresh(onRefresh: () => void | Promise<void>) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const startY = useRef<number | null>(null);
   const refreshRef = useRef(onRefresh);
-  refreshRef.current = onRefresh;
+  useEffect(() => {
+    refreshRef.current = onRefresh;
+  });
 
   async function refresh() {
     setRefreshing(true);

@@ -4,17 +4,29 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { MediaLibrary, PagesConfig } from "@posto/core/pagescms/config";
 import type { FileGroup } from "@posto/ipc";
 
-const { files, invoke } = vi.hoisted(() => {
+const { files, invoke, readStats } = vi.hoisted(() => {
   const files = new Map<string, string>();
+  const readStats = { active: 0, maxActive: 0, delay: false };
   const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
-    if (command === "read_text_file") return files.get(args?.path as string) ?? "";
+    if (command === "read_text_file") {
+      readStats.active += 1;
+      readStats.maxActive = Math.max(readStats.maxActive, readStats.active);
+      try {
+        if (readStats.delay) {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        return files.get(args?.path as string) ?? "";
+      } finally {
+        readStats.active -= 1;
+      }
+    }
     if (command === "write_text_file") {
       files.set(args?.path as string, args?.content as string);
       return null;
     }
     throw new Error(`Unexpected command: ${command}`);
   });
-  return { files, invoke };
+  return { files, invoke, readStats };
 });
 
 vi.mock("@posto/ipc", () => ({ invoke }));
@@ -31,6 +43,9 @@ describe("image library reference updates", () => {
   beforeEach(() => {
     files.clear();
     invoke.mockClear();
+    readStats.active = 0;
+    readStats.maxActive = 0;
+    readStats.delay = false;
   });
 
   test("rewrites configured frontmatter fields, collection references, and Markdown images", async () => {
@@ -196,6 +211,26 @@ describe("image library reference updates", () => {
       '<audio controls src="images/new%20photo.jpg"></audio>\n```md\n[Example](images/old%20photo.jpg)\n```\n',
     );
     expect(files.get(markdownPath)).toBe("![Three](/images/old%20photo.jpg)\n");
+  });
+
+  test("bounds concurrent content reads while planning reference updates", async () => {
+    const paths = Array.from({ length: 40 }, (_unused, index) => `/site/posts/${index}.md`);
+    for (const path of paths) files.set(path, "No media references\n");
+    readStats.delay = true;
+
+    await planMarkdownMediaReferenceUpdates({
+      groups: [
+        {
+          label: "posts",
+          path: "/site/posts",
+          files: paths.map((path) => ({ name: path.split("/").at(-1) ?? path, path })),
+        },
+      ],
+      replacements: new Map(),
+    });
+
+    expect(readStats.maxActive).toBeGreaterThan(1);
+    expect(readStats.maxActive).toBeLessThanOrEqual(8);
   });
 
   test("rewrites links and source attributes without touching fenced examples", () => {

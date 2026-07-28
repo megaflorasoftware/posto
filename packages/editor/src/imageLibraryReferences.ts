@@ -41,6 +41,33 @@ export interface ImageLibraryReferenceUpdatePlan {
 }
 
 const IMAGE_NAME = /^(src|image|img|imgsrc)$/i;
+const REFERENCE_READ_CONCURRENCY = 8;
+
+async function mapWithConcurrency<T, Result>(
+  items: T[],
+  concurrency: number,
+  task: (item: T) => Promise<Result>,
+): Promise<Result[]> {
+  const results: Result[] = [];
+  let nextIndex = 0;
+  let failed = false;
+  let failure: unknown;
+  const worker = async () => {
+    while (!failed && nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      try {
+        results[index] = await task(items[index]);
+      } catch (error) {
+        failed = true;
+        failure = error;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
+  if (failed) throw failure;
+  return results;
+}
 
 function valueAt(root: unknown, path: ValuePath): unknown {
   let value = root;
@@ -324,33 +351,38 @@ export async function planMarkdownMediaReferenceUpdates(input: {
   root?: string;
   relocations?: Array<{ from: string; to: string }>;
 }): Promise<ImageLibraryReferenceUpdatePlan> {
-  const writes: ImageLibraryReferenceUpdatePlan["writes"] = [];
-  let replacements = 0;
   const paths = new Set(input.groups.flatMap((group) => group.files.map((file) => file.path)));
-
-  for (const path of paths) {
-    if (!/\.(md|mdx)$/i.test(path)) continue;
-    const previous = await invoke<string>("read_text_file", { path });
-    const parsed = parseFile(previous);
-    if (parsed.error) {
-      throw new Error(`Could not update media references in ${path}: ${parsed.error}`);
-    }
-    const pathReplacements = new Map(input.replacements);
-    if (input.root) {
-      for (const relocation of input.relocations ?? []) {
-        const from = markdownMediaOutputPath(input.root, path, relocation.from);
-        const to = markdownMediaOutputPath(input.root, path, relocation.to);
-        if (from !== to) pathReplacements.set(from, to);
+  const documentPaths = [...paths].filter((path) => /\.(md|mdx)$/i.test(path));
+  const results = await mapWithConcurrency(
+    documentPaths,
+    REFERENCE_READ_CONCURRENCY,
+    async (path) => {
+      const previous = await invoke<string>("read_text_file", { path });
+      const parsed = parseFile(previous);
+      if (parsed.error) {
+        throw new Error(`Could not update media references in ${path}: ${parsed.error}`);
       }
-    }
-    const markdown = rewriteMarkdownMediaDestinations(parsed.body, pathReplacements);
-    if (markdown.replacements === 0) continue;
-    parsed.body = markdown.content;
-    replacements += markdown.replacements;
-    writes.push({ path, previous, content: serializeFile(parsed) });
-  }
-
-  return { writes, replacements };
+      const pathReplacements = new Map(input.replacements);
+      if (input.root) {
+        for (const relocation of input.relocations ?? []) {
+          const from = markdownMediaOutputPath(input.root, path, relocation.from);
+          const to = markdownMediaOutputPath(input.root, path, relocation.to);
+          if (from !== to) pathReplacements.set(from, to);
+        }
+      }
+      const markdown = rewriteMarkdownMediaDestinations(parsed.body, pathReplacements);
+      if (markdown.replacements === 0) return null;
+      parsed.body = markdown.content;
+      return {
+        write: { path, previous, content: serializeFile(parsed) },
+        replacements: markdown.replacements,
+      };
+    },
+  );
+  return {
+    writes: results.flatMap((result) => (result ? [result.write] : [])),
+    replacements: results.reduce((total, result) => total + (result?.replacements ?? 0), 0),
+  };
 }
 
 /** Builds all content writes before the filesystem move starts. Parse errors
@@ -362,14 +394,12 @@ export async function planImageLibraryReferenceUpdates(input: {
   library: MediaLibrary;
   relocations: ImageLibraryRelocation[];
 }): Promise<ImageLibraryReferenceUpdatePlan> {
-  const writes: ImageLibraryReferenceUpdatePlan["writes"] = [];
-  let replacements = 0;
   const paths = new Set(input.groups.flatMap((group) => group.files.map((file) => file.path)));
-
-  for (const path of paths) {
+  const results = await mapWithConcurrency([...paths], REFERENCE_READ_CONCURRENCY, async (path) => {
     const entry = entryForPath(input.config, input.root, path);
-    if (!entry) continue;
+    if (!entry) return null;
     const previous = await invoke<string>("read_text_file", { path });
+    let replacements = 0;
     if (entry.dataFile) {
       const parsed = parseDataDocument(previous, entry.dataFile.format);
       if (parsed.error) throw new Error(`Could not update references in ${path}: ${parsed.error}`);
@@ -390,10 +420,12 @@ export async function planImageLibraryReferenceUpdates(input: {
         replacements += updates.length;
       }
       const content = serializeDataDocument(parsed);
-      if (content !== previous) writes.push({ path, previous, content });
-      continue;
+      return {
+        write: content !== previous ? { path, previous, content } : null,
+        replacements,
+      };
     }
-    if (!/\.(md|mdx|markdown)$/i.test(path)) continue;
+    if (!/\.(md|mdx|markdown)$/i.test(path)) return null;
     const parsed = parseFile(previous);
     if (parsed.error) throw new Error(`Could not update references in ${path}: ${parsed.error}`);
     const values = (parsed.doc.toJS() ?? {}) as Record<string, unknown>;
@@ -425,9 +457,15 @@ export async function planImageLibraryReferenceUpdates(input: {
     parsed.body = markdown.content;
     replacements += markdown.replacements;
     const content = serializeFile(parsed);
-    if (content !== previous) writes.push({ path, previous, content });
-  }
-  return { writes, replacements };
+    return {
+      write: content !== previous ? { path, previous, content } : null,
+      replacements,
+    };
+  });
+  return {
+    writes: results.flatMap((result) => (result?.write ? [result.write] : [])),
+    replacements: results.reduce((total, result) => total + (result?.replacements ?? 0), 0),
+  };
 }
 
 /** Applies preplanned writes and restores earlier files if a later write fails. */
@@ -436,10 +474,14 @@ export async function applyImageLibraryReferenceUpdates(
 ): Promise<void> {
   const completed: typeof plan.writes = [];
   try {
-    for (const write of plan.writes) {
-      await invoke("write_text_file", { path: write.path, content: write.content });
-      completed.push(write);
-    }
+    await plan.writes.reduce(
+      (previous, write) =>
+        previous.then(async () => {
+          await invoke("write_text_file", { path: write.path, content: write.content });
+          completed.push(write);
+        }),
+      Promise.resolve(),
+    );
   } catch (error) {
     await Promise.allSettled(
       completed.map((write) =>

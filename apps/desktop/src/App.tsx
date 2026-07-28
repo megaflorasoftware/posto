@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ActionIcon, Button, MantineProvider, Modal, Switch } from "@mantine/core";
 import { Notifications, notifications } from "@mantine/notifications";
 import {
@@ -18,7 +18,12 @@ import {
 } from "@posto/ipc";
 import { checkForAppUpdate } from "./updater";
 import type { ChangedFile, FileEntry, FileGroup } from "@posto/ipc";
-import { EMPTY_CONFIG, matchEntry, renamedFilename } from "@posto/core/pagescms/config";
+import {
+  EMPTY_CONFIG,
+  matchEntry,
+  renamedFilename,
+  type PagesConfig,
+} from "@posto/core/pagescms/config";
 import { parseFile } from "@posto/core/pagescms/frontmatter";
 import {
   type ProjectCandidate,
@@ -106,10 +111,12 @@ function App() {
 
   // Latest values for callbacks that outlive the render they were created in.
   const rootRef = useRef(root);
-  rootRef.current = root;
   const fullscreenEditorOpenRef = useRef(fullscreenEditorOpen);
-  fullscreenEditorOpenRef.current = fullscreenEditorOpen;
   const selectionGenerationRef = useRef(0);
+  useLayoutEffect(() => {
+    rootRef.current = root;
+    fullscreenEditorOpenRef.current = fullscreenEditorOpen;
+  }, [root, fullscreenEditorOpen]);
 
   const schemas = useSchemas(adapter, ipcProjectIO);
   const notify = useCallback((message: string, severity: "progress" | "success" | "error") => {
@@ -184,10 +191,13 @@ function App() {
 
   // Every event that can change git status also refreshes the sidebar, so
   // this keeps the header's Publish button state current too.
-  async function refreshGroups(dir: string) {
+  async function refreshGroups(
+    dir: string,
+    config: PagesConfig | null = schemas.configRef.current,
+  ) {
     void git.refreshLocalChanges(dir);
     await files.refreshGroups(dir);
-    await files.refreshDataGroups(dir, schemas.configRef.current);
+    await files.refreshDataGroups(dir, config);
   }
 
   async function recoverMissingWorkDir(repository: string, dir: string): Promise<boolean> {
@@ -249,9 +259,9 @@ function App() {
     setWorkspaceCandidates(null);
     currentFile.closeFile();
     preview.resetRoute();
-    await schemas.loadSchemas(dir, selectedAdapter);
+    const config = await schemas.loadSchemas(dir, selectedAdapter);
     if (generation !== selectionGenerationRef.current) return;
-    await refreshGroups(dir);
+    await refreshGroups(dir, config);
     if (generation !== selectionGenerationRef.current) return;
     void devServer.startServer(dir);
     void invoke("set_last_root", { root: repository, workDir: dir }).then(() =>
@@ -468,11 +478,13 @@ function App() {
   }
 
   const externalChangesRef = useRef(onExternalChanges);
-  externalChangesRef.current = onExternalChanges;
   const chooseDirectoryRef = useRef(chooseDirectory);
-  chooseDirectoryRef.current = chooseDirectory;
   const chooseProjectInRepositoryRef = useRef(chooseProjectInRepository);
-  chooseProjectInRepositoryRef.current = chooseProjectInRepository;
+  useLayoutEffect(() => {
+    externalChangesRef.current = onExternalChanges;
+    chooseDirectoryRef.current = chooseDirectory;
+    chooseProjectInRepositoryRef.current = chooseProjectInRepository;
+  });
 
   useEffect(() => {
     const unlistenFs = onFsChanged((paths) => externalChangesRef.current(paths));
@@ -954,11 +966,7 @@ function App() {
                   {fullscreenEditorOpen && (
                     <>
                       <div className="fullscreen-sidebar-rail fullscreen-sidebar-rail-left">
-                        <div
-                          className="fullscreen-floating-sidebar"
-                          role="complementary"
-                          aria-label="Files sidebar"
-                        >
+                        <aside className="fullscreen-floating-sidebar" aria-label="Files sidebar">
                           <div className="fullscreen-floating-sidebar-header">
                             <Files size={16} />
                             <span>Files</span>
@@ -966,15 +974,11 @@ function App() {
                           <div className="fullscreen-floating-sidebar-content">
                             {renderFileSidebar()}
                           </div>
-                        </div>
+                        </aside>
                       </div>
                       {config && (
                         <div className="fullscreen-sidebar-rail fullscreen-sidebar-rail-right">
-                          <div
-                            className="fullscreen-floating-sidebar"
-                            role="complementary"
-                            aria-label="Media sidebar"
-                          >
+                          <aside className="fullscreen-floating-sidebar" aria-label="Media sidebar">
                             <div className="fullscreen-floating-sidebar-header">
                               <ImageIcon size={16} />
                               <span>Media</span>
@@ -982,7 +986,7 @@ function App() {
                             <div className="fullscreen-floating-sidebar-content">
                               {renderMediaSidebar()}
                             </div>
-                          </div>
+                          </aside>
                         </div>
                       )}
                     </>

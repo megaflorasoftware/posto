@@ -13,7 +13,6 @@ import {
   serializeDataDocument,
   setDataValue,
   type DataEntryLocator,
-  type ParsedDataDocument,
 } from "@posto/core/project/dataDocument";
 import { validateForm, type Errors } from "@posto/core/pagescms/validate";
 import type { FileEntry, FileGroup } from "@posto/ipc";
@@ -44,12 +43,17 @@ export function DataFormEditor(props: {
   onChange: (content: string, valid: boolean) => void;
   onPostoSaved?: () => void;
 }) {
-  const parsedRef = useRef<ParsedDataDocument>(null as unknown as ParsedDataDocument);
-  const locatorRef = useRef<DataEntryLocator>({
-    id: props.dataEntry.id,
-    path: props.dataEntry.path,
+  const [initialDocument] = useState(() => {
+    const parsed = parseDataDocument(props.content, props.dataEntry.format);
+    const locator = dataDocumentEntries(parsed).find((item) => item.id === props.dataEntry.id) ?? {
+      id: props.dataEntry.id,
+      path: props.dataEntry.path,
+    };
+    return { parsed, locator };
   });
-  const processed = useRef<string | null>(null);
+  const parsedRef = useRef(initialDocument.parsed);
+  const locatorRef = useRef<DataEntryLocator>(initialDocument.locator);
+  const processed = useRef<string | null>(props.content);
   const lastEmitted = useRef<string | null>(null);
   const defaultsApplied = useRef(false);
   const fields = props.entry.fields.filter((field) => field.name !== "body");
@@ -59,11 +63,6 @@ export function DataFormEditor(props: {
     const current = dataDocumentEntries(parsed).find((item) => item.id === props.dataEntry.id);
     if (current) locatorRef.current = current;
     return parsed;
-  }
-
-  if (processed.current === null) {
-    parsedRef.current = parse(props.content);
-    processed.current = props.content;
   }
 
   const initial = dataEntryValues(parsedRef.current, locatorRef.current) ?? {};

@@ -24,7 +24,6 @@
     "@posto/ipc": "workspace:*",
     "@tiptap/core": "3.27.1",
     "@tiptap/extension-image": "^3.27.1",
-    "@tiptap/extension-link": "^3.27.1",
     "@tiptap/markdown": "^3.27.1",
     "@tiptap/pm": "^3.27.1",
     "@tiptap/react": "^3.27.1",

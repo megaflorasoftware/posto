@@ -1,4 +1,13 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Link, RichTextEditor } from "@mantine/tiptap";
 import { Alert, Button, Group, Loader, TextInput } from "@mantine/core";
 import { useEditor } from "@tiptap/react";
@@ -169,37 +178,38 @@ export function imageGapLocation(
       const left = group[index];
       const right = group[index + 1];
       if (!hasOnlyWhitespaceBetween(left, right)) continue;
+      const leftRect = left.rect;
+      const rightRect = right.rect;
       const leftCenter = {
-        x: left.rect.left + left.rect.width / 2,
-        y: left.rect.top + left.rect.height / 2,
+        x: leftRect.left + leftRect.width / 2,
+        y: leftRect.top + leftRect.height / 2,
       };
       const rightCenter = {
-        x: right.rect.left + right.rect.width / 2,
-        y: right.rect.top + right.rect.height / 2,
+        x: rightRect.left + rightRect.width / 2,
+        y: rightRect.top + rightRect.height / 2,
       };
       const verticalOverlap =
-        Math.min(left.rect.bottom, right.rect.bottom) - Math.max(left.rect.top, right.rect.top);
-      const sameRow = verticalOverlap >= Math.min(left.rect.height, right.rect.height) * 0.4;
+        Math.min(leftRect.bottom, rightRect.bottom) - Math.max(leftRect.top, rightRect.top);
+      const sameRow = verticalOverlap >= Math.min(leftRect.height, rightRect.height) * 0.4;
       if (
         sameRow &&
         inRange(pointer.x, leftCenter.x, rightCenter.x) &&
         inRange(
           pointer.y,
-          Math.min(left.rect.top, right.rect.top),
-          Math.max(left.rect.bottom, right.rect.bottom),
+          Math.min(leftRect.top, rightRect.top),
+          Math.max(leftRect.bottom, rightRect.bottom),
           12,
         )
       ) {
-        const caretLeft = (left.rect.right + right.rect.left) / 2;
+        const caretLeft = (leftRect.right + rightRect.left) / 2;
         gaps.push({
           location: {
             pos: right.pos,
             left: caretLeft,
-            top: Math.min(left.rect.top, right.rect.top),
+            top: Math.min(leftRect.top, rightRect.top),
             width: 3,
             height:
-              Math.max(left.rect.bottom, right.rect.bottom) -
-              Math.min(left.rect.top, right.rect.top),
+              Math.max(leftRect.bottom, rightRect.bottom) - Math.min(leftRect.top, rightRect.top),
             orientation: "vertical",
             blockBoundary: false,
           },
@@ -334,20 +344,26 @@ export function imageMoveTransaction(
 }
 
 function StandaloneImageEditDialog(props: { request: EditableImageRequest; onClose: () => void }) {
-  const [src, setSrc] = useState(props.request.src);
-  const [alt, setAlt] = useState(props.request.alt);
+  const [{ src, alt }, updateDraft] = useReducer(
+    (current: { src: string; alt: string }, update: Partial<{ src: string; alt: string }>) => ({
+      ...current,
+      ...update,
+    }),
+    props.request,
+    (request) => ({ src: request.src, alt: request.alt }),
+  );
   return (
     <Dialog opened onClose={props.onClose} title="Edit image" size="sm">
       <TextInput
         label="Image path"
         value={src}
-        onChange={(event) => setSrc(event.currentTarget.value)}
+        onChange={(event) => updateDraft({ src: event.currentTarget.value })}
       />
       <TextInput
         mt="sm"
         label="Alternative text"
         value={alt}
-        onChange={(event) => setAlt(event.currentTarget.value)}
+        onChange={(event) => updateDraft({ alt: event.currentTarget.value })}
       />
       <Group justify="flex-end" mt="md">
         <Button variant="default" onClick={props.onClose}>
@@ -504,12 +520,15 @@ export function BodyEditor(props: {
 
   // MDX only: leading imports live here, not in the document. The initial
   // split runs once — the component remounts per file (keyed upstream).
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const initial = useMemo(
-    () => (mdx ? splitLeadingImports(props.value) : { imports: [], body: props.value }),
-    [],
-  );
-  const importsRef = useRef<ManagedImport[]>(toManagedImports(initial.imports, initial.body));
+  const initialRef = useRef<ReturnType<typeof splitLeadingImports> | null>(null);
+  if (initialRef.current === null) {
+    initialRef.current = mdx
+      ? splitLeadingImports(props.value)
+      : { imports: [], body: props.value };
+  }
+  const initial = initialRef.current;
+  const initialImports = useMemo(() => toManagedImports(initial.imports, initial.body), [initial]);
+  const importsRef = useRef<ManagedImport[]>(initialImports);
 
   /** Emitted markdown: managed imports (filtered to what the body still
    * uses) above the document's markdown. */
@@ -560,7 +579,9 @@ export function BodyEditor(props: {
     );
   };
   const resolveRef = useRef(resolveSrc);
-  resolveRef.current = resolveSrc;
+  useEffect(() => {
+    resolveRef.current = resolveSrc;
+  });
 
   const extensions = useMemo(
     () => [
@@ -807,11 +828,12 @@ export function BodyEditor(props: {
     onMediaDrop: (media, _event, details) => insertOrMoveImages(media, details),
     onBodyNodeDrop: (source, _event, details) => moveBodyNode(source, details),
   });
+  const locateDropForEffect = useEffectEvent(dropLocationAtPointer);
 
   useLayoutEffect(() => {
     const container = bodyDropContainer.current;
     const activeSource = bodyDrop.activeBodySource ?? bodyDrop.activeMediaSource;
-    const location = dropLocationAtPointer(bodyDrop.pointer, activeSource);
+    const location = locateDropForEffect(bodyDrop.pointer, activeSource);
     if (!editor || !container || !bodyDrop.isAccepting || location === null) {
       dropLocationRef.current = null;
       setDropCaret(null);
@@ -830,6 +852,7 @@ export function BodyEditor(props: {
     bodyDrop.activeBodySource,
     bodyDrop.activeMediaSource,
     bodyDrop.isAccepting,
+    bodyDrop.pointer,
     bodyDrop.pointer?.x,
     bodyDrop.pointer?.y,
   ]);
@@ -843,7 +866,7 @@ export function BodyEditor(props: {
     if (next.body === editor.getMarkdown()) return;
     editor.commands.setContent(next.body, { contentType: "markdown", emitUpdate: false });
     editor.view.dom.dataset.empty = editor.isEmpty ? "true" : "false";
-  }, [editor, props.value]);
+  }, [editor, props.value, mdx]);
 
   // The active adapter owns component discovery and prop parsing. The editor
   // only consumes neutral fields and slot metadata for components imported by
@@ -862,27 +885,31 @@ export function BodyEditor(props: {
         }
         return;
       }
-      for (const statement of importsKey === "" ? [] : importsKey.split("\u0000")) {
-        const { names, spec } = importInfo(statement);
-        if (!spec || names.length === 0) continue;
-        const file = resolveImportPath(props.path, spec);
-        if (!file) continue;
-        try {
-          const result = await source.componentFields(
-            { name: names[0], path: file },
-            projectIO,
-            props.config,
-          );
-          if (!result) continue;
-          for (const name of names) {
-            loaded[name] = {
-              fields: result.fields,
-              slots: result.slots ?? [],
-              hasDefaultSlot: result.hasDefaultSlot ?? false,
-            };
+      await Promise.all(
+        (importsKey === "" ? [] : importsKey.split("\u0000")).map(async (statement) => {
+          const { names, spec } = importInfo(statement);
+          if (!spec || names.length === 0) return;
+          const file = resolveImportPath(props.path, spec);
+          if (!file) return;
+          try {
+            const result = await source.componentFields(
+              { name: names[0], path: file },
+              projectIO,
+              props.config,
+            );
+            if (!result) return;
+            for (const name of names) {
+              loaded[name] = {
+                fields: result.fields,
+                slots: result.slots ?? [],
+                hasDefaultSlot: result.hasDefaultSlot ?? false,
+              };
+            }
+          } catch {
+            // One broken import should not hide schemas for the rest.
           }
-        } catch {}
-      }
+        }),
+      );
       if (cancelled) return;
       setSchemas(loaded);
       // The markdown pipeline and the slot-sync plugin read schemas outside
@@ -983,29 +1010,41 @@ export function BodyEditor(props: {
         .sort((left, right) => right.media.output.length - left.media.output.length)
         .find((candidate) => outputContains(candidate.media.output, editingImage.src)) ?? null)
     : null;
+  const mdxFieldEnvironment = useMemo(
+    () => ({
+      editorId: props.path,
+      config: props.config,
+      root: props.root,
+      groups: props.groups,
+      entryIds: props.entryIds,
+      entry: props.entry ?? null,
+      templateValues: props.templateValues,
+    }),
+    [
+      props.path,
+      props.config,
+      props.root,
+      props.groups,
+      props.entryIds,
+      props.entry,
+      props.templateValues,
+    ],
+  );
+  const editableImageEnvironment = useMemo(
+    () => ({
+      editorId: props.path,
+      resolveSrc: (src: string) => resolveRef.current(src),
+      edit: setEditingImage,
+    }),
+    [props.path],
+  );
 
   return (
     // Component-card node views render through portals inside the content
     // element, so these providers reach them.
     <MdxSchemaContext.Provider value={schemas}>
-      <MdxFieldEnvContext.Provider
-        value={{
-          editorId: props.path,
-          config: props.config,
-          root: props.root,
-          groups: props.groups,
-          entryIds: props.entryIds,
-          entry: props.entry ?? null,
-          templateValues: props.templateValues,
-        }}
-      >
-        <EditableImageContext.Provider
-          value={{
-            editorId: props.path,
-            resolveSrc: (src) => resolveRef.current(src),
-            edit: setEditingImage,
-          }}
-        >
+      <MdxFieldEnvContext.Provider value={mdxFieldEnvironment}>
+        <EditableImageContext.Provider value={editableImageEnvironment}>
           <RichTextEditor
             editor={editor}
             className="body-rich-editor"

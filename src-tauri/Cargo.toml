@@ -27,6 +27,7 @@ git2 = { version = "0.21.0", features = ["ssh", "https", "vendored-libgit2", "ve
 reqwest = { version = "0.13.4", default-features = false, features = ["form", "json", "rustls"] }
 tokio = { version = "1", features = ["time"] }
 image = { version = "0.25", default-features = false, features = ["gif", "ico", "jpeg", "png", "tiff", "webp"] }
+fs2 = "0.4"
 
 # Desktop-only: file watching, PATH fixup, updater, process restart, and the
 # OS keychain for the stored GitHub session. Mobile builds (iOS/Android)

@@ -38,6 +38,21 @@ function metadataAlt(metadata: Record<string, unknown>): string | undefined {
     : undefined;
 }
 
+async function runSerially<T>(
+  items: T[],
+  operation: (item: T) => Promise<unknown>,
+  completed?: T[],
+): Promise<void> {
+  await items.reduce(
+    (previous, item) =>
+      previous.then(async () => {
+        await operation(item);
+        completed?.push(item);
+      }),
+    Promise.resolve(),
+  );
+}
+
 export async function moveFileMediaItems(input: {
   root: string;
   mediaRoot: string;
@@ -61,10 +76,19 @@ export async function moveFileMediaItems(input: {
   }));
   const movingFilePaths = new Set(input.movingFiles.map((file) => normalizeFilePath(file.path)));
   const existingFilePaths = new Set(input.files.map((file) => normalizeFilePath(file.path)));
-  const existingDirectories = input.directories.map((directory) =>
-    normalizeFilePath(directory).replace(/\/+$/, ""),
+  const existingDirectories = new Set(
+    input.directories.map((directory) => normalizeFilePath(directory).replace(/\/+$/, "")),
   );
   const movingDirectoryPaths = directoryOperations.map((operation) => operation.from);
+  const stationaryDirectories = new Set(
+    [...existingDirectories].filter(
+      (directory) =>
+        !movingDirectoryPaths.some(
+          (movingDirectory) =>
+            directory === movingDirectory || directory.startsWith(`${movingDirectory}/`),
+        ),
+    ),
+  );
   const targets = new Set<string>();
   for (const operation of fileOperations) {
     if (operation.from === operation.to) {
@@ -72,7 +96,7 @@ export async function moveFileMediaItems(input: {
     }
     if (
       targets.has(operation.to) ||
-      existingDirectories.includes(operation.to) ||
+      existingDirectories.has(operation.to) ||
       (existingFilePaths.has(operation.to) && !movingFilePaths.has(operation.to))
     ) {
       throw new Error("A file or folder with that name already exists in the destination.");
@@ -91,14 +115,7 @@ export async function moveFileMediaItems(input: {
     if (
       directoryTargets.has(operation.to) ||
       existingFilePaths.has(operation.to) ||
-      existingDirectories.some(
-        (directory) =>
-          directory === operation.to &&
-          !movingDirectoryPaths.some(
-            (movingDirectory) =>
-              directory === movingDirectory || directory.startsWith(`${movingDirectory}/`),
-          ),
-      )
+      stationaryDirectories.has(operation.to)
     ) {
       throw new Error("A file or folder with that name already exists in the destination.");
     }
@@ -109,9 +126,9 @@ export async function moveFileMediaItems(input: {
   const relocationTargets = new Map(
     fileOperations.map((operation) => [operation.from, operation.to]),
   );
-  const orderedDirectories = [...directoryOperations].sort(
-    (left, right) => right.from.length - left.from.length,
-  );
+  const orderedDirectories = directoryOperations
+    .slice()
+    .sort((left, right) => right.from.length - left.from.length);
   for (const file of input.files) {
     const filePath = normalizeFilePath(file.path);
     if (relocationTargets.has(filePath)) continue;
@@ -134,38 +151,42 @@ export async function moveFileMediaItems(input: {
   const completedFiles: typeof fileOperations = [];
   const completedDirectories: typeof directoryOperations = [];
   try {
-    for (const operation of fileOperations) {
-      await moveFileMediaItem({
-        mediaRoot: input.mediaRoot,
-        path: operation.from,
-        destinationDirectory: destination,
-      });
-      completedFiles.push(operation);
-    }
-    for (const operation of directoryOperations) {
-      await moveFileMediaDirectory({
-        mediaRoot: input.mediaRoot,
-        path: operation.from,
-        destinationDirectory: destination,
-      });
-      completedDirectories.push(operation);
-    }
+    await runSerially(
+      fileOperations,
+      (operation) =>
+        moveFileMediaItem({
+          mediaRoot: input.mediaRoot,
+          path: operation.from,
+          destinationDirectory: destination,
+        }),
+      completedFiles,
+    );
+    await runSerially(
+      directoryOperations,
+      (operation) =>
+        moveFileMediaDirectory({
+          mediaRoot: input.mediaRoot,
+          path: operation.from,
+          destinationDirectory: destination,
+        }),
+      completedDirectories,
+    );
     await applyImageLibraryReferenceUpdates(referencePlan);
   } catch (caught) {
-    for (const operation of completedDirectories.reverse()) {
-      await moveFileMediaDirectory({
+    await runSerially([...completedDirectories].reverse(), (operation) =>
+      moveFileMediaDirectory({
         mediaRoot: input.mediaRoot,
         path: operation.to,
         destinationDirectory: filePathDirname(operation.from),
-      }).catch(() => undefined);
-    }
-    for (const operation of completedFiles.reverse()) {
-      await moveFileMediaItem({
+      }).catch(() => undefined),
+    );
+    await runSerially([...completedFiles].reverse(), (operation) =>
+      moveFileMediaItem({
         mediaRoot: input.mediaRoot,
         path: operation.to,
         destinationDirectory: filePathDirname(operation.from),
-      }).catch(() => undefined);
-    }
+      }).catch(() => undefined),
+    );
     throw caught;
   }
 }
@@ -296,40 +317,44 @@ export async function moveImageLibraryItems(input: {
   const completedAssets: typeof assetTargets = [];
   const completedDirectories: typeof directoryTargets = [];
   try {
-    for (const operation of assetTargets) {
-      await invoke("move_image_library_asset", {
-        libraryRoot: input.libraryRoot,
-        imagePath: operation.asset.imagePath,
-        metadataPath: operation.asset.metadataPath,
-        destinationDirectory,
-      });
-      completedAssets.push(operation);
-    }
-    for (const operation of directoryTargets) {
-      await invoke("move_image_library_directory", {
-        libraryRoot: input.libraryRoot,
-        directoryPath: operation.directoryPath,
-        destinationDirectory,
-      });
-      completedDirectories.push(operation);
-    }
+    await runSerially(
+      assetTargets,
+      (operation) =>
+        invoke("move_image_library_asset", {
+          libraryRoot: input.libraryRoot,
+          imagePath: operation.asset.imagePath,
+          metadataPath: operation.asset.metadataPath,
+          destinationDirectory,
+        }),
+      completedAssets,
+    );
+    await runSerially(
+      directoryTargets,
+      (operation) =>
+        invoke("move_image_library_directory", {
+          libraryRoot: input.libraryRoot,
+          directoryPath: operation.directoryPath,
+          destinationDirectory,
+        }),
+      completedDirectories,
+    );
     await applyImageLibraryReferenceUpdates(referencePlan);
   } catch (caught) {
-    for (const operation of completedDirectories.reverse()) {
-      await invoke("move_image_library_directory", {
+    await runSerially([...completedDirectories].reverse(), (operation) =>
+      invoke("move_image_library_directory", {
         libraryRoot: input.libraryRoot,
         directoryPath: operation.target,
         destinationDirectory: dirname(operation.directoryPath),
-      }).catch(() => undefined);
-    }
-    for (const operation of completedAssets.reverse()) {
-      await invoke("move_image_library_asset", {
+      }).catch(() => undefined),
+    );
+    await runSerially([...completedAssets].reverse(), (operation) =>
+      invoke("move_image_library_asset", {
         libraryRoot: input.libraryRoot,
         imagePath: operation.imagePath,
         metadataPath: operation.metadataPath,
         destinationDirectory: dirname(operation.asset.metadataPath),
-      }).catch(() => undefined);
-    }
+      }).catch(() => undefined),
+    );
     throw caught;
   }
 }

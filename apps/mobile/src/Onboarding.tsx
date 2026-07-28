@@ -29,7 +29,7 @@ import {
   Search,
   Smartphone,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import RepoHome from "./RepoHome";
 
 // A downloaded site's favicon usually lives at one of these `public/` paths;
@@ -150,7 +150,7 @@ function Authorizing({ device, onOpenVerification }: Pick<Props, "device" | "onO
               Enter this code on GitHub
             </Title>
           </div>
-          <button className="device-code" onClick={() => void copyCode()}>
+          <button type="button" className="device-code" onClick={() => void copyCode()}>
             <span>{device.user_code}</span>
             {copied ? <Check size={20} /> : <Copy size={20} />}
           </button>
@@ -171,7 +171,6 @@ function Authorizing({ device, onOpenVerification }: Pick<Props, "device" | "onO
 // no favicon) render the original private/public icon instead.
 function RepoRowIcon({ root, isPrivate }: { root: string | undefined; isPrivate: boolean }) {
   const [candidate, setCandidate] = useState(0);
-  useEffect(() => setCandidate(0), [root]);
 
   const fallbackIcon = (
     <ThemeIcon variant="light" color={isPrivate ? undefined : "gray"} radius="sm">
@@ -237,8 +236,17 @@ function RepoPicker({ repos, downloaded, roots, error, onChooseRepo, onRetryRepo
             {filtered.map((repo) => {
               const isDownloaded = downloaded.has(repo.full_name);
               return (
-                <button className="repo-row" key={repo.id} onClick={() => onChooseRepo(repo)}>
-                  <RepoRowIcon root={roots.get(repo.full_name)} isPrivate={repo.private} />
+                <button
+                  type="button"
+                  className="repo-row"
+                  key={repo.id}
+                  onClick={() => onChooseRepo(repo)}
+                >
+                  <RepoRowIcon
+                    key={roots.get(repo.full_name) ?? "remote"}
+                    root={roots.get(repo.full_name)}
+                    isPrivate={repo.private}
+                  />
                   <div className="repo-info">
                     <Group gap="xs" wrap="nowrap">
                       <Text fw={650} truncate>

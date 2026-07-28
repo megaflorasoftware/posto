@@ -3,7 +3,7 @@ import { ActionIcon } from "@mantine/core";
 import TiptapImage from "@tiptap/extension-image";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import { Pencil, Trash2 } from "lucide-react";
-import { bodyNodePosition, registerBodyNodePosition, useMediaDraggable } from "./MediaDragDrop";
+import { registerBodyNodePosition, useMediaDraggable } from "./MediaDragDrop";
 
 export interface EditableImageRequest {
   src: string;
@@ -17,15 +17,16 @@ interface EditableImageEnvironment {
   edit: (request: EditableImageRequest) => void;
 }
 
+function stopPointer(event: React.PointerEvent) {
+  event.preventDefault();
+  event.stopPropagation();
+}
+
 export const EditableImageContext = createContext<EditableImageEnvironment>({
   editorId: "",
   resolveSrc: (src) => src,
   edit: () => undefined,
 });
-
-export function editableImagePosition(element: HTMLElement): number | undefined {
-  return bodyNodePosition(element);
-}
 
 function EditableImageView(props: NodeViewProps) {
   const environment = useContext(EditableImageContext);
@@ -50,10 +51,6 @@ function EditableImageView(props: NodeViewProps) {
       getPosition,
     },
   });
-  const stopPointer = (event: React.PointerEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-  };
   const deleteImage = () => {
     const position = props.getPos();
     if (typeof position !== "number") return;

@@ -75,6 +75,27 @@ test("pages-only projects retain the conventional public media source", async ()
   expect(result.current.config.media).toEqual([{ name: "default", input: "public", output: "/" }]);
 });
 
+test("publishes the effective config ref before loadSchemas resolves", async () => {
+  const io = projectIO({
+    read(path) {
+      if (path.endsWith("/.pages.yml")) {
+        return "content:\n  - name: posts\n    path: posts\n    type: collection\n";
+      }
+      return null;
+    },
+  });
+  const { result } = renderHook(() => useSchemas(genericAdapter, io));
+
+  await act(async () => {
+    const configRef = result.current.configRef;
+    const loaded = await result.current.loadSchemas("/site", genericAdapter);
+    expect(loaded.content.map((entry) => entry.name)).toEqual(["posts"]);
+    expect(configRef.current.content.map((entry) => entry.name)).toEqual(["posts"]);
+    await Promise.resolve();
+    expect(configRef.current.content.map((entry) => entry.name)).toEqual(["posts"]);
+  });
+});
+
 test("adapter diagnostics are merged into the effective config once", async () => {
   const io = projectIO({});
   const diagnostic = {

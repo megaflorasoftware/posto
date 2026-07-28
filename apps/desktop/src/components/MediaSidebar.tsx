@@ -34,15 +34,18 @@ import {
 import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
 import { importPublicMediaFile, onFileDrop, type FileEntry, type FileGroup } from "@posto/ipc";
 
-function SourceMediaBrowserContent(props: { root: string; tabs: ReactNode }) {
-  const state = useSourceImageFiles(props.root);
-  const [currentDirectory, setCurrentDirectory] = useState("");
-  const mediaForFile = (file: FileEntry): MarkdownMediaPick => ({
+function sourceMediaForFile(file: FileEntry): MarkdownMediaPick {
+  return {
     outputPath: file.path,
     sourcePath: file.path,
     label: file.name,
     kind: "image",
-  });
+  };
+}
+
+function SourceMediaBrowserContent(props: { root: string; tabs: ReactNode }) {
+  const state = useSourceImageFiles(props.root);
+  const [currentDirectory, setCurrentDirectory] = useState("");
   return (
     <div className="media-drawer" data-media-pane-directory={currentDirectory}>
       <div className="media-drawer-scroll">
@@ -59,7 +62,7 @@ function SourceMediaBrowserContent(props: { root: string; tabs: ReactNode }) {
           toolbar={props.tabs}
           onDirectoryChange={setCurrentDirectory}
           dragPayload={(file) => ({
-            media: [mediaForFile(file)],
+            media: [sourceMediaForFile(file)],
             source: {
               kind: "media-sidebar",
               scope: "src",
@@ -165,9 +168,9 @@ function LibraryMediaBrowserContent(props: {
   const dropIntoDirectory = (source: MediaSidebarDragSource, destinationDirectory: string) => {
     const movingIds = new Set(source.items.map((item) => item.id));
     const movingAssets = state.assets.filter((asset) => movingIds.has(asset.metadataPath));
-    const movingDirectories = source.items
-      .filter((item) => item.kind === "directory")
-      .map((item) => item.id);
+    const movingDirectories = source.items.flatMap((item) =>
+      item.kind === "directory" ? [item.id] : [],
+    );
     if (movingAssets.length + movingDirectories.length === 0) return;
     setMoveError(null);
     void moveImageLibraryItems({
@@ -436,16 +439,26 @@ function PublicMediaBrowserContent(props: {
   const importFiles = async () => {
     setImporting(true);
     setError(null);
+    let importedAny = false;
     try {
-      const imported = await chooseAndImportPublicMedia(props.root, currentDirectory);
-      if (imported.length > 0) {
-        await state.refresh();
-        props.onChanged();
-      }
+      await chooseAndImportPublicMedia(props.root, currentDirectory, {
+        onImported: () => {
+          importedAny = true;
+        },
+      });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
-      setImporting(false);
+      try {
+        if (importedAny) {
+          await state.refresh();
+          props.onChanged();
+        }
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      } finally {
+        setImporting(false);
+      }
     }
   };
   useEffect(() => {
@@ -479,6 +492,7 @@ function PublicMediaBrowserContent(props: {
         setError(null);
         const relativeDirectory = directory.slice(state.publicRoot.length).replace(/^\/+/, "");
         void (async () => {
+          let imported = 0;
           try {
             for (const sourceFilePath of droppedImagePaths(paths)) {
               await importPublicMediaFile({
@@ -486,13 +500,21 @@ function PublicMediaBrowserContent(props: {
                 sourceFilePath,
                 directory: relativeDirectory,
               });
+              imported += 1;
             }
-            await state.refresh();
-            props.onChanged();
           } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught));
           } finally {
-            setImporting(false);
+            try {
+              if (imported > 0) {
+                await state.refresh();
+                props.onChanged();
+              }
+            } catch (caught) {
+              setError(caught instanceof Error ? caught.message : String(caught));
+            } finally {
+              setImporting(false);
+            }
           }
         })();
       },
@@ -501,7 +523,7 @@ function PublicMediaBrowserContent(props: {
         accepts: (paths, details) => droppedDirectory(paths, details.pointer) !== null,
       },
     );
-  }, [currentDirectory, importing, props.root, state.publicRoot]);
+  }, [currentDirectory, importing, props.root, props.onChanged, state.publicRoot, state.refresh]);
   const mediaForFile = (file: FileEntry): MarkdownMediaPick | null => {
     if (markdownMediaKind(file.path) !== "image") return null;
     const outputPath = publicMediaOutputPath(props.root, file.path);
@@ -541,9 +563,9 @@ function PublicMediaBrowserContent(props: {
   const dropIntoDirectory = (source: MediaSidebarDragSource, destinationDirectory: string) => {
     const movingIds = new Set(source.items.map((item) => item.id));
     const movingFiles = state.files.filter((file) => movingIds.has(file.path));
-    const movingDirectories = source.items
-      .filter((item) => item.kind === "directory")
-      .map((item) => item.id);
+    const movingDirectories = source.items.flatMap((item) =>
+      item.kind === "directory" ? [item.id] : [],
+    );
     if (movingFiles.length + movingDirectories.length === 0) return;
     setMoveError(null);
     void moveFileMediaItems({

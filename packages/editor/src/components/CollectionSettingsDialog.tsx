@@ -77,12 +77,16 @@ export function CollectionSettingsDialog(props: {
 
   const sortFields = [
     { value: LABEL_SORT, label: "Entry label" },
-    ...collection.fields
-      .filter((field) => field.type !== "object" && !field.list)
-      .map((field) => ({
-        value: `fields.${field.name}`,
-        label: typeof field.label === "string" ? field.label : field.name,
-      })),
+    ...collection.fields.flatMap((field) =>
+      field.type !== "object" && !field.list
+        ? [
+            {
+              value: `fields.${field.name}`,
+              label: typeof field.label === "string" ? field.label : field.name,
+            },
+          ]
+        : [],
+    ),
   ];
 
   async function save() {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "@mantine/core";
 import { Image as ImageIcon, Pencil } from "lucide-react";
 import { serializeImageLibraryMetadata } from "@posto/core/project/mediaLibrary";
@@ -31,6 +31,7 @@ export function ImageLibraryReferenceField(props: {
   const [metadata, setMetadata] = useState<Record<string, unknown>>({});
   const [metadataError, setMetadataError] = useState<string | null>(null);
   const metadataRef = useRef(metadata);
+  const metadataAssetPathRef = useRef<string | null>(null);
   const metadataDirtyRef = useRef(false);
   const metadataRevisionRef = useRef(0);
   const metadataSaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -44,7 +45,10 @@ export function ImageLibraryReferenceField(props: {
   const metadataErrors = validateForm(metadataFields, metadata);
 
   useEffect(() => {
+    const assetPath = selectedAsset?.metadataPath ?? null;
+    if (metadataAssetPathRef.current === assetPath && metadataDirtyRef.current) return;
     const next = structuredClone(selectedAsset?.metadata ?? {});
+    metadataAssetPathRef.current = assetPath;
     metadataRef.current = next;
     metadataDirtyRef.current = false;
     metadataRevisionRef.current += 1;
@@ -52,41 +56,44 @@ export function ImageLibraryReferenceField(props: {
     metadataSaveTimer.current = undefined;
     setMetadata(next);
     setMetadataError(null);
-  }, [selectedAsset?.metadataPath]);
+  }, [selectedAsset?.metadata, selectedAsset?.metadataPath]);
 
-  const writeMetadata = (
-    asset: NonNullable<typeof selectedAsset>,
-    nextMetadata: Record<string, unknown>,
-    revision: number,
-  ): Promise<void> => {
-    const previous = activeMetadataSave.current ?? Promise.resolve();
-    const task = previous
-      .then(() =>
-        invoke("write_text_file", {
-          path: asset.metadataPath,
-          content: serializeImageLibraryMetadata(
-            nextMetadata,
-            metadataExtension(asset.metadataPath),
-          ),
-        }),
-      )
-      .then(() => {
-        if (metadataRevisionRef.current === revision) {
-          metadataDirtyRef.current = false;
-        }
-        setMetadataError(null);
-      })
-      .catch((error) => {
-        setMetadataError(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        if (activeMetadataSave.current === task) {
-          activeMetadataSave.current = null;
-        }
-      });
-    activeMetadataSave.current = task;
-    return task;
-  };
+  const writeMetadata = useCallback(
+    (
+      asset: NonNullable<typeof selectedAsset>,
+      nextMetadata: Record<string, unknown>,
+      revision: number,
+    ): Promise<void> => {
+      const previous = activeMetadataSave.current ?? Promise.resolve();
+      const task = previous
+        .then(() =>
+          invoke("write_text_file", {
+            path: asset.metadataPath,
+            content: serializeImageLibraryMetadata(
+              nextMetadata,
+              metadataExtension(asset.metadataPath),
+            ),
+          }),
+        )
+        .then(() => {
+          if (metadataRevisionRef.current === revision) {
+            metadataDirtyRef.current = false;
+          }
+          setMetadataError(null);
+        })
+        .catch((error) => {
+          setMetadataError(error instanceof Error ? error.message : String(error));
+        })
+        .finally(() => {
+          if (activeMetadataSave.current === task) {
+            activeMetadataSave.current = null;
+          }
+        });
+      activeMetadataSave.current = task;
+      return task;
+    },
+    [],
+  );
 
   const flushMetadata = (): Promise<void> => {
     clearTimeout(metadataSaveTimer.current);
@@ -99,20 +106,19 @@ export function ImageLibraryReferenceField(props: {
     }
     return activeMetadataSave.current ?? Promise.resolve();
   };
-
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    const assetForCleanup = selectedAsset;
+    return () => {
       clearTimeout(metadataSaveTimer.current);
       if (
-        selectedAsset &&
+        assetForCleanup &&
         metadataDirtyRef.current &&
         validateForm(metadataFields, metadataRef.current).size === 0
       ) {
-        void writeMetadata(selectedAsset, metadataRef.current, metadataRevisionRef.current);
+        void writeMetadata(assetForCleanup, metadataRef.current, metadataRevisionRef.current);
       }
-    },
-    [selectedAsset?.metadataPath, metadataFields],
-  );
+    };
+  }, [selectedAsset?.metadataPath, metadataFields, writeMetadata]);
 
   const updateMetadata = (path: ValuePath, value: unknown) => {
     const next = editValueAtPath(metadataRef.current, path, value);

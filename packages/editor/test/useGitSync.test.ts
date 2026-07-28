@@ -91,4 +91,27 @@ describe("useGitSync concurrency", () => {
     expect(onStatus).toHaveBeenNthCalledWith(1, "Fetching changes…", "progress");
     expect(onStatus).toHaveBeenNthCalledWith(2, "updated", "success");
   });
+
+  test("ignores an upstream result from the previously selected root", async () => {
+    const firstFetch = deferred<boolean>();
+    invokeMock.mockImplementation(async (command, args) => {
+      if (command === "fetch_upstream") {
+        return args?.root === "/first" ? firstFetch.promise : false;
+      }
+      if (command === "changed_files") return [];
+      return "ok";
+    });
+    const { result, rerender } = renderHook(
+      ({ root }: { root: string }) => useGitSync(root, { onStatus: vi.fn() }),
+      { initialProps: { root: "/first" } },
+    );
+    await act(async () => Promise.resolve());
+
+    rerender({ root: "/second" });
+    await act(async () => Promise.resolve());
+    firstFetch.resolve(true);
+    await act(async () => firstFetch.promise);
+
+    expect(result.current.behindUpstream).toBe(false);
+  });
 });

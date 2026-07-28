@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
 import { Alert, Button, Group, Loader, Text, TextInput } from "@mantine/core";
 import { Dropzone, IMAGE_MIME_TYPE } from "@mantine/dropzone";
 import { ChevronLeft, ChevronRight, Image as ImageIcon, Upload } from "lucide-react";
@@ -91,7 +91,10 @@ export function ImageLibraryImportDialog(props: {
       ? [props.sourcePath]
       : [];
   const libraries = props.libraries?.length ? props.libraries : [props.library];
-  const [selectedCollection, setSelectedCollection] = useState(props.library.collection);
+  const [selectedCollection, setSelectedCollection] = useReducer(
+    (_current: string, next: string) => next,
+    props.library.collection,
+  );
   const selectedLibrary =
     libraries.find((library) => library.collection === selectedCollection) ?? null;
   const importerLibrary = selectedLibrary ?? props.library;
@@ -176,6 +179,7 @@ export function ImageLibraryImportDialog(props: {
   const importIntoPublic = async () => {
     setPublicImportPending(true);
     importer.setError(null);
+    let imported = 0;
     try {
       for (const item of drafts) {
         const path = await importPublicMediaFile({
@@ -183,12 +187,16 @@ export function ImageLibraryImportDialog(props: {
           sourceFilePath: item.sourceImagePath,
           directory: currentDirectory,
         });
+        imported += 1;
         props.onPublicImported?.(path);
       }
       props.onClose();
     } catch (caught) {
       importer.setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
+      if (imported > 0) {
+        importer.setSources(drafts.slice(imported).map((draft) => draft.sourceImagePath));
+      }
       setPublicImportPending(false);
     }
   };

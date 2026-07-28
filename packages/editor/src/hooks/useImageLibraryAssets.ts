@@ -77,6 +77,7 @@ async function loadStore(store: LibraryStore): Promise<void> {
         invoke<FileEntry[]>("list_dir_files", { dir: store.libraryRoot, extensions: [] }),
         invoke<string[]>("list_directories", { dir: store.libraryRoot }),
       ]);
+      const metadataExtensions = new Set(store.library.metadataExtensions);
       const metadata = files.filter((file) => {
         const extension = file.name
           .split(".")
@@ -84,8 +85,7 @@ async function loadStore(store: LibraryStore): Promise<void> {
           ?.toLowerCase() as MediaLibraryMetadataExtension;
         const relativePath = file.path.slice(store.libraryRoot.length + 1);
         return (
-          store.library.metadataExtensions.includes(extension) &&
-          matchesImageLibraryPath(store.library, relativePath)
+          metadataExtensions.has(extension) && matchesImageLibraryPath(store.library, relativePath)
         );
       });
       const documents = await Promise.all(

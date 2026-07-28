@@ -70,12 +70,13 @@ export function FileMediaPreview(props: {
 function directoryPreviewImages(directory: string, files: FileEntry[]): string[] {
   const folder = normalize(directory);
   return files
-    .filter(
-      (file) =>
-        markdownMediaKind(file.path) === "image" &&
-        (dirname(file.path) === folder || dirname(file.path).startsWith(`${folder}/`)),
-    )
-    .map((file) => file.path)
+    .flatMap((file) => {
+      const fileDirectory = dirname(file.path);
+      return markdownMediaKind(file.path) === "image" &&
+        (fileDirectory === folder || fileDirectory.startsWith(`${folder}/`))
+        ? [file.path]
+        : [];
+    })
     .slice(0, 4);
 }
 

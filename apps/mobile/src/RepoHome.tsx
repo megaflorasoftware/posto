@@ -72,7 +72,7 @@ import { MediaLibraryPane } from "./MediaLibraryPane";
 import { RepoHeader } from "./components/RepoHeader";
 import { RepoSettings } from "./components/RepoSettings";
 import { usePullRefresh } from "./hooks/usePullRefresh";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 
 const TRANSIENT_NOTICE_MS = 5_000;
 
@@ -108,7 +108,7 @@ export default function RepoHome({
 }: Props) {
   const [root, setWorkDir] = useState(repoRoot);
   const [workspaceCandidates, setWorkspaceCandidates] = useState<ProjectCandidate[] | null>(null);
-  const [workspaceChooserFromSettings, setWorkspaceChooserFromSettings] = useState(false);
+  const workspaceChooserFromSettings = useRef(false);
   const [browsingWorkspace, setBrowsingWorkspace] = useState(false);
   const [loading, setLoading] = useState(true);
   const selectionGenerationRef = useRef(0);
@@ -187,7 +187,7 @@ export default function RepoHome({
         currentFile.closeFile();
         projectSession.clear();
         setShowEditor(false);
-        setWorkspaceChooserFromSettings(false);
+        workspaceChooserFromSettings.current = false;
         setBrowsingWorkspace(false);
         setWorkspaceCandidates(candidates);
         return;
@@ -239,36 +239,28 @@ export default function RepoHome({
     // Publish progress lives on the Publish button; only failures surface.
     onPublishError: setStatus,
   });
-
-  useEffect(() => {
-    const generation = ++selectionGenerationRef.current;
-    let active = true;
-    setLoading(true);
-    setError(null);
-    setRepairError(null);
-    void (async () => {
+  const initializeRepository = useEffectEvent(
+    async (generation: number, isActive: () => boolean) => {
       if (repo) {
         try {
           await invoke<string>("doctor_repo", { root: repoRoot, expectedUrl: repo.clone_url });
         } catch (checkError) {
-          if (active) setRepairError(message(checkError));
-          if (active) setLoading(false);
+          if (isActive()) setRepairError(message(checkError));
+          if (isActive()) setLoading(false);
           return;
         }
       }
       try {
         const decision = await projectSession.resolveRepository(repoRoot);
-        if (!active || generation !== selectionGenerationRef.current) return;
+        if (!isActive() || generation !== selectionGenerationRef.current) return;
         if (decision.kind === "choose") {
-          if (active) {
-            setWorkspaceChooserFromSettings(false);
-            setWorkspaceCandidates(decision.candidates);
-          }
+          workspaceChooserFromSettings.current = false;
+          setWorkspaceCandidates(decision.candidates);
           return;
         }
         const selectedRoot = decision.workDir;
         const activation = await projectSession.prepare(selectedRoot);
-        if (active && generation === selectionGenerationRef.current) {
+        if (isActive() && generation === selectionGenerationRef.current) {
           projectSession.commit(activation);
           const selectedAdapter = activation.adapter;
           setWorkDir(selectedRoot);
@@ -276,11 +268,20 @@ export default function RepoHome({
           void git.refreshLocalChanges(selectedRoot);
         }
       } catch (checkError) {
-        if (active) setError(`Could not inspect project: ${message(checkError)}`);
+        if (isActive()) setError(`Could not inspect project: ${message(checkError)}`);
       } finally {
-        if (active) setLoading(false);
+        if (isActive()) setLoading(false);
       }
-    })();
+    },
+  );
+
+  useEffect(() => {
+    const generation = ++selectionGenerationRef.current;
+    let active = true;
+    setLoading(true);
+    setError(null);
+    setRepairError(null);
+    void initializeRepository(generation, () => active);
     return () => {
       active = false;
     };
@@ -298,7 +299,7 @@ export default function RepoHome({
       const selectedAdapter = activation.adapter;
       setWorkDir(selectedRoot);
       setWorkspaceCandidates(null);
-      setWorkspaceChooserFromSettings(false);
+      workspaceChooserFromSettings.current = false;
       setBrowsingWorkspace(false);
       void invoke("set_last_root", { root: repoRoot, workDir: selectedRoot });
       await refreshRepositoryContent(selectedRoot, selectedAdapter);
@@ -312,7 +313,7 @@ export default function RepoHome({
   async function openWorkspaceChooser() {
     try {
       const scan = await projectSession.scanRepository(repoRoot);
-      setWorkspaceChooserFromSettings(true);
+      workspaceChooserFromSettings.current = true;
       setWorkspaceCandidates(workspaceProjects(repoRoot, scan));
       setShowSettings(false);
     } catch (workspaceError) {
@@ -372,6 +373,7 @@ export default function RepoHome({
       await onRedownloadRepo();
     } catch (removeError) {
       setRepairError(`Could not remove the damaged repository: ${message(removeError)}`);
+    } finally {
       setRedownloading(false);
     }
   }
@@ -555,9 +557,9 @@ export default function RepoHome({
   function navigateBack() {
     if (workspaceCandidates && browsingWorkspace) {
       setBrowsingWorkspace(false);
-    } else if (workspaceCandidates && workspaceChooserFromSettings) {
+    } else if (workspaceCandidates && workspaceChooserFromSettings.current) {
       setWorkspaceCandidates(null);
-      setWorkspaceChooserFromSettings(false);
+      workspaceChooserFromSettings.current = false;
       setShowSettings(true);
     } else if (showEditor || showSettings || showDeployments || showMedia) {
       closeSecondaryView();

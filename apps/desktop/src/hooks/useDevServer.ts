@@ -34,7 +34,9 @@ export type ServerStatus =
 export function useDevServer() {
   const [server, setServer] = useState<ServerStatus>({ state: "idle" });
   const serverRef = useRef(server);
-  serverRef.current = server;
+  useEffect(() => {
+    serverRef.current = server;
+  }, [server]);
 
   const pingTimer = useRef<ReturnType<typeof setInterval>>(undefined);
 
@@ -126,7 +128,7 @@ export function useDevServer() {
   /** Runs the pending steps in order, then starts the dev server. */
   async function runSetup(dir: string, steps: SetupStep[]) {
     setServer({ state: "setup", steps, awaitingInstall: false });
-    const pending = new Set(steps.filter((s) => s.status === "pending").map((s) => s.id));
+    const pending = new Set(steps.flatMap((step) => (step.status === "pending" ? [step.id] : [])));
     let current: SetupStepId = "node";
     try {
       if (pending.has("node")) {

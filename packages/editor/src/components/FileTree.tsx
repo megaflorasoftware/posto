@@ -94,13 +94,13 @@ export function FileTree(props: {
 }) {
   const data = useMemo(() => fileTreeData(props.nodes), [props.nodes]);
   const rootDirectories = useMemo(
-    () => data.filter((node) => nodeProps(node).type === "directory").map((node) => node.value),
+    () => data.flatMap((node) => (nodeProps(node).type === "directory" ? [node.value] : [])),
     [data],
   );
   const [expandedState, setExpandedState] = useState(() =>
     getTreeExpandedState(data, rootDirectories),
   );
-  const initializedRoots = useRef(new Set(rootDirectories));
+  const initializedRoots = useRef(new Set<string>());
 
   useEffect(() => {
     const newRoots = rootDirectories.filter((value) => !initializedRoots.current.has(value));
@@ -220,6 +220,7 @@ export function FileTree(props: {
           className={`${payload.elementProps.className} mobile-file-tree-file`}
         >
           <button
+            type="button"
             className="mobile-file-item"
             title={item.file.name}
             onClick={() => props.onOpen(item.file)}

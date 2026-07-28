@@ -249,16 +249,26 @@ function PublicMediaPane(props: {
   const importFiles = async () => {
     setImporting(true);
     setError(null);
+    let importedAny = false;
     try {
-      const imported = await chooseAndImportPublicMedia(props.root, currentDirectory);
-      if (imported.length > 0) {
-        await state.refresh();
-        props.onChanged();
-      }
+      await chooseAndImportPublicMedia(props.root, currentDirectory, {
+        onImported: () => {
+          importedAny = true;
+        },
+      });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
-      setImporting(false);
+      try {
+        if (importedAny) {
+          await state.refresh();
+          props.onChanged();
+        }
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      } finally {
+        setImporting(false);
+      }
     }
   };
 
