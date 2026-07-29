@@ -1,16 +1,19 @@
-import { useEffect, useId, useState, type ReactNode } from "react";
-import { ActionIcon, Button, NumberInput, Switch, Textarea, TextInput } from "@mantine/core";
-import { Check, GripVertical, Image, Pencil, RefreshCw, X } from "lucide-react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { ActionIcon, Alert, Button, NumberInput, Switch, Textarea, TextInput } from "@mantine/core";
+import { Check, GripVertical, Image, Pencil, Plus, RefreshCw, X } from "lucide-react";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { Document } from "yaml";
 
 import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
 import {
   collectionExtension,
+  entryFilenamePattern,
   expandFieldTemplate,
   matchCollectionForDir,
   mediaInputPath,
   mediaOutputPath,
+  newEntryValues,
   resolveMedia,
   resolveMediaForValue,
 } from "@posto/core/pagescms/config";
@@ -18,15 +21,26 @@ import type { EntryIdSource } from "@posto/core/project/entryIds";
 import { expandEntryName } from "@posto/core/posto/config";
 import { applyCollectionPrefs } from "../collectionPrefs";
 import { dateControlValue, dateValueFromControl } from "../dateValues";
-import type { ValuePath } from "@posto/core/pagescms/frontmatter";
-import type { Errors } from "@posto/core/pagescms/validate";
+import {
+  appendListItem,
+  deleteValue,
+  getValue,
+  moveListItem,
+  removeListItem,
+  setValue,
+  type ValuePath,
+} from "@posto/core/pagescms/frontmatter";
+import { validateForm, type Errors } from "@posto/core/pagescms/validate";
 import type { FileEntry, FileGroup } from "@posto/ipc";
 import { invoke } from "@posto/ipc";
+import { createDataDocumentEntry } from "../dataEntries";
+import { buildNewFileFromValues } from "../newFile";
 import { CachedImage } from "./CachedImage";
 import { ImagePicker } from "./ImagePicker";
 import { ImageLibraryReferenceField } from "./ImageLibraryReferenceField";
 import { FieldRowsAction, FieldTemplateActions } from "./FieldTemplateActions";
 import { AdaptiveSelect } from "./AdaptiveSelect";
+import { Dialog } from "./Dialog";
 import { useMediaDropZone, type PostoListDragData } from "./MediaDragDrop";
 
 export interface FieldContext {
@@ -50,6 +64,8 @@ export interface FieldContext {
   listMove: (path: ValuePath, from: number, to: number) => void;
   /** Reloads the effective collection config after an item-level template edit. */
   onPostoSaved?: () => void;
+  /** Refreshes collection data after creating an item from a reference field. */
+  onReferenceCreated?: (collection: ContentEntry) => Promise<void> | void;
 }
 
 function asString(value: unknown): string {
@@ -87,6 +103,222 @@ function selectValues(field: Field): SelectValue[] {
     }
     return { value: asString(v), label: asString(v) };
   });
+}
+
+function draftValues(doc: Document): Record<string, unknown> {
+  const value = doc.toJS();
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+/** The same field tree used by ordinary frontmatter forms, backed by a
+ * temporary YAML document until the dialog's single Save action is used. */
+function ReferenceEntryDraft(props: {
+  collection: ContentEntry;
+  field: Field;
+  path: ValuePath;
+  ctx: FieldContext;
+  onClose: () => void;
+}) {
+  const initialValues = newEntryValues(entryFilenamePattern(props.collection), props.collection);
+  const docRef = useRef(new Document(initialValues));
+  const [values, setValues] = useState(initialValues);
+  const fields = props.collection.fields.filter((field) => field.name !== "body");
+  const [errors, setErrors] = useState(() => validateForm(fields, initialValues));
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  function emit() {
+    const current = draftValues(docRef.current);
+    setValues(current);
+    setErrors(validateForm(fields, current));
+  }
+
+  function applyControlledTemplates() {
+    const schemas = props.collection.fieldSchemas;
+    if (!schemas) return;
+    const controlled = Object.entries(schemas).filter(
+      ([name, schema]) =>
+        name !== "filename" && schema.template && schema.editBehavior === "controlled",
+    );
+    for (let pass = 0; pass <= controlled.length; pass++) {
+      let changed = false;
+      for (const [name, schema] of controlled) {
+        const expanded = expandFieldTemplate(schema.template!, draftValues(docRef.current));
+        const valuePath = name.split(".");
+        if (expanded === null || getValue(docRef.current, valuePath) === expanded) continue;
+        setValue(docRef.current, valuePath, expanded);
+        changed = true;
+      }
+      if (!changed) break;
+    }
+  }
+
+  const provisionalPath = props.collection.dataFile
+    ? `${props.ctx.root}/${props.collection.dataFile.path}`
+    : `${props.ctx.root}/${props.collection.path}/untitled.${
+        collectionExtension(props.collection) ?? "md"
+      }`;
+  const draftCtx: FieldContext = {
+    ...props.ctx,
+    entry: props.collection,
+    documentPath: provisionalPath,
+    errors: () => errors,
+    templateValues: () => values,
+    value: (path) => getValue(docRef.current, path),
+    edit: (path, value) => {
+      if (value === undefined) deleteValue(docRef.current, path);
+      else setValue(docRef.current, path, value);
+      applyControlledTemplates();
+      emit();
+    },
+    listAppend: (path, value) => {
+      appendListItem(docRef.current, path, value);
+      emit();
+    },
+    listRemove: (path, index) => {
+      removeListItem(docRef.current, path, index);
+      emit();
+    },
+    listMove: (path, from, to) => {
+      moveListItem(docRef.current, path, from, to);
+      emit();
+    },
+  };
+
+  async function save() {
+    if (errors.size > 0 || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const current = draftValues(docRef.current);
+      let referenceValue: string;
+      if (props.collection.dataFile) {
+        const group = props.ctx.groups.find(
+          (candidate) => candidate.dataCollection === props.collection.name,
+        ) ?? {
+          label: props.collection.label ?? props.collection.name,
+          path: `${props.ctx.root}/${props.collection.dataFile.path}`,
+          files: [],
+          dataCollection: props.collection.name,
+        };
+        referenceValue = await createDataDocumentEntry(group, props.collection, current);
+      } else {
+        const dir = `${props.ctx.root}/${props.collection.path}`;
+        const existing = await invoke<FileEntry[]>("list_dir_files", {
+          dir,
+          extensions: [],
+        });
+        const group: FileGroup = {
+          label: props.collection.label ?? props.collection.name,
+          path: dir,
+          files: existing,
+        };
+        const created = buildNewFileFromValues(
+          props.ctx.root,
+          group,
+          { config: props.ctx.config },
+          current,
+        );
+        await invoke("create_text_file", created);
+        const valueTemplate =
+          typeof props.field.options?.value === "string" ? props.field.options.value : null;
+        const frameworkBase =
+          props.field.options?.idScheme === "framework" && props.ctx.entryIds
+            ? `${props.ctx.root}/${props.collection.path}/`
+            : null;
+        const createdFile: FileEntry = {
+          name: created.path.slice(created.path.lastIndexOf("/") + 1),
+          path: created.path,
+          title:
+            typeof current.title === "string"
+              ? current.title
+              : typeof current.name === "string"
+                ? current.name
+                : null,
+          frontmatter: Object.fromEntries(
+            Object.entries(current).flatMap(([key, value]) =>
+              typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+                ? [[key, String(value)]]
+                : [],
+            ),
+          ),
+        };
+        referenceValue = frameworkBase
+          ? props.ctx.entryIds!.derive(
+              created.path.slice(frameworkBase.length),
+              createdFile.frontmatter?.slug,
+            )
+          : valueTemplate
+            ? referenceTemplate(valueTemplate, props.ctx.root, createdFile)
+            : created.path.slice(props.ctx.root.length + 1);
+      }
+      await props.ctx.onReferenceCreated?.(props.collection);
+      if (props.field.list) props.ctx.listAppend(props.path, referenceValue);
+      else props.ctx.edit(props.path, referenceValue);
+      props.onClose();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error));
+      setSaving(false);
+    }
+  }
+
+  return (
+    <>
+      {saveError && <Alert color="red">{saveError}</Alert>}
+      <div className="form-fields reference-entry-form">
+        {fields.map((field) => (
+          <FieldEditor key={field.name} field={field} path={[field.name]} ctx={draftCtx} />
+        ))}
+      </div>
+      <div className="reference-entry-dialog-footer">
+        <Button disabled={errors.size > 0} loading={saving} onClick={() => void save()}>
+          Save
+        </Button>
+      </div>
+    </>
+  );
+}
+
+function CreateReferenceAction(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
+  const [opened, setOpened] = useState(false);
+  const collection = props.ctx.config.content.find(
+    (entry) => entry.type === "collection" && entry.name === props.field.options?.collection,
+  );
+  const collectionName =
+    typeof props.field.options?.collection === "string" ? props.field.options.collection : "item";
+  const label = collection?.label ?? collection?.name ?? collectionName;
+  const title = collection ? `Create ${label}` : "Reference collection is unavailable";
+  return (
+    <>
+      <ActionIcon
+        className="create-reference-action"
+        variant="subtle"
+        color="gray"
+        size="xs"
+        title={title}
+        aria-label={title}
+        disabled={!collection}
+        onClick={() => setOpened(true)}
+      >
+        <Plus size={14} />
+      </ActionIcon>
+      {collection && (
+        <Dialog opened={opened} onClose={() => setOpened(false)} title={`New ${label}`} size="lg">
+          {opened && (
+            <ReferenceEntryDraft
+              collection={collection}
+              field={props.field}
+              path={props.path}
+              ctx={props.ctx}
+              onClose={() => setOpened(false)}
+            />
+          )}
+        </Dialog>
+      )}
+    </>
+  );
 }
 
 export function FieldEditor(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
@@ -207,6 +439,10 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
           onPostoSaved={props.ctx.onPostoSaved}
         />
       </span>
+    ) : null;
+  const referenceAction =
+    props.field.type === "reference" ? (
+      <CreateReferenceAction field={props.field} path={props.path} ctx={props.ctx} />
     ) : null;
 
   const control = () => {
@@ -359,7 +595,14 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
       field={props.field}
       path={props.path}
       ctx={props.ctx}
-      actions={props.field.type === "string" ? templateActions : undefined}
+      actions={
+        templateActions || referenceAction ? (
+          <span className="field-label-actions">
+            {templateActions}
+            {referenceAction}
+          </span>
+        ) : undefined
+      }
     >
       {control()}
     </FieldShell>
@@ -679,7 +922,18 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
   );
 
   return (
-    <FieldShell field={props.field} path={props.path} ctx={props.ctx}>
+    <FieldShell
+      field={props.field}
+      path={props.path}
+      ctx={props.ctx}
+      actions={
+        props.field.type === "reference" ? (
+          <span className="field-label-actions">
+            <CreateReferenceAction field={props.field} path={props.path} ctx={props.ctx} />
+          </span>
+        ) : undefined
+      }
+    >
       <div className="list-field">
         <SortableContext
           items={itemIds.map((itemId) => `${sortableGroupId}:${itemId}`)}

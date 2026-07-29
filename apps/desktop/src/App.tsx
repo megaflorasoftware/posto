@@ -752,6 +752,9 @@ function App() {
         onRenameFile={renameOpenFilename}
         onRefreshFilename={refreshFilenameTemplate}
         onPostoSaved={() => void schemas.loadPostoConfig(root)}
+        onReferenceCreated={async () => {
+          await refreshGroups(root);
+        }}
         onBeforeMediaChange={currentFile.flushPendingSave}
         onMediaChanged={(options) => {
           if (!options?.silent) {

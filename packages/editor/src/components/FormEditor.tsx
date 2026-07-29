@@ -65,6 +65,7 @@ export function FormEditor(props: {
   onMediaChanged?: (options?: { silent?: boolean }) => void;
   onChange: (content: string, valid: boolean) => void;
   onPostoSaved?: () => void;
+  onReferenceCreated?: (collection: ContentEntry) => Promise<void> | void;
 }) {
   const [initialParsed] = useState(() => parseFile(props.content));
   const parsedRef = useRef<ParsedFile>(initialParsed);
@@ -228,6 +229,7 @@ export function FormEditor(props: {
       emit();
     },
     onPostoSaved: props.onPostoSaved,
+    onReferenceCreated: props.onReferenceCreated,
   };
 
   function onBodyEdit(text: string) {

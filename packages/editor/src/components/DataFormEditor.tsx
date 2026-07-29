@@ -42,6 +42,7 @@ export function DataFormEditor(props: {
   fieldsHeader?: ReactNode;
   onChange: (content: string, valid: boolean) => void;
   onPostoSaved?: () => void;
+  onReferenceCreated?: (collection: ContentEntry) => Promise<void> | void;
 }) {
   const [initialDocument] = useState(() => {
     const parsed = parseDataDocument(props.content, props.dataEntry.format);
@@ -196,6 +197,7 @@ export function DataFormEditor(props: {
       emit();
     },
     onPostoSaved: props.onPostoSaved,
+    onReferenceCreated: props.onReferenceCreated,
   };
 
   if (parseError) {

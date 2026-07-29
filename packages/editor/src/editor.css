@@ -630,6 +630,17 @@
   gap: 0.5rem;
 }
 
+.field-label-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin-left: auto;
+}
+
+.create-reference-action {
+  flex: 0 0 auto;
+}
+
 .field-label {
   font-size: 0.75rem;
   font-weight: 600;
@@ -662,6 +673,16 @@
 .field-error {
   font-size: 0.75rem;
   color: var(--mantine-color-error);
+}
+
+.reference-entry-form {
+  padding: 0;
+}
+
+.reference-entry-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 1rem;
 }
 
 .object-fields {

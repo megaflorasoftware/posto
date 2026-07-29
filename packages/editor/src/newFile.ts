@@ -48,6 +48,29 @@ export function buildNewFile(
   group: FileGroup,
   sources: SchemaSources,
 ): { path: string; content: string } {
+  const entry = matchCollectionForDir(sources.config, root, group.path);
+  if (!entry) {
+    const taken = new Set(group.files.map((file) => file.name));
+    const name = dedupeFilename("untitled.md", taken);
+    return { path: group.path + "/" + name, content: '---\ntitle: "Untitled"\n---\n' };
+  }
+  const pattern = entryFilenamePattern(entry);
+  const values = newEntryValues(pattern, entry);
+  return buildNewFileFromValues(root, group, sources, values);
+}
+
+/**
+ * Builds a collection file from completed form values. This is the save-time
+ * counterpart to {@link buildNewFile}: callers that collect the new entry in
+ * a dialog can derive its filename from the entered values instead of the
+ * initial "Untitled" defaults.
+ */
+export function buildNewFileFromValues(
+  root: string,
+  group: FileGroup,
+  sources: SchemaSources,
+  values: Record<string, unknown>,
+): { path: string; content: string } {
   const taken = new Set(group.files.map((file) => file.name));
   const entry = matchCollectionForDir(sources.config, root, group.path);
   if (!entry) {
@@ -55,7 +78,6 @@ export function buildNewFile(
     return { path: group.path + "/" + name, content: '---\ntitle: "Untitled"\n---\n' };
   }
   const pattern = entryFilenamePattern(entry);
-  const values = newEntryValues(pattern, entry);
   const generated = generateFilename(pattern, entry, values).trim();
   // A template over valueless fields can expand to a degenerate name — "",
   // "/", or a bare ".mdx", which the sidebar would hide as a dotfile,
