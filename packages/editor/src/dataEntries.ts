@@ -18,21 +18,35 @@ function nextId(group: FileGroup): string {
 export async function createDataDocumentEntry(
   group: FileGroup,
   collection: ContentEntry,
+  draft?: Record<string, unknown>,
 ): Promise<string> {
   if (!collection.dataFile) throw new Error("Collection is not backed by a data document");
   const source = await invoke<string>("read_text_file", { path: group.path });
   const parsed = parseDataDocument(source, collection.dataFile.format);
   if (parsed.error) throw new Error(parsed.error);
-  const id = nextId(group);
-  const value: Record<string, unknown> = { id };
-  for (const field of collection.fields) {
-    if (field.name === "body" || field.name === "id") continue;
-    if (field.default !== undefined) value[field.name] = field.default;
+  const requestedId = draft?.id ?? draft?.slug;
+  const requested =
+    typeof requestedId === "string" ||
+    typeof requestedId === "number" ||
+    typeof requestedId === "bigint"
+      ? String(requestedId).trim()
+      : "";
+  if (requested && group.files.some((file) => file.name === requested)) {
+    throw new Error(`An entry named ${requested} already exists`);
   }
-  const primary =
-    collection.fields.find((field) => field.name === "title") ??
-    collection.fields.find((field) => field.name === "name");
-  if (primary && value[primary.name] === undefined) value[primary.name] = "Untitled";
+  const id = requested || nextId(group);
+  const value: Record<string, unknown> = draft ? { ...draft } : { id };
+  if (!draft) {
+    for (const field of collection.fields) {
+      if (field.name === "body" || field.name === "id") continue;
+      if (field.default !== undefined) value[field.name] = field.default;
+    }
+    const primary =
+      collection.fields.find((field) => field.name === "title") ??
+      collection.fields.find((field) => field.name === "name");
+    if (primary && value[primary.name] === undefined) value[primary.name] = "Untitled";
+  }
+  if (!requested) value.id = id;
   if (!appendDataEntry(parsed, value)) throw new Error("Unsupported data document shape");
   await invoke("write_text_file", { path: group.path, content: serializeDataDocument(parsed) });
   return id;

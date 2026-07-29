@@ -695,6 +695,11 @@ export default function RepoHome({
             onRenameFile={renameOpenFilename}
             onRefreshFilename={refreshFilenameTemplate}
             onPostoSaved={() => void schemas.loadPostoConfig(root)}
+            onReferenceCreated={async () => {
+              await files.refreshGroups(root);
+              await files.refreshDataGroups(root, schemas.configRef.current);
+              void git.refreshLocalChanges(root);
+            }}
             onBeforeMediaChange={currentFile.flushPendingSave}
             onMediaChanged={(options) => {
               if (!options?.silent) setStatus("Media updated. Publish when you are ready.");

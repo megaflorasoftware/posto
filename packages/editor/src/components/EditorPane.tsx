@@ -74,6 +74,7 @@ export function EditorPane(props: {
   onRenameFile: (filename: string) => Promise<boolean>;
   onRefreshFilename: (template: string) => void;
   onPostoSaved: () => void;
+  onReferenceCreated?: (collection: ContentEntry) => Promise<void> | void;
   onBeforeMediaChange?: () => Promise<void>;
   onMediaChanged?: (options?: { silent?: boolean }) => void;
   /** Reveals controls that write repository-level Posto configuration. */
@@ -277,6 +278,7 @@ export function EditorPane(props: {
             }
             onChange={props.onFormEdit}
             onPostoSaved={developerMode ? props.onPostoSaved : undefined}
+            onReferenceCreated={props.onReferenceCreated}
           />
         ) : (
           // One FormEditor owns fields and body so edits round-trip through
@@ -297,6 +299,7 @@ export function EditorPane(props: {
             }
             onChange={props.onFormEdit}
             onPostoSaved={developerMode ? props.onPostoSaved : undefined}
+            onReferenceCreated={props.onReferenceCreated}
             onBeforeMediaChange={props.onBeforeMediaChange}
             onMediaChanged={props.onMediaChanged}
           />
