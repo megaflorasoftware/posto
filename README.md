@@ -1,11 +1,7 @@
 > [!WARNING]
 > **This is pre-alpha software.** Expect bugs and incomplete features. Use at your own risk.
 >
-> In order to use this software currently, you'll have to ignore Apple's warnings as it is not signed. After downloading and installing, open a terminal and run the following:
->
-> ```sh
-> xattr -d com.apple.quarantine /Applications/Posto.app/
-> ```
+> Unless you're using the Mac application, you'll have to ignore your platform's signing errors to use the app currently.
 
 # Posto
 

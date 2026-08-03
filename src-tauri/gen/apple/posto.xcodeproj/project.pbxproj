@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		17F3CBC059A4D281D159B2EC /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = BA284D51410E0A62B608360F /* LaunchScreen.storyboard */; };
+		23A72E625D5A4E2FB9E96491 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D6FB30AC19DF451C9DC59B61 /* PrivacyInfo.xcprivacy */; };
 		21D91000234D6785B5697C2C /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 36234DD0D24B879C397849C7 /* UIKit.framework */; };
 		27B9C0C6AB89FCBC77B83862 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = E40C84AC02A33C7149183A33 /* main.mm */; };
 		2BD25610AEC049A331A293C4 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DCCB215CA7B456536221CCCC /* QuartzCore.framework */; };
@@ -44,6 +45,7 @@
 		B93F672CE4D6D830E25166A0 /* mod.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = mod.rs; sourceTree = "<group>"; };
 		B94A96C79EB8C0EE80EFCE58 /* auth.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = auth.rs; sourceTree = "<group>"; };
 		BA284D51410E0A62B608360F /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		D6FB30AC19DF451C9DC59B61 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		BB51960F3281DA3611608FCA /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		C085699046331204C79EB33C /* lib.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = lib.rs; sourceTree = "<group>"; };
 		C3ED2382432006A39D3E4D93 /* proxy.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = proxy.rs; sourceTree = "<group>"; };
@@ -141,6 +143,7 @@
 			isa = PBXGroup;
 			children = (
 				E4A61DFAF85FC7AA6AA31035 /* Info.plist */,
+				D6FB30AC19DF451C9DC59B61 /* PrivacyInfo.xcprivacy */,
 				F5981931FEE222692BC5AF82 /* posto_iOS.entitlements */,
 			);
 			path = posto_iOS;
@@ -254,6 +257,7 @@
 			files = (
 				7C8FE9A6C2E2E6799902EDFB /* Assets.xcassets in Resources */,
 				17F3CBC059A4D281D159B2EC /* LaunchScreen.storyboard in Resources */,
+				23A72E625D5A4E2FB9E96491 /* PrivacyInfo.xcprivacy in Resources */,
 				D2D62651355F2B886486732C /* assets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -449,7 +453,7 @@
 					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
 					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.henryfellerhoff.posto;
+				PRODUCT_BUNDLE_IDENTIFIER = net.megaflora.posto;
 				PRODUCT_NAME = "Posto";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -491,7 +495,7 @@
 					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
 					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.henryfellerhoff.posto;
+				PRODUCT_BUNDLE_IDENTIFIER = net.megaflora.posto;
 				PRODUCT_NAME = "Posto";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";

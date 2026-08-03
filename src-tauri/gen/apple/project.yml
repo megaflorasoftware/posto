@@ -1,6 +1,6 @@
 name: posto
 options:
-  bundleIdPrefix: com.henryfellerhoff.posto
+  bundleIdPrefix: net.megaflora
   deploymentTarget:
     iOS: 14.0
 fileGroups: [../../src]
@@ -11,7 +11,7 @@ settingGroups:
   app:
     base:
       PRODUCT_NAME: Posto
-      PRODUCT_BUNDLE_IDENTIFIER: com.henryfellerhoff.posto
+      PRODUCT_BUNDLE_IDENTIFIER: net.megaflora.posto
 targetTemplates:
   app:
     type: application
@@ -53,8 +53,8 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 0.7.1
-        CFBundleVersion: "0.7.1"
+        CFBundleShortVersionString: 0.9.6
+        CFBundleVersion: "1"
     entitlements:
       path: posto_iOS/posto_iOS.entitlements
     scheme:

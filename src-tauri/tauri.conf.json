@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Posto",
   "version": "0.9.6",
-  "identifier": "com.henryfellerhoff.posto",
+  "identifier": "net.megaflora.posto",
   "build": {
     "beforeDevCommand": "pnpm --filter desktop dev",
     "devUrl": "http://localhost:1420",
@@ -34,7 +34,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU5Nzc2Qzk5RkJGNEIwNDcKUldSSHNQVDdtV3gzNlJwci9wVDRuUUJJTFB2cGltWWpSRVowUnZwbjFJc0h1bUFKUThtMytHeUwK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDkxMjY4RDQzQzFGQTE4QzgKUldUSUdQckJRNDBta1FVUFdiV2YzRWhza1owamUwMzZaaVNzOWlZYjEyU0l0Ym5pQUVrdVRsRGIK",
       "endpoints": [
         "https://github.com/megaflorasoftware/posto/releases/latest/download/latest.json"
       ]
@@ -44,6 +44,9 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
+    "iOS": {
+      "bundleVersion": "1"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
