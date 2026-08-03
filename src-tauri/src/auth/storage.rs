@@ -70,7 +70,7 @@ fn entry() -> Result<keyring_core::Entry, String> {
     use keyring_core::CredentialStore;
     use std::sync::{Arc, OnceLock};
 
-    const SERVICE: &str = "com.henryfellerhoff.posto.github";
+    const SERVICE: &str = "net.megaflora.posto.github";
     const USER: &str = "oauth-session";
     static STORE: OnceLock<Result<Arc<CredentialStore>, String>> = OnceLock::new();
 
@@ -118,7 +118,7 @@ fn delete_persisted_session() -> Result<(), String> {
 mod desktop_keychain {
     use super::StoredSession;
 
-    const SERVICE: &str = "com.henryfellerhoff.posto.github";
+    const SERVICE: &str = "net.megaflora.posto.github";
     const ACCOUNT: &str = "oauth-session";
 
     fn entry() -> Result<keyring::Entry, String> {
