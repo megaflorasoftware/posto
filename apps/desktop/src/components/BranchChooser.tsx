@@ -76,7 +76,7 @@ export function BranchChooser(props: {
             else if (createName) choose(createName, true);
           }}
         />
-        <ScrollArea.Autosize mah={240}>
+        <ScrollArea.Autosize mah={240} className="branch-chooser-scroll">
           <div className="branch-chooser-options" role="listbox">
             {filtered.map((branch) => (
               <button

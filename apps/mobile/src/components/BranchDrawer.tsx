@@ -42,7 +42,7 @@ export function BranchDrawer(props: {
             >
               <span className="mobile-branch-option">
                 {branch.local ? <Laptop size={18} /> : <Cloud size={18} />}
-                {branch.name}
+                <span className="mobile-branch-option-name">{branch.name}</span>
               </span>
               {branch.current && <Check size={18} />}
             </button>
@@ -55,7 +55,7 @@ export function BranchDrawer(props: {
             >
               <span className="mobile-branch-option">
                 <Plus size={18} />
-                Create branch “{createName}”
+                <span className="mobile-branch-option-name">Create branch “{createName}”</span>
               </span>
             </button>
           )}

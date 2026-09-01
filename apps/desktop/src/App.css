@@ -359,6 +359,13 @@ body,
   padding: 6px;
 }
 
+/* Mantine's ScrollArea wraps content in a display: table div that grows to fit
+ * long branch names; force block so names truncate instead of scrolling. */
+.branch-chooser-scroll .mantine-ScrollArea-viewport > div {
+  display: block !important;
+  min-width: 0 !important;
+}
+
 .branch-chooser-options {
   display: flex;
   flex-direction: column;
@@ -391,6 +398,7 @@ body,
 
 .branch-chooser-option-name {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

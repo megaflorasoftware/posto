@@ -718,6 +718,10 @@ input {
   align-items: center;
   gap: var(--mantine-spacing-sm);
   min-width: 0;
+}
+
+.posto-mobile-shell .mobile-branch-option-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
