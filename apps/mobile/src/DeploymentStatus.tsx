@@ -11,8 +11,6 @@ import {
 } from "@posto/core/github/deployment";
 import type { ProjectAdapter } from "@posto/core/project/adapter";
 
-// The deployment ring tracks the default branch's own pipeline.
-const BRANCH = "main";
 const POLL_INTERVAL_MS = 15_000;
 const TICK_INTERVAL_MS = 1_000;
 
@@ -54,18 +52,20 @@ function statusText(state: DeploymentState): string {
   }
 }
 
-/** Live deployment status for `owner/name` on `main`: polls recent GitHub
- * Actions runs and renders the same ring the desktop app shows, as a full
- * mobile page. Mobile is always signed in by the time a repo is open. */
+/** Live deployment status for `owner/name` on the given branch: polls recent
+ * GitHub Actions runs and renders the same ring the desktop app shows, as a
+ * full mobile page. Mobile is always signed in by the time a repo is open. */
 export function DeploymentStatus({
   owner,
   name,
+  branch,
   root,
   adapter,
   siteUrlVersion,
 }: {
   owner: string;
   name: string;
+  branch: string;
   root: string;
   adapter: ProjectAdapter;
   siteUrlVersion: number;
@@ -94,7 +94,7 @@ export function DeploymentStatus({
   useEffect(() => {
     let active = true;
     const load = () =>
-      invoke<WorkflowRun[]>("list_workflow_runs", { owner, name, branch: BRANCH })
+      invoke<WorkflowRun[]>("list_workflow_runs", { owner, name, branch })
         .then((next) => {
           if (!active) return;
           setRuns(next);
@@ -108,7 +108,7 @@ export function DeploymentStatus({
       active = false;
       window.clearInterval(id);
     };
-  }, [owner, name]);
+  }, [owner, name, branch]);
 
   const latest = runs[0] ?? null;
   const running = latest !== null && latest.status !== "completed";
@@ -158,7 +158,7 @@ export function DeploymentStatus({
               {statusText(ring.state)}
             </Text>
             <Text c="dimmed" size="sm">
-              {owner}/{name} · main
+              {owner}/{name} · {branch}
             </Text>
           </Stack>
           {liveSiteUrl && (

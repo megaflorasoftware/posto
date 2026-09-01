@@ -25,6 +25,24 @@ pub struct GitHubSlug {
     pub name: String,
 }
 
+/// One entry in the branch chooser. `local` is false for branches that only
+/// exist on a remote (as of the last fetch).
+#[derive(Serialize)]
+pub struct BranchInfo {
+    pub name: String,
+    pub current: bool,
+    pub local: bool,
+}
+
+/// Result of a branch checkout attempt. When a safe checkout refuses because
+/// local changes would be lost, `switched` is false and `conflicts` lists the
+/// affected repo-relative paths so the UI can ask before forcing.
+#[derive(Serialize)]
+pub struct CheckoutOutcome {
+    pub switched: bool,
+    pub conflicts: Vec<String>,
+}
+
 fn err_str(e: git2::Error) -> String {
     e.message().to_string()
 }
@@ -272,12 +290,13 @@ impl Client {
     fn fetch(&self) -> Result<(), String> {
         let head = self.repo.head().map_err(err_str)?;
         let refname = head.name().map_err(err_str)?;
-        let remote_name = self
-            .repo
-            .branch_upstream_remote(refname)
-            .map_err(|_| "No upstream branch configured".to_string())?;
-        let remote_name = remote_name.as_str().map_err(err_str)?;
-        let mut remote = self.repo.find_remote(remote_name).map_err(err_str)?;
+        // A branch with no upstream still fetches origin, so remote branch
+        // listings stay fresh; behind-checks still report "no upstream".
+        let remote_name = match self.repo.branch_upstream_remote(refname) {
+            Ok(name) => name.as_str().map_err(err_str)?.to_string(),
+            Err(_) => "origin".to_string(),
+        };
+        let mut remote = self.repo.find_remote(&remote_name).map_err(err_str)?;
         let config = self.repo.config().map_err(err_str)?;
         let mut opts = FetchOptions::new();
         opts.remote_callbacks(remote_callbacks(config, platform_creds()));
@@ -480,6 +499,160 @@ impl Client {
         Ok(())
     }
 
+    /// Short name of the branch HEAD points at; `None` when detached or the
+    /// repository has no commits yet — the branch chooser hides then.
+    pub fn current_branch(&self) -> Result<Option<String>, String> {
+        let head = match self.repo.head() {
+            Ok(head) => head,
+            Err(e) if e.code() == git2::ErrorCode::UnbornBranch => return Ok(None),
+            Err(e) => return Err(err_str(e)),
+        };
+        if !head.is_branch() {
+            return Ok(None);
+        }
+        Ok(head.shorthand().ok().map(|name| name.to_string()))
+    }
+
+    /// Local branches plus remote-only branches (from the last fetch), deduped
+    /// by short name: current first, then locals A→Z, then remote-only A→Z.
+    pub fn list_branches(&self) -> Result<Vec<BranchInfo>, String> {
+        let current = self.current_branch()?;
+        let mut out: Vec<BranchInfo> = Vec::new();
+        for entry in self
+            .repo
+            .branches(Some(git2::BranchType::Local))
+            .map_err(err_str)?
+        {
+            let (branch, _) = entry.map_err(err_str)?;
+            let Some(name) = branch.name().ok().flatten() else {
+                continue;
+            };
+            out.push(BranchInfo {
+                name: name.to_string(),
+                current: current.as_deref() == Some(name),
+                local: true,
+            });
+        }
+        for entry in self
+            .repo
+            .branches(Some(git2::BranchType::Remote))
+            .map_err(err_str)?
+        {
+            let (branch, _) = entry.map_err(err_str)?;
+            // Remote branch names are "<remote>/<branch>"; "origin/HEAD" is
+            // the symbolic default-branch pointer, not a real branch.
+            let Some(full) = branch.name().ok().flatten() else {
+                continue;
+            };
+            let Some((_, short)) = full.split_once('/') else {
+                continue;
+            };
+            if short == "HEAD" || out.iter().any(|known| known.name == short) {
+                continue;
+            }
+            out.push(BranchInfo {
+                name: short.to_string(),
+                current: false,
+                local: false,
+            });
+        }
+        out.sort_by(|a, b| {
+            b.current
+                .cmp(&a.current)
+                .then(b.local.cmp(&a.local))
+                .then(a.name.cmp(&b.name))
+        });
+        Ok(out)
+    }
+
+    /// The remote-tracking branch named `name` on any remote, origin first
+    /// (matching where publish pushes), with its full "remote/name" ref.
+    fn find_remote_branch(&self, name: &str) -> Result<(Branch<'_>, String), String> {
+        let remotes = self.repo.remotes().map_err(err_str)?;
+        let mut candidates: Vec<&str> = remotes
+            .iter()
+            .filter_map(|remote| remote.ok().flatten())
+            .collect();
+        candidates.sort_by_key(|remote| *remote != "origin");
+        for remote in candidates {
+            let full = format!("{remote}/{name}");
+            if let Ok(branch) = self.repo.find_branch(&full, git2::BranchType::Remote) {
+                return Ok((branch, full));
+            }
+        }
+        Err(format!("Branch {name} was not found"))
+    }
+
+    /// Checks out `name`. `create` branches off HEAD (`git checkout -b`); a
+    /// name that only exists on a remote is materialized as a local tracking
+    /// branch first. Without `force`, a checkout that would lose local edits
+    /// changes nothing and returns the at-risk paths instead.
+    pub fn checkout_branch(
+        &self,
+        name: &str,
+        create: bool,
+        force: bool,
+    ) -> Result<CheckoutOutcome, String> {
+        let refname = format!("refs/heads/{name}");
+        if create {
+            let head = self
+                .repo
+                .head()
+                .and_then(|head| head.peel_to_commit())
+                .map_err(err_str)?;
+            self.repo.branch(name, &head, false).map_err(err_str)?;
+            // Same commit, same tree — only HEAD moves.
+            self.repo.set_head(&refname).map_err(err_str)?;
+            return Ok(CheckoutOutcome {
+                switched: true,
+                conflicts: Vec::new(),
+            });
+        }
+        if self
+            .repo
+            .find_branch(name, git2::BranchType::Local)
+            .is_err()
+        {
+            let (remote_branch, remote_name) = self.find_remote_branch(name)?;
+            let commit = remote_branch.get().peel_to_commit().map_err(err_str)?;
+            let mut local = self.repo.branch(name, &commit, false).map_err(err_str)?;
+            local.set_upstream(Some(&remote_name)).map_err(err_str)?;
+        }
+        let target = self.repo.revparse_single(&refname).map_err(err_str)?;
+        let conflicts = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+        let mut checkout = CheckoutBuilder::new();
+        if force {
+            checkout.force();
+        } else {
+            let conflicts_cb = conflicts.clone();
+            checkout.safe();
+            checkout.notify_on(git2::CheckoutNotificationType::CONFLICT);
+            checkout.notify(move |_, path, _, _, _| {
+                if let Some(path) = path {
+                    conflicts_cb
+                        .borrow_mut()
+                        .push(path.to_string_lossy().to_string());
+                }
+                true
+            });
+        }
+        match self.repo.checkout_tree(&target, Some(&mut checkout)) {
+            Ok(()) => {}
+            Err(e) if !force && e.code() == git2::ErrorCode::Conflict => {
+                return Ok(CheckoutOutcome {
+                    switched: false,
+                    conflicts: conflicts.borrow().clone(),
+                });
+            }
+            Err(e) => return Err(err_str(e)),
+        }
+        self.repo.set_head(&refname).map_err(err_str)?;
+        Ok(CheckoutOutcome {
+            switched: true,
+            conflicts: Vec::new(),
+        })
+    }
+
     /// Stages everything, commits, and pushes HEAD to origin.
     pub fn publish(&self, message: &str) -> Result<String, String> {
         let mut index = self.repo.index().map_err(err_str)?;
@@ -538,7 +711,7 @@ impl Client {
             .map_err(err_str)?;
 
         let head = self.repo.head().map_err(err_str)?;
-        let refname = head.name().map_err(err_str)?;
+        let refname = head.name().map_err(err_str)?.to_string();
         let mut remote = self.repo.find_remote("origin").map_err(err_str)?;
         let config = self.repo.config().map_err(err_str)?;
         // Per-ref push failures (non-fast-forward, rejected hooks) surface
@@ -559,6 +732,18 @@ impl Client {
             .map_err(err_str)?;
         if let Some(rejection) = rejection.borrow().as_ref() {
             return Err(format!("Push rejected: {rejection}"));
+        }
+        // First push of a locally-created branch: record origin as its
+        // upstream so the fetch/behind indicators work on it from now on.
+        if head.is_branch() {
+            let mut branch = Branch::wrap(head);
+            if branch.upstream().is_err() {
+                let short = branch.name().ok().flatten().map(|name| name.to_string());
+                if let Some(short) = short {
+                    let upstream = format!("origin/{short}");
+                    let _ = branch.set_upstream(Some(&upstream));
+                }
+            }
         }
         Ok("Published.".to_string())
     }
@@ -617,6 +802,53 @@ pub async fn pull_upstream(app: tauri::AppHandle, root: String) -> Result<String
     Ok(result)
 }
 
+/// Short name of the branch HEAD points at, or `None` when the directory
+/// isn't a git repo, HEAD is detached, or the repo has no commits — the
+/// branch chooser hides in all of those cases.
+#[tauri::command]
+pub async fn current_branch(root: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(Client::open(&root)
+            .ok()
+            .and_then(|client| client.current_branch().ok())
+            .flatten())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Local and remote-tracking branches, deduped by short name. Purely local —
+/// callers refresh the remote side with `fetch_upstream` when they want it.
+#[tauri::command]
+pub async fn list_branches(root: String) -> Result<Vec<BranchInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || Client::open(&root)?.list_branches())
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Checks out a branch (creating it from HEAD when `create`). A safe checkout
+/// blocked by local edits returns `switched: false` plus the at-risk paths;
+/// callers confirm with the user and retry with `force` to discard them.
+#[tauri::command]
+pub async fn checkout_branch(
+    app: tauri::AppHandle,
+    root: String,
+    name: String,
+    create: bool,
+    force: bool,
+) -> Result<CheckoutOutcome, String> {
+    let dir = root.clone();
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        Client::open(&dir)?.checkout_branch(&name, create, force)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    if outcome.switched {
+        let _ = app.emit("fs-changed", vec![root]);
+    }
+    Ok(outcome)
+}
+
 #[tauri::command]
 pub async fn publish(root: String, message: Option<String>) -> Result<String, String> {
     let message = message
@@ -663,5 +895,88 @@ mod tests {
         assert_eq!(parse_github_slug("https://github.com/owner"), None);
         assert_eq!(parse_github_slug("https://github.com/owner/"), None);
         assert_eq!(parse_github_slug("https://github.com/owner/a/b"), None);
+    }
+}
+
+#[cfg(test)]
+mod branch_tests {
+    use super::Client;
+    use git2::{Repository, Signature};
+    use std::path::Path;
+
+    fn commit_file(repo: &Repository, name: &str, content: &str, message: &str) {
+        std::fs::write(repo.workdir().unwrap().join(name), content).unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new(name)).unwrap();
+        index.write().unwrap();
+        let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+        let sig = Signature::now("Test", "test@example.com").unwrap();
+        let parent = repo.head().ok().and_then(|h| h.peel_to_commit().ok());
+        let parents: Vec<_> = parent.iter().collect();
+        repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &parents)
+            .unwrap();
+    }
+
+    #[test]
+    fn create_switch_and_conflict_flow() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = Repository::init(dir.path()).unwrap();
+        commit_file(&repo, "a.txt", "one\n", "init");
+        let client = Client::open(dir.path().to_str().unwrap()).unwrap();
+        let initial = client.current_branch().unwrap().unwrap();
+
+        // Create-and-switch from HEAD.
+        assert!(
+            client
+                .checkout_branch("other", true, false)
+                .unwrap()
+                .switched
+        );
+        assert_eq!(client.current_branch().unwrap().as_deref(), Some("other"));
+        commit_file(&repo, "a.txt", "two\n", "change on other");
+
+        // Plain switch back.
+        assert!(
+            client
+                .checkout_branch(&initial, false, false)
+                .unwrap()
+                .switched
+        );
+        assert_eq!(
+            std::fs::read_to_string(repo.workdir().unwrap().join("a.txt")).unwrap(),
+            "one\n"
+        );
+
+        // A dirty edit that overlaps the target branch refuses the safe
+        // checkout, reports the file, and leaves everything untouched.
+        std::fs::write(repo.workdir().unwrap().join("a.txt"), "dirty\n").unwrap();
+        let refused = client.checkout_branch("other", false, false).unwrap();
+        assert!(!refused.switched);
+        assert_eq!(refused.conflicts, vec!["a.txt".to_string()]);
+        assert_eq!(client.current_branch().unwrap(), Some(initial.clone()));
+        assert_eq!(
+            std::fs::read_to_string(repo.workdir().unwrap().join("a.txt")).unwrap(),
+            "dirty\n"
+        );
+
+        // Force discards the dirty edit and switches.
+        assert!(
+            client
+                .checkout_branch("other", false, true)
+                .unwrap()
+                .switched
+        );
+        assert_eq!(client.current_branch().unwrap().as_deref(), Some("other"));
+        assert_eq!(
+            std::fs::read_to_string(repo.workdir().unwrap().join("a.txt")).unwrap(),
+            "two\n"
+        );
+
+        // List: current branch first, everything here is local.
+        let branches = client.list_branches().unwrap();
+        assert_eq!(branches.len(), 2);
+        assert_eq!(branches[0].name, "other");
+        assert!(branches[0].current && branches[0].local);
+        assert_eq!(branches[1].name, initial);
     }
 }

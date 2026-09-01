@@ -713,6 +713,21 @@ input {
   color: var(--mantine-color-disabled-color);
 }
 
+.posto-mobile-shell .mobile-branch-option {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.posto-mobile-shell .mobile-branch-option > svg {
+  flex-shrink: 0;
+  color: var(--mantine-color-dimmed);
+}
+
 .posto-mobile-shell .mobile-combobox-empty {
   padding: var(--mantine-spacing-lg) var(--mantine-spacing-sm);
   color: var(--mantine-color-dimmed);

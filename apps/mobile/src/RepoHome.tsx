@@ -11,6 +11,7 @@ import {
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
+  BranchConflictDialog,
   CollectionOrderDialog,
   CollectionSettingsDialog,
   DirectoryBrowser,
@@ -28,6 +29,7 @@ import {
   resolveEditorTab,
   SchemaDiagnostics,
   sidebarDisplayTree,
+  useBranches,
   useCurrentFile,
   useFileGroups,
   useGitSync,
@@ -69,6 +71,7 @@ import {
 } from "lucide-react";
 import { DeploymentStatus } from "./DeploymentStatus";
 import { MediaLibraryPane } from "./MediaLibraryPane";
+import { BranchDrawer } from "./components/BranchDrawer";
 import { RepoHeader } from "./components/RepoHeader";
 import { RepoSettings } from "./components/RepoSettings";
 import { usePullRefresh } from "./hooks/usePullRefresh";
@@ -128,6 +131,7 @@ export default function RepoHome({
   const [removingRepo, setRemovingRepo] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [branchDrawerOpen, setBranchDrawerOpen] = useState(false);
   const [showDeployments, setShowDeployments] = useState(false);
   const [showMedia, setShowMedia] = useState(false);
   const [checkingChanges, setCheckingChanges] = useState(false);
@@ -238,6 +242,16 @@ export default function RepoHome({
     afterPull: refreshAfterPull,
     // Publish progress lives on the Publish button; only failures surface.
     onPublishError: setStatus,
+  });
+  const branches = useBranches(root, {
+    onError: notifyError,
+    async onSwitched(dir) {
+      // The checkout rewrote the working tree; mobile has no dev server, so a
+      // switch just reloads content and the git indicators.
+      await refreshAfterPull(dir);
+      void git.refreshLocalChanges(dir);
+      void git.checkUpstream();
+    },
   });
   const initializeRepository = useEffectEvent(
     async (generation: number, isActive: () => boolean) => {
@@ -715,6 +729,7 @@ export default function RepoHome({
           <DeploymentStatus
             owner={repo.owner}
             name={repo.name}
+            branch={branches.branch ?? repo.default_branch}
             root={root}
             adapter={adapter}
             siteUrlVersion={siteUrlVersion}
@@ -749,11 +764,16 @@ export default function RepoHome({
           mediaLibraryCount={config?.mediaLibraries?.length ?? 0}
           projectDirectory={root === repoRoot ? "Repository root" : root.slice(repoRoot.length + 1)}
           canSwitchProject={projectSession.hasMultipleProjects}
+          branchName={branches.branch}
           removing={removingRepo}
           confirmingRemove={confirmingRemoveRepo}
           onOpenDeployments={() => setShowDeployments(true)}
           onOpenMedia={() => setShowMedia(true)}
           onOpenProjects={() => void openWorkspaceChooser()}
+          onOpenBranches={() => {
+            void branches.loadBranches();
+            setBranchDrawerOpen(true);
+          }}
           onRemove={() =>
             confirmingRemoveRepo ? void removeRepository() : setConfirmingRemoveRepo(true)
           }
@@ -961,6 +981,27 @@ export default function RepoHome({
           />
         </main>
       )}
+
+      <BranchDrawer
+        key={branchDrawerOpen ? "opened" : "closed"}
+        opened={branchDrawerOpen}
+        branches={branches.branches}
+        onClose={() => setBranchDrawerOpen(false)}
+        onSelect={(name, create) => {
+          void (async () => {
+            // Pending edits must hit disk first so the safe checkout can
+            // account for (and protect) them.
+            await currentFile.flushPendingSave();
+            await branches.switchTo(name, { create });
+          })();
+        }}
+      />
+      <BranchConflictDialog
+        conflict={branches.conflict}
+        switching={branches.switching}
+        onCancel={branches.clearConflict}
+        onDiscard={() => void branches.forceSwitch()}
+      />
 
       {adapter.capabilities.mediaLibraries && importLibrary && config && (
         <ImageLibraryImportDialog

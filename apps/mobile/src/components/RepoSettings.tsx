@@ -6,11 +6,14 @@ export function RepoSettings(props: {
   mediaLibraryCount: number;
   projectDirectory: string;
   canSwitchProject: boolean;
+  /** Active git branch; null hides the row (no repo, detached HEAD). */
+  branchName: string | null;
   removing: boolean;
   confirmingRemove: boolean;
   onOpenDeployments: () => void;
   onOpenMedia: () => void;
   onOpenProjects: () => void;
+  onOpenBranches: () => void;
   onRemove: () => void;
 }) {
   return (
@@ -28,6 +31,23 @@ export function RepoSettings(props: {
               </Text>
               <Text c="dimmed" size="xs">
                 Live GitHub Actions status
+              </Text>
+            </div>
+            <ChevronRight size={18} />
+          </button>
+        )}
+        {props.branchName !== null && (
+          <button
+            type="button"
+            className="mobile-settings-row mobile-settings-link"
+            onClick={props.onOpenBranches}
+          >
+            <div>
+              <Text fw={600} size="sm">
+                Branch
+              </Text>
+              <Text c="dimmed" size="xs">
+                {props.branchName}
               </Text>
             </div>
             <ChevronRight size={18} />

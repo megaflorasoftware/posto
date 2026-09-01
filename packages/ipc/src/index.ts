@@ -95,6 +95,22 @@ export interface GitHubRepo {
   updated_at: string;
 }
 
+/** One entry in the branch chooser; `local` is false for branches that only
+ * exist on a remote (as of the last fetch). */
+export interface BranchInfo {
+  name: string;
+  current: boolean;
+  local: boolean;
+}
+
+/** Result of `checkout_branch`. When a safe checkout refused because local
+ * changes would be lost, `switched` is false and `conflicts` lists the
+ * affected repo-relative paths. */
+export interface CheckoutOutcome {
+  switched: boolean;
+  conflicts: string[];
+}
+
 /** `owner/name` parsed from a local repository's GitHub remote. */
 export interface GitHubSlug {
   owner: string;

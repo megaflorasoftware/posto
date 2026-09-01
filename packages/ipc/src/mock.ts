@@ -293,6 +293,16 @@ const mockRepos: ManagedRepo[] = [
     url: "https://github.com/example-org/posto.git",
   },
 ];
+// Branch fixtures for the branch chooser: a couple of locals plus one
+// remote-only branch, so the local/remote markers and the switch flow can be
+// exercised. `?mockCheckoutConflict` makes non-forced checkouts report the
+// dirty-tree conflict path.
+const mockBranches: { name: string; local: boolean }[] = [
+  { name: "main", local: true },
+  { name: "drafts", local: true },
+  { name: "feature/summer-refresh", local: false },
+];
+let mockCurrentBranch = "main";
 const mockUser: GitHubUser = {
   id: 123456,
   login: "example-user",
@@ -875,6 +885,33 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     case "pull_upstream":
       (window as { __mockBehindUpstream?: boolean }).__mockBehindUpstream = false;
       return "Updated from server.";
+    case "current_branch":
+      return mockCurrentBranch;
+    case "list_branches":
+      return mockBranches.map((branch) => ({
+        name: branch.name,
+        current: branch.name === mockCurrentBranch,
+        local: branch.local,
+      }));
+    case "checkout_branch": {
+      const name = args?.name as string;
+      const create = args?.create === true;
+      const force = args?.force === true;
+      if (!force && new URLSearchParams(window.location.search).has("mockCheckoutConflict")) {
+        return {
+          switched: false,
+          conflicts: ["src/blog/with-slug.mdx", "src/blog/new-post.mdx"],
+        };
+      }
+      if (create && !mockBranches.some((branch) => branch.name === name)) {
+        mockBranches.push({ name, local: true });
+      }
+      const existing = mockBranches.find((branch) => branch.name === name);
+      if (!existing) throw new Error(`Branch ${name} was not found`);
+      existing.local = true;
+      mockCurrentBranch = name;
+      return { switched: true, conflicts: [] };
+    }
     case "watch_root":
       return null;
     case "needs_install":
