@@ -1,6 +1,6 @@
 {
   "name": "posto",
-  "version": "0.9.8",
+  "version": "0.9.9",
   "private": true,
   "description": "",
   "license": "MIT",
@@ -20,7 +20,8 @@
     "format": "vp fmt"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2"
+    "@tauri-apps/cli": "^2",
+    "vite-plus": "^0.3.0"
   },
   "engines": {
     "node": ">=24 <25"

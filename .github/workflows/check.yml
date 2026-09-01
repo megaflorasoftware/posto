@@ -28,18 +28,14 @@ jobs:
       - name: Test
         run: pnpm -r --if-present test
 
-      # Lint + format via Vite+ — a required gate. `--deny-warnings` makes the
-      # type-aware lint warnings (all triaged to zero) fail CI if any creep back.
-      - name: Install Vite+
-        run: |
-          curl -fsSL https://vite.plus | bash
-          echo "$HOME/.vite-plus/bin" >> "$GITHUB_PATH"
-
+      # Lint + format via Vite+ (pinned as a workspace dev dependency) — a
+      # required gate. `--deny-warnings` makes the type-aware lint warnings
+      # (all triaged to zero) fail CI if any creep back.
       - name: Format check (Vite+)
-        run: vp check --no-lint
+        run: pnpm exec vp check --no-lint
 
       - name: Lint (Vite+)
-        run: vp lint --deny-warnings
+        run: pnpm exec vp lint --deny-warnings
 
   rust:
     name: Rust

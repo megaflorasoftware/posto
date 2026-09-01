@@ -32,6 +32,7 @@ import {
   workspaceProjects,
 } from "@posto/core/project/workspace";
 import {
+  BranchConflictDialog,
   EditorPane,
   ImageLibraryDropImport,
   MediaDragDropProvider,
@@ -43,6 +44,7 @@ import {
   defaultEditorTabForFile,
   deleteDataDocumentEntry,
   renameTargetForContent,
+  useBranches,
   useCurrentFile,
   useFileGroups,
   useGitSync,
@@ -131,7 +133,11 @@ function App() {
 
   const files = useFileGroups(notifyError, adapter.capabilities.dataDocuments);
   const devServer = useDevServer();
-  const deployment = useDeployment(repoRoot);
+  const branches = useBranches(root, {
+    onError: notifyError,
+    onSwitched: refreshAfterSwitch,
+  });
+  const deployment = useDeployment(repoRoot, branches.branch);
   const siteUrl = useSiteUrl(root, adapter, siteUrlVersion);
 
   const currentFile = useCurrentFile({
@@ -235,6 +241,16 @@ function App() {
         "error",
       );
     }
+  }
+
+  async function refreshAfterSwitch(dir: string) {
+    // The checkout rewrote the working tree: reuse the pull path's refresh
+    // (including its missing-work-dir recovery), bring the git indicators in
+    // line with the new branch, and restart the dev server on the new code.
+    await refreshAfterPull(dir);
+    void git.refreshLocalChanges(dir);
+    void git.checkUpstream();
+    if (rootRef.current === dir) void devServer.restartServer(dir);
   }
 
   async function selectRoot(repository: string, dir: string, requestedGeneration?: number) {
@@ -786,6 +802,18 @@ function App() {
         onInstall={(steps) => void devServer.runSetup(root, steps)}
         onHome={preview.goHome}
         deployment={deployment}
+        branch={branches.branch}
+        branches={branches.branches}
+        switchingBranch={branches.switching}
+        onOpenBranches={() => void branches.loadBranches()}
+        onSelectBranch={(name, create) => {
+          void (async () => {
+            // Pending edits must hit disk first so the safe checkout can
+            // account for (and protect) them.
+            await currentFile.flushPendingSave();
+            await branches.switchTo(name, { create });
+          })();
+        }}
         behindUpstream={git.behindUpstream}
         pulling={git.pulling}
         publishing={git.publishing}
@@ -825,6 +853,13 @@ function App() {
           )}
 
           <DeploymentDrawer deployment={deployment} siteUrl={siteUrl} />
+
+          <BranchConflictDialog
+            conflict={branches.conflict}
+            switching={branches.switching}
+            onCancel={branches.clearConflict}
+            onDiscard={() => void branches.forceSwitch()}
+          />
 
           <PublishModal
             opened={publishOpen}

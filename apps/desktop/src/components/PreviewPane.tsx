@@ -1,8 +1,10 @@
 import { ActionIcon, Alert, Button, Tabs } from "@mantine/core";
 import type { MediaEntry } from "@posto/core/pagescms/config";
+import type { BranchInfo } from "@posto/ipc";
 import { House } from "lucide-react";
 import type { ServerStatus, SetupStep } from "../hooks/useDevServer";
 import type { Deployment } from "../hooks/useDeployment";
+import { BranchChooser } from "./BranchChooser";
 import { DeploymentControl } from "./DeploymentControl";
 import { SetupFlow } from "./SetupFlow";
 import { SeoPreview } from "./SeoPreview";
@@ -25,6 +27,12 @@ export function PreviewPane(props: {
   onInstall: (steps: SetupStep[]) => void;
   onHome: () => void;
   deployment: Deployment;
+  /** Active git branch; null hides the chooser (no repo, detached HEAD). */
+  branch: string | null;
+  branches: BranchInfo[];
+  switchingBranch: boolean;
+  onOpenBranches: () => void;
+  onSelectBranch: (name: string, create: boolean) => void;
   behindUpstream: boolean;
   pulling: boolean;
   publishing: boolean;
@@ -48,6 +56,15 @@ export function PreviewPane(props: {
         </ActionIcon>
         <span className="pane-title">{props.servedRoute ?? props.previewRoute}</span>
         <DeploymentControl deployment={props.deployment} />
+        {props.branch !== null && (
+          <BranchChooser
+            branch={props.branch}
+            branches={props.branches}
+            switching={props.switchingBranch}
+            onOpen={props.onOpenBranches}
+            onSelect={props.onSelectBranch}
+          />
+        )}
         <Button
           className="preview-header-action"
           size="compact-sm"

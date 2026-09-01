@@ -101,16 +101,14 @@ test("moves a selected image-library batch and plans entry and image relocations
     imageFieldPath: ["image"],
     fields: [],
   };
-  const assets = ["one", "two"].map(
-    (name): ImageLibraryAsset => ({
-      entryId: name,
-      metadataPath: `/repo/src/content/photos/${name}.yml`,
-      imagePath: `/repo/src/content/photos/${name}.jpg`,
-      metadata: { image: `./${name}.jpg` },
-      metadataSource: `image: ./${name}.jpg\n`,
-      health: ["valid"],
-    }),
-  );
+  const assets = ["one", "two"].map((name): ImageLibraryAsset => ({
+    entryId: name,
+    metadataPath: `/repo/src/content/photos/${name}.yml`,
+    imagePath: `/repo/src/content/photos/${name}.jpg`,
+    metadata: { image: `./${name}.jpg` },
+    metadataSource: `image: ./${name}.jpg\n`,
+    health: ["valid"],
+  }));
 
   await moveImageLibraryItems({
     root: "/repo",

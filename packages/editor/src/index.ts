@@ -28,6 +28,8 @@ export * from "./components/WorkspaceChooser";
 export * from "./hooks/useCurrentFile";
 export * from "./hooks/useFileGroups";
 export * from "./hooks/useGitSync";
+export * from "./hooks/useBranches";
+export * from "./components/BranchConflictDialog";
 export * from "./hooks/useSchemas";
 export * from "./hooks/useSiteUrl";
 export * from "./hooks/useImageLibraryImport";

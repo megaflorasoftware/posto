@@ -13,8 +13,6 @@ import {
   type DeploymentRun,
 } from "@posto/core/github/deployment";
 
-// The deployment ring tracks the default branch's own pipeline.
-const BRANCH = "main";
 // How often to re-fetch runs while a repo is open and signed in.
 const POLL_INTERVAL_MS = 15_000;
 // How often to advance an in-progress ring between fetches.
@@ -68,9 +66,10 @@ export interface Deployment {
 }
 
 /** GitHub sign-in plus the deployment status of the open site's repo: resolves
- * the repo from the local remote, polls its recent Actions runs on `main`, and
- * derives the ring the header renders. */
-export function useDeployment(root: string | null): Deployment {
+ * the repo from the local remote, polls its recent Actions runs on the active
+ * branch (falling back to `main` when it's unknown), and derives the ring the
+ * header renders. */
+export function useDeployment(root: string | null, branch: string | null): Deployment {
   const [signedIn, setSignedIn] = useState(false);
   const [user, setUser] = useState<GitHubUser | null>(null);
   const [device, setDevice] = useState<DeviceAuthorization | null>(null);
@@ -161,7 +160,7 @@ export function useDeployment(root: string | null): Deployment {
         const next = await invoke<WorkflowRun[]>("list_workflow_runs", {
           owner: slug.owner,
           name: slug.name,
-          branch: BRANCH,
+          branch: branch ?? "main",
         });
         if (!active) return null;
         setRuns(next);
@@ -181,7 +180,7 @@ export function useDeployment(root: string | null): Deployment {
       window.clearInterval(id);
       loadRunsRef.current = async () => null;
     };
-  }, [signedIn, slug]);
+  }, [signedIn, slug, branch]);
 
   const latestRun = runs[0] ?? null;
   const running = latestRun !== null && latestRun.status !== "completed";

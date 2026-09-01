@@ -347,6 +347,69 @@ body,
   font-size: var(--mantine-font-size-xs);
 }
 
+.branch-chooser-name {
+  display: block;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branch-chooser-dropdown {
+  padding: 6px;
+}
+
+/* Mantine's ScrollArea wraps content in a display: table div that grows to fit
+ * long branch names; force block so names truncate instead of scrolling. */
+.branch-chooser-scroll .mantine-ScrollArea-viewport > div {
+  display: block !important;
+  min-width: 0 !important;
+}
+
+.branch-chooser-options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.branch-chooser-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border: none;
+  border-radius: var(--mantine-radius-sm);
+  background: transparent;
+  color: var(--mantine-color-text);
+  font-size: var(--mantine-font-size-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.branch-chooser-option > svg {
+  flex-shrink: 0;
+  color: var(--mantine-color-dimmed);
+}
+
+.branch-chooser-option:hover {
+  background: var(--mantine-color-default-hover);
+}
+
+.branch-chooser-option-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branch-chooser-empty {
+  padding: 8px 6px;
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-xs);
+}
+
 .pane {
   display: flex;
   flex-direction: column;
