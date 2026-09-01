@@ -45,7 +45,8 @@
     "targets": "all",
     "createUpdaterArtifacts": true,
     "iOS": {
-      "bundleVersion": "1"
+      "bundleVersion": "1",
+      "developmentTeam": "K56D2LK4DS"
     },
     "icon": [
       "icons/32x32.png",
