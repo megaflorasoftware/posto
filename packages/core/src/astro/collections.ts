@@ -103,7 +103,17 @@ function convertSchema(name: string, schema: JsonSchema, required: boolean): Fie
   switch (schema.type) {
     case "string": {
       if (schema.format === "date" || schema.format === "date-time") {
-        return { ...base, type: "date" };
+        // Real dates (`z.date()`, `z.coerce.date()`) only reach here through
+        // Astro's toJSONSchema override, which emits a bare `date-time` with
+        // no pattern. String schemas (`z.string().date()`, `z.iso.date()`,
+        // `z.iso.datetime()`) keep their ISO validation pattern, and Astro 5's
+        // zod-to-json-schema emits `format: "date"` for them. Those must stay
+        // quoted in frontmatter or YAML resolves them to timestamps that the
+        // string schema then rejects.
+        const dateBacked = schema.format === "date-time" && schema.pattern === undefined;
+        return dateBacked
+          ? { ...base, type: "date" }
+          : { ...base, type: "date", options: { quoted: true } };
       }
       const field: Field = { ...base, type: "string" };
       if (typeof schema.pattern === "string") field.pattern = schema.pattern;

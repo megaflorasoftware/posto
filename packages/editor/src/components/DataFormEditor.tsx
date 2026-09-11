@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Alert } from "@mantine/core";
 import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
-import { expandFieldTemplate } from "@posto/core/pagescms/config";
+import { expandFieldTemplate, plainDateField } from "@posto/core/pagescms/config";
 import {
   appendDataListItem,
   dataDocumentEntries,
@@ -98,7 +98,7 @@ export function DataFormEditor(props: {
       }
       if (value === undefined && field.default !== undefined) {
         setDataValue(parsedRef.current, [...locatorRef.current.path, ...path], field.default, {
-          dateField: field.type === "date",
+          dateField: plainDateField(field),
         });
       } else if (field.type === "object" && !field.list && field.fields) {
         materializeDefaults(field.fields, path);
@@ -175,7 +175,7 @@ export function DataFormEditor(props: {
       if (value === undefined) deleteDataValue(parsedRef.current, fullPath(path));
       else {
         setDataValue(parsedRef.current, fullPath(path), value, {
-          dateField: fieldAt(fields, path)?.type === "date",
+          dateField: plainDateField(fieldAt(fields, path)),
         });
       }
       applyControlledTemplates();

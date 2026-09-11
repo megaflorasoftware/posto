@@ -9,6 +9,7 @@ import {
   matchCollectionForDir,
   matchEntry,
   newEntryValues,
+  plainDateField,
   renamedFilename,
 } from "@posto/core/pagescms/config";
 import { parseFile, setValue } from "@posto/core/pagescms/frontmatter";
@@ -93,7 +94,7 @@ export function buildNewFileFromValues(
   let hasValues = false;
   for (const field of entry.fields) {
     if (field.name === "body" || values[field.name] === undefined) continue;
-    setValue(doc, [field.name], values[field.name], { dateField: field.type === "date" });
+    setValue(doc, [field.name], values[field.name], { dateField: plainDateField(field) });
     hasValues = true;
   }
   const content =

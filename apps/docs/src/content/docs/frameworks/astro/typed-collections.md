@@ -25,7 +25,8 @@ Posto reads Astro's generated JSON Schema. These common Zod types produce dedica
 | `z.number()` / `z.number().int()`  | Number input (honors `.min()`, `.max()`)           |
 | `z.boolean()`                      | Toggle switch                                      |
 | `z.enum([...])` / `z.literal("x")` | Select dropdown                                    |
-| `z.coerce.date()`                  | Date picker                                        |
+| `z.date()` / `z.coerce.date()`     | Date picker, saved as a plain YAML date            |
+| `z.string().date()` / `z.iso.*`    | Date picker, saved as a quoted string              |
 | `z.array(...)`                     | Repeatable list (honors `.min()`, `.max()`)        |
 | `z.object({...})`                  | Nested group of fields                             |
 | `image()`                          | Image picker                                       |
