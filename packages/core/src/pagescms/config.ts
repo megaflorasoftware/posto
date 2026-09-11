@@ -576,6 +576,16 @@ export function newEntryValues(pattern: string, entry: ContentEntry): Record<str
   return values;
 }
 
+/**
+ * True when a `date` field's well-formed timestamps should be written as
+ * plain YAML scalars so date-typed schemas receive real dates. Fields with
+ * `options.quoted` are string-backed (Astro's `z.string().date()`) and keep
+ * their quotes, since a bare `2026-08-06` would parse as a timestamp.
+ */
+export function plainDateField(field: Field | null | undefined): boolean {
+  return field?.type === "date" && field.options?.quoted !== true;
+}
+
 function escapeRegExp(literal: string): string {
   return literal.replace(/[.*+?^$()|[\]\\{}]/g, "\\$&");
 }

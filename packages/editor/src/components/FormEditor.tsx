@@ -2,7 +2,12 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Alert } from "@mantine/core";
 
 import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
-import { expandFieldTemplate, frontmatterFields, inferFields } from "@posto/core/pagescms/config";
+import {
+  expandFieldTemplate,
+  frontmatterFields,
+  inferFields,
+  plainDateField,
+} from "@posto/core/pagescms/config";
 import {
   type ParsedFile,
   type ValuePath,
@@ -128,7 +133,7 @@ export function FormEditor(props: {
       if (current === undefined) {
         if (field.default !== undefined) {
           setValue(parsedRef.current.doc, path, field.default, {
-            dateField: field.type === "date",
+            dateField: plainDateField(field),
           });
         }
       } else if (field.type === "object" && !field.list && field.fields) {
@@ -207,7 +212,7 @@ export function FormEditor(props: {
         deleteValue(parsedRef.current.doc, path);
       } else {
         setValue(parsedRef.current.doc, path, value, {
-          dateField: fieldAt(fields, path)?.type === "date",
+          dateField: plainDateField(fieldAt(fields, path)),
         });
       }
       applyControlledTemplates();
