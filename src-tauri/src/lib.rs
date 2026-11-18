@@ -7,10 +7,12 @@ mod devserver;
 mod env;
 mod fs;
 pub mod git;
+pub mod media;
 #[cfg(desktop)]
 mod proxy;
 #[cfg(any(mobile, test))]
 mod repos;
+mod secrets;
 mod settings;
 #[cfg(desktop)]
 mod watch;
@@ -342,6 +344,11 @@ pub fn run() {
         fs::write_temp_image,
         fs::read_image_bytes,
         fs::probe_image_is_heif,
+        media::media_credential_exists,
+        media::media_credential_save,
+        media::media_credential_delete,
+        media::media_list_objects,
+        media::media_inspect_file,
         devserver::start_dev_server,
         devserver::stop_dev_server,
         devserver::ping_dev_server,
@@ -420,6 +427,11 @@ pub fn run() {
                 fs::write_temp_image,
                 fs::read_image_bytes,
                 fs::probe_image_is_heif,
+                media::media_credential_exists,
+                media::media_credential_save,
+                media::media_credential_delete,
+                media::media_list_objects,
+                media::media_inspect_file,
                 settings::get_last_root,
                 settings::get_last_selection,
                 settings::get_work_dir,
