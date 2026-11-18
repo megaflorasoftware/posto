@@ -48,6 +48,44 @@ describe("image library reference updates", () => {
     readStats.delay = false;
   });
 
+  test("updates alt text on Markdown images that use a CDN URL", async () => {
+    const root = "/site";
+    const path = `${root}/src/content/posts/hello.md`;
+    const url = "https://media.example.com/images/harbor-1a2b3c4d.jpg";
+    files.set(path, `---\ntitle: Hello\n---\n![Old alt](${url})\n`);
+    const library: MediaLibrary = {
+      collection: "images",
+      base: "src/data/images",
+      patterns: ["**/*.yaml"],
+      metadataExtensions: ["yaml"],
+      imageFieldPath: ["src"],
+      fields: [],
+    };
+    const config: PagesConfig = {
+      media: [{ name: "default", input: "public", output: "/" }],
+      mediaLibraries: [library],
+      content: [{ name: "posts", type: "collection", path: "src/content/posts", fields: [] }],
+    };
+
+    const plan = await planImageLibraryReferenceUpdates({
+      root,
+      config,
+      groups: [{ path: "src/content/posts", files: [{ name: "hello.md", path }] }] as FileGroup[],
+      library,
+      relocations: [
+        {
+          oldEntryId: "harbor",
+          newEntryId: "harbor",
+          oldImagePath: url,
+          newImagePath: url,
+          newAlt: "New alt",
+        },
+      ],
+    });
+
+    expect(plan.writes[0]?.content).toContain(`![New alt](${url})`);
+  });
+
   test("rewrites configured frontmatter fields, collection references, and Markdown images", async () => {
     const root = "/site";
     const path = `${root}/src/content/posts/hello.md`;

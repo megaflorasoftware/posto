@@ -1,6 +1,7 @@
 import YAML from "yaml";
 import picomatch from "picomatch";
 import type { MediaLibrary, Field, MediaLibraryMetadataExtension } from "../pagescms/config";
+import { isRemoteMediaUrl } from "../media/sources";
 import { validateForm } from "../pagescms/validate";
 import { pathEntryId } from "./entryIds";
 
@@ -29,6 +30,8 @@ export interface ImageLibraryAsset {
   entryId: string;
   metadataPath: string;
   imagePath: string | null;
+  /** Public URL of an image already published to a CDN; `imagePath` is null. */
+  imageUrl?: string;
   metadata: Record<string, unknown>;
   metadataSource: string;
   health: ImageLibraryHealth[];
@@ -300,6 +303,20 @@ export function discoverImageLibraryAssets(
           metadata,
           metadataSource: file.content,
           health: ["malformed-image"],
+        },
+      ];
+    }
+    if (isRemoteMediaUrl(imageValue)) {
+      return [
+        {
+          libraryId: library.collection,
+          entryId: id,
+          metadataPath: path,
+          imagePath: null,
+          imageUrl: imageValue.trim(),
+          metadata,
+          metadataSource: file.content,
+          health: ["valid"],
         },
       ];
     }

@@ -27,6 +27,47 @@ beforeEach(() => {
   vi.mocked(planMarkdownMediaReferenceUpdates).mockResolvedValue([]);
 });
 
+test("refuses to move published CDN images directly or inside a folder", async () => {
+  const library: MediaLibrary = {
+    collection: "photos",
+    base: "src/data/photos",
+    patterns: ["**/*.yaml"],
+    metadataExtensions: ["yaml"],
+    imageFieldPath: ["src"],
+    fields: [],
+  };
+  const published: ImageLibraryAsset = {
+    libraryId: "photos",
+    entryId: "trips/harbor",
+    metadataPath: "/repo/src/data/photos/trips/harbor.yaml",
+    imagePath: null,
+    imageUrl: "https://media.example.com/images/harbor-1a2b3c4d.jpg",
+    metadata: {},
+    metadataSource: "",
+    health: ["valid"],
+  };
+  const move = (overrides: { movingAssets?: ImageLibraryAsset[]; movingDirectories?: string[] }) =>
+    moveImageLibraryItems({
+      root: "/repo",
+      library,
+      config: { media: [], content: [] } as PagesConfig,
+      groups: [],
+      libraryRoot: "/repo/src/data/photos",
+      directories: ["/repo/src/data/photos/trips", "/repo/src/data/photos/archive"],
+      assets: [published],
+      movingAssets: [],
+      destinationDirectory: "/repo/src/data/photos/archive",
+      onBeforeMove: vi.fn().mockResolvedValue(undefined),
+      ...overrides,
+    });
+
+  await expect(move({ movingAssets: [published] })).rejects.toThrow("can't be moved");
+  await expect(move({ movingDirectories: ["/repo/src/data/photos/trips"] })).rejects.toThrow(
+    "can't be moved",
+  );
+  expect(invoke).not.toHaveBeenCalled();
+});
+
 test("moves a selected public-media batch and updates Markdown references", async () => {
   const files: FileEntry[] = [
     { name: "one.jpg", path: "/repo/public/one.jpg" },

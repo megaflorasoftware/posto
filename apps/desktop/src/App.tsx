@@ -796,6 +796,7 @@ function App() {
         previewFrame={preview.previewFrame}
         dragging={preview.dragging}
         media={config?.media[0] ?? null}
+        cdnPublicUrls={config?.cdnSources?.map((source) => source.publicUrl) ?? []}
         saveTick={saveTick}
         onRestart={() => void devServer.restartServer(root)}
         onRetry={() => void devServer.startServer(root)}

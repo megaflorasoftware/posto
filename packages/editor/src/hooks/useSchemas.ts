@@ -145,7 +145,9 @@ export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
       return fallback;
     }
     if (indexSource !== null) {
-      config.collectionOrder = parsePostoIndex(indexSource).collectionOrder;
+      const index = parsePostoIndex(indexSource);
+      config.collectionOrder = index.collectionOrder;
+      config.mediaSources = index.mediaSources;
     }
     let listed: { name: string; path: string }[] | null;
     try {
@@ -173,7 +175,11 @@ export function useSchemas(adapter: ProjectAdapter, io: ProjectIO) {
       const settings = parsePostoCollection(source);
       if (settings) config.collections[file.name.slice(0, -".json".length)] = settings;
     }
-    if (config.collectionOrder || Object.keys(config.collections).length > 0) {
+    if (
+      config.collectionOrder ||
+      config.mediaSources ||
+      Object.keys(config.collections).length > 0
+    ) {
       if (commit && generation === generationRef.current) commitPostoConfig(config);
       return config;
     }

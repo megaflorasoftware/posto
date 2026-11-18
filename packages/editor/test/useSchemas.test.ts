@@ -59,6 +59,33 @@ test("malformed posto JSON is skipped without discarding valid preferences", asy
   expect(result.current.configError).toBeNull();
 });
 
+test("a posto index containing only CDN sources reaches the effective config", async () => {
+  const io = projectIO({
+    read(path) {
+      if (!path.endsWith("/.posto/index.json")) return null;
+      return JSON.stringify({
+        media: {
+          sources: [
+            {
+              name: "cdn",
+              provider: "bunny",
+              bucket: "site-media",
+              publicUrl: "https://media.example.com",
+            },
+          ],
+        },
+      });
+    },
+  });
+  const { result } = renderHook(() => useSchemas(genericAdapter, io));
+
+  await act(async () => {
+    await result.current.loadSchemas("/site", genericAdapter);
+  });
+
+  expect(result.current.config.cdnSources?.map((source) => source.name)).toEqual(["cdn"]);
+});
+
 test("pages-only projects retain the conventional public media source", async () => {
   const io = projectIO({
     read(path) {

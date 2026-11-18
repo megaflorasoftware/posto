@@ -1,4 +1,5 @@
 import YAML from "yaml";
+import { isRemoteMediaUrl, type CdnSource } from "../media/sources";
 
 // Types and helpers for the Pages CMS `.pages.yml` configuration format
 // (https://pagescms.org/docs/configuration). Only the subset posto uses is
@@ -41,6 +42,8 @@ export interface MediaLibrary {
   metadataExtensions: MediaLibraryMetadataExtension[];
   imageFieldPath: string[];
   fields: Field[];
+  /** CDN source that receives this library's images at publish. */
+  mediaSource?: string;
 }
 
 export interface SchemaDiagnostic {
@@ -129,6 +132,8 @@ export interface PagesConfig {
   content: ContentEntry[];
   collectionSchemas?: CollectionSchema[];
   mediaLibraries?: MediaLibrary[];
+  /** Connection details from `.posto/index.json` for schema-bound CDN media. */
+  cdnSources?: CdnSource[];
   diagnostics?: Diagnostic[];
 }
 
@@ -849,6 +854,7 @@ export function mediaInputPath(
   outputPath: string,
   documentPath?: string,
 ): string | null {
+  if (isRemoteMediaUrl(outputPath)) return null;
   if (media.relative) {
     if (!documentPath) return null;
     const path = resolveRelativeMediaPath(documentPath, outputPath);

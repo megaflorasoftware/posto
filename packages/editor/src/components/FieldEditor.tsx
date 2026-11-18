@@ -5,6 +5,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-
 import { CSS } from "@dnd-kit/utilities";
 import { Document } from "yaml";
 
+import { isRemoteMediaUrl } from "@posto/core/media/sources";
 import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
 import {
   collectionExtension,
@@ -803,6 +804,7 @@ function ListField(props: { field: Field; path: ValuePath; ctx: FieldContext }) 
     if (!previewImage) return null;
     const value = descendantString(itemRecord(index), previewImage.path);
     if (!value) return null;
+    if (isRemoteMediaUrl(value)) return value;
     const media = resolveMedia(
       props.ctx.config,
       previewImage.field,
@@ -974,15 +976,18 @@ function ImageField(props: { field: Field; path: ValuePath; ctx: FieldContext })
   } catch {
     // Preserve malformed percent escapes so the field remains editable.
   }
-  const previewPath = value
-    ? ([valueMedia, media, ...props.ctx.config.media, ...libraryMedia]
-        .filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null)
-        .map((candidate) =>
-          mediaInputPath(props.ctx.root, candidate, value, props.ctx.documentPath),
-        )
-        .find((candidate): candidate is string => candidate !== null) ??
-      (value.startsWith("/") ? `${props.ctx.root}/public${decodedValue}` : null))
-    : null;
+  const previewPath =
+    value && isRemoteMediaUrl(value)
+      ? value
+      : value
+        ? ([valueMedia, media, ...props.ctx.config.media, ...libraryMedia]
+            .filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null)
+            .map((candidate) =>
+              mediaInputPath(props.ctx.root, candidate, value, props.ctx.documentPath),
+            )
+            .find((candidate): candidate is string => candidate !== null) ??
+          (value.startsWith("/") ? `${props.ctx.root}/public${decodedValue}` : null))
+        : null;
 
   const imageDrop = useMediaDropZone({
     id: `image-field:${props.ctx.root}:${props.path.join(".")}`,

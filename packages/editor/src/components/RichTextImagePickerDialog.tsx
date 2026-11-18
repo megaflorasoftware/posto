@@ -102,14 +102,14 @@ function LibraryGrid(props: {
       onClose={props.onClose}
       onImport={() => setImportOpen(true)}
       onPick={(asset) => {
-        const output = asset.imagePath
-          ? mediaOutputPath(props.root, props.media, asset.imagePath)
-          : null;
+        const output =
+          asset.imageUrl ??
+          (asset.imagePath ? mediaOutputPath(props.root, props.media, asset.imagePath) : null);
         if (output) {
           props.onPick({
             outputPath: output,
             sourcePath: asset.imagePath ?? undefined,
-            label: asset.imagePath?.split("/").pop() ?? asset.entryId,
+            label: (asset.imagePath ?? asset.imageUrl)?.split("/").pop() ?? asset.entryId,
             kind: "image",
             alt: typeof asset.metadata.alt === "string" ? asset.metadata.alt : undefined,
           });

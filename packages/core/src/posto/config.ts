@@ -1,19 +1,23 @@
 import type {
   ContentEntry,
+  Diagnostic,
+  Field,
   FieldTemplateSchema,
   PagesConfig,
   TemplateEditBehavior,
 } from "../pagescms/config";
+import { parseCdnSources, type CdnSource } from "../media/sources";
 
 // Types and helpers for posto's own `.posto/` config directory: user
 // preferences layered on top of the derived schema config (`.pages.yml` /
-// Astro collections). `.posto` never defines what exists — only how it's
-// presented — so every file is a sparse overlay: absent keys mean "use the
-// derived default", and settings for unknown collections are ignored.
+// Astro collections). `.posto` never defines what content exists — only how
+// it's presented and how schema-declared CDN sources connect — so every file
+// is a sparse overlay: absent keys mean "use the derived default", and settings
+// for unknown collections or unreferenced sources are ignored.
 //
 // Layout:
 //   .posto/index.json               workspace-level settings (version,
-//                                   collection order)
+//                                   collection order, CDN media sources)
 //   .posto/collections/<name>.json  per-collection settings, keyed by the
 //                                   collection's `name`
 //
@@ -56,6 +60,8 @@ export interface PostoConfig {
   collectionOrder?: string[];
   /** Per-collection settings keyed by collection name. */
   collections: Record<string, PostoCollectionSettings>;
+  /** Connections for CDN sources named by the site's schemas. */
+  mediaSources?: CdnSource[];
 }
 
 export const EMPTY_POSTO_CONFIG: PostoConfig = { collections: {} };
@@ -77,7 +83,9 @@ function stringArray(value: unknown): string[] | undefined {
 }
 
 /** Parses `.posto/index.json`; malformed input yields no settings. */
-export function parsePostoIndex(source: string): Pick<PostoConfig, "collectionOrder" | "project"> {
+export function parsePostoIndex(
+  source: string,
+): Pick<PostoConfig, "collectionOrder" | "project" | "mediaSources"> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(source);
@@ -88,9 +96,12 @@ export function parsePostoIndex(source: string): Pick<PostoConfig, "collectionOr
   const collections = doc && asObject(doc.collections);
   const order = collections && stringArray(collections.order);
   const project = doc && optionalString(doc.project);
+  const media = doc && asObject(doc.media);
+  const mediaSources = media ? parseCdnSources(media.sources) : undefined;
   return {
     ...(order ? { collectionOrder: order } : {}),
     ...(project ? { project } : {}),
+    ...(mediaSources ? { mediaSources } : {}),
   };
 }
 
@@ -164,6 +175,48 @@ export function parsePostoCollection(source: string): PostoCollectionSettings | 
  * collection named in `collectionOrder` receives).
  */
 export function mergePostoConfig(config: PagesConfig, posto: PostoConfig | null): PagesConfig {
+  return applyCdnSources(mergeCollectionSettings(config, posto), posto?.mediaSources ?? []);
+}
+
+/** CDN source names bound by a list of schema fields, including nested ones. */
+function fieldMediaSources(fields: Field[]): string[] {
+  return fields.flatMap((field) => [
+    ...(typeof field.options?.mediaSource === "string" ? [field.options.mediaSource] : []),
+    ...fieldMediaSources(field.fields ?? []),
+  ]);
+}
+
+/** Attaches connection details and reports schema bindings that have none.
+ * Media bound to an undefined source simply stays local. */
+function applyCdnSources(config: PagesConfig, sources: CdnSource[]): PagesConfig {
+  const known = new Set(sources.map((source) => source.name));
+  const bindings = new Map<string, { collection: string; source: string }>();
+  const bind = (collection: string, source: string) => {
+    if (!known.has(source)) bindings.set(`${collection}:${source}`, { collection, source });
+  };
+  for (const library of config.mediaLibraries ?? []) {
+    if (library.mediaSource) bind(library.collection, library.mediaSource);
+  }
+  for (const schema of [...config.content, ...(config.collectionSchemas ?? [])]) {
+    for (const source of fieldMediaSources(schema.fields)) bind(schema.name, source);
+  }
+  if (sources.length === 0 && bindings.size === 0) return config;
+  const diagnostics: Diagnostic[] = [...bindings.values()].map(({ collection, source }) => ({
+    feature: "cdn-media",
+    collection,
+    code: "unknown-media-source",
+    message: `Collection ${collection} uses CDN source "${source}", but ${POSTO_INDEX_PATH} does not define it. Its images stay local until the source is configured.`,
+  }));
+  return {
+    ...config,
+    ...(sources.length > 0 ? { cdnSources: sources } : {}),
+    ...(diagnostics.length > 0
+      ? { diagnostics: [...(config.diagnostics ?? []), ...diagnostics] }
+      : {}),
+  };
+}
+
+function mergeCollectionSettings(config: PagesConfig, posto: PostoConfig | null): PagesConfig {
   if (!posto) return config;
   const order = new Map((posto.collectionOrder ?? []).map((name, i) => [name, i]));
   if (order.size === 0 && Object.keys(posto.collections).length === 0) return config;

@@ -24,6 +24,7 @@ import {
   serializeDataDocument,
   setDataValue,
 } from "@posto/core/project/dataDocument";
+import { isRemoteMediaUrl } from "@posto/core/media/sources";
 import { invoke, type FileGroup } from "@posto/ipc";
 import { markdownMediaOutputPath } from "./markdownMedia";
 
@@ -188,9 +189,16 @@ function markdownOutputMap(
     });
   const result = new Map<string, { destination: string; alt?: string }>();
   for (const relocation of relocations) {
+    const alt = includeAlt ? relocation.newAlt : undefined;
+    // A published image is referenced by its URL in every document.
+    if (isRemoteMediaUrl(relocation.oldImagePath)) {
+      if (alt !== undefined) {
+        result.set(relocation.oldImagePath, { destination: relocation.newImagePath, alt });
+      }
+      continue;
+    }
     const oldOutput = markdownMediaOutputPath(root, documentPath, relocation.oldImagePath);
     const newOutput = markdownMediaOutputPath(root, documentPath, relocation.newImagePath);
-    const alt = includeAlt ? relocation.newAlt : undefined;
     if (oldOutput !== newOutput || alt !== undefined) {
       result.set(oldOutput, { destination: newOutput, alt });
     }

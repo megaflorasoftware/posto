@@ -205,6 +205,16 @@ export async function moveImageLibraryItems(input: {
   onBeforeMove: () => Promise<void>;
 }): Promise<void> {
   const movingDirectories = input.movingDirectories ?? [];
+  const movesPublishedImage =
+    input.movingAssets.some((asset) => asset.imageUrl) ||
+    input.assets.some(
+      (asset) =>
+        asset.imageUrl &&
+        movingDirectories.some((directory) => asset.metadataPath.startsWith(`${directory}/`)),
+    );
+  if (movesPublishedImage) {
+    throw new Error("Images already published to the CDN can't be moved.");
+  }
   const destinationDirectory = normalizeFilePath(input.destinationDirectory).replace(/\/+$/, "");
   const basename = (path: string) => path.slice(path.lastIndexOf("/") + 1);
   const dirname = (path: string) => path.slice(0, path.lastIndexOf("/"));

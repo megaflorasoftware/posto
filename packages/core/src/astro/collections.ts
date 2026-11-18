@@ -459,14 +459,20 @@ function resolveImages(
 ): Field[] {
   return fields.map((field) => {
     const path = [...prefix, field.name];
+    const image = images.find(
+      (candidate) =>
+        candidate.path.length === path.length &&
+        candidate.path.every((part, index) => part === path[index]),
+    );
     const resolved =
-      images.some(
-        (candidate) =>
-          candidate.path.length === path.length &&
-          candidate.path.every((part, index) => part === path[index]),
-      ) &&
-      (field.type === "string" || field.type === "text")
-        ? { ...field, type: "image" }
+      image && (field.type === "string" || field.type === "text")
+        ? {
+            ...field,
+            type: "image",
+            ...(image.mediaSource
+              ? { options: { ...field.options, mediaSource: image.mediaSource } }
+              : {}),
+          }
         : field;
     return resolved.fields
       ? { ...resolved, fields: resolveImages(resolved.fields, images, path) }
@@ -551,6 +557,7 @@ function discoverImageLibraries(
       metadataExtensions: extensions,
       imageFieldPath: images[0].path,
       fields: resolveImages(collection.fields, images),
+      ...(images[0].mediaSource ? { mediaSource: images[0].mediaSource } : {}),
     });
   }
   return { libraries, diagnostics };

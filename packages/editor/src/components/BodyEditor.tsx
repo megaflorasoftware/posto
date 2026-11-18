@@ -397,8 +397,9 @@ function LibraryImageEditDialog(props: {
   const state = useImageLibraryAssets(props.root, props.library);
   const asset = state.assets.find(
     (candidate) =>
-      !!candidate.imagePath &&
-      mediaOutputPath(props.root, props.media, candidate.imagePath) === props.request.src,
+      candidate.imageUrl === props.request.src ||
+      (!!candidate.imagePath &&
+        mediaOutputPath(props.root, props.media, candidate.imagePath) === props.request.src),
   );
 
   if (state.loading) {

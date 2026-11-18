@@ -20,6 +20,8 @@ export function PreviewPane(props: {
   /** While the split divider drags, the iframe must ignore pointer events. */
   dragging: boolean;
   media: MediaEntry | null;
+  /** Public base URLs of the site's CDN media sources. */
+  cdnPublicUrls: string[];
   /** Bumped after each successful save so the SEO preview refetches. */
   saveTick: number;
   onRestart: () => void;
@@ -132,6 +134,7 @@ export function PreviewPane(props: {
               route={props.previewRoute}
               root={props.root}
               media={props.media}
+              cdnPublicUrls={props.cdnPublicUrls}
               port={server.port}
               refreshKey={props.saveTick}
             />

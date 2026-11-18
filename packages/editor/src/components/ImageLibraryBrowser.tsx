@@ -37,10 +37,11 @@ function directoryPreviewImages(directory: string, assets: ImageLibraryAsset[]):
   const folder = normalize(directory);
   return assets
     .flatMap((asset) => {
-      if (!asset.imagePath) return [];
+      const preview = asset.imagePath ?? asset.imageUrl;
+      if (!preview) return [];
       const assetDirectory = normalize(dirname(asset.metadataPath));
       if (assetDirectory !== folder && !assetDirectory.startsWith(`${folder}/`)) return [];
-      return asset.imagePath;
+      return preview;
     })
     .slice(0, 4);
 }
@@ -158,7 +159,7 @@ export function ImageLibraryBrowser(props: {
                   className="picker-card-preview"
                 >
                   <CachedImage
-                    path={asset.imagePath}
+                    path={asset.imagePath ?? asset.imageUrl}
                     alt={alt}
                     loading="lazy"
                     draggable={false}

@@ -1,4 +1,5 @@
 import { useEffect, useState, type ImgHTMLAttributes, type ReactNode } from "react";
+import { isRemoteMediaUrl } from "@posto/core/media/sources";
 import { thumbnailUrl } from "@posto/ipc";
 
 export function useThumbnailUrl(
@@ -14,6 +15,11 @@ export function useThumbnailUrl(
     let cancelled = false;
     if (!path) {
       setResolved({ key, src: fallbackSrc });
+      return;
+    }
+    // CDN images load directly; the native thumbnailer only reads local files.
+    if (isRemoteMediaUrl(path)) {
+      setResolved({ key, src: path });
       return;
     }
     setResolved({ key, src: null });

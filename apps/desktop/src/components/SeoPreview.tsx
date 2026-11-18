@@ -75,8 +75,13 @@ function localAsset(
   root: string,
   media: MediaEntry | null,
   port: number,
+  cdnPublicUrls: string[],
 ): LocalAsset {
   if (!src) return { path: null, fallbackSrc: null };
+  // CDN images have no local copy, so their URL is the only usable source.
+  if (cdnPublicUrls.some((base) => src.startsWith(`${base}/`))) {
+    return { path: src, fallbackSrc: null };
+  }
   let pathname: string;
   try {
     pathname = new URL(src, `http://localhost:${port}`).pathname;
@@ -123,6 +128,8 @@ export function SeoPreview(props: {
   root: string;
   /** First media source, if any — resolves image paths stored in content. */
   media: MediaEntry | null;
+  /** Public base URLs of the site's CDN media sources. */
+  cdnPublicUrls: string[];
   port: number;
   refreshKey: number;
 }) {
@@ -179,8 +186,15 @@ export function SeoPreview(props: {
     props.root,
     props.media,
     props.port,
+    props.cdnPublicUrls,
   );
-  const favicon = localAsset(seo?.favicon ?? "/favicon.ico", props.root, props.media, props.port);
+  const favicon = localAsset(
+    seo?.favicon ?? "/favicon.ico",
+    props.root,
+    props.media,
+    props.port,
+    props.cdnPublicUrls,
+  );
   const fbTitle = seo?.ogTitle ?? seo?.title;
   const fbDescription = seo?.ogDescription ?? seo?.description;
 

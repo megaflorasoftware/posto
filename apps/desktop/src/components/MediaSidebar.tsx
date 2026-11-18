@@ -116,6 +116,15 @@ function LibraryMediaBrowserContent(props: {
     return () => window.removeEventListener("keydown", clearSelection);
   }, [selectionCount]);
   const mediaForAsset = (asset: ImageLibraryAsset): MarkdownMediaPick | null => {
+    if (asset.imageUrl) {
+      return {
+        outputPath: asset.imageUrl,
+        label: asset.imageUrl.split("/").pop() ?? asset.entryId,
+        kind: "image",
+        alt: typeof asset.metadata.alt === "string" ? asset.metadata.alt : undefined,
+        library: { collection: library.collection, entryId: asset.entryId },
+      };
+    }
     if (!asset.imagePath) return null;
     const input = library.base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
     const outputPath = mediaOutputPath(

@@ -201,7 +201,7 @@ export function ImageLibraryReferenceField(props: {
         >
           <span className="image-library-reference-preview">
             <CachedImage
-              path={selectedAsset?.imagePath}
+              path={selectedAsset?.imagePath ?? selectedAsset?.imageUrl}
               alt=""
               thumbnailWidth={160}
               thumbnailHeight={160}

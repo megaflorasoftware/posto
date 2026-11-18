@@ -1,7 +1,11 @@
+import { mediaSourceAnnotation } from "../media/sources";
+
 export interface SchemaImageField {
   path: string[];
   /** Imports can assign this field without having to invent list items. */
   writable: boolean;
+  /** CDN source named by a `posto:media=<name>` schema description. */
+  mediaSource?: string;
 }
 
 function imageFields(source: string): SchemaImageField[] {
@@ -42,7 +46,12 @@ function imageFields(source: string): SchemaImageField[] {
       const listWrapped =
         !!image && /(?:z\s*\.\s*)?array\s*\(/.test(value.slice(0, image.index + image[0].length));
       if (imageBeforeObject) {
-        fields.push({ path: [...prefix, name], writable: !insideList && !listWrapped });
+        const mediaSource = mediaSourceAnnotation(value);
+        fields.push({
+          path: [...prefix, name],
+          writable: !insideList && !listWrapped,
+          ...(mediaSource ? { mediaSource } : {}),
+        });
       } else {
         const plain = !object && value.startsWith("{") ? 0 : -1;
         const open = object ? value.indexOf("{", object.index) : plain;

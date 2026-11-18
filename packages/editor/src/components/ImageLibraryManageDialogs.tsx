@@ -9,7 +9,7 @@ import type { MediaLibrary, PagesConfig } from "@posto/core/pagescms/config";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 import { pathEntryId } from "@posto/core/project/entryIds";
 import { validateForm } from "@posto/core/pagescms/validate";
-import { createFileMediaDirectory, invoke, type FileGroup } from "@posto/ipc";
+import { createFileMediaDirectory, deleteFileMediaItem, invoke, type FileGroup } from "@posto/ipc";
 import {
   editValueAtPath,
   imageLibraryMetadataFields,
@@ -110,6 +110,11 @@ function metadataAlt(metadata: Record<string, unknown>): string | undefined {
 }
 
 async function deleteAsset(libraryRoot: string, asset: ImageLibraryAsset): Promise<void> {
+  // A published image has no local file, so only its metadata entry is removed.
+  if (asset.imageUrl) {
+    await deleteFileMediaItem({ mediaRoot: libraryRoot, path: asset.metadataPath });
+    return;
+  }
   if (!asset.imagePath) throw new Error(`${asset.entryId} has no image to delete.`);
   await invoke("delete_image_library_asset", {
     libraryRoot,
@@ -280,6 +285,7 @@ export function ImageLibraryEditDialog(props: {
   const [pending, setPending] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const imageReference = props.asset.imagePath ?? props.asset.imageUrl;
   const originalFilename =
     props.asset.imagePath?.split("/").pop() ?? props.asset.entryId.split("/").pop() ?? "";
   const [filename, setFilename] = useState(originalFilename);
@@ -329,7 +335,7 @@ export function ImageLibraryEditDialog(props: {
           metadataExtension(props.asset.metadataPath),
         );
         const nextAlt = metadataAlt(metadata);
-        if (!props.asset.imagePath || nextAlt === undefined) {
+        if (!imageReference || nextAlt === undefined) {
           await invoke("write_text_file", {
             path: props.asset.metadataPath,
             content: serializedMetadata,
@@ -345,8 +351,8 @@ export function ImageLibraryEditDialog(props: {
               {
                 oldEntryId: props.asset.entryId,
                 newEntryId: props.asset.entryId,
-                oldImagePath: props.asset.imagePath,
-                newImagePath: props.asset.imagePath,
+                oldImagePath: imageReference,
+                newImagePath: imageReference,
                 newAlt: nextAlt,
               },
             ],
@@ -438,12 +444,13 @@ export function ImageLibraryEditDialog(props: {
   const originalExtension = originalFilename.slice(originalFilename.lastIndexOf(".") + 1);
   const candidateExtension = filename.slice(filename.lastIndexOf(".") + 1);
   const filenameError =
-    !filename ||
-    filename === "." ||
-    filename === ".." ||
-    filename.startsWith(".") ||
-    /[\\/]/.test(filename) ||
-    candidateExtension.toLowerCase() !== originalExtension.toLowerCase()
+    !props.asset.imageUrl &&
+    (!filename ||
+      filename === "." ||
+      filename === ".." ||
+      filename.startsWith(".") ||
+      /[\\/]/.test(filename) ||
+      candidateExtension.toLowerCase() !== originalExtension.toLowerCase())
       ? `Use a visible filename ending in .${originalExtension}`
       : null;
   const remove = async () => {
@@ -468,16 +475,20 @@ export function ImageLibraryEditDialog(props: {
       )}
       <div className="image-library-import-details">
         <div className="image-library-import-preview">
-          <CachedImage path={props.asset.imagePath} alt="" fallback={<ImageIcon size={28} />} />
+          <CachedImage path={imageReference} alt="" fallback={<ImageIcon size={28} />} />
         </div>
         <div className="image-library-import-form">
-          <TextInput
-            size="xs"
-            label="Filename"
-            value={filename}
-            error={filenameError}
-            onChange={(event) => setFilename(event.currentTarget.value)}
-          />
+          {props.asset.imageUrl ? (
+            <TextInput size="xs" label="CDN URL" value={props.asset.imageUrl} readOnly />
+          ) : (
+            <TextInput
+              size="xs"
+              label="Filename"
+              value={filename}
+              error={filenameError}
+              onChange={(event) => setFilename(event.currentTarget.value)}
+            />
+          )}
           <div className="form-fields image-library-metadata-fields">
             {fields.map((field) => (
               <FieldEditor key={field.name} field={field} path={[field.name]} ctx={fieldCtx} />
