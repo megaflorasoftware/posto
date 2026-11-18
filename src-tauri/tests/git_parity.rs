@@ -282,6 +282,183 @@ fn publish_commits_and_pushes() {
     );
 }
 
+fn head_oid(repo_path: &Path) -> git2::Oid {
+    git2::Repository::open(repo_path)
+        .unwrap()
+        .head()
+        .unwrap()
+        .target()
+        .unwrap()
+}
+
+fn origin_main(f: &Fixture) -> git2::Oid {
+    git2::Repository::open(&f.origin)
+        .unwrap()
+        .find_reference("refs/heads/main")
+        .unwrap()
+        .target()
+        .unwrap()
+}
+
+fn status_pairs(client: &Client) -> Vec<(String, String)> {
+    let mut pairs: Vec<(String, String)> = client
+        .changed_files()
+        .unwrap()
+        .into_iter()
+        .map(|file| (file.status, file.path))
+        .collect();
+    pairs.sort();
+    pairs
+}
+
+#[test]
+fn rejected_push_restores_changes_for_another_publish() {
+    let f = fixture();
+    write(&f.local, "index.md", "# home v2\n");
+    write(&f.local, "posts/new.md", "brand new\n");
+    server_change(&f, "posts/first.md", "server version\n", "server edit");
+    let before = head_oid(&f.local);
+    let server = origin_main(&f);
+
+    let client = Client::open(f.local.to_str().unwrap()).unwrap();
+    let expected = status_pairs(&client);
+    assert!(client.publish("will be rejected").is_err());
+
+    assert_eq!(head_oid(&f.local), before, "the failed commit is undone");
+    assert_eq!(origin_main(&f), server, "origin is unchanged");
+    assert_eq!(status_pairs(&client), expected, "changes look untouched");
+    assert_eq!(read(&f.local, "posts/new.md"), "brand new\n");
+
+    // New files are untracked again, so the publish modal can still revert them.
+    write(&f.local, "posts/discard.md", "discard me\n");
+    client.publish("rejected again").unwrap_err();
+    client.revert_file("posts/discard.md").unwrap();
+    assert!(!f.local.join("posts/discard.md").exists());
+
+    let mut client = Client::open(f.local.to_str().unwrap()).unwrap();
+    client.pull().unwrap();
+    assert_eq!(client.publish("after pull").unwrap(), "Published.");
+    assert_eq!(origin_main(&f), head_oid(&f.local));
+}
+
+#[test]
+fn unreachable_remote_restores_changes_and_retry_succeeds() {
+    let f = fixture();
+    write(&f.local, "index.md", "# home v2\n");
+    write(&f.local, "posts/new.md", "brand new\n");
+    let before = head_oid(&f.local);
+    let repo = git2::Repository::open(&f.local).unwrap();
+    let missing = f.local.parent().unwrap().join("missing.git");
+    repo.remote_set_url("origin", missing.to_str().unwrap())
+        .unwrap();
+
+    let client = Client::open(f.local.to_str().unwrap()).unwrap();
+    let expected = status_pairs(&client);
+    assert!(client.publish("offline").is_err());
+    assert_eq!(head_oid(&f.local), before);
+    assert_eq!(status_pairs(&client), expected);
+
+    repo.remote_set_url("origin", f.origin.to_str().unwrap())
+        .unwrap();
+    let client = Client::open(f.local.to_str().unwrap()).unwrap();
+    assert_eq!(client.publish("back online").unwrap(), "Published.");
+    assert_eq!(origin_main(&f), head_oid(&f.local));
+    assert!(client.changed_files().unwrap().is_empty());
+}
+
+#[test]
+fn publish_pushes_a_commit_stranded_by_an_earlier_failure() {
+    let f = fixture();
+    write(&f.local, "index.md", "# stranded\n");
+    commit_all(&f.local, "committed but never pushed");
+    let stranded = head_oid(&f.local);
+    assert_ne!(origin_main(&f), stranded);
+
+    let client = Client::open(f.local.to_str().unwrap()).unwrap();
+    assert_eq!(client.publish("retry").unwrap(), "Published.");
+    assert_eq!(origin_main(&f), stranded);
+    assert_eq!(head_oid(&f.local), stranded, "no empty commit is added");
+}
+
+#[test]
+fn failed_scoped_publish_preserves_staged_sibling_changes() {
+    let f = fixture();
+    write(&f.local, "apps/site/index.md", "site\n");
+    write(&f.local, "apps/sibling/index.md", "sibling\n");
+    commit_all(&f.local, "add workspace");
+    push(&f.local);
+
+    write(&f.local, "apps/site/index.md", "site changed\n");
+    write(&f.local, "apps/sibling/index.md", "sibling staged\n");
+    let repo = git2::Repository::open(&f.local).unwrap();
+    let mut index = repo.index().unwrap();
+    index.add_path(Path::new("apps/sibling/index.md")).unwrap();
+    index.write().unwrap();
+    let missing = f.local.parent().unwrap().join("missing.git");
+    repo.remote_set_url("origin", missing.to_str().unwrap())
+        .unwrap();
+
+    let client = Client::open(f.local.join("apps/site").to_str().unwrap()).unwrap();
+    assert!(client.publish("site only").is_err());
+
+    let repo = git2::Repository::open(&f.local).unwrap();
+    let sibling = repo
+        .status_file(Path::new("apps/sibling/index.md"))
+        .unwrap();
+    assert!(sibling.is_index_modified(), "sibling remains staged");
+    let site = repo.status_file(Path::new("apps/site/index.md")).unwrap();
+    assert!(site.is_wt_modified(), "site edit is back to unstaged");
+    assert!(!site.is_index_modified(), "site staging was undone");
+}
+
+#[test]
+fn failed_first_publish_returns_the_branch_to_unborn() {
+    let dir = tempfile::tempdir().unwrap();
+    let local = dir.path().join("local");
+    let mut options = git2::RepositoryInitOptions::new();
+    options.initial_head("main");
+    let repo = git2::Repository::init_opts(&local, &options).unwrap();
+    init_user(&repo, "local");
+    let missing = dir.path().join("missing.git");
+    repo.remote("origin", missing.to_str().unwrap()).unwrap();
+    write(&local, "index.md", "# first\n");
+
+    let client = Client::open(local.to_str().unwrap()).unwrap();
+    assert!(client.publish("first").is_err());
+
+    let error = repo.head().err().expect("HEAD should be unborn");
+    assert_eq!(error.code(), git2::ErrorCode::UnbornBranch);
+    assert_eq!(
+        status_pairs(&client),
+        vec![("??".to_string(), "index.md".to_string())]
+    );
+}
+
+#[test]
+fn repository_lock_blocks_operations_that_rewrite_the_repository() {
+    let f = fixture();
+    write(&f.local, "index.md", "# edited\n");
+    let mut client = Client::open(f.local.to_str().unwrap()).unwrap();
+    let holder = Client::open(f.local.to_str().unwrap()).unwrap();
+    let lock = holder.lock().unwrap();
+
+    for error in [
+        client.publish("blocked").unwrap_err(),
+        client.pull().unwrap_err(),
+        client.revert_file("index.md").unwrap_err(),
+        client
+            .checkout_branch("blocked", true, false)
+            .err()
+            .expect("checkout should be blocked"),
+    ] {
+        assert!(error.contains("still running"), "unexpected error: {error}");
+    }
+    assert_eq!(read(&f.local, "index.md"), "# edited\n");
+
+    drop(lock);
+    assert_eq!(client.publish("unblocked").unwrap(), "Published.");
+}
+
 #[test]
 fn monorepo_status_and_publish_are_scoped_to_selected_project() {
     let f = fixture();

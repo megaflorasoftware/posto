@@ -1,5 +1,6 @@
 pub mod creds;
 
+use fs2::FileExt;
 use git2::build::CheckoutBuilder;
 use git2::{
     Branch, FetchOptions, IndexAddOption, MergeOptions, PushOptions, Repository, Signature,
@@ -249,6 +250,7 @@ impl Client {
         if !self.scope.as_os_str().is_empty() && !Path::new(path).starts_with(&self.scope) {
             return Err(format!("{path} is outside the selected project"));
         }
+        let _lock = self.lock()?;
         let untracked = match status_hint {
             Some(status) => status == "??",
             None => {
@@ -413,6 +415,7 @@ impl Client {
 
     /// Pulls the upstream with "server wins" semantics; see the command doc.
     pub fn pull(&mut self) -> Result<String, String> {
+        let _lock = self.lock()?;
         self.fetch()?;
         let first = match self.merge_upstream() {
             Ok(()) => return Ok("Updated from server.".to_string()),
@@ -593,6 +596,7 @@ impl Client {
         create: bool,
         force: bool,
     ) -> Result<CheckoutOutcome, String> {
+        let _lock = self.lock()?;
         let refname = format!("refs/heads/{name}");
         if create {
             let head = self
@@ -653,8 +657,28 @@ impl Client {
         })
     }
 
-    /// Stages everything, commits, and pushes HEAD to origin.
-    pub fn publish(&self, message: &str) -> Result<String, String> {
+    /// Takes the repository-wide lock that serializes operations which rewrite
+    /// HEAD, the index, or the working tree. It is released on drop.
+    pub fn lock(&self) -> Result<RepositoryLock, String> {
+        let directory = self.repo.commondir().join("posto");
+        std::fs::create_dir_all(&directory)
+            .map_err(|error| format!("Could not prepare the repository lock: {error}"))?;
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(directory.join("publish.lock"))
+            .map_err(|error| format!("Could not open the repository lock: {error}"))?;
+        file.try_lock_exclusive().map_err(|_| {
+            "Another publish or sync is still running for this repository. Try again when it finishes."
+                .to_string()
+        })?;
+        Ok(RepositoryLock { _file: file })
+    }
+
+    /// Stages the selected scope and commits it, leaving the push to the
+    /// caller. The working tree is never touched.
+    fn commit_scoped(&self, message: &str) -> Result<ScopedCommit, String> {
         let mut index = self.repo.index().map_err(err_str)?;
         // add_all picks up new/modified files, update_all staged deletions —
         // together they are `git add -A`.
@@ -700,20 +724,48 @@ impl Client {
         };
         if let Some(head_commit) = &head_commit {
             if head_commit.tree_id() == tree_oid {
-                return Ok("Nothing to publish — no local changes.".to_string());
+                return Ok(ScopedCommit::Unchanged);
             }
         }
         let tree = self.repo.find_tree(tree_oid).map_err(err_str)?;
         let sig = self.signature()?;
         let parents: Vec<&git2::Commit> = head_commit.iter().collect();
-        self.repo
+        let commit = self
+            .repo
             .commit(Some("HEAD"), &sig, &sig, message, &tree, &parents)
             .map_err(err_str)?;
+        Ok(ScopedCommit::Created {
+            commit,
+            parent: head_commit.as_ref().map(git2::Commit::id),
+        })
+    }
 
-        let head = self.repo.head().map_err(err_str)?;
-        let refname = head.name().map_err(err_str)?.to_string();
-        let mut remote = self.repo.find_remote("origin").map_err(err_str)?;
-        let config = self.repo.config().map_err(err_str)?;
+    /// Whether HEAD holds commits its upstream lacks, such as a commit left by
+    /// an earlier push that never landed. No upstream means nothing to compare.
+    fn ahead_of_upstream(&self) -> bool {
+        let Some(local) = self.repo.head().ok().and_then(|head| head.target()) else {
+            return false;
+        };
+        let Some(upstream) = self
+            .upstream()
+            .ok()
+            .and_then(|branch| branch.get().target())
+        else {
+            return false;
+        };
+        self.repo
+            .graph_ahead_behind(local, upstream)
+            .is_ok_and(|(ahead, _)| ahead > 0)
+    }
+
+    /// Pushes HEAD to origin and records origin as the upstream of a branch
+    /// on its first push.
+    fn push_head(&self) -> Result<(), PushFailure> {
+        let transport = |error: git2::Error| PushFailure::Transport(err_str(error));
+        let head = self.repo.head().map_err(transport)?;
+        let refname = head.name().map_err(transport)?.to_string();
+        let mut remote = self.repo.find_remote("origin").map_err(transport)?;
+        let config = self.repo.config().map_err(transport)?;
         // Per-ref push failures (non-fast-forward, rejected hooks) surface
         // through this callback, not as an Err from push().
         let rejection = std::rc::Rc::new(std::cell::RefCell::new(None::<String>));
@@ -729,23 +781,208 @@ impl Client {
         opts.remote_callbacks(callbacks);
         remote
             .push(&[format!("{refname}:{refname}")], Some(&mut opts))
-            .map_err(err_str)?;
+            .map_err(transport)?;
         if let Some(rejection) = rejection.borrow().as_ref() {
-            return Err(format!("Push rejected: {rejection}"));
+            return Err(PushFailure::Rejected(format!("Push rejected: {rejection}")));
         }
-        // First push of a locally-created branch: record origin as its
-        // upstream so the fetch/behind indicators work on it from now on.
-        if head.is_branch() {
-            let mut branch = Branch::wrap(head);
-            if branch.upstream().is_err() {
-                let short = branch.name().ok().flatten().map(|name| name.to_string());
-                if let Some(short) = short {
-                    let upstream = format!("origin/{short}");
-                    let _ = branch.set_upstream(Some(&upstream));
-                }
+        self.record_upstream();
+        Ok(())
+    }
+
+    /// First push of a locally-created branch: record origin as its upstream
+    /// so the fetch/behind indicators work on it from now on.
+    fn record_upstream(&self) {
+        let Ok(head) = self.repo.head() else {
+            return;
+        };
+        if !head.is_branch() {
+            return;
+        }
+        let mut branch = Branch::wrap(head);
+        if branch.upstream().is_err() {
+            let short = branch.name().ok().flatten().map(|name| name.to_string());
+            if let Some(short) = short {
+                let upstream = format!("origin/{short}");
+                let _ = branch.set_upstream(Some(&upstream));
             }
         }
-        Ok("Published.".to_string())
+    }
+
+    /// Whether origin's copy of HEAD's branch already points at `commit`. A
+    /// connection that drops after the server accepted a push reports failure
+    /// even though the commit landed; an unreachable remote answers false.
+    fn remote_has_commit(&self, commit: git2::Oid) -> bool {
+        let Some(refname) = self
+            .repo
+            .head()
+            .ok()
+            .and_then(|head| head.name().ok().map(str::to_string))
+        else {
+            return false;
+        };
+        let Ok(mut remote) = self.repo.find_remote("origin") else {
+            return false;
+        };
+        let Ok(config) = self.repo.config() else {
+            return false;
+        };
+        let callbacks = remote_callbacks(config, platform_creds());
+        let Ok(connection) = remote.connect_auth(git2::Direction::Push, Some(callbacks), None)
+        else {
+            return false;
+        };
+        connection.list().is_ok_and(|heads| {
+            heads
+                .iter()
+                .any(|head| head.name() == refname && head.oid() == commit)
+        })
+    }
+
+    /// Removes a commit whose push failed, provided HEAD still points at it.
+    /// The working tree is untouched, so the changes are ready to publish again.
+    fn rollback_commit(&self, commit: git2::Oid, parent: Option<git2::Oid>) -> Result<(), String> {
+        let head = self.repo.head().map_err(err_str)?;
+        if head.target() != Some(commit) {
+            return Err("HEAD moved while publishing".to_string());
+        }
+        const MESSAGE: &str = "posto: roll back unpublished commit";
+        if head.is_branch() {
+            let refname = head.name().map_err(err_str)?.to_string();
+            match parent {
+                Some(parent) => {
+                    self.repo
+                        .reference_matching(&refname, parent, true, commit, MESSAGE)
+                        .map_err(err_str)?;
+                }
+                // The repository's first commit: return the branch to unborn.
+                None => self
+                    .repo
+                    .find_reference(&refname)
+                    .and_then(|mut reference| reference.delete())
+                    .map_err(err_str)?,
+            }
+            return Ok(());
+        }
+        let parent = parent.ok_or("A detached first commit cannot be rolled back")?;
+        self.repo.set_head_detached(parent).map_err(err_str)
+    }
+
+    /// Commits the selected scope and pushes it as one unit. If the push does
+    /// not land, the commit and staging are undone so the changes stay visible
+    /// and publishable; the working tree is never modified.
+    pub fn publish(&self, message: &str) -> Result<String, String> {
+        let _lock = self.lock()?;
+        let snapshot = IndexSnapshot::capture(&self.repo)?;
+        let committed = match self.commit_scoped(message) {
+            Ok(committed) => committed,
+            Err(error) => {
+                return Err(match snapshot.restore(&self.repo) {
+                    Ok(()) => error,
+                    Err(restore) => format!("{error} (staging could not be restored: {restore})"),
+                });
+            }
+        };
+        let ScopedCommit::Created { commit, parent } = committed else {
+            snapshot.restore(&self.repo)?;
+            if !self.ahead_of_upstream() {
+                return Ok("Nothing to publish — no local changes.".to_string());
+            }
+            // An earlier commit never reached origin, so pushing is the work.
+            return self
+                .push_head()
+                .map(|()| "Published.".to_string())
+                .map_err(PushFailure::into_message);
+        };
+        let failure = match self.push_head() {
+            Ok(()) => return Ok("Published.".to_string()),
+            Err(failure) => failure,
+        };
+        if matches!(failure, PushFailure::Transport(_)) && self.remote_has_commit(commit) {
+            self.record_upstream();
+            return Ok("Published.".to_string());
+        }
+        let message = failure.into_message();
+        let restored = self
+            .rollback_commit(commit, parent)
+            .and_then(|()| snapshot.restore(&self.repo));
+        Err(match restored {
+            Ok(()) => message,
+            Err(error) => format!("{message} (the local commit could not be undone: {error})"),
+        })
+    }
+}
+
+/// Exclusive hold on a repository's publish lock; dropping it releases the lock.
+pub struct RepositoryLock {
+    _file: std::fs::File,
+}
+
+/// What staging the selected scope produced.
+enum ScopedCommit {
+    /// The scope already matches HEAD, so no commit was made.
+    Unchanged,
+    Created {
+        commit: git2::Oid,
+        /// `None` when this is the repository's first commit.
+        parent: Option<git2::Oid>,
+    },
+}
+
+enum PushFailure {
+    /// The remote answered and refused the update, so the commit did not land.
+    Rejected(String),
+    /// The connection failed, so the outcome must be checked against the remote.
+    Transport(String),
+}
+
+impl PushFailure {
+    fn into_message(self) -> String {
+        match self {
+            PushFailure::Rejected(message) | PushFailure::Transport(message) => message,
+        }
+    }
+}
+
+/// The on-disk index as it was before publishing staged anything. Restoring it
+/// returns new files to untracked and preserves staged work outside the scope.
+struct IndexSnapshot {
+    path: PathBuf,
+    /// `None` when the repository had no index file yet.
+    bytes: Option<Vec<u8>>,
+}
+
+impl IndexSnapshot {
+    fn capture(repo: &Repository) -> Result<Self, String> {
+        let index = repo.index().map_err(err_str)?;
+        let path = index
+            .path()
+            .map_or_else(|| repo.path().join("index"), Path::to_path_buf);
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => Some(bytes),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(format!("Could not read the git index: {error}")),
+        };
+        Ok(IndexSnapshot { path, bytes })
+    }
+
+    fn restore(&self, repo: &Repository) -> Result<(), String> {
+        match &self.bytes {
+            Some(bytes) => {
+                let staged = self.path.with_extension("posto-restore");
+                std::fs::write(&staged, bytes)
+                    .and_then(|()| std::fs::rename(&staged, &self.path))
+                    .map_err(|error| format!("Could not restore the git index: {error}"))?;
+            }
+            None => match std::fs::remove_file(&self.path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(format!("Could not restore the git index: {error}")),
+            },
+        }
+        // The repository caches its index, so force a reload from disk.
+        repo.index()
+            .and_then(|mut index| index.read(true))
+            .map_err(err_str)
     }
 }
 
