@@ -148,6 +148,14 @@ export interface ImageLibraryImportResult {
   metadataPath: string;
 }
 
+export interface MediaFileInspection {
+  sha256: string;
+  size: number;
+  contentType: string;
+  /** Display dimensions, or null when the format doesn't declare them. */
+  dimensions: { width: number; height: number } | null;
+}
+
 export interface PublicMediaImportRequest {
   repositoryRoot: string;
   sourceFilePath: string;
@@ -207,6 +215,10 @@ export function importImageLibraryAsset(
   plan: ImageLibraryImportRequest,
 ): Promise<ImageLibraryImportResult> {
   return invoke("import_image_library_asset", { plan });
+}
+
+export function inspectMediaFile(path: string): Promise<MediaFileInspection> {
+  return invoke("media_inspect_file", { path });
 }
 
 export function importPublicMediaFile(request: PublicMediaImportRequest): Promise<string> {

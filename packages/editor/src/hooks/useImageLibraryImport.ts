@@ -2,13 +2,16 @@ import { useState } from "react";
 import { pathEntryId } from "@posto/core/project/entryIds";
 import {
   MediaPlanError,
+  imageDimensionFields,
   matchesImageLibraryPath,
   planMediaImport,
+  withImageDimensions,
   type MediaImportPlan,
 } from "@posto/core/project/mediaLibrary";
 import type { MediaLibrary, MediaLibraryMetadataExtension } from "@posto/core/pagescms/config";
 import {
   importImageLibraryAsset,
+  inspectMediaFile,
   invoke,
   openImageFiles,
   type FileEntry,
@@ -46,6 +49,19 @@ function makeDraft(sourceImagePath: string, library: MediaLibrary): ImageLibrary
     metadata: {},
     metadataExtension: defaultMetadataExtension(library),
   };
+}
+
+/** Adds the image's dimensions when its CDN-bound library stores them. A file
+ * that can't be measured falls through to the schema's own validation. */
+async function metadataForImport(
+  library: MediaLibrary,
+  draft: ImageLibraryImportDraft,
+): Promise<Record<string, unknown>> {
+  if (!library.mediaSource || !imageDimensionFields(library)) return draft.metadata;
+  const inspected = await inspectMediaFile(draft.sourceImagePath).catch(() => null);
+  return inspected?.dimensions
+    ? withImageDimensions(library, draft.metadata, inspected.dimensions)
+    : draft.metadata;
 }
 
 /** Drives a multi-image import into one library: a single chosen location
@@ -106,7 +122,7 @@ export function useImageLibraryImport(input: {
       filename: draft.filename
         ? `${draft.filename}.${sourceExtension(draft.sourceImagePath)}`
         : undefined,
-      metadata: draft.metadata,
+      metadata: await metadataForImport(input.library, draft),
       metadataExtension: draft.metadataExtension,
       existingPaths: files.map((file) => file.path),
       existingEntryIds: files.flatMap((file) =>

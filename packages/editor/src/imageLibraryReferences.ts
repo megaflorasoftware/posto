@@ -44,7 +44,7 @@ export interface ImageLibraryReferenceUpdatePlan {
 const IMAGE_NAME = /^(src|image|img|imgsrc)$/i;
 const REFERENCE_READ_CONCURRENCY = 8;
 
-async function mapWithConcurrency<T, Result>(
+export async function mapWithConcurrency<T, Result>(
   items: T[],
   concurrency: number,
   task: (item: T) => Promise<Result>,
@@ -79,7 +79,16 @@ function valueAt(root: unknown, path: ValuePath): unknown {
   return value;
 }
 
-function entryForPath(config: PagesConfig, root: string, filePath: string): ContentEntry | null {
+/** Whether a schema field can hold a media path that references should follow. */
+export function isImageValueField(field: Field): boolean {
+  return field.type === "image" || IMAGE_NAME.test(field.name);
+}
+
+export function entryForPath(
+  config: PagesConfig,
+  root: string,
+  filePath: string,
+): ContentEntry | null {
   const prefix = root.endsWith("/") ? root : `${root}/`;
   if (!filePath.startsWith(prefix)) return null;
   const relative = filePath.slice(prefix.length);
@@ -150,7 +159,7 @@ function fieldUpdates(
       if (replacement && replacement !== value) updates.push({ path, value: replacement });
       return;
     }
-    if (field.type === "image" || IMAGE_NAME.test(field.name)) {
+    if (isImageValueField(field)) {
       const replacement = outputReplacement(
         value,
         field,

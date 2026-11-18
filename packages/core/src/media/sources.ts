@@ -29,6 +29,38 @@ export function isRemoteMediaUrl(value: string): boolean {
   return /^https?:\/\//i.test(value.trim());
 }
 
+function safeKeySegment(segment: string): string {
+  return segment
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^[.-]+|[.-]+$/g, "");
+}
+
+/** Builds a stable object key. The content hash gives replaced images a new URL,
+ * so CDN caches can't serve stale files and retries reuse finished uploads. */
+export function cdnObjectKey(
+  source: Pick<CdnSource, "prefix">,
+  folder: string,
+  filename: string,
+  sha256: string,
+): string {
+  const dot = filename.lastIndexOf(".");
+  const stem = dot > 0 ? filename.slice(0, dot) : filename;
+  const extension = dot > 0 ? safeKeySegment(filename.slice(dot + 1)).toLowerCase() : "";
+  const name = `${safeKeySegment(stem) || "image"}-${sha256.slice(0, 8)}`;
+  return [
+    ...(source.prefix ? [source.prefix] : []),
+    ...folder.split(/[\\/]/).map(safeKeySegment).filter(Boolean),
+    extension ? `${name}.${extension}` : name,
+  ].join("/");
+}
+
+/** Public URL stored in content for an object key. */
+export function cdnObjectUrl(source: Pick<CdnSource, "publicUrl">, key: string): string {
+  return `${source.publicUrl}/${key.split("/").map(encodeURIComponent).join("/")}`;
+}
+
 const SOURCE_NAME = /^[A-Za-z0-9_-]+$/;
 const DESCRIBE_CALL = /\.describe\(\s*(["'`])((?:\\.|(?!\1)[^\\])*)\1/g;
 const MEDIA_ANNOTATION = /(?:^|\s)posto:media=([A-Za-z0-9_-]+)(?=\s|$)/;

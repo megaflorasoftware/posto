@@ -35,6 +35,7 @@ export * from "./hooks/useSiteUrl";
 export * from "./hooks/useImageLibraryImport";
 export * from "./hooks/useImageLibraryAssets";
 export * from "./hooks/usePublicMediaFiles";
+export * from "./cdnPublish/plan";
 export * from "./imageLibraryReferences";
 export * from "./markdownMedia";
 export * from "./mediaMoves";

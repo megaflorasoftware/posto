@@ -362,6 +362,40 @@ export function discoverImageLibraryAssets(
   return assets;
 }
 
+export interface ImageDimensionFields {
+  width: string[];
+  height: string[];
+}
+
+/** Numeric `width` and `height` fields beside a library's image field. Astro
+ * can't size remote images itself, so CDN-bound libraries store them. */
+export function imageDimensionFields(library: MediaLibrary): ImageDimensionFields | null {
+  const parent = library.imageFieldPath.slice(0, -1);
+  let fields = library.fields;
+  for (const segment of parent) {
+    fields = fields.find((field) => field.name === segment)?.fields ?? [];
+  }
+  const numeric = (name: string) =>
+    fields.some((field) => field.name === name && field.type === "number" && !field.list);
+  return numeric("width") && numeric("height")
+    ? { width: [...parent, "width"], height: [...parent, "height"] }
+    : null;
+}
+
+/** Returns metadata with the library's dimension fields set, when it has any. */
+export function withImageDimensions(
+  library: MediaLibrary,
+  metadata: Record<string, unknown>,
+  dimensions: { width: number; height: number },
+): Record<string, unknown> {
+  const fields = imageDimensionFields(library);
+  if (!fields) return metadata;
+  const next = structuredClone(metadata);
+  setAt(next, fields.width, dimensions.width);
+  setAt(next, fields.height, dimensions.height);
+  return next;
+}
+
 function defaults(fields: Field[], supplied: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = { ...supplied };
   for (const field of fields) {

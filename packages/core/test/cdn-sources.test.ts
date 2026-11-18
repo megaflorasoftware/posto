@@ -1,8 +1,17 @@
 import { describe, expect, test } from "vitest";
 import { buildAstroConfig, parseLoaderConfig } from "../src/astro/collections";
-import { mediaSourceAnnotation, parseCdnSources } from "../src/media/sources";
+import {
+  cdnObjectKey,
+  cdnObjectUrl,
+  mediaSourceAnnotation,
+  parseCdnSources,
+} from "../src/media/sources";
 import { mediaInputPath, type MediaLibrary, type PagesConfig } from "../src/pagescms/config";
-import { discoverImageLibraryAssets } from "../src/project/mediaLibrary";
+import {
+  discoverImageLibraryAssets,
+  imageDimensionFields,
+  withImageDimensions,
+} from "../src/project/mediaLibrary";
 import {
   mergePostoConfig,
   parsePostoIndex,
@@ -179,6 +188,89 @@ export const collections = { photos, local, posts };
     const merged = mergePostoConfig(config, posto);
     expect(merged.cdnSources?.[0].name).toBe("cdn");
     expect(merged.diagnostics?.some((item) => item.feature === "cdn-media")).toBe(false);
+  });
+});
+
+describe("CDN object keys", () => {
+  const sha256 = "1a2b3c4d".repeat(8);
+
+  test.each([
+    ["images", "trips", "harbor.jpg", "images/trips/harbor-1a2b3c4d.jpg"],
+    [undefined, "", "harbor.JPG", "harbor-1a2b3c4d.jpg"],
+    [
+      "images",
+      "My Trips/2026",
+      "Sunset at Sea (1).jpeg",
+      "images/My-Trips/2026/Sunset-at-Sea-1-1a2b3c4d.jpeg",
+    ],
+    ["images", "../secret/./", "..hidden.png", "images/secret/hidden-1a2b3c4d.png"],
+    ["images", "", "日本語.webp", "images/image-1a2b3c4d.webp"],
+    ["images", "", "no-extension", "images/no-extension-1a2b3c4d"],
+  ])("prefix %s, folder %s, file %s", (prefix, folder, filename, key) => {
+    expect(cdnObjectKey({ prefix }, folder, filename, sha256)).toBe(key);
+  });
+
+  test("builds public URLs from keys", () => {
+    const source = { publicUrl: "https://media.example.com/site" };
+    expect(cdnObjectUrl(source, "images/a-1a2b3c4d.jpg")).toBe(
+      "https://media.example.com/site/images/a-1a2b3c4d.jpg",
+    );
+  });
+});
+
+describe("library image dimensions", () => {
+  const nested: MediaLibrary = {
+    collection: "photos",
+    base: "src/data/photos",
+    patterns: ["**/*.yaml"],
+    metadataExtensions: ["yaml"],
+    imageFieldPath: ["asset", "src"],
+    fields: [
+      {
+        name: "asset",
+        type: "object",
+        fields: [
+          { name: "src", type: "image" },
+          { name: "width", type: "number" },
+          { name: "height", type: "number" },
+        ],
+      },
+    ],
+  };
+
+  test("finds numeric fields beside the image field", () => {
+    expect(imageDimensionFields(nested)).toEqual({
+      width: ["asset", "width"],
+      height: ["asset", "height"],
+    });
+  });
+
+  test("requires both numeric fields", () => {
+    const partial = {
+      ...nested,
+      fields: [{ ...nested.fields[0], fields: nested.fields[0].fields!.slice(0, 2) }],
+    };
+    const textual = {
+      ...nested,
+      fields: [
+        {
+          ...nested.fields[0],
+          fields: nested.fields[0].fields!.map((field) =>
+            field.name === "height" ? { ...field, type: "string" } : field,
+          ),
+        },
+      ],
+    };
+    expect(imageDimensionFields(partial)).toBeNull();
+    expect(imageDimensionFields(textual)).toBeNull();
+  });
+
+  test("sets dimensions without changing the original metadata", () => {
+    const metadata = { asset: { alt: "Harbor" } };
+    expect(withImageDimensions(nested, metadata, { width: 40, height: 20 })).toEqual({
+      asset: { alt: "Harbor", width: 40, height: 20 },
+    });
+    expect(metadata).toEqual({ asset: { alt: "Harbor" } });
   });
 });
 

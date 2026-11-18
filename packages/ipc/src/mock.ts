@@ -485,6 +485,13 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     }
     case "image_thumbnail":
       return args?.path as string;
+    case "media_inspect_file":
+      return {
+        sha256: "0123456789abcdef".repeat(4),
+        size: 1024,
+        contentType: "image/jpeg",
+        dimensions: { width: 1200, height: 800 },
+      };
     case "list_directories": {
       const dir = args?.dir as string;
       const directories = new Set<string>([`${dir}/nested`]);
