@@ -453,10 +453,19 @@ async function prepareImageSource(path: string): Promise<string> {
   return converted;
 }
 
-/** When a photo was taken, from the metadata of the file the user chose, or
- * null when it has none. */
-export function readCaptureDate(path: string): Promise<string | null> {
-  return invoke("media_capture_date", { path: convertedSources.get(path) ?? path });
+export interface ImageDetails {
+  captureDate: string | null;
+  dimensions: { width: number; height: number } | null;
+}
+
+/** A photo's capture date and display size. A converted HEIC is measured as
+ * imported, while its date comes from the original, since converting drops it. */
+export async function readImageDetails(path: string): Promise<ImageDetails> {
+  const details = await invoke<ImageDetails>("media_image_details", { path });
+  const original = convertedSources.get(path);
+  if (!original) return details;
+  const source = await invoke<ImageDetails>("media_image_details", { path: original });
+  return { ...details, captureDate: source.captureDate ?? details.captureDate };
 }
 
 /** Normalizes chosen or dropped source images so the importer always receives a

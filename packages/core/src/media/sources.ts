@@ -1,3 +1,5 @@
+import { mediaSourceFromDescription } from "../posto/annotations";
+
 // CDN-backed media sources. A site's schema declares that a field or library
 // uses a source by name; `.posto/index.json` supplies that source's connection
 // details. Secrets are never part of this model: they stay in each device's
@@ -6,7 +8,7 @@
 export type CdnProvider = "bunny" | "s3";
 
 export interface CdnSource {
-  /** Name referenced by schemas, e.g. `posto:media=cdn`. */
+  /** Name referenced by schemas, e.g. `value=posto.media.cdn`. */
   name: string;
   label?: string;
   provider: CdnProvider;
@@ -86,13 +88,12 @@ export function cdnObjectForUrl(
 
 const SOURCE_NAME = /^[A-Za-z0-9_-]+$/;
 const DESCRIBE_CALL = /\.describe\(\s*(["'`])((?:\\.|(?!\1)[^\\])*)\1/g;
-const MEDIA_ANNOTATION = /(?:^|\s)posto:media=([A-Za-z0-9_-]+)(?=\s|$)/;
 
 /** Reads the CDN source named by a schema expression's `.describe()` text, as
- * in `image().describe("posto:media=cdn")`. */
+ * in `image().describe("value=posto.media.cdn")`. */
 export function mediaSourceAnnotation(expression: string): string | undefined {
   for (const call of expression.matchAll(DESCRIBE_CALL)) {
-    const source = call[2].match(MEDIA_ANNOTATION)?.[1];
+    const source = mediaSourceFromDescription(call[2]);
     if (source) return source;
   }
   return undefined;

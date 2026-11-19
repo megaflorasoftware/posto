@@ -4,15 +4,9 @@ import type {
   MediaLibraryMetadataExtension,
 } from "@posto/core/pagescms/config";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
-import { imageDimensionFields } from "@posto/core/project/mediaLibrary";
 
 export function imageLibraryMetadataFields(library: MediaLibrary): Field[] {
-  // Posto measures annotated dimension fields, so editors never type them.
-  const dimensions = imageDimensionFields(library);
-  const managed = [
-    library.imageFieldPath,
-    ...(dimensions ? [...dimensions.width, ...dimensions.height] : []),
-  ];
+  const managed = [library.imageFieldPath];
   const omitImageField = (fields: Field[], prefix: string[] = []): Field[] =>
     fields.flatMap((field) => {
       const path = [...prefix, field.name];

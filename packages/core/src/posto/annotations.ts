@@ -1,33 +1,70 @@
 import type { Field } from "../pagescms/config";
 
-// Field annotations in schema descriptions name the field a value comes from:
-// `z.date().describe("image:default=capture-date")` fills the field with the
-// capture date of the photo in the `image` field. Astro copies descriptions
-// into its generated JSON schemas, so they work without running the site. The
-// `posto:` prefix is reserved for settings, such as `posto:media=<source>`.
+// Annotations in schema descriptions follow `action=global.key.subkey`. The
+// action is `initial` for an editable default, or `value` for a value Posto
+// controls and shows locked:
+//   initial=schema.image.width              default to the `image` photo's width
+//   value=schema.image.width                always the `image` photo's width
+//   value=posto.media.bunny-photos-bucket   images live in that CDN source
+// The global key says where the value comes from, so annotations can't
+// collide with field names. Astro copies descriptions into its generated JSON
+// schemas, so they work without running the site.
 
 /** Values Posto can fill in when an import creates a library entry. */
 export const FIELD_DEFAULTS = ["capture-date", "width", "height"] as const;
 export type FieldDefault = (typeof FIELD_DEFAULTS)[number];
 
-/** A field's default: one property of the image in another field. */
+/** A value taken from the image in another field. */
 export interface FieldDefaultSource {
   /** Path to the image field, from the entry's root. */
   field: string[];
   value: FieldDefault;
+  /** `value=` annotations are locked; `initial=` ones are editable defaults. */
+  locked: boolean;
 }
 
-const DEFAULT_ANNOTATION =
-  /(?:^|\s)([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*):default=([A-Za-z0-9_-]+)(?=\s|$)/g;
+interface Annotation {
+  action: string;
+  /** The global key, then the key path, then the subkey. */
+  path: string[];
+}
 
-/** Reads `<field>:default=<value>` from a schema description. Unknown values
- * are ignored, so a typo leaves the field empty rather than guessing. */
+const ANNOTATION = /(?:^|\s)([a-z][a-z-]*)=([A-Za-z0-9_$-]+(?:\.[A-Za-z0-9_$-]+){2,})(?=\s|$)/g;
+const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
+const SOURCE_NAME = /^[A-Za-z0-9_-]+$/;
+
+function annotations(text: string): Annotation[] {
+  return [...text.matchAll(ANNOTATION)].map(([, action, path]) => ({
+    action,
+    path: path.split("."),
+  }));
+}
+
+/** Reads `initial=schema.<image field>.<value>` or the locked
+ * `value=schema.…` form from a schema description. Unknown values are
+ * ignored, so a typo leaves the field empty. */
 export function fieldDefaultAnnotation(description: unknown): FieldDefaultSource | undefined {
   if (typeof description !== "string") return undefined;
-  for (const [, field, value] of description.matchAll(DEFAULT_ANNOTATION)) {
-    if (field === "posto") continue;
-    const known = FIELD_DEFAULTS.find((candidate) => candidate === value);
-    if (known) return { field: field.split("."), value: known };
+  for (const { action, path } of annotations(description)) {
+    const [scope, ...rest] = path;
+    if ((action !== "initial" && action !== "value") || scope !== "schema") continue;
+    const field = rest.slice(0, -1);
+    const value = FIELD_DEFAULTS.find((known) => known === rest[rest.length - 1]);
+    if (value && field.length > 0 && field.every((part) => IDENTIFIER.test(part))) {
+      return { field, value, locked: action === "value" };
+    }
+  }
+  return undefined;
+}
+
+/** Reads `value=posto.media.<source>`, the CDN source that stores a field's
+ * images, from description text. */
+export function mediaSourceFromDescription(description: string): string | undefined {
+  for (const { action, path } of annotations(description)) {
+    const [scope, key, source, ...rest] = path;
+    if (action === "value" && scope === "posto" && key === "media" && rest.length === 0) {
+      if (SOURCE_NAME.test(source)) return source;
+    }
   }
   return undefined;
 }
@@ -37,6 +74,11 @@ export function defaultSourceOf(field: Field): FieldDefaultSource | undefined {
   return source && Array.isArray(source.field) && typeof source.value === "string"
     ? source
     : undefined;
+}
+
+/** Whether Posto controls the field's value, so editors can't change it. */
+export function isLockedField(field: Field): boolean {
+  return defaultSourceOf(field)?.locked === true;
 }
 
 function samePath(left: string[], right: string[]): boolean {
@@ -56,13 +98,21 @@ export function annotatedFields(
   });
 }
 
+/** Annotated fields that take their value from the image at `imageField`. */
+export function imageFields(
+  fields: Field[],
+  imageField: string[],
+): Array<{ path: string[]; source: FieldDefaultSource }> {
+  return annotatedFields(fields).filter(({ source }) => samePath(source.field, imageField));
+}
+
 /** Paths of the fields filled with `value` from the image at `imageField`. */
 export function fieldsWithDefault(
   fields: Field[],
   value: FieldDefault,
   imageField: string[],
 ): string[][] {
-  return annotatedFields(fields)
-    .filter(({ source }) => source.value === value && samePath(source.field, imageField))
+  return imageFields(fields, imageField)
+    .filter(({ source }) => source.value === value)
     .map(({ path }) => path);
 }

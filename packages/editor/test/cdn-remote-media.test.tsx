@@ -188,3 +188,35 @@ test("deleting a folder records the CDN images inside it", async () => {
   expect(recordMediaDelete).toHaveBeenCalledOnce();
   expect(vi.mocked(recordMediaDelete).mock.calls[0][1].metadataPath).toBe(nested.metadataPath);
 });
+
+test("locked fields are shown but can't be edited", async () => {
+  const { FieldEditor } = await import("../src/components/FieldEditor");
+  const field = (locked: boolean) => ({
+    name: locked ? "width" : "height",
+    type: "number",
+    options: { defaultFrom: { field: ["src"], value: "width", locked } },
+  });
+  const ctx = {
+    config: { media: [], content: [] } as PagesConfig,
+    root: "/repo",
+    entry: null,
+    groups: [],
+    errors: () => new Map(),
+    templateValues: () => ({}),
+    value: () => 1600,
+    edit: vi.fn(),
+    listAppend: vi.fn(),
+    listRemove: vi.fn(),
+    listMove: vi.fn(),
+  };
+  renderWithTheme(
+    <>
+      <FieldEditor field={field(true)} path={["width"]} ctx={ctx} />
+      <FieldEditor field={field(false)} path={["height"]} ctx={ctx} />
+    </>,
+  );
+
+  const [locked, editable] = screen.getAllByRole("textbox");
+  expect(locked).toHaveProperty("disabled", true);
+  expect(editable).toHaveProperty("disabled", false);
+});

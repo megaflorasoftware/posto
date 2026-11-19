@@ -2,21 +2,18 @@ import { useEffect, useState } from "react";
 import { pathEntryId } from "@posto/core/project/entryIds";
 import {
   MediaPlanError,
-  imageDimensionFields,
   matchesImageLibraryPath,
   planMediaImport,
-  withImageDimensions,
+  usesImageDetails,
+  withImageDetails,
   type MediaImportPlan,
 } from "@posto/core/project/mediaLibrary";
 import type { MediaLibrary, MediaLibraryMetadataExtension } from "@posto/core/pagescms/config";
-import { fieldsWithDefault } from "@posto/core/posto/annotations";
-import { editValueAtPath, valueAtPath } from "../imageLibraryMetadata";
 import {
   importImageLibraryAsset,
-  inspectMediaFile,
   invoke,
   openImageFiles,
-  readCaptureDate,
+  readImageDetails,
   type FileEntry,
   type ImageLibraryImportResult,
 } from "@posto/ipc";
@@ -54,49 +51,21 @@ function makeDraft(sourceImagePath: string, library: MediaLibrary): ImageLibrary
   };
 }
 
-function isEmpty(value: unknown): boolean {
-  return value === undefined || value === null || value === "";
+/** Reads the image's details when the library's schema takes values from it.
+ * A file that can't be read leaves those fields to the schema's validation. */
+async function detailsFor(library: MediaLibrary, sourceImagePath: string) {
+  if (!usesImageDetails(library)) return null;
+  return readImageDetails(sourceImagePath).catch(() => null);
 }
 
-/** Fills empty capture-date fields, leaving anything the user entered. */
-function withCaptureDate(
-  library: MediaLibrary,
-  metadata: Record<string, unknown>,
-  date: string | null,
-): Record<string, unknown> {
-  if (!date) return metadata;
-  return fieldsWithDefault(library.fields, "capture-date", library.imageFieldPath).reduce(
-    (current, path) =>
-      isEmpty(valueAtPath(current, path)) ? editValueAtPath(current, path, date) : current,
-    metadata,
-  );
-}
-
-async function captureDateFor(library: MediaLibrary, sourceImagePath: string) {
-  if (fieldsWithDefault(library.fields, "capture-date", library.imageFieldPath).length === 0) {
-    return null;
-  }
-  return readCaptureDate(sourceImagePath).catch(() => null);
-}
-
-/** Adds the capture date and dimensions that the library's schema asks for. A
- * file that can't be measured falls through to the schema's own validation. */
 async function metadataForImport(
   library: MediaLibrary,
   draft: ImageLibraryImportDraft,
 ): Promise<Record<string, unknown>> {
-  // The form normally shows the capture date already; this covers an import
-  // that starts before reading it finished.
-  const metadata = withCaptureDate(
-    library,
-    draft.metadata,
-    await captureDateFor(library, draft.sourceImagePath),
-  );
-  if (!imageDimensionFields(library)) return metadata;
-  const inspected = await inspectMediaFile(draft.sourceImagePath).catch(() => null);
-  return inspected?.dimensions
-    ? withImageDimensions(library, metadata, inspected.dimensions)
-    : metadata;
+  // The form normally shows these values already; this covers an import that
+  // starts before reading the image finished.
+  const details = await detailsFor(library, draft.sourceImagePath);
+  return details ? withImageDetails(library, draft.metadata, details) : draft.metadata;
 }
 
 /** Drives a multi-image import into one library: a single chosen location
@@ -118,16 +87,16 @@ export function useImageLibraryImport(input: {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  /** Shows each photo's capture date in the form, where it can be adjusted
-   * before importing. Values the user already typed are kept. */
-  function prefillCaptureDates(paths: string[], library: MediaLibrary) {
+  /** Shows the values each photo provides in the form, where editable ones
+   * can be adjusted before importing. Values the user already typed are kept. */
+  function prefillImageDetails(paths: string[], library: MediaLibrary) {
     for (const path of paths) {
-      void captureDateFor(library, path).then((date) => {
-        if (!date) return;
+      void detailsFor(library, path).then((details) => {
+        if (!details) return;
         setDrafts((current) =>
           current.map((draft) =>
             draft.sourceImagePath === path
-              ? { ...draft, metadata: withCaptureDate(library, draft.metadata, date) }
+              ? { ...draft, metadata: withImageDetails(library, draft.metadata, details) }
               : draft,
           ),
         );
@@ -136,7 +105,7 @@ export function useImageLibraryImport(input: {
   }
 
   useEffect(() => {
-    prefillCaptureDates(input.initialSources ?? [], input.library);
+    prefillImageDetails(input.initialSources ?? [], input.library);
     // Only the sources the importer opened with; later ones prefill as chosen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -145,7 +114,7 @@ export function useImageLibraryImport(input: {
     setDrafts(paths.map((path) => makeDraft(path, input.library)));
     setIndex(0);
     setError(null);
-    prefillCaptureDates(paths, input.library);
+    prefillImageDetails(paths, input.library);
   }
 
   function retarget(library: MediaLibrary) {
@@ -154,7 +123,7 @@ export function useImageLibraryImport(input: {
     setDrafts((current) => current.map((draft) => makeDraft(draft.sourceImagePath, library)));
     setIndex(0);
     setError(null);
-    prefillCaptureDates(paths, library);
+    prefillImageDetails(paths, library);
   }
 
   function updateDraft(

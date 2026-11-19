@@ -75,11 +75,15 @@ const library: MediaLibrary = {
   fields: [
     { name: "src", type: "image", required: true },
     { name: "alt", type: "string" },
-    { name: "width", type: "number", options: { defaultFrom: { field: ["src"], value: "width" } } },
+    {
+      name: "width",
+      type: "number",
+      options: { defaultFrom: { field: ["src"], value: "width", locked: false } },
+    },
     {
       name: "height",
       type: "number",
-      options: { defaultFrom: { field: ["src"], value: "height" } },
+      options: { defaultFrom: { field: ["src"], value: "height", locked: false } },
     },
   ],
 };
@@ -247,6 +251,31 @@ describe("CDN-bound libraries", () => {
     const plan = await planCdnPublish({ root, config: config(), groups: [] });
 
     expect(plan.writes[0].content).toContain("width: 1200");
+    expect(plan.writes[0].content).toContain("height: 800");
+  });
+
+  test("locked dimensions are replaced with the image's", async () => {
+    addLibraryImage();
+    files.set(
+      `${root}/src/data/photos/trips/harbor.yaml`,
+      "src: ./harbor.jpg\nwidth: 1200\nheight: 800\n",
+    );
+    const locked = {
+      ...library,
+      fields: library.fields.map((field) =>
+        field.name === "width"
+          ? { ...field, options: { defaultFrom: { field: ["src"], value: "width", locked: true } } }
+          : field,
+      ),
+    };
+
+    const plan = await planCdnPublish({
+      root,
+      config: config({ mediaLibraries: [locked] }),
+      groups: [],
+    });
+
+    expect(plan.writes[0].content).toContain("width: 1600");
     expect(plan.writes[0].content).toContain("height: 800");
   });
 
@@ -501,7 +530,7 @@ describe("first migrations", () => {
 
 describe("unreadable schemas", () => {
   test("blocks when the content config names a source Posto can't resolve", async () => {
-    files.set(`${root}/src/content.config.ts`, 'src: image().describe("posto:media=cdn")');
+    files.set(`${root}/src/content.config.ts`, 'src: image().describe("value=posto.media.cdn")');
 
     const plan = await planCdnPublish({
       root,
@@ -513,7 +542,7 @@ describe("unreadable schemas", () => {
   });
 
   test("an annotation without a defined source doesn't block publishing", async () => {
-    files.set(`${root}/src/content.config.ts`, 'src: image().describe("posto:media=cdn")');
+    files.set(`${root}/src/content.config.ts`, 'src: image().describe("value=posto.media.cdn")');
 
     const plan = await planCdnPublish({
       root,

@@ -46,31 +46,36 @@ credit: Jane Rivera
 
 JSON metadata works the same way: use `**/*.json` as the pattern and store each entry as JSON. The image field may be nested inside an object, such as `z.object({ image: image(), focalPoint: z.string() })`, but it cannot be inside a list.
 
-## Filling fields at import
+## Filling fields from the photo
 
-Add `<image field>:default=<value>` to a field's description and Posto fills that field from the photo in the named image field when an import creates the entry:
+A field can take its value from the photo in the library's image field. Annotate it in the field's description, in the form `action=schema.<image field>.<value>`:
 
 ```ts
 schema: ({ image }) =>
   z.object({
     src: image(),
-    taken_at: z.date().optional().describe("src:default=capture-date"),
-    width: z.number().optional().describe("src:default=width"),
-    height: z.number().optional().describe("src:default=height"),
+    taken_at: z.date().optional().describe("initial=schema.src.capture-date"),
+    width: z.number().optional().describe("value=schema.src.width"),
+    height: z.number().optional().describe("value=schema.src.height"),
   }),
 ```
 
-| Value          | Fills the field with                                                                          |
+The action decides who controls the field:
+
+- **`initial`** sets a default when an import creates the entry. It appears in the import form, so you can change it, and Posto never replaces a value that's already set.
+- **`value`** makes Posto control the field. It's always set from the photo and appears in forms locked.
+
+| Value          | Takes                                                                                         |
 | -------------- | --------------------------------------------------------------------------------------------- |
 | `capture-date` | When the photo was taken, from its metadata, in local time. Empty when the photo has no date. |
 | `width`        | The width the photo displays at, after any rotation recorded by the camera.                   |
 | `height`       | The height the photo displays at, after any rotation recorded by the camera.                  |
 
-The part before the colon is the image field's name, or a dotted path such as `asset.src` for a nested one. If it doesn't name the library's image field, Posto shows a warning and leaves the field empty. Posto never replaces a value that's already set. The capture date appears in the import form, so you can change it, and it's only filled at import. Width and height are measured exactly, so Posto hides them from the form. When a library [stores images on a CDN](/frameworks/cdn-media/), Posto also fills any empty width and height when it uploads an image, because the original leaves the device at that point.
+The middle part is the image field's name, or a dotted path such as `asset.src` for a nested one. If it doesn't name the library's image field, Posto shows a warning and leaves the field alone. When a library [stores images on a CDN](/frameworks/cdn-media/), Posto also sets width and height when it uploads an image, because the original leaves the device at that point. Capture dates are only read at import.
 
 ## Storing images on a CDN
 
-A library can keep its images on Bunny Storage or an S3-compatible service instead of in the repository. Add `posto:media=<name>` to the image field's description, as in `image().describe("posto:media=cdn")`, and define the source in `.posto/index.json`. See [CDN media](/frameworks/cdn-media/).
+A library can keep its images on Bunny Storage or an S3-compatible service instead of in the repository. Add `value=posto.media.<name>` to the image field's description, as in `image().describe("value=posto.media.cdn")`, and define the source in `.posto/index.json`. See [CDN media](/frameworks/cdn-media/).
 
 ## When a collection is skipped
 

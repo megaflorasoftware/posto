@@ -67,7 +67,7 @@ function textField(name: string): Field {
   return { name, type: "text" };
 }
 
-/** Converts one schema property and records any `<field>:default=` annotation
+/** Converts one schema property and records any `initial=schema.…` annotation
  * from its description. */
 function convertSchema(name: string, schema: JsonSchema, required: boolean): Field {
   const field = convertSchemaShape(name, schema, required);
@@ -567,7 +567,7 @@ function discoverImageLibraries(
         feature: "media-library",
         collection: collection.name,
         code: "unmatched-default-source",
-        message: `${collection.name} field ${path.join(".")} takes its default from "${source.field.join(".")}", but the image field is "${imageField}", so Posto won't fill it.`,
+        message: `${collection.name} field ${path.join(".")} takes its initial value from "${source.field.join(".")}", but the image field is "${imageField}", so Posto won't fill it.`,
       });
     }
     libraries.push({

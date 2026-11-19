@@ -33,6 +33,7 @@ import {
 } from "@posto/core/project/dataDocument";
 import {
   discoverImageLibraryAssets,
+  imageDetailUpdates,
   imageDimensionFields,
   type ImageLibraryAsset,
 } from "@posto/core/project/mediaLibrary";
@@ -225,7 +226,7 @@ async function unreadableBindingBlockers(context: PlanContext): Promise<string[]
     const source = await invoke<string | null>("read_text_file_optional", {
       path: `${root}/${path}`,
     });
-    if (source?.includes("posto:media=")) {
+    if (source?.includes("value=posto.media.")) {
       return [
         `${path} assigns images to a CDN source, but Posto can't read this site's generated schemas. Run the site once and commit .astro/collections, then publish again.`,
       ];
@@ -573,18 +574,17 @@ function rewriteMetadata(
   const parsed = parseDataDocument(image.previous, format);
   if (parsed.error) return { blocker: `${asset.metadataPath}: ${parsed.error}` };
   setDataValue(parsed, library.imageFieldPath, upload.url);
-  const fields = imageDimensionFields(library);
-  const paths = fields ? [...fields.width, ...fields.height] : [];
-  const missing = paths.filter((path) => {
-    const value = valueAt(asset.metadata, path);
-    return value === undefined || value === null || value === "";
-  });
-  if (fields && inspection.dimensions) {
-    const { width, height } = inspection.dimensions;
-    for (const path of missing) {
-      setDataValue(parsed, path, fields.width.includes(path) ? width : height);
-    }
-  } else {
+  // Capture dates are only taken at import, so publishing fills dimensions.
+  const details = { captureDate: null, dimensions: inspection.dimensions };
+  for (const { path, value } of imageDetailUpdates(library, asset.metadata, details)) {
+    setDataValue(parsed, path, value);
+  }
+  if (!inspection.dimensions) {
+    const fields = imageDimensionFields(library);
+    const missing = (fields ? [...fields.width, ...fields.height] : []).filter((path) => {
+      const value = valueAt(asset.metadata, path);
+      return value === undefined || value === null || value === "";
+    });
     const required = missing.some((path) => fieldAtPath(library.fields, path)?.required === true);
     if (required) {
       return {

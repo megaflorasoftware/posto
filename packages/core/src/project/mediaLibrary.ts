@@ -2,7 +2,7 @@ import YAML from "yaml";
 import picomatch from "picomatch";
 import type { MediaLibrary, Field, MediaLibraryMetadataExtension } from "../pagescms/config";
 import { isRemoteMediaUrl } from "../media/sources";
-import { fieldsWithDefault } from "../posto/annotations";
+import { fieldsWithDefault, imageFields } from "../posto/annotations";
 import { validateForm } from "../pagescms/validate";
 import { pathEntryId } from "./entryIds";
 
@@ -368,7 +368,7 @@ export interface ImageDimensionFields {
   height: string[][];
 }
 
-/** Fields annotated `<image field>:default=width` or `…=height`. Astro can't
+/** Fields annotated `initial=schema.<image field>.width` or `….height`. Astro can't
  * size remote images itself, so CDN images rely on them. */
 export function imageDimensionFields(library: MediaLibrary): ImageDimensionFields | null {
   const width = fieldsWithDefault(library.fields, "width", library.imageFieldPath);
@@ -380,22 +380,43 @@ function emptyValue(value: unknown): boolean {
   return value === undefined || value === null || value === "";
 }
 
-/** Fills the library's empty dimension fields, keeping any existing value. */
-export function withImageDimensions(
+/** Facts read from an image file. */
+export interface ImageDetails {
+  captureDate: string | null;
+  dimensions: { width: number; height: number } | null;
+}
+
+/** Whether any field takes its value from the library's image. */
+export function usesImageDetails(library: MediaLibrary): boolean {
+  return imageFields(library.fields, library.imageFieldPath).length > 0;
+}
+
+/** The writes that bring a library entry in line with its image. Locked
+ * (`value=`) fields always take the image's value; editable defaults
+ * (`initial=`) only fill an empty field. */
+export function imageDetailUpdates(
   library: MediaLibrary,
   metadata: Record<string, unknown>,
-  dimensions: { width: number; height: number },
+  details: ImageDetails,
+): Array<{ path: string[]; value: string | number }> {
+  return imageFields(library.fields, library.imageFieldPath).flatMap(({ path, source }) => {
+    const value =
+      source.value === "capture-date" ? details.captureDate : details.dimensions?.[source.value];
+    if (value === null || value === undefined) return [];
+    return source.locked || emptyValue(valueAt(metadata, path)) ? [{ path, value }] : [];
+  });
+}
+
+/** Returns metadata updated from the image, without changing the original. */
+export function withImageDetails(
+  library: MediaLibrary,
+  metadata: Record<string, unknown>,
+  details: ImageDetails,
 ): Record<string, unknown> {
-  const fields = imageDimensionFields(library);
-  if (!fields) return metadata;
+  const updates = imageDetailUpdates(library, metadata, details);
+  if (updates.length === 0) return metadata;
   const next = structuredClone(metadata);
-  const fill = (paths: string[][], value: number) => {
-    for (const path of paths) {
-      if (emptyValue(valueAt(next, path))) setAt(next, path, value);
-    }
-  };
-  fill(fields.width, dimensions.width);
-  fill(fields.height, dimensions.height);
+  for (const { path, value } of updates) setAt(next, path, value);
   return next;
 }
 

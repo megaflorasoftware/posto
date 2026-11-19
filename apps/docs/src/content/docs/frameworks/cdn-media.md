@@ -52,22 +52,22 @@ For Bunny, Posto uses the storage API that works on every zone, so a zone doesn'
 
 ### Astro
 
-Add `posto:media=<name>` to the image field's description, where `<name>` is the source's `name` from `.posto/index.json`, not its bucket. On a [media library](/frameworks/astro/media-libraries/), this moves every image in the library:
+Add `value=posto.media.<name>` to the image field's description, where `<name>` is the source's `name` from `.posto/index.json`, not its bucket. On a [media library](/frameworks/astro/media-libraries/), this moves every image in the library:
 
 ```ts
 const photos = defineCollection({
   loader: glob({ base: "./src/data/photos", pattern: "**/*.yaml" }),
   schema: ({ image }) =>
     z.object({
-      src: image().describe("posto:media=cdn"),
+      src: image().describe("value=posto.media.cdn"),
       alt: z.string(),
-      width: z.number().optional().describe("src:default=width"),
-      height: z.number().optional().describe("src:default=height"),
+      width: z.number().optional().describe("value=schema.src.width"),
+      height: z.number().optional().describe("value=schema.src.height"),
     }),
 });
 ```
 
-The same annotation works on an image field in any collection. The description can include other text, as long as `posto:media=cdn` is a separate word.
+The same annotation works on an image field in any collection. The description can include other text, as long as `value=posto.media.cdn` is a separate word.
 
 Commit the generated `.astro/collections` folder if editors use Posto on iOS. Phones can't run Astro to generate it, and Posto won't publish CDN images when it can't read the schema.
 
@@ -88,7 +88,7 @@ The `input` folder holds images until they're published. Every image in it uploa
 
 `image()` accepts both local paths and URLs, so one library can hold local and CDN images while it migrates. In a template, a local image arrives as image metadata, and a CDN image arrives as a URL string.
 
-Astro can't measure remote images, so `<Image>` needs a width and height for them. Without those, the site build fails with `MissingImageDimension`. Mark the library's `width` and `height` fields with `src:default=width` and `src:default=height`, naming the image field as in the schema above. Posto then fills them at import and, for images already in the repository, when it uploads them, and hides them from editors. See [filling fields at import](/frameworks/astro/media-libraries/#filling-fields-at-import):
+Astro can't measure remote images, so `<Image>` needs a width and height for them. Without those, the site build fails with `MissingImageDimension`. Mark the library's `width` and `height` fields with `value=schema.src.width` and `value=schema.src.height`, naming the image field as in the schema above. Posto then sets them at import and, for images already in the repository, when it uploads them. Use `initial=` instead if editors should be able to change them. See [filling fields from the photo](/frameworks/astro/media-libraries/#filling-fields-from-the-photo):
 
 ```astro
 ---

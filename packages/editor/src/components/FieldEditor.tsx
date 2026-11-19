@@ -20,6 +20,7 @@ import {
 } from "@posto/core/pagescms/config";
 import type { EntryIdSource } from "@posto/core/project/entryIds";
 import { expandEntryName } from "@posto/core/posto/config";
+import { isLockedField } from "@posto/core/posto/annotations";
 import { applyCollectionPrefs } from "../collectionPrefs";
 import { dateControlValue, dateValueFromControl } from "../dateValues";
 import {
@@ -455,6 +456,8 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
       <CreateReferenceAction field={props.field} path={props.path} ctx={props.ctx} />
     ) : null;
 
+  // Posto sets locked (`value=`) fields itself, so they're shown read-only.
+  const locked = isLockedField(props.field);
   const control = () => {
     const field = props.field;
     switch (field.type) {
@@ -478,7 +481,7 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
             className="templated-control"
             size="xs"
             rows={rows}
-            disabled={templateSchema?.editBehavior === "controlled"}
+            disabled={locked || templateSchema?.editBehavior === "controlled"}
             value={asString(value)}
             rightSection={regenerate}
             rightSectionPointerEvents="all"
@@ -488,7 +491,7 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
           <TextInput
             className="templated-control"
             size="xs"
-            disabled={templateSchema?.editBehavior === "controlled"}
+            disabled={locked || templateSchema?.editBehavior === "controlled"}
             value={asString(value)}
             rightSection={regenerate}
             rightSectionPointerEvents="all"
@@ -500,6 +503,7 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
         return (
           <NumberInput
             size="xs"
+            disabled={locked}
             min={typeof field.options?.min === "number" ? field.options.min : undefined}
             max={typeof field.options?.max === "number" ? field.options.max : undefined}
             value={typeof value === "number" ? value : asString(value)}
@@ -519,6 +523,7 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
           return (
             <TextInput
               size="xs"
+              disabled={locked}
               type={nativeControl ? "date" : "text"}
               value={nativeControl ? controlValue : rawValue}
               onChange={(event) =>
@@ -534,6 +539,7 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
         return (
           <TextInput
             size="xs"
+            disabled={locked}
             type="datetime-local"
             value={asString(value)}
             onChange={(e) => {

@@ -510,8 +510,8 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       }
       return { message: "Published.", kept: [], failedDeletes: [] };
     }
-    case "media_capture_date":
-      return null;
+    case "media_image_details":
+      return { captureDate: null, dimensions: { width: 1200, height: 800 } };
     case "media_inspect_file":
       return {
         sha256: "0123456789abcdef".repeat(4),

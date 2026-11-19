@@ -20,6 +20,22 @@ pub struct FileInspection {
     pub dimensions: Option<Dimensions>,
 }
 
+/// Facts about an image that schemas can take values from.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageDetails {
+    pub capture_date: Option<String>,
+    pub dimensions: Option<Dimensions>,
+}
+
+/// Reads an image's capture date and display size without hashing it.
+pub fn image_details(path: &Path) -> ImageDetails {
+    ImageDetails {
+        capture_date: capture_date(path),
+        dimensions: image_dimensions(path),
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct Dimensions {
     pub width: u32,
