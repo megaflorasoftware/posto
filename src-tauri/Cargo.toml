@@ -63,3 +63,8 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 axum = "0.8"
 tempfile = "3.27.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+
+# Publish hashes every image bound for a CDN. Unoptimized, that's about 15x
+# slower, which made the Publish dialog take seconds to open in debug builds.
+[profile.dev.package.sha2]
+opt-level = 3

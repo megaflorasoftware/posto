@@ -331,7 +331,15 @@ function PublishModalContent(props: {
         <Alert color="red">Could not read changes: {props.error}</Alert>
       ) : changes === null || (media?.planning && !publishing) ? (
         <div className="publish-loading">
-          <Loader size="sm" />
+          <Group gap="xs" wrap="nowrap">
+            <Loader size="sm" />
+            {/* Planning reads every image waiting for a CDN. */}
+            {media?.planning && (
+              <Text size="sm" c="dimmed">
+                Checking images…
+              </Text>
+            )}
+          </Group>
         </div>
       ) : changes.length === 0 ? (
         <div className="publish-empty">

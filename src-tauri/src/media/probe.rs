@@ -10,7 +10,7 @@ use std::path::Path;
 /// Enough of an SVG to reach its root element past comments and a doctype.
 const SVG_HEADER_BYTES: u64 = 256 * 1024;
 
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileInspection {
     pub sha256: String,

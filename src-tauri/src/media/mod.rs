@@ -11,8 +11,9 @@ pub mod remote;
 pub mod s3;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::SystemTime;
 
 use crate::git::Client;
 use crate::secrets;
@@ -122,9 +123,48 @@ pub async fn media_list_objects(source: MediaSource, prefix: String) -> Result<L
     connected(&source).await?.list(&prefix).await
 }
 
+type Stamp = (u64, SystemTime);
+
+/// Inspections by file, reused while its size and modification time stay the
+/// same. Opening Publish plans again each time, and hashing large photos is
+/// the slow part. Publish still hashes each image before removing it.
+static INSPECTIONS: OnceLock<Mutex<HashMap<PathBuf, (Stamp, FileInspection)>>> = OnceLock::new();
+
+fn stamp(path: &Path) -> Result<Stamp, String> {
+    let metadata =
+        std::fs::metadata(path).map_err(|error| format!("Could not read the image: {error}"))?;
+    let modified = metadata
+        .modified()
+        .map_err(|error| format!("Could not read the image: {error}"))?;
+    Ok((metadata.len(), modified))
+}
+
+pub fn inspect_file_cached(path: &Path) -> Result<FileInspection, String> {
+    let cache = INSPECTIONS.get_or_init(Default::default);
+    let before = stamp(path)?;
+    let cached = cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(path)
+        .filter(|(stamp, _)| *stamp == before)
+        .map(|(_, inspection)| inspection.clone());
+    if let Some(inspection) = cached {
+        return Ok(inspection);
+    }
+    let inspection = probe::inspect_file(path)?;
+    // A file that changed while it was read can't be reused.
+    if stamp(path)? == before {
+        cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(path.to_path_buf(), (before, inspection.clone()));
+    }
+    Ok(inspection)
+}
+
 #[tauri::command]
 pub async fn media_inspect_file(path: PathBuf) -> Result<FileInspection, String> {
-    blocking(move || probe::inspect_file(&path)).await
+    blocking(move || inspect_file_cached(&path)).await
 }
 
 /// The size and capture date of an image already on a CDN.
@@ -221,6 +261,24 @@ mod tests {
         let mut unknown = source(ProviderKind::Bunny);
         unknown.region = Some("attacker.example.com/".to_string());
         assert!(credential_account(&unknown).is_err());
+    }
+
+    #[test]
+    fn inspections_are_reused_until_the_file_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("harbor.jpg");
+        std::fs::write(&path, b"first").unwrap();
+        let first = inspect_file_cached(&path).unwrap();
+        assert_eq!(inspect_file_cached(&path).unwrap(), first);
+
+        // Same size, new content: the later modification time forces a re-read.
+        std::fs::write(&path, b"other").unwrap();
+        let file = std::fs::File::options().write(true).open(&path).unwrap();
+        file.set_modified(SystemTime::now() + std::time::Duration::from_secs(5))
+            .unwrap();
+        let changed = inspect_file_cached(&path).unwrap();
+        assert_ne!(changed.sha256, first.sha256);
+        assert_eq!(changed.sha256, probe::file_digest(&path).unwrap().0);
     }
 
     #[test]
