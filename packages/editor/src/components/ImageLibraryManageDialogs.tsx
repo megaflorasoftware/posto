@@ -15,7 +15,9 @@ import {
   deleteFileMediaItem,
   invoke,
   recordMediaDelete,
+  saveMediaCredential,
   type FileGroup,
+  type MediaCredential,
 } from "@posto/ipc";
 import {
   editValueAtPath,
@@ -31,8 +33,10 @@ import { moveImageLibraryItems } from "../mediaMoves";
 import {
   hasImageDetailFields,
   validateImageLibraryAssets,
+  validationSources,
   type ImageLibraryValidation,
 } from "../imageLibraryValidation";
+import { CdnCredentialForm } from "./CdnCredentialForm";
 import { CachedImage } from "./CachedImage";
 import { Dialog } from "./Dialog";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
@@ -574,6 +578,8 @@ function count(value: number, one: string, many: string): string {
 export function ValidateImageLibraryAssetsDialog(props: {
   library: MediaLibrary;
   assets: ImageLibraryAsset[];
+  /** The site's CDN sources, for entries whose images are already uploaded. */
+  sources?: CdnSource[];
   /** Saves open edits first, so they can't overwrite the updated files. */
   onBeforeChange: () => Promise<void>;
   onClose: () => void;
@@ -583,25 +589,60 @@ export function ValidateImageLibraryAssetsDialog(props: {
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<ImageLibraryValidation | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [credential, setCredential] = useState<{
+    source: CdnSource;
+    error: string | null;
+  } | null>(null);
+  const answer = useRef<((credential: MediaCredential | null) => void) | null>(null);
   const started = useRef(false);
+
+  /** Asks for a source's password until it's accepted. False if cancelled. */
+  async function ensureCredential(source: CdnSource): Promise<boolean> {
+    if (await invoke<boolean>("media_credential_exists", { source })) return true;
+    let refusal: string | null = null;
+    for (;;) {
+      setCredential({ source, error: refusal });
+      const entered = await new Promise<MediaCredential | null>((resolve) => {
+        answer.current = resolve;
+      });
+      if (!entered) return false;
+      try {
+        await saveMediaCredential(source, entered, source.prefix ?? "");
+        return true;
+      } catch (caught) {
+        refusal = caught instanceof Error ? caught.message : String(caught);
+      }
+    }
+  }
+
+  async function run() {
+    await props.onBeforeChange();
+    // Images already on a CDN get their sizes by uploading them there.
+    for (const source of validationSources(props.library, props.assets, props.sources ?? [])) {
+      if (!(await ensureCredential(source))) {
+        setCredential(null);
+        throw new Error(
+          `Validating these items needs the storage password for ${source.label ?? source.name}.`,
+        );
+      }
+    }
+    setCredential(null);
+    const validation = await validateImageLibraryAssets({
+      library: props.library,
+      assets: props.assets,
+      sources: props.sources,
+      onProgress: (done) => setProgress(done),
+    });
+    setResult(validation);
+    if (validation.updated.length > 0) props.onValidated();
+  }
 
   useEffect(() => {
     if (!applicable || started.current) return;
     started.current = true;
-    void props
-      .onBeforeChange()
-      .then(() =>
-        validateImageLibraryAssets({
-          library: props.library,
-          assets: props.assets,
-          onProgress: (done) => setProgress(done),
-        }),
-      )
-      .then((validation) => {
-        setResult(validation);
-        if (validation.updated.length > 0) props.onValidated();
-      })
-      .catch((caught) => setError(caught instanceof Error ? caught.message : String(caught)));
+    void run().catch((caught) =>
+      setError(caught instanceof Error ? caught.message : String(caught)),
+    );
     // Runs once for the entries chosen when the dialog opened.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -619,6 +660,14 @@ export function ValidateImageLibraryAssetsDialog(props: {
           </Text>
         ) : error ? (
           <Alert color="red">{error}</Alert>
+        ) : credential ? (
+          <CdnCredentialForm
+            key={credential.source.name + (credential.error ?? "")}
+            source={credential.source}
+            error={credential.error}
+            purpose="upload"
+            onSubmit={(entered) => answer.current?.(entered)}
+          />
         ) : !result ? (
           <Group gap="xs">
             <Loader size="xs" />

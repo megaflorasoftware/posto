@@ -69,10 +69,30 @@ pub struct Listing {
     pub directories: Vec<String>,
 }
 
-/// One local file to store at `key`.
+/// Where an upload's bytes come from.
+pub enum UploadBody<'a> {
+    File(&'a Path),
+    /// Already in memory, such as a resized copy.
+    Bytes(&'a [u8]),
+}
+
+impl UploadBody<'_> {
+    /// A fresh body for each attempt, since a failed send consumes it.
+    pub(super) async fn body(&self) -> Result<reqwest::Body, String> {
+        match self {
+            Self::File(path) => tokio::fs::File::open(path)
+                .await
+                .map(reqwest::Body::from)
+                .map_err(|error| format!("Could not read the image: {error}")),
+            Self::Bytes(bytes) => Ok(reqwest::Body::from(bytes.to_vec())),
+        }
+    }
+}
+
+/// One image to store at `key`.
 pub struct Upload<'a> {
     pub key: &'a str,
-    pub path: &'a Path,
+    pub body: UploadBody<'a>,
     pub size: u64,
     /// Lowercase SHA-256 of the file. The backend rejects a mismatch.
     pub sha256: &'a str,

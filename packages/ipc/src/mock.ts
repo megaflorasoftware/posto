@@ -510,6 +510,10 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       }
       return { message: "Published.", kept: [], failedDeletes: [] };
     }
+    case "media_placeholder":
+      return "data:image/webp;base64,UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==";
+    case "media_derive_remote":
+      return { placeholder: null, uploaded: 0 };
     case "media_remote_image_details":
     case "media_image_details":
       return { captureDate: null, dimensions: { width: 1200, height: 800 } };

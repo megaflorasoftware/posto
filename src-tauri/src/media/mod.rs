@@ -1,8 +1,10 @@
 //! CDN storage: per-device credentials, provider access, and image inspection.
 //! Secrets stay on the Rust side; the webview can only save, check, or remove them.
 
+pub mod backfill;
 pub mod bunny;
 pub mod deletes;
+pub mod derive;
 pub mod journal;
 pub mod probe;
 pub mod provider;
@@ -124,11 +126,13 @@ pub async fn media_list_objects(source: MediaSource, prefix: String) -> Result<L
 }
 
 type Stamp = (u64, SystemTime);
+type FileCache<T> = OnceLock<Mutex<HashMap<PathBuf, (Stamp, T)>>>;
 
-/// Inspections by file, reused while its size and modification time stay the
-/// same. Opening Publish plans again each time, and hashing large photos is
+/// Results by file, reused while its size and modification time stay the
+/// same. Opening Publish plans again each time, and reading large photos is
 /// the slow part. Publish still hashes each image before removing it.
-static INSPECTIONS: OnceLock<Mutex<HashMap<PathBuf, (Stamp, FileInspection)>>> = OnceLock::new();
+static INSPECTIONS: FileCache<FileInspection> = OnceLock::new();
+static PLACEHOLDERS: FileCache<String> = OnceLock::new();
 
 fn stamp(path: &Path) -> Result<Stamp, String> {
     let metadata =
@@ -139,27 +143,57 @@ fn stamp(path: &Path) -> Result<Stamp, String> {
     Ok((metadata.len(), modified))
 }
 
-pub fn inspect_file_cached(path: &Path) -> Result<FileInspection, String> {
-    let cache = INSPECTIONS.get_or_init(Default::default);
+fn cached<T: Clone>(
+    cache: &FileCache<T>,
+    path: &Path,
+    compute: impl FnOnce(&Path) -> Result<T, String>,
+) -> Result<T, String> {
+    let cache = cache.get_or_init(Default::default);
     let before = stamp(path)?;
-    let cached = cache
+    let hit = cache
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .get(path)
         .filter(|(stamp, _)| *stamp == before)
-        .map(|(_, inspection)| inspection.clone());
-    if let Some(inspection) = cached {
-        return Ok(inspection);
+        .map(|(_, value)| value.clone());
+    if let Some(value) = hit {
+        return Ok(value);
     }
-    let inspection = probe::inspect_file(path)?;
+    let value = compute(path)?;
     // A file that changed while it was read can't be reused.
     if stamp(path)? == before {
         cache
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(path.to_path_buf(), (before, inspection.clone()));
+            .insert(path.to_path_buf(), (before, value.clone()));
     }
-    Ok(inspection)
+    Ok(value)
+}
+
+pub fn inspect_file_cached(path: &Path) -> Result<FileInspection, String> {
+    cached(&INSPECTIONS, path, probe::inspect_file)
+}
+
+pub fn placeholder_cached(path: &Path) -> Result<String, String> {
+    cached(&PLACEHOLDERS, path, |path| {
+        derive::placeholder(&derive::decode(path)?)
+    })
+}
+
+/// A tiny copy of a local image as a `data:` URI, for a placeholder field.
+#[tauri::command]
+pub async fn media_placeholder(path: PathBuf) -> Result<String, String> {
+    blocking(move || placeholder_cached(&path)).await
+}
+
+/// Makes what an image already on a CDN is missing: its sizes, uploaded beside
+/// it, and its placeholder. Downloads the original only when needed.
+#[tauri::command]
+pub async fn media_derive_remote(
+    request: backfill::RemoteDeriveRequest,
+) -> Result<backfill::RemoteDerived, String> {
+    let provider = connected(&request.source.connection).await?;
+    backfill::derive_remote(request, &provider).await
 }
 
 #[tauri::command]

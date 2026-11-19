@@ -5,13 +5,16 @@ import type { Field } from "../pagescms/config";
 // controls and shows locked:
 //   initial=schema.image.width              default to the `image` photo's width
 //   value=schema.image.width                always the `image` photo's width
+//   value=schema.image.srcset               its sizes on a CDN, for `srcset`
+//   value=schema.image.placeholder          a tiny copy as a `data:` URI
 //   value=posto.media.bunny-photos-bucket   images live in that CDN source
 // The global key says where the value comes from, so annotations can't
 // collide with field names. Astro copies descriptions into its generated JSON
 // schemas, so they work without running the site.
 
-/** Values Posto can fill in when an import creates a library entry. */
-export const FIELD_DEFAULTS = ["capture-date", "width", "height"] as const;
+/** Values Posto can take from an entry's image. `srcset` and `placeholder`
+ * are set when Publish uploads the image to a CDN. */
+export const FIELD_DEFAULTS = ["capture-date", "width", "height", "srcset", "placeholder"] as const;
 export type FieldDefault = (typeof FIELD_DEFAULTS)[number];
 
 /** A value taken from the image in another field. */

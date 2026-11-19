@@ -161,9 +161,7 @@ impl S3Client {
                     .headers_mut()
                     .insert("content-type", upload.content_type);
                 let url = action.sign(lifetime);
-                let file = tokio::fs::File::open(upload.path)
-                    .await
-                    .map_err(|error| format!("Could not read the image: {error}"))?;
+                let body = upload.body.body().await?;
                 Ok(self
                     .http
                     .put(url)
@@ -171,7 +169,7 @@ impl S3Client {
                     .header(CONTENT_TYPE, upload.content_type)
                     .header(CONTENT_LENGTH, upload.size)
                     .timeout(upload_timeout(upload.size))
-                    .body(file))
+                    .body(body))
             }
         })
         .await?;

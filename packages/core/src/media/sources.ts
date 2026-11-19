@@ -7,6 +7,15 @@ import { mediaSourceFromDescription } from "../posto/annotations";
 
 export type CdnProvider = "bunny" | "s3";
 
+/** Smaller copies Publish makes of each image it uploads, for `srcset`. */
+export interface CdnImageSizes {
+  /** Widths in pixels, smallest first. Wider than the photo are skipped. */
+  widths: number[];
+  format: "webp" | "jpeg";
+  /** 1 to 100. */
+  quality: number;
+}
+
 export interface CdnSource {
   /** Name referenced by schemas, e.g. `value=posto.media.cdn`. */
   name: string;
@@ -24,6 +33,74 @@ export interface CdnSource {
   endpoint?: string;
   /** Addresses S3 buckets by path instead of by subdomain. */
   pathStyle?: boolean;
+  images?: CdnImageSizes;
+}
+
+/** WebP can't store larger images. */
+const MAX_IMAGE_SIDE = 16_383;
+/** Formats Posto can decode to make sizes from. */
+const RESIZABLE = new Set(["image/jpeg", "image/png", "image/webp", "image/tiff", "image/bmp"]);
+
+export interface DerivedImageSize {
+  key: string;
+  width: number;
+  height: number;
+}
+
+/**
+ * The sizes Publish makes of one original. Each is named after the original's
+ * key, which already holds its content hash, plus the width and quality, so
+ * changing a setting gives new URLs and a size's name says what made it:
+ * `photo/harbor-1a2b3c4d.jpg` gets `photo/harbor-1a2b3c4d-1600w-q80.webp`.
+ */
+export function derivedImageSizes(
+  source: Pick<CdnSource, "images">,
+  key: string,
+  contentType: string,
+  dimensions: { width: number; height: number } | null,
+): DerivedImageSize[] {
+  const images = source.images;
+  if (!images || !dimensions || dimensions.width < 1 || !RESIZABLE.has(contentType)) return [];
+  // Never upscale. A photo narrower than every width gets one at its own size.
+  const fitting = images.widths.filter((width) => width <= dimensions.width);
+  const widths = fitting.length > 0 ? fitting : [Math.min(dimensions.width, MAX_IMAGE_SIDE)];
+  const base = key.replace(/\.[^./]+$/, "");
+  const extension = images.format === "jpeg" ? "jpg" : "webp";
+  return widths.map((width) => ({
+    key: `${base}-${width}w-q${images.quality}.${extension}`,
+    width,
+    height: Math.min(
+      MAX_IMAGE_SIDE,
+      Math.max(1, Math.round((width * dimensions.height) / dimensions.width)),
+    ),
+  }));
+}
+
+/** A `srcset` attribute value listing each size by its width. */
+export function srcsetFor(source: Pick<CdnSource, "publicUrl">, sizes: DerivedImageSize[]): string {
+  return sizes.map((size) => `${cdnObjectUrl(source, size.key)} ${size.width}w`).join(", ");
+}
+
+/** Reads `images`. Invalid widths are dropped; without any, there are no sizes. */
+function imageSizes(value: unknown): CdnImageSizes | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const doc = value as Record<string, unknown>;
+  const widths = Array.isArray(doc.widths)
+    ? [
+        ...new Set(
+          doc.widths.filter(
+            (width): width is number =>
+              Number.isInteger(width) && width >= 1 && width <= MAX_IMAGE_SIDE,
+          ),
+        ),
+      ].sort((a, b) => a - b)
+    : [];
+  if (widths.length === 0) return undefined;
+  const quality =
+    Number.isInteger(doc.quality) && (doc.quality as number) >= 1 && (doc.quality as number) <= 100
+      ? (doc.quality as number)
+      : 80;
+  return { widths, format: doc.format === "jpeg" ? "jpeg" : "webp", quality };
 }
 
 /** Whether a stored media value is an absolute URL rather than a local path. */
@@ -146,6 +223,7 @@ function parseSource(value: unknown): CdnSource | null {
 
   const label = text(doc.label);
   const region = text(doc.region);
+  const images = imageSizes(doc.images);
   const shared = {
     name,
     ...(label ? { label } : {}),
@@ -153,6 +231,7 @@ function parseSource(value: unknown): CdnSource | null {
     ...(region ? { region } : {}),
     ...(prefix ? { prefix } : {}),
     publicUrl,
+    ...(images ? { images } : {}),
   };
   if (provider === "bunny") return { ...shared, provider };
 

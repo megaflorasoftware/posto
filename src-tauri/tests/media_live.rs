@@ -6,7 +6,9 @@
 //! ```
 
 use posto_lib::media::probe::inspect_file;
-use posto_lib::media::provider::{Credential, MediaSource, Provider, ProviderKind, Upload};
+use posto_lib::media::provider::{
+    Credential, MediaSource, Provider, ProviderKind, Upload, UploadBody,
+};
 use posto_lib::media::publish::{
     execute, Hooks, PlannedUpload, PlannedWrite, PublishRequest, PublishSource,
 };
@@ -66,7 +68,7 @@ async fn round_trip(provider: Provider, label: &str) {
     provider
         .put(&Upload {
             key: &key,
-            path: &path,
+            body: UploadBody::File(&path),
             size: file.size,
             sha256: &file.sha256,
             content_type: &file.content_type,
@@ -85,7 +87,7 @@ async fn round_trip(provider: Provider, label: &str) {
     let rejected = provider
         .put(&Upload {
             key: &corrupt_key,
-            path: &path,
+            body: UploadBody::File(&path),
             size: file.size,
             sha256: &wrong,
             content_type: &file.content_type,
@@ -235,6 +237,7 @@ async fn a_full_publish_reaches_real_storage() {
             sha256: file.sha256.clone(),
             size: file.size,
             content_type: file.content_type.clone(),
+            derived: None,
         }],
         writes: vec![PlannedWrite {
             path: photos.join("harbor.yaml").to_string_lossy().to_string(),

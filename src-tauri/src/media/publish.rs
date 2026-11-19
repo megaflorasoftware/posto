@@ -12,9 +12,10 @@ use std::sync::Arc;
 
 use super::blocking;
 use super::deletes;
+use super::derive::{self, DerivedSet, DerivedSize};
 use super::journal::{self, BackedUpFile, Journal, Phase};
-use super::probe::file_digest;
-use super::provider::{validate_object_key, MediaSource, ObjectInfo, Provider, Upload};
+use super::probe::{bytes_digest, file_digest};
+use super::provider::{validate_object_key, MediaSource, ObjectInfo, Provider, Upload, UploadBody};
 use crate::git::{Client, IndexSnapshot, PushFailure, RemoteCommit, ScopedCommit};
 
 const UPLOAD_CONCURRENCY: usize = 4;
@@ -37,6 +38,9 @@ pub struct PlannedUpload {
     pub sha256: String,
     pub size: u64,
     pub content_type: String,
+    /// Smaller copies to make from the original and upload beside it.
+    #[serde(default)]
+    pub derived: Option<DerivedSet>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -151,6 +155,17 @@ fn contained(root: &Path, path: &str) -> Result<PathBuf, String> {
     Ok(resolved)
 }
 
+/// A key must be a plain object path inside its source's folder.
+pub(super) fn check_source_key(source: &PublishSource, key: &str) -> Result<(), String> {
+    validate_object_key(key)?;
+    match &source.prefix {
+        Some(prefix) if !key.starts_with(&format!("{prefix}/")) => {
+            Err(format!("{key} is outside its CDN folder"))
+        }
+        _ => Ok(()),
+    }
+}
+
 fn validate(request: &PublishRequest) -> Result<(), String> {
     let root = Path::new(&request.root)
         .canonicalize()
@@ -164,17 +179,14 @@ fn validate(request: &PublishRequest) -> Result<(), String> {
         let source = sources
             .get(source_name)
             .ok_or_else(|| format!("Unknown CDN source: {source_name}"))?;
-        validate_object_key(key)?;
-        match &source.prefix {
-            Some(prefix) if !key.starts_with(&format!("{prefix}/")) => {
-                Err(format!("{key} is outside its CDN folder"))
-            }
-            _ => Ok(()),
-        }
+        check_source_key(source, key)
     };
     let mut uploaded = HashSet::new();
     for upload in &request.uploads {
         check_key(&upload.source_name, &upload.key)?;
+        if let Some(set) = &upload.derived {
+            validate_derived(&upload.key, set, |key| check_key(&upload.source_name, key))?;
+        }
         uploaded.insert(contained(&root, &upload.path)?);
     }
     for delete in &request.deletes {
@@ -189,6 +201,88 @@ fn validate(request: &PublishRequest) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Sizes must be named after their original, which is how deleting the
+/// original finds them again.
+pub(super) fn validate_derived(
+    original: &str,
+    set: &DerivedSet,
+    check_key: impl Fn(&str) -> Result<(), String>,
+) -> Result<(), String> {
+    set.validate()?;
+    for size in &set.sizes {
+        check_key(&size.key)?;
+        if !derive::is_derived_from(original, &size.key) {
+            return Err(format!("{} isn't named after {original}", size.key));
+        }
+    }
+    Ok(())
+}
+
+/// Which sizes aren't stored yet. Their names come from the original's
+/// content and the settings, so an existing object is already right.
+pub(super) async fn missing_sizes(
+    provider: &Provider,
+    set: &DerivedSet,
+    stored: impl Fn(&str) -> bool,
+) -> Result<Vec<DerivedSize>, String> {
+    let mut missing = Vec::new();
+    for size in &set.sizes {
+        let exists = match provider {
+            Provider::Bunny(_) => stored(&size.key),
+            Provider::S3(_) => provider.stat(&size.key).await?.is_some(),
+        };
+        if !exists {
+            missing.push(size.clone());
+        }
+    }
+    Ok(missing)
+}
+
+pub(super) async fn put_sizes(
+    provider: &Provider,
+    set: &DerivedSet,
+    rendered: &[(DerivedSize, Vec<u8>)],
+) -> Result<(), String> {
+    for (size, bytes) in rendered {
+        provider
+            .put(&Upload {
+                key: &size.key,
+                body: UploadBody::Bytes(bytes),
+                size: bytes.len() as u64,
+                sha256: &bytes_digest(bytes),
+                content_type: set.format.content_type(),
+            })
+            .await?;
+    }
+    Ok(())
+}
+
+/// Makes and uploads the sizes of one local original that aren't stored yet.
+async fn upload_sizes(
+    upload: &PlannedUpload,
+    set: &DerivedSet,
+    provider: &Provider,
+    listed: &HashMap<(String, String), ObjectInfo>,
+) -> Result<(), String> {
+    let missing = missing_sizes(provider, set, |key| {
+        listed.contains_key(&(upload.source_name.clone(), key.to_string()))
+    })
+    .await?;
+    if missing.is_empty() {
+        return Ok(());
+    }
+    let path = PathBuf::from(&upload.path);
+    let settings = set.clone();
+    let rendered = blocking(move || {
+        let image = derive::decode(&path)?;
+        let sizes: Vec<&DerivedSize> = missing.iter().collect();
+        let bytes = derive::render(&image, &settings, &sizes)?;
+        Ok(missing.into_iter().zip(bytes).collect::<Vec<_>>())
+    })
+    .await?;
+    put_sizes(provider, set, &rendered).await
 }
 
 /// Bunny can only check an object by listing its folder, so each folder with
@@ -241,12 +335,15 @@ async fn upload_all(
                     provider
                         .put(&Upload {
                             key: &upload.key,
-                            path: Path::new(&upload.path),
+                            body: UploadBody::File(Path::new(&upload.path)),
                             size: upload.size,
                             sha256: &upload.sha256,
                             content_type: &upload.content_type,
                         })
                         .await?;
+                }
+                if let Some(set) = &upload.derived {
+                    upload_sizes(upload, set, provider, listed).await?;
                 }
                 progress(PublishProgress::Uploading {
                     completed: completed.fetch_add(1, Ordering::SeqCst) + 1,
@@ -480,6 +577,18 @@ fn transact(
     })
 }
 
+/// Deletes an original's sizes, then the original. Stops at the first
+/// failure, so a retry finds whatever is left.
+async fn delete_with_sizes(provider: &Provider, key: &str) -> Result<(), String> {
+    let folder = key.rsplit_once('/').map_or("", |(folder, _)| folder);
+    for object in provider.list(folder).await?.objects {
+        if derive::is_derived_from(key, &object.key) {
+            provider.delete(&object.key).await?;
+        }
+    }
+    provider.delete(key).await
+}
+
 /// Deletes recorded CDN objects whose library entries the publish removed.
 /// Returns the keys that failed; they stay recorded for the next publish.
 async fn delete_published(
@@ -513,7 +622,7 @@ async fn delete_published(
     let mut failed = Vec::new();
     for intent in ready {
         let deleted = match providers.get(&intent.source_name) {
-            Some(provider) => provider.delete(&intent.key).await.is_ok(),
+            Some(provider) => delete_with_sizes(provider, &intent.key).await.is_ok(),
             None => false,
         };
         if deleted {

@@ -414,6 +414,7 @@ function LibraryMediaBrowserContent(props: {
       {validating && (
         <ValidateImageLibraryAssetsDialog
           library={library}
+          sources={props.config.cdnSources ?? []}
           assets={selectedLibraryAssets(state.assets, selected, selectedDirectories)}
           onBeforeChange={props.onBeforeChange}
           onClose={() => setValidating(false)}

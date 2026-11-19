@@ -66,6 +66,16 @@ pub async fn image_details_with(
     Ok(details_from_bytes(&full.bytes))
 }
 
+/// Downloads a whole image, such as an original on a CDN.
+pub async fn download_image(url: &str) -> Result<Vec<u8>, String> {
+    let url = endpoint_url(url)?;
+    let full = download(&http_client()?, &url, MAX_BYTES).await?;
+    if !full.complete {
+        return Err("The image is too large to read.".to_string());
+    }
+    Ok(full.bytes)
+}
+
 pub async fn image_details(url: &str, needs_date: bool) -> Result<ImageDetails, String> {
     image_details_with(&http_client()?, url, needs_date, PREVIEW_BYTES).await
 }

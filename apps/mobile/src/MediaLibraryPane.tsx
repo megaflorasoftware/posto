@@ -245,6 +245,7 @@ function LibraryMediaPane(props: {
       {validating && (
         <ValidateImageLibraryAssetsDialog
           library={library}
+          sources={props.config.cdnSources ?? []}
           assets={selectedLibraryAssets(libraryState.assets, selected, selectedDirectories)}
           onBeforeChange={props.onBeforeChange}
           onClose={() => setValidating(false)}

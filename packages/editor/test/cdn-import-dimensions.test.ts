@@ -3,13 +3,14 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { Field, MediaLibrary } from "@posto/core/pagescms/config";
-import { readImageDetails } from "@posto/ipc";
+import { mediaPlaceholder, readImageDetails } from "@posto/ipc";
 import { useImageLibraryImport } from "../src/hooks/useImageLibraryImport";
 import { imageLibraryMetadataFields } from "../src/imageLibraryMetadata";
 
 vi.mock("@posto/ipc", () => ({
   importImageLibraryAsset: vi.fn(),
   invoke: vi.fn().mockResolvedValue([]),
+  mediaPlaceholder: vi.fn(),
   openImageFiles: vi.fn().mockResolvedValue([]),
   readImageDetails: vi.fn(),
 }));
@@ -162,5 +163,28 @@ describe("locked values", () => {
       plan = await result.current.plan(result.current.drafts[0]);
     });
     expect(plan!.metadata.width).toBe(1600);
+  });
+});
+
+describe("placeholders at import", () => {
+  test("a placeholder field is filled from the photo", async () => {
+    vi.mocked(readImageDetails).mockResolvedValue({ captureDate: null, dimensions: null });
+    vi.mocked(mediaPlaceholder).mockResolvedValue("data:image/webp;base64,UExBQ0VIT0xERVI=");
+    const withPlaceholder = library([
+      { name: "placeholder", type: "string", options: fromImage("placeholder", true) },
+    ]);
+
+    const plan = await planImport(withPlaceholder);
+
+    expect(mediaPlaceholder).toHaveBeenCalledWith("/photos/harbor.jpg");
+    expect(plan.metadata.placeholder).toBe("data:image/webp;base64,UExBQ0VIT0xERVI=");
+  });
+
+  test("libraries without one never decode the photo for it", async () => {
+    vi.mocked(mediaPlaceholder).mockClear();
+
+    await planImport(annotated);
+
+    expect(mediaPlaceholder).not.toHaveBeenCalled();
   });
 });

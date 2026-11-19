@@ -8,7 +8,9 @@ use axum::response::Response;
 use axum::Router;
 use base64::Engine;
 use posto_lib::media::bunny::BunnyClient;
-use posto_lib::media::provider::{validate_object_key, Listing, ObjectInfo, Provider, Upload};
+use posto_lib::media::provider::{
+    validate_object_key, Listing, ObjectInfo, Provider, Upload, UploadBody,
+};
 use posto_lib::media::s3::S3Client;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, VecDeque};
@@ -304,7 +306,7 @@ async fn put(
     provider
         .put(&Upload {
             key,
-            path: &path,
+            body: UploadBody::File(&path),
             size: bytes.len() as u64,
             sha256: &sha256,
             content_type: "image/avif",
@@ -365,7 +367,7 @@ async fn rejects_corrupted_uploads(harness: Harness, provider: Provider) {
     let error = provider
         .put(&Upload {
             key: "images/corrupt.jpg",
-            path: &path,
+            body: UploadBody::File(&path),
             size: 12,
             sha256: &wrong,
             content_type: "image/jpeg",

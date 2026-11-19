@@ -11,6 +11,8 @@ import {
   cdnObjectUrl,
   mediaSourceAnnotation,
   parseCdnSources,
+  derivedImageSizes,
+  srcsetFor,
 } from "../src/media/sources";
 import { mediaInputPath, type MediaLibrary, type PagesConfig } from "../src/pagescms/config";
 import {
@@ -512,5 +514,109 @@ export const collections = { photos };
     expect(imageDimensionFields(library)).toEqual({ width: [["width"]], height: [] });
     const warning = config.diagnostics?.find((item) => item.code === "unmatched-default-source");
     expect(warning?.message).toContain('field height takes its initial value from "image"');
+  });
+});
+
+describe("image sizes", () => {
+  const sized = (images: unknown) =>
+    parseCdnSources([
+      {
+        name: "photos",
+        provider: "bunny",
+        bucket: "zone",
+        prefix: "photo",
+        publicUrl: "https://www.example.com",
+        images,
+      },
+    ])![0];
+
+  test("reads widths, format, and quality", () => {
+    expect(sized({ widths: [1600, 480, 800, 480], format: "jpeg", quality: 70 }).images).toEqual({
+      widths: [480, 800, 1600],
+      format: "jpeg",
+      quality: 70,
+    });
+    expect(sized({ widths: [800] }).images).toEqual({
+      widths: [800],
+      format: "webp",
+      quality: 80,
+    });
+  });
+
+  test("drops invalid widths, and needs at least one", () => {
+    expect(sized({ widths: [0, -5, 1.5, "800", 20000, 640] }).images?.widths).toEqual([640]);
+    expect(sized({ widths: [] }).images).toBeUndefined();
+    expect(sized({ format: "webp" }).images).toBeUndefined();
+    expect(sized({ widths: [800], quality: 0 }).images?.quality).toBe(80);
+  });
+
+  const source = sized({ widths: [480, 1600, 3200], quality: 80 });
+  const key = "photo/harbor-1a2b3c4d.jpg";
+
+  test("names each size after its original, width, and quality", () => {
+    expect(derivedImageSizes(source, key, "image/jpeg", { width: 4128, height: 6192 })).toEqual([
+      { key: "photo/harbor-1a2b3c4d-480w-q80.webp", width: 480, height: 720 },
+      { key: "photo/harbor-1a2b3c4d-1600w-q80.webp", width: 1600, height: 2400 },
+      { key: "photo/harbor-1a2b3c4d-3200w-q80.webp", width: 3200, height: 4800 },
+    ]);
+  });
+
+  test("never upscales", () => {
+    const widths = (width: number) =>
+      derivedImageSizes(source, key, "image/jpeg", { width, height: width }).map(
+        (size) => size.width,
+      );
+    expect(widths(2000)).toEqual([480, 1600]);
+    expect(widths(300)).toEqual([300]);
+  });
+
+  test("skips images it can't resize", () => {
+    const size = { width: 4000, height: 3000 };
+    expect(derivedImageSizes(source, "photo/a.svg", "image/svg+xml", size)).toEqual([]);
+    expect(derivedImageSizes(source, "photo/a.gif", "image/gif", size)).toEqual([]);
+    expect(derivedImageSizes(source, key, "image/jpeg", null)).toEqual([]);
+    expect(derivedImageSizes({}, key, "image/jpeg", size)).toEqual([]);
+  });
+
+  test("lists sizes as a srcset", () => {
+    const sizes = derivedImageSizes(source, key, "image/jpeg", { width: 2000, height: 1000 });
+    expect(srcsetFor(source, sizes)).toBe(
+      "https://www.example.com/photo/harbor-1a2b3c4d-480w-q80.webp 480w, " +
+        "https://www.example.com/photo/harbor-1a2b3c4d-1600w-q80.webp 1600w",
+    );
+  });
+
+  test("srcset and placeholder fields take their values from the details", () => {
+    const from = (value: string) => ({
+      defaultFrom: { field: ["image"], value, locked: true },
+    });
+    const library: MediaLibrary = {
+      collection: "photos",
+      base: "src/media/photos",
+      patterns: ["**/*.yaml"],
+      metadataExtensions: ["yaml"],
+      imageFieldPath: ["image"],
+      fields: [
+        { name: "image", type: "image" },
+        { name: "srcset", type: "string", options: from("srcset") },
+        { name: "placeholder", type: "string", options: from("placeholder") },
+      ],
+    };
+    const details = {
+      captureDate: null,
+      dimensions: null,
+      srcset: "https://x/a-480w-q80.webp 480w",
+      placeholder: "data:image/webp;base64,AAAA",
+    };
+    expect(imageDetailUpdates(library, {}, details)).toEqual([
+      { path: ["srcset"], value: details.srcset },
+      { path: ["placeholder"], value: details.placeholder },
+    ]);
+    expect(imageDetailUpdates(library, {}, { captureDate: null, dimensions: null })).toEqual([]);
+    expect(fieldDefaultAnnotation("value=schema.image.srcset")).toEqual({
+      field: ["image"],
+      value: "srcset",
+      locked: true,
+    });
   });
 });

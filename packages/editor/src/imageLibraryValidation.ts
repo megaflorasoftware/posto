@@ -12,7 +12,20 @@ import {
   type ImageDetails,
   type ImageLibraryAsset,
 } from "@posto/core/project/mediaLibrary";
-import { invoke, readImageDetails, readRemoteImageDetails } from "@posto/ipc";
+import {
+  cdnObjectForUrl,
+  derivedImageSizes,
+  srcsetFor,
+  type CdnSource,
+} from "@posto/core/media/sources";
+import type { AnnotatedField } from "@posto/core/posto/annotations";
+import {
+  deriveRemoteMedia,
+  invoke,
+  mediaPlaceholder,
+  readImageDetails,
+  readRemoteImageDetails,
+} from "@posto/ipc";
 import { mapWithConcurrency } from "./imageLibraryReferences";
 import { valueAtPath } from "./imageLibraryMetadata";
 
@@ -33,10 +46,82 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function detailsFor(asset: ImageLibraryAsset, needsDate: boolean): Promise<ImageDetails> {
-  if (asset.imagePath) return readImageDetails(asset.imagePath);
+const CONTENT_TYPES: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  tif: "image/tiff",
+  tiff: "image/tiff",
+  bmp: "image/bmp",
+};
+
+function contentTypeOf(key: string): string {
+  return CONTENT_TYPES[key.split(".").pop()?.toLowerCase() ?? ""] ?? "";
+}
+
+const wants = (targets: AnnotatedField[], value: string) =>
+  targets.some(({ source }) => source.value === value);
+
+/** Sizes and placeholders of CDN images are made by uploading to the CDN. */
+function needsCdn(targets: AnnotatedField[]): boolean {
+  return wants(targets, "srcset") || wants(targets, "placeholder");
+}
+
+/** The CDN sources validating these entries will upload to, which need a
+ * saved password first. */
+export function validationSources(
+  library: MediaLibrary,
+  assets: ImageLibraryAsset[],
+  sources: CdnSource[],
+): CdnSource[] {
+  const used = new Map<string, CdnSource>();
+  for (const asset of assets) {
+    if (!asset.imageUrl || !needsCdn(imageDetailTargets(library, asset.metadata, "when-missing")))
+      continue;
+    const object = cdnObjectForUrl(sources, asset.imageUrl);
+    if (object) used.set(object.source.name, object.source);
+  }
+  return [...used.values()];
+}
+
+async function detailsFor(
+  asset: ImageLibraryAsset,
+  targets: AnnotatedField[],
+  sources: CdnSource[],
+): Promise<ImageDetails> {
+  if (asset.imagePath) {
+    const details = await readImageDetails(asset.imagePath);
+    // Sizes are made when the image is uploaded, so a local one only gets
+    // its placeholder.
+    const placeholder = wants(targets, "placeholder")
+      ? await mediaPlaceholder(asset.imagePath)
+      : null;
+    return { ...details, placeholder };
+  }
   if (!asset.imageUrl) throw new Error("This entry has no image.");
-  return readRemoteImageDetails(asset.imageUrl, needsDate);
+  const details = await readRemoteImageDetails(asset.imageUrl, wants(targets, "capture-date"));
+  if (!needsCdn(targets)) return details;
+  const object = cdnObjectForUrl(sources, asset.imageUrl);
+  if (!object) throw new Error("Its image isn't on one of this site's CDN sources.");
+  const images = object.source.images;
+  const sizes = wants(targets, "srcset")
+    ? derivedImageSizes(object.source, object.key, contentTypeOf(object.key), details.dimensions)
+    : [];
+  const made = await deriveRemoteMedia({
+    source: object.source,
+    key: object.key,
+    url: asset.imageUrl,
+    ...(images && sizes.length > 0
+      ? { derived: { format: images.format, quality: images.quality, sizes } }
+      : {}),
+    placeholder: wants(targets, "placeholder"),
+  });
+  return {
+    ...details,
+    srcset: sizes.length > 0 ? srcsetFor(object.source, sizes) : null,
+    placeholder: made.placeholder,
+  };
 }
 
 /** Brings entries up to date with their schema after it changes: sets every
@@ -47,6 +132,8 @@ async function detailsFor(asset: ImageLibraryAsset, needsDate: boolean): Promise
 export async function validateImageLibraryAssets(input: {
   library: MediaLibrary;
   assets: ImageLibraryAsset[];
+  /** The site's CDN sources, for images already uploaded. */
+  sources?: CdnSource[];
   onProgress?: (done: number, total: number) => void;
 }): Promise<ImageLibraryValidation> {
   let done = 0;
@@ -57,12 +144,11 @@ export async function validateImageLibraryAssets(input: {
       try {
         const targets = imageDetailTargets(input.library, asset.metadata, "when-missing");
         if (targets.length === 0) return "unchanged";
-        const needsDate = targets.some(({ source }) => source.value === "capture-date");
         // Schema dates stay unquoted so Astro reads them as dates.
         const dateFields = new Set(
           targets.filter(({ field }) => plainDateField(field)).map(({ path }) => path.join(".")),
         );
-        const details = await detailsFor(asset, needsDate);
+        const details = await detailsFor(asset, targets, input.sources ?? []);
         const changes = imageDetailUpdates(
           input.library,
           asset.metadata,

@@ -2,7 +2,12 @@ import YAML from "yaml";
 import picomatch from "picomatch";
 import type { MediaLibrary, Field, MediaLibraryMetadataExtension } from "../pagescms/config";
 import { isRemoteMediaUrl } from "../media/sources";
-import { fieldsWithDefault, imageFields, type AnnotatedField } from "../posto/annotations";
+import {
+  fieldsWithDefault,
+  imageFields,
+  type AnnotatedField,
+  type FieldDefaultSource,
+} from "../posto/annotations";
 import { validateForm } from "../pagescms/validate";
 import { pathEntryId } from "./entryIds";
 
@@ -384,6 +389,32 @@ function emptyValue(value: unknown): boolean {
 export interface ImageDetails {
   captureDate: string | null;
   dimensions: { width: number; height: number } | null;
+  /** Its sizes on a CDN, as a `srcset` value. Known once it's uploaded. */
+  srcset?: string | null;
+  /** A tiny copy as a `data:` URI. */
+  placeholder?: string | null;
+}
+
+function detailValue(
+  value: FieldDefaultSource["value"],
+  details: ImageDetails,
+): string | number | null | undefined {
+  switch (value) {
+    case "capture-date":
+      return details.captureDate;
+    case "width":
+    case "height":
+      return details.dimensions?.[value];
+    case "srcset":
+      return details.srcset;
+    case "placeholder":
+      return details.placeholder;
+  }
+}
+
+/** Whether a field stores a placeholder made from the library's image. */
+export function usesPlaceholder(library: MediaLibrary): boolean {
+  return fieldsWithDefault(library.fields, "placeholder", library.imageFieldPath).length > 0;
 }
 
 /** Whether any field takes its value from the library's image. */
@@ -425,9 +456,8 @@ export function imageDetailUpdates(
   initial: InitialFill = "when-empty",
 ): Array<{ path: string[]; value: string | number }> {
   return imageDetailTargets(library, metadata, initial).flatMap(({ path, source }) => {
-    const value =
-      source.value === "capture-date" ? details.captureDate : details.dimensions?.[source.value];
-    return value === null || value === undefined ? [] : [{ path, value }];
+    const value = detailValue(source.value, details);
+    return value === null || value === undefined || value === "" ? [] : [{ path, value }];
   });
 }
 

@@ -3,57 +3,61 @@ import type { CdnSource } from "@posto/core/media/sources";
 import type { Field, MediaLibrary, PagesConfig } from "@posto/core/pagescms/config";
 import type { FileGroup, MediaFileInspection } from "@posto/ipc";
 
-const { deletes, files, ignored, images, invoke, inspectMediaFile } = vi.hoisted(() => {
-  const deletes: Array<{ sourceName: string; key: string; url: string }> = [];
-  const files = new Map<string, string>();
-  const ignored = new Set<string>();
-  const images = new Map<string, Partial<MediaFileInspection>>();
-  const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
-    const path = args?.path as string;
-    switch (command) {
-      case "read_text_file":
-        if (!files.has(path)) throw new Error(`Missing: ${path}`);
-        return files.get(path);
-      case "read_text_file_optional":
-        return files.get(path) ?? null;
-      case "path_exists":
-        return files.has(path) || images.has(path);
-      case "ignored_paths":
-        return ((args?.paths ?? []) as string[]).filter((item) => ignored.has(item));
-      case "list_dir_files_optional": {
-        const dir = args?.dir as string;
-        const extensions = args?.extensions as string[];
-        const listed = [...files.keys(), ...images.keys()]
-          .filter((item) => item.startsWith(`${dir}/`))
-          .filter(
-            (item) =>
-              extensions.length === 0 ||
-              extensions.includes(item.split(".").pop()?.toLowerCase() ?? ""),
-          )
-          .map((item) => ({ name: item.split("/").pop(), path: item }));
-        return listed.length > 0 ? listed : null;
+const { deletes, files, ignored, images, invoke, inspectMediaFile, mediaPlaceholder } = vi.hoisted(
+  () => {
+    const deletes: Array<{ sourceName: string; key: string; url: string }> = [];
+    const files = new Map<string, string>();
+    const ignored = new Set<string>();
+    const images = new Map<string, Partial<MediaFileInspection>>();
+    const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      const path = args?.path as string;
+      switch (command) {
+        case "read_text_file":
+          if (!files.has(path)) throw new Error(`Missing: ${path}`);
+          return files.get(path);
+        case "read_text_file_optional":
+          return files.get(path) ?? null;
+        case "path_exists":
+          return files.has(path) || images.has(path);
+        case "ignored_paths":
+          return ((args?.paths ?? []) as string[]).filter((item) => ignored.has(item));
+        case "list_dir_files_optional": {
+          const dir = args?.dir as string;
+          const extensions = args?.extensions as string[];
+          const listed = [...files.keys(), ...images.keys()]
+            .filter((item) => item.startsWith(`${dir}/`))
+            .filter(
+              (item) =>
+                extensions.length === 0 ||
+                extensions.includes(item.split(".").pop()?.toLowerCase() ?? ""),
+            )
+            .map((item) => ({ name: item.split("/").pop(), path: item }));
+          return listed.length > 0 ? listed : null;
+        }
+        default:
+          throw new Error(`Unexpected command: ${command}`);
       }
-      default:
-        throw new Error(`Unexpected command: ${command}`);
-    }
-  });
-  const inspectMediaFile = vi.fn(async (path: string) => {
-    const image = images.get(path);
-    if (!image) throw new Error("The file is missing");
-    return {
-      sha256: "a1b2c3d4".repeat(8),
-      size: 2048,
-      contentType: "image/jpeg",
-      dimensions: { width: 1600, height: 900 },
-      ...image,
-    };
-  });
-  return { deletes, files, ignored, images, invoke, inspectMediaFile };
-});
+    });
+    const inspectMediaFile = vi.fn(async (path: string) => {
+      const image = images.get(path);
+      if (!image) throw new Error("The file is missing");
+      return {
+        sha256: "a1b2c3d4".repeat(8),
+        size: 2048,
+        contentType: "image/jpeg",
+        dimensions: { width: 1600, height: 900 },
+        ...image,
+      };
+    });
+    const mediaPlaceholder = vi.fn(async () => "data:image/webp;base64,UExBQ0VIT0xERVI=");
+    return { deletes, files, ignored, images, invoke, inspectMediaFile, mediaPlaceholder };
+  },
+);
 
 vi.mock("@posto/ipc", () => ({
   invoke,
   inspectMediaFile,
+  mediaPlaceholder,
   pendingMediaDeletes: vi.fn(async () => deletes),
 }));
 
@@ -126,6 +130,7 @@ beforeEach(() => {
   images.clear();
   invoke.mockClear();
   inspectMediaFile.mockClear();
+  mediaPlaceholder.mockClear();
 });
 
 describe("CDN-bound libraries", () => {
@@ -582,5 +587,84 @@ describe("unreadable schemas", () => {
       blockers: [],
     });
     expect(inspectMediaFile).not.toHaveBeenCalled();
+  });
+});
+
+describe("image sizes", () => {
+  const sized: CdnSource = {
+    ...source,
+    images: { widths: [480, 1600, 3200], format: "webp", quality: 80 },
+  };
+  const locked = (value: string) => ({
+    defaultFrom: { field: ["src"], value, locked: true },
+  });
+  const withSizeFields: MediaLibrary = {
+    ...library,
+    fields: [
+      ...library.fields,
+      { name: "srcset", type: "string", options: locked("srcset") },
+      { name: "placeholder", type: "string", options: locked("placeholder") },
+    ],
+  };
+  const photo = `${root}/src/data/photos/trips/harbor.jpg`;
+  const base = "https://media.example.com/images/trips/harbor-a1b2c3d4";
+
+  test("uploads sizes beside the original and records them in the entry", async () => {
+    addLibraryImage();
+
+    const plan = await planCdnPublish({
+      root,
+      config: config({ cdnSources: [sized], mediaLibraries: [withSizeFields] }),
+      groups: [],
+    });
+
+    // The 1600×900 photo is narrower than 3200, so that size is skipped.
+    expect(plan.uploads[0].derived).toEqual({
+      format: "webp",
+      quality: 80,
+      sizes: [
+        { key: "images/trips/harbor-a1b2c3d4-480w-q80.webp", width: 480, height: 270 },
+        { key: "images/trips/harbor-a1b2c3d4-1600w-q80.webp", width: 1600, height: 900 },
+      ],
+    });
+    const content = plan.writes[0].content;
+    expect(content).toContain(`srcset: "${base}-480w-q80.webp 480w, ${base}-1600w-q80.webp 1600w"`);
+    expect(content).toContain('placeholder: "data:image/webp;base64,UExBQ0VIT0xERVI="');
+    expect(mediaPlaceholder).toHaveBeenCalledWith(photo);
+  });
+
+  test("placeholders are only made for libraries that store one", async () => {
+    addLibraryImage();
+
+    const plan = await planCdnPublish({
+      root,
+      config: config({ cdnSources: [sized] }),
+      groups: [],
+    });
+
+    expect(plan.uploads[0].derived?.sizes).toHaveLength(2);
+    expect(mediaPlaceholder).not.toHaveBeenCalled();
+  });
+
+  test("an image that can't be decoded still publishes, without a placeholder", async () => {
+    addLibraryImage();
+    mediaPlaceholder.mockRejectedValueOnce(new Error("Could not read the image"));
+
+    const plan = await planCdnPublish({
+      root,
+      config: config({ cdnSources: [sized], mediaLibraries: [withSizeFields] }),
+      groups: [],
+    });
+
+    expect(plan.blockers).toEqual([]);
+    expect(plan.writes[0].content).not.toContain("placeholder:");
+  });
+
+  test("sources without sizes upload only the original", async () => {
+    addLibraryImage();
+
+    const plan = await planCdnPublish({ root, config: config(), groups: [] });
+
+    expect(plan.uploads[0].derived).toBeUndefined();
   });
 });

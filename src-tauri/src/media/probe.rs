@@ -76,6 +76,13 @@ pub fn content_type(path: &Path) -> &'static str {
     }
 }
 
+pub fn bytes_digest(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 pub fn file_digest(path: &Path) -> Result<(String, u64), String> {
     let mut file =
         std::fs::File::open(path).map_err(|error| format!("Could not read the image: {error}"))?;

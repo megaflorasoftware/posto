@@ -1,15 +1,23 @@
 // @vitest-environment jsdom
 
 import React from "react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MantineProvider } from "@mantine/core";
 import YAML from "yaml";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { Field, MediaLibrary } from "@posto/core/pagescms/config";
 import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
-import { invoke, readImageDetails, readRemoteImageDetails } from "@posto/ipc";
+import type { CdnSource } from "@posto/core/media/sources";
+import {
+  deriveRemoteMedia,
+  invoke,
+  mediaPlaceholder,
+  readImageDetails,
+  readRemoteImageDetails,
+  saveMediaCredential,
+} from "@posto/ipc";
 import { ValidateImageLibraryAssetsDialog } from "../src/components/ImageLibraryManageDialogs";
-import { validateImageLibraryAssets } from "../src/imageLibraryValidation";
+import { validateImageLibraryAssets, validationSources } from "../src/imageLibraryValidation";
 import {
   allItemsSelected,
   selectAllItems,
@@ -33,9 +41,12 @@ Object.defineProperty(window, "matchMedia", {
 });
 
 vi.mock("@posto/ipc", () => ({
+  deriveRemoteMedia: vi.fn(),
   invoke: vi.fn(),
+  mediaPlaceholder: vi.fn(),
   readImageDetails: vi.fn(),
   readRemoteImageDetails: vi.fn(),
+  saveMediaCredential: vi.fn(),
 }));
 
 const from = (value: string, locked: boolean) => ({
@@ -279,5 +290,113 @@ describe("selecting library items", () => {
       new Set([`${root}/trips`]),
     );
     expect(chosen.map((item) => item.entryId)).toEqual(["harbor", "trips/boat"]);
+  });
+});
+
+describe("sizes and placeholders", () => {
+  const photos: CdnSource = {
+    name: "photos",
+    label: "Photos (Bunny Storage)",
+    provider: "bunny",
+    bucket: "zone",
+    prefix: "photo",
+    publicUrl: "https://www.example.com",
+    images: { widths: [480, 1600], format: "webp", quality: 80 },
+  };
+  const sizedLibrary = library([
+    { name: "srcset", type: "string", options: from("srcset", true) },
+    { name: "placeholder", type: "string", options: from("placeholder", true) },
+  ]);
+  const url = "https://www.example.com/photo/harbor-1a2b3c4d.jpg";
+  const published = () => asset("harbor", `image: ${url}\n`, { imagePath: null, imageUrl: url });
+  const dataUri = "data:image/webp;base64,UExBQ0VIT0xERVI=";
+
+  beforeEach(() => {
+    vi.mocked(deriveRemoteMedia)
+      .mockReset()
+      .mockResolvedValue({ placeholder: dataUri, uploaded: 2 });
+    vi.mocked(mediaPlaceholder).mockReset().mockResolvedValue(dataUri);
+    vi.mocked(saveMediaCredential).mockReset().mockResolvedValue(undefined);
+  });
+
+  test("published images get their sizes made and recorded", async () => {
+    const result = await validateImageLibraryAssets({
+      library: sizedLibrary,
+      assets: [published()],
+      sources: [photos],
+    });
+
+    expect(result.updated).toEqual(["harbor"]);
+    expect(deriveRemoteMedia).toHaveBeenCalledWith({
+      source: photos,
+      key: "photo/harbor-1a2b3c4d.jpg",
+      url,
+      derived: {
+        format: "webp",
+        quality: 80,
+        sizes: [
+          { key: "photo/harbor-1a2b3c4d-480w-q80.webp", width: 480, height: 720 },
+          { key: "photo/harbor-1a2b3c4d-1600w-q80.webp", width: 1600, height: 2400 },
+        ],
+      },
+      placeholder: true,
+    });
+    const content = writes()[0].content;
+    expect(content).toContain(
+      `srcset: "https://www.example.com/photo/harbor-1a2b3c4d-480w-q80.webp 480w, https://www.example.com/photo/harbor-1a2b3c4d-1600w-q80.webp 1600w"`,
+    );
+    expect(content).toContain(`placeholder: "${dataUri}"`);
+  });
+
+  test("local images get a placeholder; their sizes wait for Publish", async () => {
+    const local = asset("harbor", "image: ./harbor.jpg\n");
+
+    await validateImageLibraryAssets({ library: sizedLibrary, assets: [local], sources: [photos] });
+
+    expect(mediaPlaceholder).toHaveBeenCalledWith(`${root}/harbor.jpg`);
+    expect(deriveRemoteMedia).not.toHaveBeenCalled();
+    const content = writes()[0].content;
+    expect(content).toContain("placeholder:");
+    expect(content).not.toContain("srcset:");
+  });
+
+  test("only uploads for published images that need sizes", () => {
+    const filled = library([{ name: "srcset", type: "string", options: from("srcset", false) }]);
+    const done = asset("done", `image: ${url}\nsrcset: x 480w\n`, {
+      imagePath: null,
+      imageUrl: url,
+    });
+
+    expect(validationSources(sizedLibrary, [published()], [photos])).toEqual([photos]);
+    expect(validationSources(filled, [done], [photos])).toEqual([]);
+    expect(validationSources(sizedLibrary, [asset("local", "image: ./a.jpg\n")], [photos])).toEqual(
+      [],
+    );
+  });
+
+  test("the dialog asks for the storage password before uploading", async () => {
+    vi.mocked(invoke).mockImplementation(async (command) =>
+      command === "media_credential_exists" ? false : null,
+    );
+    render(
+      <MantineProvider forceColorScheme="light">
+        <ValidateImageLibraryAssetsDialog
+          library={sizedLibrary}
+          assets={[published()]}
+          sources={[photos]}
+          onBeforeChange={() => Promise.resolve()}
+          onClose={vi.fn()}
+          onValidated={vi.fn()}
+        />
+      </MantineProvider>,
+    );
+
+    fireEvent.change(await screen.findByLabelText("Storage zone password"), {
+      target: { value: "zone-pass" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save and continue" }));
+
+    expect(await screen.findByText(/Updated 1 item\./)).toBeTruthy();
+    expect(saveMediaCredential).toHaveBeenCalledWith(photos, { secret: "zone-pass" }, "photo");
   });
 });

@@ -1,8 +1,11 @@
 import {
   cdnObjectKey,
   cdnObjectUrl,
+  derivedImageSizes,
   isRemoteMediaUrl,
+  srcsetFor,
   type CdnSource,
+  type DerivedImageSize,
 } from "@posto/core/media/sources";
 import {
   expandMediaEntry,
@@ -35,11 +38,13 @@ import {
   discoverImageLibraryAssets,
   imageDetailUpdates,
   imageDimensionFields,
+  usesPlaceholder,
   type ImageLibraryAsset,
 } from "@posto/core/project/mediaLibrary";
 import {
   inspectMediaFile,
   invoke,
+  mediaPlaceholder,
   pendingMediaDeletes,
   type FileEntry,
   type FileGroup,
@@ -101,6 +106,12 @@ export interface CdnUpload {
   sha256: string;
   size: number;
   contentType: string;
+  /** Smaller copies Publish makes and uploads beside the original. */
+  derived?: {
+    format: "webp" | "jpeg";
+    quality: number;
+    sizes: DerivedImageSize[];
+  };
 }
 
 /** A CDN object whose library entry was deleted, removed after Publish lands. */
@@ -558,6 +569,8 @@ function rewriteMetadata(
   image: LibraryImage,
   upload: CdnUpload,
   inspection: MediaFileInspection,
+  source: CdnSource,
+  placeholder: string | null,
 ): { content: string } | { blocker: string } {
   const { asset, library } = image;
   const format = dataDocumentFormat(asset.metadataPath);
@@ -565,8 +578,14 @@ function rewriteMetadata(
   const parsed = parseDataDocument(image.previous, format);
   if (parsed.error) return { blocker: `${asset.metadataPath}: ${parsed.error}` };
   setDataValue(parsed, library.imageFieldPath, upload.url);
-  // Capture dates are only taken at import, so publishing fills dimensions.
-  const details = { captureDate: null, dimensions: inspection.dimensions };
+  // Capture dates are only taken at import. Publishing fills what uploading
+  // decides: the size, and the copies made for the CDN.
+  const details = {
+    captureDate: null,
+    dimensions: inspection.dimensions,
+    srcset: upload.derived ? srcsetFor(source, upload.derived.sizes) : null,
+    placeholder,
+  };
   for (const { path, value } of imageDetailUpdates(library, asset.metadata, details)) {
     setDataValue(parsed, path, value);
   }
@@ -663,6 +682,13 @@ export async function planCdnPublish(input: {
     if (!result) continue;
     const { image, inspection } = result;
     const key = cdnObjectKey(image.source, image.folder, basename(image.path), inspection.sha256);
+    const images = image.source.images;
+    const sizes = derivedImageSizes(
+      image.source,
+      key,
+      inspection.contentType,
+      inspection.dimensions,
+    );
     uploads.set(image.path, {
       sourceName: image.source.name,
       path: image.path,
@@ -671,18 +697,42 @@ export async function planCdnPublish(input: {
       sha256: inspection.sha256,
       size: inspection.size,
       contentType: inspection.contentType,
+      ...(images && sizes.length > 0
+        ? { derived: { format: images.format, quality: images.quality, sizes } }
+        : {}),
     });
     inspections.set(image.path, inspection);
   }
   if (uploads.size === 0) return { ...empty, deletes, warnings, blockers };
+
+  // Placeholders are small but need each photo decoded, so they're made only
+  // for libraries with a placeholder field. An unreadable image just has none.
+  const placeholders = new Map<string, string | null>();
+  await mapWithConcurrency(
+    libraryImages.filter(
+      (image) => usesPlaceholder(image.library) && uploads.has(image.asset.imagePath!),
+    ),
+    INSPECT_CONCURRENCY,
+    async (image) => {
+      const path = image.asset.imagePath!;
+      placeholders.set(path, await mediaPlaceholder(path).catch(() => null));
+    },
+  );
 
   const rewritten = new Map<string, string>();
   const previous = new Map<string, string>();
   for (const image of libraryImages) {
     const upload = uploads.get(image.asset.imagePath!);
     const inspection = inspections.get(image.asset.imagePath!);
-    if (!upload || !inspection) continue;
-    const result = rewriteMetadata(image, upload, inspection);
+    const source = upload && context.sources.get(upload.sourceName);
+    if (!upload || !inspection || !source) continue;
+    const result = rewriteMetadata(
+      image,
+      upload,
+      inspection,
+      source,
+      placeholders.get(upload.path) ?? null,
+    );
     if ("blocker" in result) {
       blockers.push(result.blocker);
       continue;

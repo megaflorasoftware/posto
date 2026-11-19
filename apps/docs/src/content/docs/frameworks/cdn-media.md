@@ -45,6 +45,7 @@ Describe each storage location in `.posto/index.json`. Commit this file so every
 | `publicUrl` | The HTTPS address that serves the bucket, such as a Bunny pull zone hostname. Content stores URLs that start with it.                         |
 | `endpoint`  | S3 only. The service's HTTPS API endpoint.                                                                                                    |
 | `pathStyle` | S3 only. Set to `false` for services that need the bucket in the hostname. Defaults to `true`.                                                |
+| `images`    | Optional smaller sizes to make of each image. See [serve smaller sizes](#serve-smaller-sizes).                                                |
 
 For Bunny, Posto uses the storage API that works on every zone, so a zone doesn't need S3 compatibility. Connect a pull zone to the storage zone and use its hostname as `publicUrl`.
 
@@ -105,6 +106,56 @@ const { src, alt, width, height } = photo.data;
 
 To let Astro optimize CDN images, authorize the host in `astro.config.mjs` with `image: { domains: ["media.example.com"] }`.
 
+## Serve smaller sizes
+
+Astro can only resize a CDN image by downloading the original, which is slow for large photos in builds and in `astro dev`. Instead, Posto can make smaller sizes when it uploads each image, and record them in the entry for templates to use directly.
+
+List the widths the site needs on the source:
+
+```jsonc
+{
+  "name": "cdn",
+  // …connection settings
+  "images": {
+    "widths": [480, 800, 1200, 1600, 2400, 3200],
+    "format": "webp", // or "jpeg". Defaults to "webp".
+    "quality": 80, // 1 to 100. Defaults to 80.
+  },
+}
+```
+
+Publish then uploads a copy of each image at every width, next to the original, which still uploads too. Widths wider than the image are skipped, so nothing is enlarged, and an image narrower than every width gets one copy at its own size. Copies are turned the way the camera recorded, keep transparency in WebP, and are named after their original, such as `harbor-1a2b3c4d-1600w-q80.webp`. Changing a setting gives new names, so CDN caches never serve an old copy.
+
+Two values record them in the entry, alongside `width` and `height`:
+
+```ts
+srcset: z.string().optional().describe("value=schema.src.srcset"),
+placeholder: z.string().optional().describe("value=schema.src.placeholder"),
+```
+
+- `srcset` lists every size, ready for an `<img srcset>` attribute.
+- `placeholder` is a 24px copy as a `data:` URI, a few hundred bytes, to show blurred while the image loads. Any library can use it, including one that keeps images in the repository.
+
+```astro
+---
+const { src, alt, width, height, srcset, placeholder } = photo.data;
+---
+
+<img
+  src={src}
+  srcset={srcset}
+  sizes="(min-width: 640px) 50vw, 100vw"
+  alt={alt}
+  width={width}
+  height={height}
+  style={placeholder ? `background: url("${placeholder}") center / cover` : undefined}
+/>
+```
+
+Until an entry is published, its image is still local and `srcset` is empty, so templates should fall back to Astro's image handling for local images. For images that were published before `images` was set, select their entries in the media library and choose **Validate items**. Posto downloads each original once, makes and uploads its sizes, and fills in both values.
+
+Sizes are made from JPEG, PNG, WebP, TIFF, and BMP images. Colors are kept as stored, without converting wide-gamut photos to sRGB.
+
 ## How publishing works
 
 Publishing uploads images first, then commits and pushes the updated content. If any step fails, Posto restores the site exactly as it was, and the next publish reuses uploads that already finished. If the app quits partway through, Posto finishes or undoes the publish the next time the project opens.
@@ -115,7 +166,7 @@ Posto keeps the local copy when a file it doesn't rewrite still mentions the ima
 
 ## Deleting images
 
-Deleting an image from a media library removes its entry right away and deletes its CDN object after the next successful publish. Reverting the deletion before publishing cancels it. Removing an image from a page never deletes it from the CDN.
+Deleting an image from a media library removes its entry right away and deletes its CDN object, and any sizes made from it, after the next successful publish. Reverting the deletion before publishing cancels it. Removing an image from a page never deletes it from the CDN.
 
 ## Current limitations
 

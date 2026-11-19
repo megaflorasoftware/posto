@@ -180,6 +180,8 @@ export interface MediaPublishRequest {
     sha256: string;
     size: number;
     contentType: string;
+    /** Smaller copies to make and upload beside the original. */
+    derived?: RemoteDeriveRequest["derived"];
   }>;
   writes: Array<{ path: string; previous: string; content: string }>;
   removals: string[];
@@ -472,6 +474,32 @@ export interface ImageDetails {
  * start of the file is downloaded unless the rest is needed. */
 export function readRemoteImageDetails(url: string, needsDate: boolean): Promise<ImageDetails> {
   return invoke("media_remote_image_details", { url, needsDate });
+}
+
+/** A tiny copy of a local image as a `data:` URI, for a placeholder field. */
+export function mediaPlaceholder(path: string): Promise<string> {
+  return invoke("media_placeholder", { path });
+}
+
+export interface RemoteDeriveRequest {
+  source: unknown;
+  /** The original's object key, and where it can be downloaded. */
+  key: string;
+  url: string;
+  derived?: {
+    format: "webp" | "jpeg";
+    quality: number;
+    sizes: Array<{ key: string; width: number; height: number }>;
+  };
+  placeholder: boolean;
+}
+
+/** Makes what an image already on a CDN is missing: sizes, uploaded beside
+ * it, and a placeholder. The original is only downloaded when needed. */
+export function deriveRemoteMedia(
+  request: RemoteDeriveRequest,
+): Promise<{ placeholder: string | null; uploaded: number }> {
+  return invoke("media_derive_remote", { request });
 }
 
 /** A photo's capture date and display size. A converted HEIC is measured as

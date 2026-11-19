@@ -106,16 +106,14 @@ impl BunnyClient {
         let response = send(|| {
             let url = url.clone();
             async move {
-                let file = tokio::fs::File::open(upload.path)
-                    .await
-                    .map_err(|error| format!("Could not read the image: {error}"))?;
+                let body = upload.body.body().await?;
                 Ok(self
                     .request(Method::PUT, url)
                     .header("Checksum", upload.sha256.to_ascii_uppercase())
                     .header(CONTENT_TYPE, upload.content_type)
                     .header(CONTENT_LENGTH, upload.size)
                     .timeout(upload_timeout(upload.size))
-                    .body(file))
+                    .body(body))
             }
         })
         .await?;

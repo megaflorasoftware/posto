@@ -5,13 +5,16 @@ import {
   matchesImageLibraryPath,
   planMediaImport,
   usesImageDetails,
+  usesPlaceholder,
   withImageDetails,
+  type ImageDetails,
   type MediaImportPlan,
 } from "@posto/core/project/mediaLibrary";
 import type { MediaLibrary, MediaLibraryMetadataExtension } from "@posto/core/pagescms/config";
 import {
   importImageLibraryAsset,
   invoke,
+  mediaPlaceholder,
   openImageFiles,
   readImageDetails,
   type FileEntry,
@@ -53,9 +56,17 @@ function makeDraft(sourceImagePath: string, library: MediaLibrary): ImageLibrary
 
 /** Reads the image's details when the library's schema takes values from it.
  * A file that can't be read leaves those fields to the schema's validation. */
-async function detailsFor(library: MediaLibrary, sourceImagePath: string) {
+async function detailsFor(
+  library: MediaLibrary,
+  sourceImagePath: string,
+): Promise<ImageDetails | null> {
   if (!usesImageDetails(library)) return null;
-  return readImageDetails(sourceImagePath).catch(() => null);
+  const [details, placeholder] = await Promise.all([
+    readImageDetails(sourceImagePath).catch(() => null),
+    usesPlaceholder(library) ? mediaPlaceholder(sourceImagePath).catch(() => null) : null,
+  ]);
+  if (!details && !placeholder) return null;
+  return { captureDate: null, dimensions: null, ...details, placeholder };
 }
 
 async function metadataForImport(

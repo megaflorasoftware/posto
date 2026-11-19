@@ -7,8 +7,10 @@ use axum::http::Method;
 use axum::response::Response;
 use axum::Router;
 use posto_lib::git::Client;
+use posto_lib::media::backfill::{derive_remote, RemoteDeriveRequest};
 use posto_lib::media::bunny::BunnyClient;
 use posto_lib::media::deletes::{self, DeleteIntent};
+use posto_lib::media::derive::{self, DerivedFormat, DerivedSet, DerivedSize};
 use posto_lib::media::provider::{MediaSource, Provider, ProviderKind};
 use posto_lib::media::publish::{
     execute, recover, Hooks, PlannedDelete, PlannedUpload, PlannedWrite, PublishProgress,
@@ -39,6 +41,7 @@ struct Storage {
     objects: Mutex<BTreeMap<String, Vec<u8>>>,
     puts: AtomicUsize,
     lists: AtomicUsize,
+    downloads: AtomicUsize,
     reject_uploads: AtomicBool,
     fail_deletes: AtomicBool,
 }
@@ -50,6 +53,17 @@ async fn storage_handler(State(storage): State<Arc<Storage>>, request: Request) 
             .body(Body::from(body))
             .unwrap()
     };
+    // Public delivery, like a pull zone in front of the storage zone.
+    if let Some(key) = request.uri().path().strip_prefix("/public/") {
+        storage.downloads.fetch_add(1, Ordering::SeqCst);
+        return match storage.objects.lock().unwrap().get(key) {
+            Some(bytes) => Response::builder()
+                .status(200)
+                .body(Body::from(bytes.clone()))
+                .unwrap(),
+            None => respond(404, String::new()),
+        };
+    }
     let key = request
         .uri()
         .path()
@@ -218,6 +232,7 @@ impl Fixture {
             sha256: hex(bytes),
             size: bytes.len() as u64,
             content_type: "image/jpeg".to_string(),
+            derived: None,
         }
     }
 
@@ -852,4 +867,198 @@ async fn failed_deletes_are_retried_on_the_next_publish() {
 
     assert!(!f.storage.objects.lock().unwrap().contains_key(LIVE_KEY));
     assert!(pending(&f).is_empty());
+}
+
+const FRESH_KEY: &str = "images/fresh-5e6f7a8b.jpg";
+
+/// An 80×40 JPEG, so sizes can really be made from it.
+fn photo() -> Vec<u8> {
+    let mut bytes = Vec::new();
+    image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+        80,
+        40,
+        image::Rgb([30, 90, 200]),
+    ))
+    .write_to(
+        &mut std::io::Cursor::new(&mut bytes),
+        image::ImageFormat::Jpeg,
+    )
+    .unwrap();
+    bytes
+}
+
+fn sizes_of(key: &str) -> DerivedSet {
+    let base = key.rsplit_once('.').unwrap().0;
+    DerivedSet {
+        format: DerivedFormat::Webp,
+        quality: 80,
+        sizes: [(20, 10), (40, 20)]
+            .into_iter()
+            .map(|(width, height)| DerivedSize {
+                key: format!("{base}-{width}w-q80.webp"),
+                width,
+                height,
+            })
+            .collect(),
+    }
+}
+
+/// The fixture's request, with the new image replaced by a real photo that
+/// has sizes to make.
+fn with_sizes(f: &Fixture) -> PublishRequest {
+    let bytes = photo();
+    write(&f.local, "src/data/photos/fresh.jpg", &bytes);
+    let mut request = f.request();
+    let fresh = &mut request.uploads[1];
+    fresh.sha256 = hex(&bytes);
+    fresh.size = bytes.len() as u64;
+    fresh.derived = Some(sizes_of(FRESH_KEY));
+    request
+}
+
+fn stored_size(f: &Fixture, key: &str) -> Option<(u32, u32)> {
+    let objects = f.storage.objects.lock().unwrap();
+    let image = derive::read(objects.get(key)?).unwrap();
+    Some((image.width(), image.height()))
+}
+
+#[tokio::test]
+async fn publishing_uploads_each_size_beside_the_original() {
+    let f = fixture().await;
+
+    f.run(with_sizes(&f), Hooks::default()).await.unwrap();
+
+    assert_eq!(
+        stored_size(&f, "images/fresh-5e6f7a8b-20w-q80.webp"),
+        Some((20, 10))
+    );
+    assert_eq!(
+        stored_size(&f, "images/fresh-5e6f7a8b-40w-q80.webp"),
+        Some((40, 20))
+    );
+    assert_eq!(
+        f.storage.puts.load(Ordering::SeqCst),
+        4,
+        "two originals, two sizes"
+    );
+}
+
+#[tokio::test]
+async fn a_retry_reuses_sizes_already_uploaded() {
+    let f = fixture().await;
+    f.set_origin(&f.local.parent().unwrap().join("missing.git"));
+    assert!(f.run(with_sizes(&f), Hooks::default()).await.is_err());
+    assert_eq!(f.storage.puts.load(Ordering::SeqCst), 4);
+
+    f.set_origin(&f.origin);
+    f.run(with_sizes(&f), Hooks::default()).await.unwrap();
+
+    assert_eq!(
+        f.storage.puts.load(Ordering::SeqCst),
+        4,
+        "nothing uploads twice"
+    );
+}
+
+#[tokio::test]
+async fn sizes_must_be_named_after_their_original() {
+    let f = fixture().await;
+    let mut request = with_sizes(&f);
+    request.uploads[1].derived.as_mut().unwrap().sizes[0].key =
+        "images/other-1a2b3c4d-20w-q80.webp".to_string();
+
+    let error = f.run(request, Hooks::default()).await.unwrap_err();
+
+    assert!(error.contains("isn't named after"), "{error}");
+    assert_eq!(f.storage.puts.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn deleting_an_entry_deletes_its_sizes_too() {
+    let f = deleted_entry().await;
+    let base = LIVE_KEY.rsplit_once('.').unwrap().0;
+    let unrelated = "images/neighbor-00000000-20w-q80.webp".to_string();
+    for key in [
+        format!("{base}-20w-q80.webp"),
+        format!("{base}-40w-q80.webp"),
+        unrelated.clone(),
+    ] {
+        f.storage
+            .objects
+            .lock()
+            .unwrap()
+            .insert(key, b"size".to_vec());
+    }
+
+    f.run(with_delete(f.request()), Hooks::default())
+        .await
+        .unwrap();
+
+    let objects = f.storage.objects.lock().unwrap();
+    assert!(!objects.contains_key(LIVE_KEY));
+    assert!(!objects
+        .keys()
+        .any(|key| key.starts_with(&format!("{base}-"))));
+    assert!(objects.contains_key(&unrelated), "other images' sizes stay");
+}
+
+#[tokio::test]
+async fn published_images_can_get_their_sizes_later() {
+    let f = fixture().await;
+    f.storage
+        .objects
+        .lock()
+        .unwrap()
+        .insert(FRESH_KEY.to_string(), photo());
+    let client = BunnyClient::new(&f.storage_url, "zone", "password").unwrap();
+    let provider = Provider::Bunny(client);
+    let request = |placeholder: bool| RemoteDeriveRequest {
+        source: f.request().sources[0].clone(),
+        key: FRESH_KEY.to_string(),
+        url: format!("{}/public/{FRESH_KEY}", f.storage_url),
+        derived: Some(sizes_of(FRESH_KEY)),
+        placeholder,
+    };
+
+    let first = derive_remote(request(true), &provider).await.unwrap();
+
+    assert_eq!(first.uploaded, 2);
+    assert!(first
+        .placeholder
+        .unwrap()
+        .starts_with("data:image/webp;base64,"));
+    assert_eq!(
+        stored_size(&f, "images/fresh-5e6f7a8b-40w-q80.webp"),
+        Some((40, 20))
+    );
+    assert_eq!(f.storage.downloads.load(Ordering::SeqCst), 1);
+
+    let again = derive_remote(request(false), &provider).await.unwrap();
+
+    assert_eq!(again.uploaded, 0);
+    assert_eq!(
+        f.storage.downloads.load(Ordering::SeqCst),
+        1,
+        "nothing missing, so the original isn't downloaded"
+    );
+}
+
+#[tokio::test]
+async fn backfills_stay_inside_their_source() {
+    let f = fixture().await;
+    let client = BunnyClient::new(&f.storage_url, "zone", "password").unwrap();
+    let request = RemoteDeriveRequest {
+        source: f.request().sources[0].clone(),
+        key: "elsewhere/fresh-5e6f7a8b.jpg".to_string(),
+        url: format!("{}/public/{FRESH_KEY}", f.storage_url),
+        derived: Some(sizes_of("elsewhere/fresh-5e6f7a8b.jpg")),
+        placeholder: true,
+    };
+
+    let error = derive_remote(request, &Provider::Bunny(client))
+        .await
+        .unwrap_err();
+
+    assert!(error.contains("outside its CDN folder"), "{error}");
+    assert_eq!(f.storage.downloads.load(Ordering::SeqCst), 0);
 }
