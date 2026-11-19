@@ -52,14 +52,14 @@ For Bunny, Posto uses the storage API that works on every zone, so a zone doesn'
 
 ### Astro
 
-Add `posto:media=<name>` to the image field's description. On a [media library](/frameworks/astro/media-libraries/), this moves every image in the library:
+Add `posto:store=<name>` to the image field's description, where `<name>` is the source's `name` from `.posto/index.json`, not its bucket. On a [media library](/frameworks/astro/media-libraries/), this moves every image in the library:
 
 ```ts
 const photos = defineCollection({
   loader: glob({ base: "./src/data/photos", pattern: "**/*.yaml" }),
   schema: ({ image }) =>
     z.object({
-      src: image().describe("posto:media=cdn"),
+      src: image().describe("posto:store=cdn"),
       alt: z.string(),
       width: z.number().optional(),
       height: z.number().optional(),
@@ -67,7 +67,7 @@ const photos = defineCollection({
 });
 ```
 
-The same annotation works on an image field in any collection. The description can include other text, as long as `posto:media=cdn` is a separate word.
+The same annotation works on an image field in any collection. The description can include other text, as long as `posto:store=cdn` is a separate word.
 
 Commit the generated `.astro/collections` folder if editors use Posto on iOS. Phones can't run Astro to generate it, and Posto won't publish CDN images when it can't read the schema.
 

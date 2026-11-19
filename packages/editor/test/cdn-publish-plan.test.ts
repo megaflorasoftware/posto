@@ -468,7 +468,7 @@ describe("first migrations", () => {
 
 describe("unreadable schemas", () => {
   test("blocks when the content config names a source Posto can't resolve", async () => {
-    files.set(`${root}/src/content.config.ts`, 'src: image().describe("posto:media=cdn")');
+    files.set(`${root}/src/content.config.ts`, 'src: image().describe("posto:store=cdn")');
 
     const plan = await planCdnPublish({
       root,
@@ -480,7 +480,7 @@ describe("unreadable schemas", () => {
   });
 
   test("an annotation without a defined source doesn't block publishing", async () => {
-    files.set(`${root}/src/content.config.ts`, 'src: image().describe("posto:media=cdn")');
+    files.set(`${root}/src/content.config.ts`, 'src: image().describe("posto:store=cdn")');
 
     const plan = await planCdnPublish({
       root,

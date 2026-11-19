@@ -4,7 +4,7 @@ export interface SchemaImageField {
   path: string[];
   /** Imports can assign this field without having to invent list items. */
   writable: boolean;
-  /** CDN source named by a `posto:media=<name>` schema description. */
+  /** CDN source named by a `posto:store=<name>` schema description. */
   mediaSource?: string;
 }
 

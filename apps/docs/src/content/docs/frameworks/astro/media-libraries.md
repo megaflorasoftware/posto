@@ -58,7 +58,7 @@ Posto reads the date from the photo's metadata, including iPhone HEIC photos, an
 
 ## Storing images on a CDN
 
-A library can keep its images on Bunny Storage or an S3-compatible service instead of in the repository. Add `posto:media=<name>` to the image field's description, as in `image().describe("posto:media=cdn")`, and define the source in `.posto/index.json`. See [CDN media](/frameworks/cdn-media/).
+A library can keep its images on Bunny Storage or an S3-compatible service instead of in the repository. Add `posto:store=<name>` to the image field's description, as in `image().describe("posto:store=cdn")`, and define the source in `.posto/index.json`. See [CDN media](/frameworks/cdn-media/).
 
 ## When a collection is skipped
 

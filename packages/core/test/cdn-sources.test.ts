@@ -37,10 +37,10 @@ const bunny = {
 
 describe("mediaSourceAnnotation", () => {
   test.each([
-    ['image().describe("posto:media=cdn")', "cdn"],
-    ["image().describe('posto:media=photo_cdn-2')", "photo_cdn-2"],
-    ["image().optional().describe(`Hero art posto:media=cdn`)", "cdn"],
-    ['z.optional(image().describe("posto:media=cdn\tfor heroes"))', "cdn"],
+    ['image().describe("posto:store=cdn")', "cdn"],
+    ["image().describe('posto:store=photo_cdn-2')", "photo_cdn-2"],
+    ["image().optional().describe(`Hero art posto:store=cdn`)", "cdn"],
+    ['z.optional(image().describe("posto:store=cdn\tfor heroes"))', "cdn"],
   ])("reads %s", (expression, source) => {
     expect(mediaSourceAnnotation(expression)).toBe(source);
   });
@@ -48,9 +48,9 @@ describe("mediaSourceAnnotation", () => {
   test.each([
     "image()",
     'image().describe("Stored locally")',
-    'image().describe("xposto:media=cdn")',
-    'image().describe("posto:media=")',
-    '/* .describe("posto:media") */ image()',
+    'image().describe("xposto:store=cdn")',
+    'image().describe("posto:store=")',
+    '/* .describe("posto:store") */ image()',
   ])("ignores %s", (expression) => {
     expect(mediaSourceAnnotation(expression)).toBeUndefined();
   });
@@ -135,7 +135,7 @@ describe("Astro schema bindings", () => {
 const photos = defineCollection({
   loader: glob({ pattern: "**/*.yaml", base: "./src/data/photos" }),
   schema: ({ image }) => z.object({
-    src: image().describe("posto:media=cdn"),
+    src: image().describe("posto:store=cdn"),
     alt: z.string(),
   }),
 });
@@ -146,7 +146,7 @@ const local = defineCollection({
 const posts = defineCollection({
   loader: glob({ pattern: "**/*.md", base: "./src/content/posts" }),
   schema: ({ image }) => z.object({
-    meta: z.object({ hero: image().optional().describe("posto:media=cdn") }),
+    meta: z.object({ hero: image().optional().describe("posto:store=cdn") }),
   }),
 });
 export const collections = { photos, local, posts };
@@ -364,7 +364,7 @@ describe("posto:default annotations", () => {
   test.each([
     ["posto:default=capture-date", "capture-date"],
     ["When it was taken. posto:default=capture-date", "capture-date"],
-    ["posto:default=capture-date posto:media=cdn", "capture-date"],
+    ["posto:default=capture-date posto:store=cdn", "capture-date"],
     ["posto:default=camera", undefined],
     ["xposto:default=capture-date", undefined],
     [undefined, undefined],
