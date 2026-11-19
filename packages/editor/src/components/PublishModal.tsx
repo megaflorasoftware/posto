@@ -191,12 +191,6 @@ function MediaSummary(props: { media: MediaPublishState }) {
           {note}
         </Note>
       ))}
-      {plan.firstMigrations.length > 0 && (
-        <Text size="xs" c="dimmed">
-          Astro's &lt;Image&gt; component requires a width and height value for remote images, so
-          make sure you've added them.
-        </Text>
-      )}
     </Stack>
   );
 }

@@ -134,9 +134,6 @@ export interface CdnPublishPlan {
   warnings: CdnPlanWarning[];
   /** Problems that must be fixed before Publish can continue. */
   blockers: string[];
-  /** Collections publishing CDN images for the first time. Their templates
-   * start receiving URL strings instead of local image metadata. */
-  firstMigrations: string[];
 }
 
 interface PendingImage {
@@ -177,9 +174,6 @@ interface PlanContext {
   root: string;
   config: PagesConfig;
   sources: Map<string, CdnSource>;
-  /** Collections with images about to move, and those already on a CDN. */
-  migrating: Set<string>;
-  published: Set<string>;
   /** CDN URLs still used by a library entry, which must never be deleted. */
   liveUrls: Set<string>;
 }
@@ -268,12 +262,8 @@ async function collectLibraryImages(
       files.map((file) => file.path),
     );
     for (const asset of assets) {
-      if (asset.imageUrl) {
-        context.published.add(library.collection);
-        context.liveUrls.add(asset.imageUrl);
-      }
+      if (asset.imageUrl) context.liveUrls.add(asset.imageUrl);
       if (!asset.imagePath || asset.health.includes("missing-image")) continue;
-      context.migrating.add(library.collection);
       const relative = inside(libraryRoot, asset.imagePath);
       addPending(pending, {
         path: asset.imagePath,
@@ -457,7 +447,7 @@ async function collectFieldImages(
   documents: ContentDocument[],
   pending: Map<string, PendingImage>,
 ): Promise<void> {
-  const found: Array<{ source: CdnSource; candidates: string[]; collection: string }> = [];
+  const found: Array<{ source: CdnSource; candidates: string[] }> = [];
   for (const document of documents) {
     const open = openDocument(document);
     if ("error" in open) continue;
@@ -465,18 +455,16 @@ async function collectFieldImages(
       visitImageValues(document.entry.fields, record, (field, _path, value) => {
         const source = boundSource(context, field, document.entry, record.values);
         if (!source) return;
-        if (isRemoteMediaUrl(value)) context.published.add(document.entry.name);
         const candidates = localCandidates(context, document, field, record.values, value);
         if (candidates.length > 0) {
-          found.push({ source, candidates, collection: document.entry.name });
+          found.push({ source, candidates });
         }
       });
     }
   }
-  for (const { source, candidates, collection } of found) {
+  for (const { source, candidates } of found) {
     for (const path of candidates) {
       if (!(await invoke<boolean>("path_exists", { path }))) continue;
-      context.migrating.add(collection);
       const relative = inside(context.root, path) ?? basename(path);
       addPending(pending, {
         path,
@@ -645,7 +633,7 @@ export async function planCdnPublish(input: {
 }): Promise<CdnPublishPlan> {
   const context = planContext(input.root, input.config);
   const warnings: CdnPlanWarning[] = [];
-  const empty = { uploads: [], writes: [], removals: [], deletes: [], firstMigrations: [] };
+  const empty = { uploads: [], writes: [], removals: [], deletes: [] };
   // Without a defined source, annotated images simply stay local.
   if (context.sources.size === 0) return { ...empty, warnings, blockers: [] };
   const blockers = await unreadableBindingBlockers(context);
@@ -743,9 +731,6 @@ export async function planCdnPublish(input: {
     deletes,
     warnings,
     blockers,
-    firstMigrations: [...context.migrating]
-      .filter((collection) => !context.published.has(collection))
-      .sort(),
   };
 }
 
@@ -754,8 +739,6 @@ function planContext(root: string, config: PagesConfig): PlanContext {
     root,
     config,
     sources: new Map((config.cdnSources ?? []).map((source) => [source.name, source])),
-    migrating: new Set(),
-    published: new Set(),
     liveUrls: new Set(),
   };
 }

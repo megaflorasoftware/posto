@@ -70,7 +70,6 @@ const plan = (overrides: Partial<CdnPublishPlan> = {}): CdnPublishPlan => ({
   deletes: [],
   warnings: [],
   blockers: [],
-  firstMigrations: [],
   ...overrides,
 });
 
@@ -465,18 +464,6 @@ describe("the Publish dialog", () => {
 
     expect(screen.getByText("Commit .astro/collections.")).toBeTruthy();
     expect(publishButton()).toHaveProperty("disabled", true);
-  });
-
-  test("a first migration reminds about image sizes without blocking", () => {
-    dialog({ media: media({ plan: plan({ firstMigrations: ["photos"] }) }) });
-
-    expect(
-      screen.getByText(
-        "Astro's <Image> component requires a width and height value for remote images, so make sure you've added them.",
-      ),
-    ).toBeTruthy();
-    expect(screen.queryByRole("checkbox")).toBeNull();
-    expect(publishButton()).toHaveProperty("disabled", false);
   });
 
   test("explains why local copies stay, grouped by cause", () => {

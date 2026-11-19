@@ -105,8 +105,6 @@ const { src, alt, width, height } = photo.data;
 
 To let Astro optimize CDN images, authorize the host in `astro.config.mjs` with `image: { domains: ["media.example.com"] }`.
 
-The first time a collection publishes CDN images, the publish review reminds the editor that Astro's `<Image>` component needs a width and height for remote images.
-
 ## How publishing works
 
 Publishing uploads images first, then commits and pushes the updated content. If any step fails, Posto restores the site exactly as it was, and the next publish reuses uploads that already finished. If the app quits partway through, Posto finishes or undoes the publish the next time the project opens.

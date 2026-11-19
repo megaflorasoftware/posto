@@ -539,35 +539,6 @@ describe("recorded deletes", () => {
   });
 });
 
-describe("first migrations", () => {
-  test("flags a library moving its first images to the CDN", async () => {
-    addLibraryImage();
-
-    const plan = await planCdnPublish({ root, config: config(), groups: [] });
-
-    expect(plan.firstMigrations).toEqual(["photos"]);
-  });
-
-  test("libraries that already use the CDN aren't flagged again", async () => {
-    addLibraryImage();
-    files.set(`${root}/src/data/photos/live.yaml`, `src: ${url}\nalt: Live\n`);
-
-    const plan = await planCdnPublish({ root, config: config(), groups: [] });
-
-    expect(plan.uploads).toHaveLength(1);
-    expect(plan.firstMigrations).toEqual([]);
-  });
-
-  test("counts pending images without hashing them", async () => {
-    addLibraryImage();
-    files.set(`${root}/src/data/photos/live.yaml`, `src: ${url}\nalt: Live\n`);
-
-    expect(await countPendingCdnMedia(root, config())).toBe(1);
-    expect(await countPendingCdnMedia(root, config({ cdnSources: [] }))).toBe(0);
-    expect(inspectMediaFile).not.toHaveBeenCalled();
-  });
-});
-
 describe("unreadable schemas", () => {
   test("blocks when the content config names a source Posto can't resolve", async () => {
     files.set(`${root}/src/content.config.ts`, 'src: image().describe("value=posto.media.cdn")');
@@ -609,7 +580,6 @@ describe("unreadable schemas", () => {
       deletes: [],
       warnings: [],
       blockers: [],
-      firstMigrations: [],
     });
     expect(inspectMediaFile).not.toHaveBeenCalled();
   });
