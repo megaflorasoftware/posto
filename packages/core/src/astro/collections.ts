@@ -9,7 +9,7 @@ import type {
 } from "../pagescms/config";
 import { ASTRO_MEDIA } from "../pagescms/config";
 import { schemaImageFields, type SchemaImageField } from "./schemaAnalysis";
-import { fieldDefaultAnnotation } from "../posto/annotations";
+import { annotatedFields, fieldDefaultAnnotation } from "../posto/annotations";
 
 // Builds a PagesConfig from Astro content collections, used as a fallback
 // schema source when `.pages.yml` doesn't cover a folder. Astro generates a
@@ -67,7 +67,7 @@ function textField(name: string): Field {
   return { name, type: "text" };
 }
 
-/** Converts one schema property and records any `posto:default=` annotation
+/** Converts one schema property and records any `<field>:default=` annotation
  * from its description. */
 function convertSchema(name: string, schema: JsonSchema, required: boolean): Field {
   const field = convertSchemaShape(name, schema, required);
@@ -559,13 +559,24 @@ function discoverImageLibraries(
       });
       continue;
     }
+    const fields = resolveImages(collection.fields, images);
+    const imageField = images[0].path.join(".");
+    for (const { path, source } of annotatedFields(fields)) {
+      if (source.field.join(".") === imageField) continue;
+      diagnostics.push({
+        feature: "media-library",
+        collection: collection.name,
+        code: "unmatched-default-source",
+        message: `${collection.name} field ${path.join(".")} takes its default from "${source.field.join(".")}", but the image field is "${imageField}", so Posto won't fill it.`,
+      });
+    }
     libraries.push({
       collection: collection.name,
       base: normalizePath(loader.base),
       patterns: loader.patterns ?? [],
       metadataExtensions: extensions,
       imageFieldPath: images[0].path,
-      fields: resolveImages(collection.fields, images),
+      fields,
       ...(images[0].mediaSource ? { mediaSource: images[0].mediaSource } : {}),
     });
   }

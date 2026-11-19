@@ -25,8 +25,18 @@ const library: MediaLibrary = {
   fields: [
     { name: "src", type: "image", required: true },
     { name: "alt", type: "string" },
-    { name: "width", type: "number", required: true, options: { defaultFrom: "width" } },
-    { name: "height", type: "number", required: true, options: { defaultFrom: "height" } },
+    {
+      name: "width",
+      type: "number",
+      required: true,
+      options: { defaultFrom: { field: ["src"], value: "width" } },
+    },
+    {
+      name: "height",
+      type: "number",
+      required: true,
+      options: { defaultFrom: { field: ["src"], value: "height" } },
+    },
   ],
 };
 
@@ -98,7 +108,11 @@ describe("capture dates", () => {
     mediaSource: undefined,
     fields: [
       { name: "src", type: "image", required: true },
-      { name: "taken_at", type: "date", options: { defaultFrom: "capture-date" } },
+      {
+        name: "taken_at",
+        type: "date",
+        options: { defaultFrom: { field: ["src"], value: "capture-date" } },
+      },
       { name: "width", type: "number" },
       { name: "height", type: "number" },
     ],

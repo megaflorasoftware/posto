@@ -65,7 +65,7 @@ function withCaptureDate(
   date: string | null,
 ): Record<string, unknown> {
   if (!date) return metadata;
-  return fieldsWithDefault(library.fields, "capture-date").reduce(
+  return fieldsWithDefault(library.fields, "capture-date", library.imageFieldPath).reduce(
     (current, path) =>
       isEmpty(valueAtPath(current, path)) ? editValueAtPath(current, path, date) : current,
     metadata,
@@ -73,7 +73,9 @@ function withCaptureDate(
 }
 
 async function captureDateFor(library: MediaLibrary, sourceImagePath: string) {
-  if (fieldsWithDefault(library.fields, "capture-date").length === 0) return null;
+  if (fieldsWithDefault(library.fields, "capture-date", library.imageFieldPath).length === 0) {
+    return null;
+  }
   return readCaptureDate(sourceImagePath).catch(() => null);
 }
 

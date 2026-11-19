@@ -75,8 +75,12 @@ const library: MediaLibrary = {
   fields: [
     { name: "src", type: "image", required: true },
     { name: "alt", type: "string" },
-    { name: "width", type: "number", options: { defaultFrom: "width" } },
-    { name: "height", type: "number", options: { defaultFrom: "height" } },
+    { name: "width", type: "number", options: { defaultFrom: { field: ["src"], value: "width" } } },
+    {
+      name: "height",
+      type: "number",
+      options: { defaultFrom: { field: ["src"], value: "height" } },
+    },
   ],
 };
 const posts = (fields: Field[] = []) => ({

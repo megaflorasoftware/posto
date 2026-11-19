@@ -249,8 +249,9 @@ describe("CDN URLs", () => {
 });
 
 describe("library image dimensions", () => {
-  const width = { name: "width", type: "number", options: { defaultFrom: "width" } };
-  const height = { name: "height", type: "number", options: { defaultFrom: "height" } };
+  const from = (value: string) => ({ defaultFrom: { field: ["asset", "src"], value } });
+  const width = { name: "width", type: "number", options: from("width") };
+  const height = { name: "height", type: "number", options: from("height") };
   const nested: MediaLibrary = {
     collection: "photos",
     base: "src/data/photos",
@@ -311,12 +312,15 @@ describe("library image dimensions", () => {
       JSON.stringify({
         type: "object",
         properties: {
-          width: { type: "number", description: "posto:default=width" },
-          height: { type: "number", description: "posto:default=height" },
+          width: { type: "number", description: "image:default=width" },
+          height: { type: "number", description: "image:default=height" },
         },
       }),
     )!;
-    expect(fields.map((field) => field.options?.defaultFrom)).toEqual(["width", "height"]);
+    expect(fields.map((field) => field.options?.defaultFrom)).toEqual([
+      { field: ["image"], value: "width" },
+      { field: ["image"], value: "height" },
+    ]);
   });
 });
 
@@ -376,16 +380,19 @@ test("configs without CDN media pass through unchanged", () => {
   expect(mergePostoConfig(config, { collections: {} })).toBe(config);
 });
 
-describe("posto:default annotations", () => {
+describe("field default annotations", () => {
   test.each([
-    ["posto:default=capture-date", "capture-date"],
-    ["When it was taken. posto:default=capture-date", "capture-date"],
-    ["posto:default=capture-date posto:media=cdn", "capture-date"],
-    ["posto:default=camera", undefined],
-    ["xposto:default=capture-date", undefined],
+    ["image:default=capture-date", { field: ["image"], value: "capture-date" }],
+    ["When it was taken. src:default=capture-date", { field: ["src"], value: "capture-date" }],
+    ["asset.src:default=width", { field: ["asset", "src"], value: "width" }],
+    ["posto:media=cdn image:default=height", { field: ["image"], value: "height" }],
+    ["posto:default=capture-date", undefined],
+    ["image:default=camera", undefined],
+    ["image:default=", undefined],
+    ["image.:default=width", undefined],
     [undefined, undefined],
   ])("reads %s", (description, expected) => {
-    expect(fieldDefaultAnnotation(description)).toBe(expected);
+    expect(fieldDefaultAnnotation(description)).toEqual(expected);
   });
 
   test("schema fields carry the annotation, including nested and optional ones", () => {
@@ -397,14 +404,14 @@ describe("posto:default annotations", () => {
           taken_at: {
             type: "string",
             format: "date-time",
-            description: "posto:default=capture-date",
+            description: "image:default=capture-date",
           },
           meta: {
             type: "object",
             properties: {
               shot: {
                 anyOf: [{ type: "string", format: "date-time" }, { type: "null" }],
-                description: "posto:default=capture-date",
+                description: "image:default=capture-date",
               },
             },
           },
@@ -414,11 +421,46 @@ describe("posto:default annotations", () => {
       }),
     )!;
     const byName = new Map(fields.map((field) => [field.name, field]));
+    const source = { field: ["image"], value: "capture-date" };
     expect(byName.get("taken_at")).toMatchObject({
       type: "date",
-      options: { defaultFrom: "capture-date" },
+      options: { defaultFrom: source },
     });
-    expect(byName.get("meta")?.fields?.[0].options?.defaultFrom).toBe("capture-date");
+    expect(byName.get("meta")?.fields?.[0].options?.defaultFrom).toEqual(source);
     expect(byName.get("alt")?.options?.defaultFrom).toBeUndefined();
+  });
+
+  test("only annotations naming the library's image field are used", () => {
+    const { loaders } = parseLoaderConfig(`
+const photos = defineCollection({
+  loader: glob({ pattern: "**/*.yaml", base: "./src/data/photos" }),
+  schema: ({ image }) => z.object({ src: image(), width: z.number(), height: z.number() }),
+});
+export const collections = { photos };
+`);
+    const config = buildAstroConfig(
+      [
+        {
+          name: "photos",
+          fields: parseCollectionSchema(
+            "photos",
+            JSON.stringify({
+              type: "object",
+              properties: {
+                src: { type: "string" },
+                width: { type: "number", description: "src:default=width" },
+                height: { type: "number", description: "image:default=height" },
+              },
+            }),
+          )!,
+        },
+      ],
+      loaders,
+    );
+    const library = config.mediaLibraries![0];
+
+    expect(imageDimensionFields(library)).toEqual({ width: [["width"]], height: [] });
+    const warning = config.diagnostics?.find((item) => item.code === "unmatched-default-source");
+    expect(warning?.message).toContain('field height takes its default from "image"');
   });
 });

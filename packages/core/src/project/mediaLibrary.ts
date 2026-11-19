@@ -368,11 +368,11 @@ export interface ImageDimensionFields {
   height: string[][];
 }
 
-/** Fields annotated `posto:default=width` or `posto:default=height`. Astro
- * can't size remote images itself, so CDN images rely on them. */
+/** Fields annotated `<image field>:default=width` or `…=height`. Astro can't
+ * size remote images itself, so CDN images rely on them. */
 export function imageDimensionFields(library: MediaLibrary): ImageDimensionFields | null {
-  const width = fieldsWithDefault(library.fields, "width");
-  const height = fieldsWithDefault(library.fields, "height");
+  const width = fieldsWithDefault(library.fields, "width", library.imageFieldPath);
+  const height = fieldsWithDefault(library.fields, "height", library.imageFieldPath);
   return width.length > 0 || height.length > 0 ? { width, height } : null;
 }
 

@@ -48,15 +48,15 @@ JSON metadata works the same way: use `**/*.json` as the pattern and store each 
 
 ## Filling fields at import
 
-Add `posto:default=<value>` to a field's description and Posto fills that field from the photo when an import creates the entry:
+Add `<image field>:default=<value>` to a field's description and Posto fills that field from the photo in the named image field when an import creates the entry:
 
 ```ts
 schema: ({ image }) =>
   z.object({
     src: image(),
-    taken_at: z.date().optional().describe("posto:default=capture-date"),
-    width: z.number().optional().describe("posto:default=width"),
-    height: z.number().optional().describe("posto:default=height"),
+    taken_at: z.date().optional().describe("src:default=capture-date"),
+    width: z.number().optional().describe("src:default=width"),
+    height: z.number().optional().describe("src:default=height"),
   }),
 ```
 
@@ -66,7 +66,7 @@ schema: ({ image }) =>
 | `width`        | The width the photo displays at, after any rotation recorded by the camera.                   |
 | `height`       | The height the photo displays at, after any rotation recorded by the camera.                  |
 
-Posto never replaces a value that's already set. The capture date appears in the import form, so you can change it, and it's only filled at import. Width and height are measured exactly, so Posto hides them from the form. When a library [stores images on a CDN](/frameworks/cdn-media/), Posto also fills any empty width and height when it uploads an image, because the original leaves the device at that point.
+The part before the colon is the image field's name, or a dotted path such as `asset.src` for a nested one. If it doesn't name the library's image field, Posto shows a warning and leaves the field empty. Posto never replaces a value that's already set. The capture date appears in the import form, so you can change it, and it's only filled at import. Width and height are measured exactly, so Posto hides them from the form. When a library [stores images on a CDN](/frameworks/cdn-media/), Posto also fills any empty width and height when it uploads an image, because the original leaves the device at that point.
 
 ## Storing images on a CDN
 
