@@ -225,7 +225,7 @@ async function unreadableBindingBlockers(context: PlanContext): Promise<string[]
     const source = await invoke<string | null>("read_text_file_optional", {
       path: `${root}/${path}`,
     });
-    if (source?.includes("posto:store=")) {
+    if (source?.includes("posto:media=")) {
       return [
         `${path} assigns images to a CDN source, but Posto can't read this site's generated schemas. Run the site once and commit .astro/collections, then publish again.`,
       ];
