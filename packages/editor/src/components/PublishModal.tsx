@@ -3,6 +3,7 @@ import {
   ActionIcon,
   Alert,
   Badge,
+  Box,
   Button,
   Collapse,
   Group,
@@ -360,13 +361,16 @@ function PublishModalContent(props: {
         </Alert>
       )}
       {credentialRequest ? (
-        <CdnCredentialForm
-          key={credentialRequest.source.name + (credentialRequest.error ?? "")}
-          source={credentialRequest.source}
-          error={credentialRequest.error}
-          purpose="upload"
-          onSubmit={media!.submitCredential}
-        />
+        // Spaced like the commit message it replaces.
+        <Box mt="md">
+          <CdnCredentialForm
+            key={credentialRequest.source.name + (credentialRequest.error ?? "")}
+            source={credentialRequest.source}
+            error={credentialRequest.error}
+            purpose="upload"
+            onSubmit={media!.submitCredential}
+          />
+        </Box>
       ) : (
         <>
           <TextInput
