@@ -7,13 +7,14 @@ use git2::{
     StashApplyOptions, StashFlags, Status, StatusOptions,
 };
 use serde::Serialize;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use tauri::Emitter;
 
 use crate::media::journal;
 use creds::{platform_creds, platform_signature, remote_callbacks};
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ChangedFile {
     /// Porcelain XY status collapsed to one code: "M", "A", "D", "R", "??", ...
     pub status: String,
@@ -730,6 +731,67 @@ impl Client {
         self.repo.is_path_ignored(relative).map_err(err_str)
     }
 
+    /// What `changed_files` will report once `writes` replace those files'
+    /// contents and `removals` are deleted, without touching either. Git
+    /// compares the planned contents with the last commit, so a file that
+    /// ends up matching it, or a new file that's removed, isn't listed.
+    pub fn changed_files_after(
+        &self,
+        writes: Vec<(String, String)>,
+        removals: Vec<String>,
+    ) -> Result<Vec<ChangedFile>, String> {
+        let workdir = self
+            .workdir()?
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
+        let relative = |path: &str| -> Option<String> {
+            let resolved = Path::new(path).canonicalize().ok()?;
+            let relative = resolved.strip_prefix(&workdir).ok()?;
+            Some(relative.to_string_lossy().replace('\\', "/"))
+        };
+        let mut planned: BTreeMap<String, Option<Vec<u8>>> = BTreeMap::new();
+        for (path, content) in writes {
+            if let Some(path) = relative(&path) {
+                planned.insert(path, Some(content.into_bytes()));
+            }
+        }
+        for path in removals {
+            if let Some(path) = relative(&path) {
+                planned.insert(path, None);
+            }
+        }
+        let current = self.changed_files()?;
+        let head = self
+            .repo
+            .head()
+            .ok()
+            .and_then(|head| head.peel_to_tree().ok());
+        let mut files: Vec<ChangedFile> = current
+            .iter()
+            .filter(|file| !planned.contains_key(&file.path))
+            .cloned()
+            .collect();
+        for (path, content) in planned {
+            let committed = head
+                .as_ref()
+                .and_then(|tree| tree.get_path(Path::new(&path)).ok())
+                .and_then(|entry| self.repo.find_blob(entry.id()).ok());
+            let status = match (committed, content) {
+                (None, None) => continue,
+                (None, Some(_)) => current
+                    .iter()
+                    .find(|file| file.path == path)
+                    .map_or("??".to_string(), |file| file.status.clone()),
+                (Some(_), None) => "D".to_string(),
+                (Some(blob), Some(content)) if blob.content() == content.as_slice() => continue,
+                (Some(_), Some(_)) => "M".to_string(),
+            };
+            files.push(ChangedFile { status, path });
+        }
+        files.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok(files)
+    }
+
     /// The given files that git ignores. They never reach the published site,
     /// so nothing in them can still need an image. Paths outside the
     /// repository count as not ignored.
@@ -1088,6 +1150,31 @@ impl IndexSnapshot {
             .and_then(|mut index| index.read(true))
             .map_err(err_str)
     }
+}
+
+/// The changed files a publish will commit after applying planned rewrites
+/// and removals.
+#[tauri::command]
+pub async fn changed_files_preview(
+    root: String,
+    writes: Vec<PreviewWrite>,
+    removals: Vec<String>,
+) -> Result<Vec<ChangedFile>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let writes = writes
+            .into_iter()
+            .map(|write| (write.path, write.content))
+            .collect();
+        Client::open(&root)?.changed_files_after(writes, removals)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[derive(serde::Deserialize)]
+pub struct PreviewWrite {
+    pub path: String,
+    pub content: String,
 }
 
 /// Which of `paths` git ignores.

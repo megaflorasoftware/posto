@@ -237,6 +237,16 @@ export type MediaPublishRecovery =
   | { state: "finalized" }
   | { state: "blocked"; message: string };
 
+/** The changed files a publish will commit once its planned rewrites and
+ * removals apply. Nothing on disk changes. */
+export function changedFilesPreview(
+  root: string,
+  writes: Array<{ path: string; content: string }>,
+  removals: string[],
+): Promise<ChangedFile[]> {
+  return invoke("changed_files_preview", { root, writes, removals });
+}
+
 export function publishMedia(
   request: MediaPublishRequest,
   onProgress: (progress: MediaPublishProgress) => void,

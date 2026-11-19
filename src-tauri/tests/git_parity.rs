@@ -660,3 +660,62 @@ fn reports_which_files_git_ignores() {
         vec![path("cache/data-store.json"), path("debug.log")]
     );
 }
+
+#[test]
+fn previews_the_status_after_planned_changes() {
+    let f = fixture();
+    write(&f.local, "photos/harbor.jpg", "harbor");
+    write(&f.local, "photos/harbor.yaml", "src: ./harbor.jpg\n");
+    write(&f.local, "photos/dock.yaml", "src: ./dock.jpg\n");
+    commit_all(&f.local, "photos");
+    write(&f.local, "photos/fresh.jpg", "fresh");
+    write(&f.local, "photos/fresh.yaml", "src: ./fresh.jpg\n");
+    write(
+        &f.local,
+        "photos/dock.yaml",
+        "src: ./dock.jpg\nalt: edited\n",
+    );
+    let path = |rel: &str| f.local.join(rel).to_string_lossy().to_string();
+    let client = Client::open(f.local.to_str().unwrap()).unwrap();
+    let status = |files: Vec<posto_lib::git::ChangedFile>| {
+        files
+            .into_iter()
+            .map(|file| (file.status, file.path))
+            .collect::<Vec<_>>()
+    };
+
+    let preview = client
+        .changed_files_after(
+            vec![
+                (
+                    path("photos/harbor.yaml"),
+                    "src: https://cdn/harbor.jpg\n".into(),
+                ),
+                (
+                    path("photos/fresh.yaml"),
+                    "src: https://cdn/fresh.jpg\n".into(),
+                ),
+                // Planned content that matches the last commit isn't a change.
+                (path("photos/dock.yaml"), "src: ./dock.jpg\n".into()),
+            ],
+            vec![path("photos/harbor.jpg"), path("photos/fresh.jpg")],
+        )
+        .unwrap();
+
+    let string = |(a, b): (&str, &str)| (a.to_string(), b.to_string());
+    assert_eq!(
+        status(preview),
+        [
+            ("??", "photos/fresh.yaml"),
+            ("D", "photos/harbor.jpg"),
+            ("M", "photos/harbor.yaml"),
+        ]
+        .map(string),
+        "the new image never reaches git, and dock.yaml matches its commit"
+    );
+    let unchanged = status(client.changed_files().unwrap());
+    assert!(
+        unchanged.contains(&string(("??", "photos/fresh.jpg"))),
+        "nothing was touched"
+    );
+}

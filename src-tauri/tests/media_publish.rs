@@ -38,6 +38,7 @@ fn hex(bytes: &[u8]) -> String {
 struct Storage {
     objects: Mutex<BTreeMap<String, Vec<u8>>>,
     puts: AtomicUsize,
+    lists: AtomicUsize,
     reject_uploads: AtomicBool,
     fail_deletes: AtomicBool,
 }
@@ -71,6 +72,7 @@ async fn storage_handler(State(storage): State<Arc<Storage>>, request: Request) 
         storage.objects.lock().unwrap().insert(key, bytes.to_vec());
         return respond(201, "{}".to_string());
     }
+    storage.lists.fetch_add(1, Ordering::SeqCst);
     let entries: Vec<_> = storage
         .objects
         .lock()
@@ -420,6 +422,11 @@ async fn publishes_images_and_content_together() {
         completed: 2,
         total: 2
     }));
+    assert_eq!(
+        f.storage.lists.load(Ordering::SeqCst),
+        1,
+        "the folder is listed once, not once per image"
+    );
 }
 
 #[tokio::test]

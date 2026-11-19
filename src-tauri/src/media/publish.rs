@@ -14,7 +14,7 @@ use super::blocking;
 use super::deletes;
 use super::journal::{self, BackedUpFile, Journal, Phase};
 use super::probe::file_digest;
-use super::provider::{validate_object_key, MediaSource, Provider, Upload};
+use super::provider::{validate_object_key, MediaSource, ObjectInfo, Provider, Upload};
 use crate::git::{Client, IndexSnapshot, PushFailure, RemoteCommit, ScopedCommit};
 
 const UPLOAD_CONCURRENCY: usize = 4;
@@ -191,6 +191,30 @@ fn validate(request: &PublishRequest) -> Result<(), String> {
     Ok(())
 }
 
+/// Bunny can only check an object by listing its folder, so each folder with
+/// uploads is listed once instead of once per image.
+async fn listed_bunny_objects(
+    request: &PublishRequest,
+    providers: &HashMap<String, Provider>,
+) -> Result<HashMap<(String, String), ObjectInfo>, String> {
+    let folders: HashSet<(&str, &str)> = request
+        .uploads
+        .iter()
+        .filter(|upload| matches!(providers.get(&upload.source_name), Some(Provider::Bunny(_))))
+        .map(|upload| {
+            let folder = upload.key.rsplit_once('/').map_or("", |(folder, _)| folder);
+            (upload.source_name.as_str(), folder)
+        })
+        .collect();
+    let mut objects = HashMap::new();
+    for (source_name, folder) in folders {
+        for object in providers[source_name].list(folder).await?.objects {
+            objects.insert((source_name.to_string(), object.key.clone()), object);
+        }
+    }
+    Ok(objects)
+}
+
 async fn upload_all(
     request: &PublishRequest,
     providers: &HashMap<String, Provider>,
@@ -198,14 +222,21 @@ async fn upload_all(
 ) -> Result<(), String> {
     let total = request.uploads.len();
     let completed = AtomicUsize::new(0);
+    let listed = listed_bunny_objects(request, providers).await?;
     stream::iter(request.uploads.iter().map(Ok::<_, String>))
         .try_for_each_concurrent(UPLOAD_CONCURRENCY, |upload| {
             let completed = &completed;
+            let listed = &listed;
             async move {
                 let provider = providers
                     .get(&upload.source_name)
                     .ok_or_else(|| format!("Unknown CDN source: {}", upload.source_name))?;
-                let stored = provider.stat(&upload.key).await?;
+                let stored = match provider {
+                    Provider::Bunny(_) => listed
+                        .get(&(upload.source_name.clone(), upload.key.clone()))
+                        .cloned(),
+                    Provider::S3(_) => provider.stat(&upload.key).await?,
+                };
                 if !stored.is_some_and(|info| info.matches(upload.size, &upload.sha256)) {
                     provider
                         .put(&Upload {

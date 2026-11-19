@@ -999,6 +999,7 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       ].join("");
     case "stop_dev_server":
       return null;
+    case "changed_files_preview":
     case "changed_files":
       return [
         { status: "M", path: "src/blog/with-slug.mdx" },

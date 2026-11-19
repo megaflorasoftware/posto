@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CdnSource } from "@posto/core/media/sources";
 import type { PagesConfig } from "@posto/core/pagescms/config";
-import { invoke, publishMedia } from "@posto/ipc";
+import { changedFilesPreview, invoke, publishMedia } from "@posto/ipc";
 import type {
   ChangedFile,
   FileGroup,
@@ -49,8 +49,13 @@ export interface CredentialRequest {
 /** CDN media state the Publish dialog shows. */
 export interface MediaPublishState {
   plan: CdnPublishPlan | null;
+  /** True until the plan and its preview are both ready. */
   planning: boolean;
   planError: string | null;
+  /** The changed files the publish will commit, after the plan rewrites
+   * content and removes uploaded images. Null when the plan changes no
+   * files, so the plain change list is already accurate. */
+  previewChanges: ChangedFile[] | null;
   stage: PublishStage | null;
   credentialRequest: CredentialRequest | null;
   submitCredential: (credential: MediaCredential | null) => void;
@@ -85,6 +90,7 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
   const [credentialRequest, setCredentialRequest] = useState<CredentialRequest | null>(null);
   const credentialResolver = useRef<((credential: MediaCredential | null) => void) | null>(null);
   const [publishError, setPublishError] = useState<string | null>(null);
+  const [previewChanges, setPreviewChanges] = useState<ChangedFile[] | null>(null);
 
   const rootRef = useRef(root);
   const cb = useRef(callbacks);
@@ -207,22 +213,35 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
     }
   }
 
-  /** Works out what CDN media the next publish would include, for the dialog. */
+  /** Works out what CDN media the next publish would include, and the change
+   * list it would commit, for the dialog. */
   async function previewMediaPlan(dir: string) {
     const config = mediaConfig();
     const groups = cb.current.media?.groups() ?? [];
     setPlanError(null);
     if (!config) {
       setMediaPlan(null);
+      setPreviewChanges(null);
       return;
     }
     setPlanning(true);
     try {
       const plan = await planCdnPublish({ root: dir, config, groups });
-      if (rootRef.current === dir) setMediaPlan(plan);
+      const preview =
+        plan.writes.length + plan.removals.length > 0
+          ? await changedFilesPreview(
+              dir,
+              plan.writes.map(({ path, content }) => ({ path, content })),
+              plan.removals,
+            )
+          : null;
+      if (rootRef.current !== dir) return;
+      setMediaPlan(plan);
+      setPreviewChanges(preview);
     } catch (e) {
       if (rootRef.current === dir) {
         setMediaPlan(null);
+        setPreviewChanges(null);
         setPlanError(errorMessage(e));
       }
     } finally {
@@ -402,6 +421,7 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
     plan: mediaPlan,
     planning,
     planError,
+    previewChanges,
     stage,
     credentialRequest,
     submitCredential,

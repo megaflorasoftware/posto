@@ -1,17 +1,20 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   ActionIcon,
   Alert,
   Badge,
   Button,
+  Collapse,
   Group,
   Loader,
+  Progress,
   Stack,
   Text,
   TextInput,
+  UnstyledButton,
 } from "@mantine/core";
 import { Dialog } from "./Dialog";
-import { CloudOff, CloudUpload, Info, Undo2 } from "lucide-react";
+import { ChevronRight, CloudOff, CloudUpload, Info, Undo2 } from "lucide-react";
 import type { ChangedFile } from "@posto/ipc";
 import type { MediaPublishState, PublishStage } from "../hooks/useGitSync";
 import type { CdnPlanWarning } from "../cdnPublish/plan";
@@ -126,19 +129,19 @@ export function keptCopyNotes(warnings: CdnPlanWarning[]): string[] {
   ];
 }
 
+function Note(props: { icon: ReactNode; children: ReactNode }) {
+  return (
+    <Group gap="xs" wrap="nowrap" align="flex-start">
+      {/* Stays beside the first line when the text wraps. */}
+      <span style={{ display: "flex", flexShrink: 0, marginTop: 3 }}>{props.icon}</span>
+      <Text size="sm">{props.children}</Text>
+    </Group>
+  );
+}
+
 /** What publishing will do with CDN media, and anything that blocks it. */
 function MediaSummary(props: { media: MediaPublishState }) {
-  const { plan, planning, planError } = props.media;
-  if (planning && !plan) {
-    return (
-      <Group gap="xs" mt="sm" className="publish-media">
-        <Loader size="xs" />
-        <Text size="sm" c="dimmed">
-          Checking images…
-        </Text>
-      </Group>
-    );
-  }
+  const { plan, planError } = props.media;
   if (planError) {
     return (
       <Alert color="red" mt="sm">
@@ -155,21 +158,15 @@ function MediaSummary(props: { media: MediaPublishState }) {
   return (
     <Stack gap="xs" mt="sm" className="publish-media">
       {plan.uploads.length > 0 && (
-        <Group gap="xs" wrap="nowrap">
-          <CloudUpload size={16} />
-          <Text size="sm">
-            {plural(plan.uploads.length, "image", "images")} will upload to the CDN.
-          </Text>
-        </Group>
+        <Note icon={<CloudUpload size={16} />}>
+          {plural(plan.uploads.length, "image", "images")} will upload to the CDN.
+        </Note>
       )}
       {plan.deletes.length > 0 && (
-        <Group gap="xs" wrap="nowrap">
-          <CloudOff size={16} />
-          <Text size="sm">
-            {plural(plan.deletes.length, "deleted image", "deleted images")} will be removed from
-            the CDN after publishing.
-          </Text>
-        </Group>
+        <Note icon={<CloudOff size={16} />}>
+          {plural(plan.deletes.length, "deleted image", "deleted images")} will be removed from the
+          CDN after publishing.
+        </Note>
       )}
       {plan.blockers.map((blocker) => (
         <Alert key={blocker} color="red">
@@ -177,11 +174,9 @@ function MediaSummary(props: { media: MediaPublishState }) {
         </Alert>
       ))}
       {keptCopyNotes(plan.warnings).map((note) => (
-        <Group key={note} gap="xs" wrap="nowrap" align="flex-start">
-          {/* Stays beside the first line when the note wraps. */}
-          <Info size={16} style={{ flexShrink: 0, marginTop: 3 }} />
-          <Text size="sm">{note}</Text>
-        </Group>
+        <Note key={note} icon={<Info size={16} />}>
+          {note}
+        </Note>
       ))}
       {plan.firstMigrations.length > 0 && (
         <Text size="xs" c="dimmed">
@@ -193,9 +188,85 @@ function MediaSummary(props: { media: MediaPublishState }) {
   );
 }
 
-/** The publish dialog: change list with revert controls, commit message,
- * publish button. `changes` is null while the list is loading. It stays open
- * while publishing, so editing waits until the publish finishes. */
+/** The files the publish will commit, collapsed to a count until opened. */
+function ChangeList(props: {
+  changes: ChangedFile[];
+  /** The working tree's own changes. Rows missing from it come from the
+   * publish itself, so there's nothing on disk to revert. */
+  actual: ChangedFile[];
+  publishing: boolean;
+  onRevert: (file: ChangedFile) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const actual = new Set(props.actual.map((file) => `${file.status} ${file.path}`));
+  return (
+    <div className="publish-changes">
+      <UnstyledButton
+        className="publish-changes-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <Group gap={6} wrap="nowrap">
+          <ChevronRight
+            size={16}
+            style={{ transform: open ? "rotate(90deg)" : undefined, transition: "transform 120ms" }}
+          />
+          <Text size="sm">{plural(props.changes.length, "changed file", "changed files")}</Text>
+        </Group>
+      </UnstyledButton>
+      <Collapse expanded={open}>
+        <div className="publish-list" style={{ marginTop: "var(--mantine-spacing-xs)" }}>
+          {props.changes.map((file) => {
+            const badge = statusBadge(file.status);
+            return (
+              <div key={file.path} className="publish-item">
+                <Badge size="sm" variant="light" color={badge.color}>
+                  {badge.label}
+                </Badge>
+                <span className="publish-path" title={file.path}>
+                  {file.path}
+                </span>
+                {actual.has(`${file.status} ${file.path}`) ? (
+                  <RevertButton file={file} disabled={props.publishing} onRevert={props.onRevert} />
+                ) : (
+                  <span style={{ width: 22, flexShrink: 0 }} aria-hidden />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Collapse>
+    </div>
+  );
+}
+
+/** Where a running publish is: a bar while images upload, text after. */
+function PublishProgress(props: { stage: PublishStage }) {
+  const { stage } = props;
+  if (stage.stage !== "uploading") {
+    return (
+      <Text size="sm" c="dimmed" mt="sm" className="publish-progress">
+        {publishStageLabel(stage)}
+      </Text>
+    );
+  }
+  return (
+    <Stack gap={6} mt="sm" className="publish-progress">
+      <Progress
+        value={stage.total > 0 ? (stage.completed / stage.total) * 100 : 0}
+        aria-label="Upload progress"
+      />
+      <Text size="sm" c="dimmed">
+        {publishStageLabel(stage)}
+      </Text>
+    </Stack>
+  );
+}
+
+/** The publish dialog: what will upload to a CDN, the change list as it will
+ * be committed (with revert controls), commit message, and publish button.
+ * `changes` is null while the list is loading. It stays open while
+ * publishing, so editing waits until the publish finishes. */
 export function PublishModal(props: {
   opened: boolean;
   changes: ChangedFile[] | null;
@@ -226,9 +297,10 @@ function PublishModalContent(props: {
   const plan = media?.plan ?? null;
   const publishing = props.publishing ?? false;
   const credentialRequest = media?.credentialRequest ?? null;
+  // The end state: the plan's rewrites and removals applied.
+  const changes = media?.previewChanges ?? props.changes;
   const pendingUploads = (plan?.uploads.length ?? 0) + (plan?.deletes.length ?? 0);
-  const nothingToPublish =
-    props.changes === null || (props.changes.length === 0 && pendingUploads === 0);
+  const nothingToPublish = changes === null || (changes.length === 0 && pendingUploads === 0);
   const blocked = (plan?.blockers.length ?? 0) > 0 || (media?.planning ?? false);
 
   const close = () => {
@@ -243,31 +315,21 @@ function PublishModalContent(props: {
       )}
       {props.error !== null ? (
         <Alert color="red">Could not read changes: {props.error}</Alert>
-      ) : props.changes === null ? (
+      ) : changes === null || (media?.planning && !publishing) ? (
         <div className="publish-loading">
           <Loader size="sm" />
         </div>
-      ) : props.changes.length === 0 ? (
+      ) : changes.length === 0 ? (
         <div className="publish-empty">
           {pendingUploads > 0 ? "No other changes." : "No changes to publish."}
         </div>
       ) : (
-        <div className="publish-list">
-          {props.changes.map((file) => {
-            const badge = statusBadge(file.status);
-            return (
-              <div key={file.path} className="publish-item">
-                <Badge size="sm" variant="light" color={badge.color}>
-                  {badge.label}
-                </Badge>
-                <span className="publish-path" title={file.path}>
-                  {file.path}
-                </span>
-                <RevertButton file={file} disabled={publishing} onRevert={props.onRevert} />
-              </div>
-            );
-          })}
-        </div>
+        <ChangeList
+          changes={changes}
+          actual={props.changes ?? []}
+          publishing={publishing}
+          onRevert={props.onRevert}
+        />
       )}
       {media && <MediaSummary media={media} />}
       {media?.publishError && (
@@ -293,11 +355,7 @@ function PublishModalContent(props: {
             disabled={publishing}
             onChange={(e) => setCommitMessage(e.currentTarget.value)}
           />
-          {publishing && media?.stage && (
-            <Text size="sm" c="dimmed" mt="sm" className="publish-progress">
-              {publishStageLabel(media.stage)}
-            </Text>
-          )}
+          {publishing && media?.stage && <PublishProgress stage={media.stage} />}
           <Button
             fullWidth
             mt="md"

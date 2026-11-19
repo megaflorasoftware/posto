@@ -19,7 +19,7 @@ In a repository with several projects, the review and commit include only change
 
 ## Publishing CDN images
 
-When a site stores images on a [CDN](/frameworks/cdn-media/), the review also lists how many images will upload or be deleted. The first time this device publishes to a CDN, Posto asks for the storage password and saves it in the device's keychain.
+When a site stores images on a [CDN](/frameworks/cdn-media/), the review also lists how many images will upload or be deleted, and a progress bar tracks the upload. The list of changed files shows what the commit will contain, after uploaded images leave the repository and content points at their CDN URLs. The first time this device publishes to a CDN, Posto asks for the storage password and saves it in the device's keychain.
 
 The review stays open while publishing and shows each step. If anything fails, your changes are left exactly as they were, ready to publish again. If Posto quits partway through, it finishes or undoes that publish the next time you open the project.
 

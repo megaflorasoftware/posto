@@ -14,7 +14,7 @@ import { MantineProvider } from "@mantine/core";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { CdnSource } from "@posto/core/media/sources";
 import type { PagesConfig } from "@posto/core/pagescms/config";
-import { invoke, publishMedia, type ChangedFile } from "@posto/ipc";
+import { changedFilesPreview, invoke, publishMedia, type ChangedFile } from "@posto/ipc";
 import { countPendingCdnMedia, planCdnPublish, type CdnPublishPlan } from "../src/cdnPublish/plan";
 import { PublishModal } from "../src/components/PublishModal";
 import { useGitSync, type MediaPublishState } from "../src/hooks/useGitSync";
@@ -34,7 +34,11 @@ Object.defineProperty(window, "matchMedia", {
   })),
 });
 
-vi.mock("@posto/ipc", () => ({ invoke: vi.fn(), publishMedia: vi.fn() }));
+vi.mock("@posto/ipc", () => ({
+  changedFilesPreview: vi.fn(),
+  invoke: vi.fn(),
+  publishMedia: vi.fn(),
+}));
 vi.mock("../src/cdnPublish/plan", () => ({
   planCdnPublish: vi.fn(),
   countPendingCdnMedia: vi.fn(),
@@ -290,6 +294,42 @@ describe("publishing CDN media", () => {
   });
 });
 
+describe("previewing what Publish will commit", () => {
+  test("the change list shows the plan's rewrites and removals applied", async () => {
+    const end: ChangedFile[] = [
+      { status: "M", path: "index.md" },
+      { status: "M", path: "src/data/photos/harbor.yaml" },
+    ];
+    vi.mocked(changedFilesPreview).mockReset().mockResolvedValue(end);
+    const { result } = setup();
+
+    await act(async () => {
+      await result.current.loadChanges("/site");
+    });
+
+    expect(changedFilesPreview).toHaveBeenCalledWith(
+      "/site",
+      [{ path: "/site/src/data/photos/harbor.yaml", content: "b" }],
+      [upload.path],
+    );
+    expect(result.current.mediaPublish.previewChanges).toEqual(end);
+    expect(result.current.mediaPublish.planning).toBe(false);
+  });
+
+  test("a plan that changes no files keeps the plain change list", async () => {
+    vi.mocked(changedFilesPreview).mockReset();
+    vi.mocked(planCdnPublish).mockResolvedValue(plan({ uploads: [], writes: [], removals: [] }));
+    const { result } = setup();
+
+    await act(async () => {
+      await result.current.loadChanges("/site");
+    });
+
+    expect(changedFilesPreview).not.toHaveBeenCalled();
+    expect(result.current.mediaPublish.previewChanges).toBeNull();
+  });
+});
+
 describe("recovering an interrupted publish", () => {
   test("reports an undone publish and reloads content", async () => {
     vi.mocked(invoke).mockImplementation(async (command) =>
@@ -325,6 +365,7 @@ describe("the Publish dialog", () => {
     plan: plan(),
     planning: false,
     planError: null,
+    previewChanges: null,
     stage: null,
     credentialRequest: null,
     submitCredential: vi.fn(),
@@ -360,6 +401,45 @@ describe("the Publish dialog", () => {
     expect(screen.getByText("1 image will upload to the CDN.")).toBeTruthy();
     fireEvent.click(publishButton());
     expect(onPublish).toHaveBeenCalledWith("Site updates");
+  });
+
+  test("the change list starts collapsed and shows the end state", () => {
+    const onRevert = vi.fn();
+    dialog({
+      onRevert,
+      changes: [
+        { status: "M", path: "index.md" },
+        { status: "??", path: "src/data/photos/harbor.jpg" },
+      ],
+      media: media({
+        previewChanges: [
+          { status: "M", path: "index.md" },
+          { status: "M", path: "src/data/photos/harbor.yaml" },
+        ],
+      }),
+    });
+
+    const toggle = screen.getByRole("button", { name: "2 changed files" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("src/data/photos/harbor.yaml")).toBeTruthy();
+    expect(screen.queryByText("src/data/photos/harbor.jpg")).toBeNull();
+    // Only changes already on disk can be reverted. jsdom never finishes the
+    // expand transition, so the rows still count as hidden.
+    const reverts = screen.getAllByRole("button", { name: "Revert changes", hidden: true });
+    expect(reverts).toHaveLength(1);
+    fireEvent.click(reverts[0]);
+    expect(onRevert).toHaveBeenCalledWith({ status: "M", path: "index.md" });
+  });
+
+  test("uploads show a progress bar", () => {
+    dialog({
+      publishing: true,
+      media: media({ stage: { stage: "uploading", completed: 2, total: 5 } }),
+    });
+
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("40");
   });
 
   test("blocking problems disable Publish", () => {
