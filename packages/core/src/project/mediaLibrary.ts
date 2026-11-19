@@ -398,8 +398,10 @@ export function imageDetailUpdates(
   library: MediaLibrary,
   metadata: Record<string, unknown>,
   details: ImageDetails,
+  options: { lockedOnly?: boolean } = {},
 ): Array<{ path: string[]; value: string | number }> {
   return imageFields(library.fields, library.imageFieldPath).flatMap(({ path, source }) => {
+    if (options.lockedOnly && !source.locked) return [];
     const value =
       source.value === "capture-date" ? details.captureDate : details.dimensions?.[source.value];
     if (value === null || value === undefined) return [];

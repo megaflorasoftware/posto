@@ -458,6 +458,12 @@ export interface ImageDetails {
   dimensions: { width: number; height: number } | null;
 }
 
+/** The size, and when needed the capture date, of an image on a CDN. Only the
+ * start of the file is downloaded unless the rest is needed. */
+export function readRemoteImageDetails(url: string, needsDate: boolean): Promise<ImageDetails> {
+  return invoke("media_remote_image_details", { url, needsDate });
+}
+
 /** A photo's capture date and display size. A converted HEIC is measured as
  * imported, while its date comes from the original, since converting drops it. */
 export async function readImageDetails(path: string): Promise<ImageDetails> {

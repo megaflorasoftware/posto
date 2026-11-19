@@ -7,6 +7,7 @@ pub mod journal;
 pub mod probe;
 pub mod provider;
 pub mod publish;
+pub mod remote;
 pub mod s3;
 
 use std::collections::HashMap;
@@ -124,6 +125,15 @@ pub async fn media_list_objects(source: MediaSource, prefix: String) -> Result<L
 #[tauri::command]
 pub async fn media_inspect_file(path: PathBuf) -> Result<FileInspection, String> {
     blocking(move || probe::inspect_file(&path)).await
+}
+
+/// The size and capture date of an image already on a CDN.
+#[tauri::command]
+pub async fn media_remote_image_details(
+    url: String,
+    needs_date: bool,
+) -> Result<probe::ImageDetails, String> {
+    remote::image_details(&url, needs_date).await
 }
 
 /// A photo's capture date and display size, without hashing the file.

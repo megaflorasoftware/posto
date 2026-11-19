@@ -46,6 +46,26 @@ function directoryPreviewImages(directory: string, assets: ImageLibraryAsset[]):
     .slice(0, 4);
 }
 
+/** The folders and selectable entries shown in one folder of a library. */
+export function imageLibraryItemsIn(
+  rootDirectory: string,
+  currentDirectory: string,
+  directories: string[],
+  assets: ImageLibraryAsset[],
+): { folders: Array<{ name: string; path: string }>; assets: ImageLibraryAsset[] } {
+  const root = normalize(rootDirectory);
+  const current = currentDirectory ? `${root}/${currentDirectory}` : root;
+  return {
+    folders: directories
+      .flatMap((directory) => {
+        const location = relative(current, directory);
+        return location && !location.includes("/") ? [{ name: location, path: directory }] : [];
+      })
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    assets: assets.filter((asset) => normalize(dirname(asset.metadataPath)) === normalize(current)),
+  };
+}
+
 export function ImageLibraryBrowser(props: {
   rootDirectory: string;
   currentDirectory: string;
@@ -73,15 +93,11 @@ export function ImageLibraryBrowser(props: {
 }) {
   const shiftPressed = useShiftPressed();
   const root = normalize(props.rootDirectory);
-  const current = props.currentDirectory ? `${root}/${props.currentDirectory}` : root;
-  const folders = props.directories
-    .flatMap((directory) => {
-      const location = relative(current, directory);
-      return location && !location.includes("/") ? [{ name: location, path: directory }] : [];
-    })
-    .sort((a, b) => a.name.localeCompare(b.name));
-  const assets = props.assets.filter(
-    (asset) => normalize(dirname(asset.metadataPath)) === normalize(current),
+  const { folders, assets } = imageLibraryItemsIn(
+    props.rootDirectory,
+    props.currentDirectory,
+    props.directories,
+    props.assets,
   );
   const empty = props.currentDirectory === "" && folders.length === 0 && assets.length === 0;
 

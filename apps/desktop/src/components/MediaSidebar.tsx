@@ -12,6 +12,11 @@ import {
   ImageLibraryImportDialog,
   MediaLibraryTabs,
   MoveImageLibraryAssetsDialog,
+  ValidateImageLibraryAssetsDialog,
+  allItemsSelected,
+  selectAllItems,
+  selectedLibraryAssets,
+  visibleLibraryItems,
   MoveFileMediaItemsDialog,
   PUBLIC_MEDIA_TAB,
   SOURCE_MEDIA_TAB,
@@ -98,6 +103,7 @@ function LibraryMediaBrowserContent(props: {
   const [selectedDirectories, setSelectedDirectories] = useState<Set<string>>(() => new Set());
   const [deleting, setDeleting] = useState(false);
   const [moving, setMoving] = useState(false);
+  const [validating, setValidating] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
   const paneRef = useRef<HTMLDivElement>(null);
   const library = props.library;
@@ -105,6 +111,33 @@ function LibraryMediaBrowserContent(props: {
   const libraryRoot = `${props.root}/${library.base}`;
   const dragScope = `library:${library.collection}`;
   const selectionCount = selected.size + selectedDirectories.size;
+  const visible = visibleLibraryItems(
+    libraryRoot,
+    currentDirectory,
+    state.directories,
+    state.assets,
+  );
+  const everythingSelected = allItemsSelected(visible, selected, selectedDirectories);
+  const toggleAll = () => {
+    if (everythingSelected) {
+      setSelected(new Set());
+      setSelectedDirectories(new Set());
+      return;
+    }
+    const next = selectAllItems(visible, selected, selectedDirectories);
+    setSelected(next.selected);
+    setSelectedDirectories(next.selectedDirectories);
+  };
+  const selectAllButton = (
+    <Button
+      fullWidth
+      variant="subtle"
+      disabled={visible.assetIds.length + visible.folders.length === 0}
+      onClick={toggleAll}
+    >
+      {everythingSelected ? "Deselect all items" : "Select all items"}
+    </Button>
+  );
   useEffect(() => {
     if (selectionCount === 0) return;
     const clearSelection = (event: KeyboardEvent) => {
@@ -309,15 +342,22 @@ function LibraryMediaBrowserContent(props: {
       <div className="media-drawer-footer">
         {selectionCount > 0 ? (
           <div className="media-selection-actions">
-            <Button fullWidth variant="default" onClick={() => setMoving(true)}>
-              Move items
-            </Button>
+            {selectAllButton}
+            <div className="media-secondary-actions">
+              <Button fullWidth variant="default" onClick={() => setValidating(true)}>
+                Validate items
+              </Button>
+              <Button fullWidth variant="default" onClick={() => setMoving(true)}>
+                Move items
+              </Button>
+            </div>
             <Button fullWidth color="red" onClick={() => setDeleting(true)}>
               Delete items
             </Button>
           </div>
         ) : (
           <div className="media-primary-actions">
+            {selectAllButton}
             <Button
               fullWidth
               variant="default"
@@ -368,6 +408,17 @@ function LibraryMediaBrowserContent(props: {
             setSelectedDirectories(new Set());
             void state.refresh();
             props.onChanged({ silent: true });
+          }}
+        />
+      )}
+      {validating && (
+        <ValidateImageLibraryAssetsDialog
+          library={library}
+          assets={selectedLibraryAssets(state.assets, selected, selectedDirectories)}
+          onClose={() => setValidating(false)}
+          onValidated={() => {
+            void state.refresh();
+            props.onChanged();
           }}
         />
       )}

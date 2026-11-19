@@ -108,6 +108,10 @@ pub fn capture_date(path: &Path) -> Option<String> {
     let exif = exif::Reader::new()
         .read_from_container(&mut std::io::BufReader::new(file))
         .ok()?;
+    exif_capture_date(&exif)
+}
+
+fn exif_capture_date(exif: &exif::Exif) -> Option<String> {
     [exif::Tag::DateTimeOriginal, exif::Tag::DateTimeDigitized]
         .into_iter()
         .find_map(|tag| {
@@ -159,6 +163,47 @@ pub fn image_dimensions(path: &Path) -> Option<Dimensions> {
     } else {
         Dimensions { width, height }
     })
+}
+
+/// Reads the same details from the start of an image, such as a partial
+/// download. Returns what the bytes contain; anything missing stays `None`.
+pub fn details_from_bytes(bytes: &[u8]) -> ImageDetails {
+    let head = &bytes[..bytes.len().min(SVG_HEADER_BYTES as usize)];
+    if let Some(dimensions) = std::str::from_utf8(head).ok().and_then(svg_dimensions) {
+        return ImageDetails {
+            capture_date: None,
+            dimensions: Some(dimensions),
+        };
+    }
+    let exif = exif::Reader::new()
+        .read_from_container(&mut std::io::Cursor::new(bytes))
+        .ok();
+    let rotated = exif.as_ref().is_some_and(exif_rotated);
+    let dimensions = imagesize::blob_size(bytes).ok().and_then(|size| {
+        let (width, height) = (
+            u32::try_from(size.width).ok()?,
+            u32::try_from(size.height).ok()?,
+        );
+        Some(if rotated {
+            Dimensions {
+                width: height,
+                height: width,
+            }
+        } else {
+            Dimensions { width, height }
+        })
+    });
+    ImageDetails {
+        capture_date: exif.as_ref().and_then(exif_capture_date),
+        dimensions,
+    }
+}
+
+/// EXIF orientations 5 through 8 turn the image a quarter, swapping its sides.
+fn exif_rotated(exif: &exif::Exif) -> bool {
+    exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY)
+        .and_then(|field| field.value.get_uint(0))
+        .is_some_and(|orientation| (5..=8).contains(&orientation))
 }
 
 /// Browsers apply EXIF rotation, so a sideways photo displays with swapped sides.
@@ -291,6 +336,33 @@ mod tests {
         tiff.extend([1, 0, low, high, 2, 0, 20, 0, 0, 0, 44, 0, 0, 0, 0, 0, 0, 0]);
         tiff.extend(date);
         with_exif(jpeg, &tiff)
+    }
+
+    #[test]
+    fn reads_details_from_partial_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("wide.jpg");
+        image::RgbImage::new(40, 20).save(&path).unwrap();
+        let jpeg = std::fs::read(&path).unwrap();
+
+        let dated = with_exif_date(&jpeg, 0x9003, b"2026:10:07 13:26:04\0");
+        let details = details_from_bytes(&dated);
+        assert_eq!(details.capture_date.as_deref(), Some("2026-10-07T13:26:04"));
+        assert_eq!(details.dimensions, size(40, 20));
+
+        let sideways = details_from_bytes(&with_exif_orientation(&jpeg, 6));
+        assert_eq!(sideways.dimensions, size(20, 40));
+
+        let truncated = details_from_bytes(&dated[..dated.len() / 2]);
+        assert_eq!(
+            truncated.dimensions,
+            size(40, 20),
+            "the size is in the header"
+        );
+
+        let svg = details_from_bytes(br#"<svg viewBox="0 0 30 10"></svg>"#);
+        assert_eq!(svg.dimensions, size(30, 10));
+        assert_eq!(details_from_bytes(b"not an image").dimensions, None);
     }
 
     #[test]

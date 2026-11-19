@@ -14,6 +14,11 @@ import {
   MediaLibraryTabs,
   MoveFileMediaItemsDialog,
   MoveImageLibraryAssetsDialog,
+  ValidateImageLibraryAssetsDialog,
+  allItemsSelected,
+  selectAllItems,
+  selectedLibraryAssets,
+  visibleLibraryItems,
   PUBLIC_MEDIA_TAB,
   SOURCE_MEDIA_TAB,
   PublicMediaBrowser,
@@ -66,9 +71,37 @@ function LibraryMediaPane(props: {
   const [selectedDirectories, setSelectedDirectories] = useState<Set<string>>(() => new Set());
   const [deleting, setDeleting] = useState(false);
   const [moving, setMoving] = useState(false);
+  const [validating, setValidating] = useState(false);
   const library = props.library;
   const libraryState = useImageLibraryAssets(props.root, library);
   const libraryRoot = `${props.root}/${library.base}`;
+  const visible = visibleLibraryItems(
+    libraryRoot,
+    currentDirectory,
+    libraryState.directories,
+    libraryState.assets,
+  );
+  const everythingSelected = allItemsSelected(visible, selected, selectedDirectories);
+  const toggleAll = () => {
+    if (everythingSelected) {
+      setSelected(new Set());
+      setSelectedDirectories(new Set());
+      return;
+    }
+    const next = selectAllItems(visible, selected, selectedDirectories);
+    setSelected(next.selected);
+    setSelectedDirectories(next.selectedDirectories);
+  };
+  const selectAllButton = (
+    <Button
+      fullWidth
+      variant="subtle"
+      disabled={visible.assetIds.length + visible.folders.length === 0}
+      onClick={toggleAll}
+    >
+      {everythingSelected ? "Deselect all items" : "Select all items"}
+    </Button>
+  );
 
   return (
     <div className="mobile-media-pane">
@@ -121,15 +154,22 @@ function LibraryMediaPane(props: {
       <div className="mobile-media-pane-footer">
         {selected.size + selectedDirectories.size > 0 ? (
           <div className="media-selection-actions">
-            <Button fullWidth variant="default" onClick={() => setMoving(true)}>
-              Move items
-            </Button>
+            {selectAllButton}
+            <div className="media-secondary-actions">
+              <Button fullWidth variant="default" onClick={() => setValidating(true)}>
+                Validate items
+              </Button>
+              <Button fullWidth variant="default" onClick={() => setMoving(true)}>
+                Move items
+              </Button>
+            </div>
             <Button fullWidth color="red" onClick={() => setDeleting(true)}>
               Delete items
             </Button>
           </div>
         ) : (
           <div className="media-primary-actions">
+            {selectionMode && selectAllButton}
             <div className="media-secondary-actions">
               <Button
                 fullWidth
@@ -199,6 +239,17 @@ function LibraryMediaPane(props: {
             setSelectionMode(false);
             void libraryState.refresh();
             props.onChanged(library, { silent: true });
+          }}
+        />
+      )}
+      {validating && (
+        <ValidateImageLibraryAssetsDialog
+          library={library}
+          assets={selectedLibraryAssets(libraryState.assets, selected, selectedDirectories)}
+          onClose={() => setValidating(false)}
+          onValidated={() => {
+            void libraryState.refresh();
+            props.onChanged(library);
           }}
         />
       )}

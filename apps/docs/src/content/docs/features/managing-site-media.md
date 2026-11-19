@@ -33,7 +33,9 @@ Images already on a CDN can be edited and deleted, but not renamed or moved. Del
 
 ## Organizing files and folders
 
-Each tab supports folders. Create a folder with **New folder**, or drag media and folders onto another folder to move them. Select several items with their selection controls or by holding Shift while clicking, then move or delete the group from the footer. Press Escape to clear the selection.
+Each tab supports folders. Create a folder with **New folder**, or drag media and folders onto another folder to move them. Select several items with their selection controls or by holding Shift while clicking, then move or delete the group from the footer. In an image library, **Select all items** selects everything in the open folder, and **Deselect all items** clears the selection. Press Escape to clear the selection.
+
+When a library's schema locks fields to its images, such as `value=schema.image.width`, **Validate items** sets those fields on the selected entries and everything inside selected folders. Use it after changing the schema so existing entries catch up. Images already on a CDN are measured by downloading only the start of each file.
 
 Open an individual item to rename it or, for an image-library asset, edit its metadata. When recognized references point to a file that is moved or renamed, Posto updates those references in schema-backed fields and Markdown or MDX content. Updating library alt text also updates direct Markdown image references to that asset.
 

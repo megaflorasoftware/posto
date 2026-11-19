@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Alert, Button, Group, Stack, Text, TextInput } from "@mantine/core";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Button, Group, List, Loader, Stack, Text, TextInput } from "@mantine/core";
 import { Image as ImageIcon, Trash2 } from "lucide-react";
 import {
   serializeImageLibraryMetadata,
@@ -28,6 +28,11 @@ import {
   planImageLibraryReferenceUpdates,
 } from "../imageLibraryReferences";
 import { moveImageLibraryItems } from "../mediaMoves";
+import {
+  hasLockedImageFields,
+  validateImageLibraryAssets,
+  type ImageLibraryValidation,
+} from "../imageLibraryValidation";
 import { CachedImage } from "./CachedImage";
 import { Dialog } from "./Dialog";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
@@ -556,6 +561,86 @@ export function ImageLibraryEditDialog(props: {
           </Group>
         </div>
       </div>
+    </Dialog>
+  );
+}
+
+function count(value: number, one: string, many: string): string {
+  return `${value} ${value === 1 ? one : many}`;
+}
+
+/** Sets the locked (`value=`) fields of the chosen entries from their images,
+ * and reports what changed. */
+export function ValidateImageLibraryAssetsDialog(props: {
+  library: MediaLibrary;
+  assets: ImageLibraryAsset[];
+  onClose: () => void;
+  onValidated: () => void;
+}) {
+  const lockable = hasLockedImageFields(props.library);
+  const [progress, setProgress] = useState(0);
+  const [result, setResult] = useState<ImageLibraryValidation | null>(null);
+  const started = useRef(false);
+
+  useEffect(() => {
+    if (!lockable || started.current) return;
+    started.current = true;
+    void validateImageLibraryAssets({
+      library: props.library,
+      assets: props.assets,
+      onProgress: (done) => setProgress(done),
+    }).then((validation) => {
+      setResult(validation);
+      if (validation.updated.length > 0) props.onValidated();
+    });
+    // Runs once for the entries chosen when the dialog opened.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const total = props.assets.length;
+  return (
+    <Dialog opened onClose={props.onClose} title="Validate items" size="sm">
+      <Stack gap="sm">
+        {!lockable ? (
+          <Text size="sm">
+            {props.library.collection} has no fields that take a locked value from its image, such
+            as <code>value=schema.{props.library.imageFieldPath.join(".")}.width</code>.
+          </Text>
+        ) : !result ? (
+          <Group gap="xs">
+            <Loader size="xs" />
+            <Text size="sm">
+              Checking {progress} of {count(total, "item", "items")}…
+            </Text>
+          </Group>
+        ) : (
+          <>
+            <Text size="sm">
+              {result.updated.length > 0
+                ? `Updated ${count(result.updated.length, "item", "items")}.`
+                : "Nothing needed updating."}{" "}
+              {result.unchanged > 0 &&
+                `${count(result.unchanged, "item was", "items were")} already correct.`}
+            </Text>
+            {result.failed.length > 0 && (
+              <Alert color="red" title={`${count(result.failed.length, "item", "items")} failed`}>
+                <List size="sm">
+                  {result.failed.map((failure) => (
+                    <List.Item key={failure.entryId}>
+                      {failure.entryId}: {failure.message}
+                    </List.Item>
+                  ))}
+                </List>
+              </Alert>
+            )}
+          </>
+        )}
+        <Group justify="flex-end">
+          <Button variant="default" disabled={lockable && !result} onClick={props.onClose}>
+            Close
+          </Button>
+        </Group>
+      </Stack>
     </Dialog>
   );
 }
