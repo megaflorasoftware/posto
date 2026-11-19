@@ -46,6 +46,16 @@ credit: Jane Rivera
 
 JSON metadata works the same way: use `**/*.json` as the pattern and store each entry as JSON. The image field may be nested inside an object, such as `z.object({ image: image(), focalPoint: z.string() })`, but it cannot be inside a list.
 
+## Filling in capture dates
+
+Add `posto:default=capture-date` to a field's description and Posto fills it with the date each photo was taken when you import it:
+
+```ts
+taken_at: z.date().optional().describe("posto:default=capture-date"),
+```
+
+Posto reads the date from the photo's metadata, including iPhone HEIC photos, and shows it in the import form, so you can change it before importing. It records local time, as cameras do, and leaves the field empty when a photo has no date. Posto only fills the field when an import creates the entry, and never changes it afterward.
+
 ## Storing images on a CDN
 
 A library can keep its images on Bunny Storage or an S3-compatible service instead of in the repository. Add `posto:media=<name>` to the image field's description, as in `image().describe("posto:media=cdn")`, and define the source in `.posto/index.json`. See [CDN media](/frameworks/cdn-media/).

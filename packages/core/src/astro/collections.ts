@@ -9,6 +9,7 @@ import type {
 } from "../pagescms/config";
 import { ASTRO_MEDIA } from "../pagescms/config";
 import { schemaImageFields, type SchemaImageField } from "./schemaAnalysis";
+import { fieldDefaultAnnotation } from "../posto/annotations";
 
 // Builds a PagesConfig from Astro content collections, used as a fallback
 // schema source when `.pages.yml` doesn't cover a folder. Astro generates a
@@ -66,7 +67,15 @@ function textField(name: string): Field {
   return { name, type: "text" };
 }
 
+/** Converts one schema property and records any `posto:default=` annotation
+ * from its description. */
 function convertSchema(name: string, schema: JsonSchema, required: boolean): Field {
+  const field = convertSchemaShape(name, schema, required);
+  const fill = fieldDefaultAnnotation(schema.description);
+  return fill ? { ...field, options: { ...field.options, defaultFrom: fill } } : field;
+}
+
+function convertSchemaShape(name: string, schema: JsonSchema, required: boolean): Field {
   const base: Field = { name, type: "text", required: required || undefined };
   if (schema.default !== undefined) base.default = schema.default;
 

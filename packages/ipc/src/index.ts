@@ -438,13 +438,25 @@ async function convertBytesToJpeg(bytes: Uint8Array): Promise<string> {
   }
 }
 
+/** Converted JPEGs mapped to the originals they came from. Converting drops
+ * the original's metadata, so metadata is read from the original. */
+const convertedSources = new Map<string, string>();
+
 async function prepareImageSource(path: string): Promise<string> {
   // The picker's extension can't be trusted — iOS hands HEIFs back named
   // ".jpeg" — so sniff the file's actual content server-side and only re-encode
   // true HEIFs, which the site (and most browsers) can't render.
   if (!(await invoke<boolean>("probe_image_is_heif", { path }))) return path;
   const bytes = new Uint8Array(await invoke<number[]>("read_image_bytes", { path }));
-  return convertBytesToJpeg(bytes);
+  const converted = await convertBytesToJpeg(bytes);
+  convertedSources.set(converted, path);
+  return converted;
+}
+
+/** When a photo was taken, from the metadata of the file the user chose, or
+ * null when it has none. */
+export function readCaptureDate(path: string): Promise<string | null> {
+  return invoke("media_capture_date", { path: convertedSources.get(path) ?? path });
 }
 
 /** Normalizes chosen or dropped source images so the importer always receives a

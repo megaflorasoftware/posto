@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { buildAstroConfig, parseLoaderConfig } from "../src/astro/collections";
+import {
+  buildAstroConfig,
+  parseCollectionSchema,
+  parseLoaderConfig,
+} from "../src/astro/collections";
+import { fieldDefaultAnnotation } from "../src/posto/annotations";
 import {
   cdnObjectForUrl,
   cdnObjectKey,
@@ -353,4 +358,51 @@ test("configs without CDN media pass through unchanged", () => {
   const config: PagesConfig = { media: [], content: [] };
   expect(mergePostoConfig(config, null)).toBe(config);
   expect(mergePostoConfig(config, { collections: {} })).toBe(config);
+});
+
+describe("posto:default annotations", () => {
+  test.each([
+    ["posto:default=capture-date", "capture-date"],
+    ["When it was taken. posto:default=capture-date", "capture-date"],
+    ["posto:default=capture-date posto:media=cdn", "capture-date"],
+    ["posto:default=camera", undefined],
+    ["xposto:default=capture-date", undefined],
+    [undefined, undefined],
+  ])("reads %s", (description, expected) => {
+    expect(fieldDefaultAnnotation(description)).toBe(expected);
+  });
+
+  test("schema fields carry the annotation, including nested and optional ones", () => {
+    const fields = parseCollectionSchema(
+      "photos",
+      JSON.stringify({
+        type: "object",
+        properties: {
+          taken_at: {
+            type: "string",
+            format: "date-time",
+            description: "posto:default=capture-date",
+          },
+          meta: {
+            type: "object",
+            properties: {
+              shot: {
+                anyOf: [{ type: "string", format: "date-time" }, { type: "null" }],
+                description: "posto:default=capture-date",
+              },
+            },
+          },
+          alt: { type: "string", description: "Shown to screen readers" },
+        },
+        required: ["alt"],
+      }),
+    )!;
+    const byName = new Map(fields.map((field) => [field.name, field]));
+    expect(byName.get("taken_at")).toMatchObject({
+      type: "date",
+      options: { defaultFrom: "capture-date" },
+    });
+    expect(byName.get("meta")?.fields?.[0].options?.defaultFrom).toBe("capture-date");
+    expect(byName.get("alt")?.options?.defaultFrom).toBeUndefined();
+  });
 });

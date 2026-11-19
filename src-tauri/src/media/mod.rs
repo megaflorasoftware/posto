@@ -126,6 +126,12 @@ pub async fn media_inspect_file(path: PathBuf) -> Result<FileInspection, String>
     blocking(move || probe::inspect_file(&path)).await
 }
 
+/// When a photo was taken, from its metadata, without hashing the file.
+#[tauri::command]
+pub async fn media_capture_date(path: PathBuf) -> Result<Option<String>, String> {
+    blocking(move || Ok(probe::capture_date(&path))).await
+}
+
 /// Uploads pending images, rewrites content, and publishes it as one transaction.
 #[tauri::command]
 pub async fn media_publish(

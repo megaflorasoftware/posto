@@ -84,6 +84,42 @@ pub fn file_digest(path: &Path) -> Result<(String, u64), String> {
     Ok((sha256, size))
 }
 
+/// When the photo was taken, from its embedded EXIF metadata, as local time in
+/// `YYYY-MM-DDTHH:MM:SS` form. EXIF rarely records a time zone, so none is
+/// added. Returns `None` when the file carries no usable date.
+pub fn capture_date(path: &Path) -> Option<String> {
+    let file = std::fs::File::open(path).ok()?;
+    let exif = exif::Reader::new()
+        .read_from_container(&mut std::io::BufReader::new(file))
+        .ok()?;
+    [exif::Tag::DateTimeOriginal, exif::Tag::DateTimeDigitized]
+        .into_iter()
+        .find_map(|tag| {
+            let field = exif.get_field(tag, exif::In::PRIMARY)?;
+            let exif::Value::Ascii(values) = &field.value else {
+                return None;
+            };
+            let date = exif::DateTime::from_ascii(values.first()?).ok()?;
+            let valid = date.year >= 1800
+                && (1..=12).contains(&date.month)
+                && (1..=31).contains(&date.day)
+                && date.hour < 24
+                && date.minute < 60
+                && date.second < 61;
+            valid.then(|| {
+                format!(
+                    "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+                    date.year,
+                    date.month,
+                    date.day,
+                    date.hour,
+                    date.minute,
+                    date.second.min(59)
+                )
+            })
+        })
+}
+
 pub fn image_dimensions(path: &Path) -> Option<Dimensions> {
     if extension(path) == "svg" {
         let mut source = String::new();
@@ -210,16 +246,65 @@ mod tests {
         }
     }
 
-    /// Inserts an EXIF block declaring `orientation` after the JPEG start marker.
-    fn with_exif_orientation(jpeg: &[u8], orientation: u8) -> Vec<u8> {
-        let mut exif = b"Exif\0\0II*\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0".to_vec();
-        exif.extend([orientation, 0, 0, 0, 0, 0, 0, 0]);
+    /// Inserts an APP1 EXIF segment holding `tiff` after the JPEG start marker.
+    fn with_exif(jpeg: &[u8], tiff: &[u8]) -> Vec<u8> {
+        let mut exif = b"Exif\0\0".to_vec();
+        exif.extend(tiff);
         let length = u16::try_from(exif.len() + 2).unwrap().to_be_bytes();
         let mut output = jpeg[..2].to_vec();
         output.extend([0xFF, 0xE1, length[0], length[1]]);
         output.extend(exif);
         output.extend(&jpeg[2..]);
         output
+    }
+
+    fn with_exif_orientation(jpeg: &[u8], orientation: u8) -> Vec<u8> {
+        let mut tiff = b"II*\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0".to_vec();
+        tiff.extend([orientation, 0, 0, 0, 0, 0, 0, 0]);
+        with_exif(jpeg, &tiff)
+    }
+
+    /// EXIF holding one date tag (0x9003 original, 0x9004 digitized) in the
+    /// Exif sub-IFD that IFD0 points to.
+    fn with_exif_date(jpeg: &[u8], tag: u16, date: &[u8; 20]) -> Vec<u8> {
+        let mut tiff = b"II*\0\x08\0\0\0".to_vec();
+        // IFD0: one entry pointing at the Exif sub-IFD at offset 26.
+        tiff.extend([1, 0, 0x69, 0x87, 4, 0, 1, 0, 0, 0, 26, 0, 0, 0, 0, 0, 0, 0]);
+        // Exif IFD: one 20-byte ASCII value stored at offset 44.
+        let [low, high] = tag.to_le_bytes();
+        tiff.extend([1, 0, low, high, 2, 0, 20, 0, 0, 0, 44, 0, 0, 0, 0, 0, 0, 0]);
+        tiff.extend(date);
+        with_exif(jpeg, &tiff)
+    }
+
+    #[test]
+    fn reads_capture_dates() {
+        let dir = tempfile::tempdir().unwrap();
+        let plain = dir.path().join("plain.jpg");
+        image::RgbImage::new(4, 4).save(&plain).unwrap();
+        let bytes = std::fs::read(&plain).unwrap();
+        assert_eq!(capture_date(&plain), None, "no EXIF");
+
+        let cases: [(u16, &[u8; 20], Option<&str>); 4] = [
+            (
+                0x9003,
+                b"2026:10:07 13:26:04\0",
+                Some("2026-10-07T13:26:04"),
+            ),
+            (
+                0x9004,
+                b"2025:01:02 03:04:05\0",
+                Some("2025-01-02T03:04:05"),
+            ),
+            (0x9003, b"0000:00:00 00:00:00\0", None),
+            (0x9003, b"    :  :     :  :  \0", None),
+        ];
+        for (index, (tag, date, expected)) in cases.into_iter().enumerate() {
+            let path = dir.path().join(format!("dated-{index}.jpg"));
+            std::fs::write(&path, with_exif_date(&bytes, tag, date)).unwrap();
+            assert_eq!(capture_date(&path).as_deref(), expected, "{date:?}");
+        }
+        assert_eq!(capture_date(&dir.path().join("missing.jpg")), None);
     }
 
     #[test]

@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 
-import { act, renderHook } from "@testing-library/react";
-import { beforeEach, expect, test, vi } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { MediaLibrary } from "@posto/core/pagescms/config";
-import { inspectMediaFile } from "@posto/ipc";
+import { inspectMediaFile, readCaptureDate } from "@posto/ipc";
 import { useImageLibraryImport } from "../src/hooks/useImageLibraryImport";
 import { imageLibraryMetadataFields } from "../src/imageLibraryMetadata";
 
@@ -12,6 +12,7 @@ vi.mock("@posto/ipc", () => ({
   inspectMediaFile: vi.fn(),
   invoke: vi.fn().mockResolvedValue([]),
   openImageFiles: vi.fn().mockResolvedValue([]),
+  readCaptureDate: vi.fn(),
 }));
 
 const library: MediaLibrary = {
@@ -80,4 +81,78 @@ test("editors only see dimension fields on local libraries", () => {
     imageLibraryMetadataFields(target).map((field) => field.name);
   expect(names(library)).toEqual(["alt"]);
   expect(names({ ...library, mediaSource: undefined })).toEqual(["alt", "width", "height"]);
+});
+
+describe("capture dates", () => {
+  const dated: MediaLibrary = {
+    ...library,
+    mediaSource: undefined,
+    fields: [
+      { name: "src", type: "image", required: true },
+      { name: "taken_at", type: "date", options: { defaultFrom: "capture-date" } },
+      { name: "width", type: "number" },
+      { name: "height", type: "number" },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.mocked(readCaptureDate).mockReset().mockResolvedValue("2026-10-07T13:26:04");
+  });
+
+  test("the import form shows each photo's capture date", async () => {
+    const { result } = renderHook(() =>
+      useImageLibraryImport({
+        root: "/site",
+        library: dated,
+        initialSources: ["/photos/harbor.jpg"],
+      }),
+    );
+
+    await waitFor(() =>
+      expect(result.current.drafts[0].metadata.taken_at).toBe("2026-10-07T13:26:04"),
+    );
+    expect(readCaptureDate).toHaveBeenCalledWith("/photos/harbor.jpg");
+  });
+
+  test("a date the user already entered is kept", async () => {
+    let resolve!: (date: string) => void;
+    vi.mocked(readCaptureDate).mockReturnValue(new Promise((done) => (resolve = done)));
+    const { result } = renderHook(() =>
+      useImageLibraryImport({
+        root: "/site",
+        library: dated,
+        initialSources: ["/photos/harbor.jpg"],
+      }),
+    );
+
+    act(() =>
+      result.current.updateDraft(0, (draft) => ({
+        ...draft,
+        metadata: { ...draft.metadata, taken_at: "2020-01-01" },
+      })),
+    );
+    await act(async () => resolve("2026-10-07T13:26:04"));
+
+    expect(result.current.drafts[0].metadata.taken_at).toBe("2020-01-01");
+  });
+
+  test("an import that starts before the date is read still gets it", async () => {
+    const plan = await planImport(dated);
+    expect(plan.metadata.taken_at).toBe("2026-10-07T13:26:04");
+  });
+
+  test("photos without a capture date leave the field empty", async () => {
+    vi.mocked(readCaptureDate).mockResolvedValue(null);
+    const plan = await planImport(dated);
+    expect(plan.metadata.taken_at).toBeUndefined();
+  });
+
+  test("libraries without the annotation never read dates", async () => {
+    const plain = {
+      ...dated,
+      fields: dated.fields.map((field) => ({ ...field, options: undefined })),
+    };
+    await planImport(plain);
+    expect(readCaptureDate).not.toHaveBeenCalled();
+  });
 });

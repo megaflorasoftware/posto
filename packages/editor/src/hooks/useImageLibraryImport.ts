@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { pathEntryId } from "@posto/core/project/entryIds";
 import {
   MediaPlanError,
@@ -8,12 +8,19 @@ import {
   withImageDimensions,
   type MediaImportPlan,
 } from "@posto/core/project/mediaLibrary";
-import type { MediaLibrary, MediaLibraryMetadataExtension } from "@posto/core/pagescms/config";
+import type {
+  Field,
+  MediaLibrary,
+  MediaLibraryMetadataExtension,
+} from "@posto/core/pagescms/config";
+import type { ValuePath } from "@posto/core/pagescms/frontmatter";
+import { editValueAtPath, valueAtPath } from "../imageLibraryMetadata";
 import {
   importImageLibraryAsset,
   inspectMediaFile,
   invoke,
   openImageFiles,
+  readCaptureDate,
   type FileEntry,
   type ImageLibraryImportResult,
 } from "@posto/ipc";
@@ -51,17 +58,57 @@ function makeDraft(sourceImagePath: string, library: MediaLibrary): ImageLibrary
   };
 }
 
+/** Fields annotated `posto:default=capture-date`, outside lists. */
+function captureDateFields(fields: Field[], prefix: ValuePath = []): ValuePath[] {
+  return fields.flatMap((field) => {
+    if (field.list) return [];
+    const path = [...prefix, field.name];
+    const own = field.options?.defaultFrom === "capture-date" ? [path] : [];
+    return [...own, ...captureDateFields(field.fields ?? [], path)];
+  });
+}
+
+function isEmpty(value: unknown): boolean {
+  return value === undefined || value === null || value === "";
+}
+
+/** Fills empty capture-date fields, leaving anything the user entered. */
+function withCaptureDate(
+  library: MediaLibrary,
+  metadata: Record<string, unknown>,
+  date: string | null,
+): Record<string, unknown> {
+  if (!date) return metadata;
+  return captureDateFields(library.fields).reduce(
+    (current, path) =>
+      isEmpty(valueAtPath(current, path)) ? editValueAtPath(current, path, date) : current,
+    metadata,
+  );
+}
+
+async function captureDateFor(library: MediaLibrary, sourceImagePath: string) {
+  if (captureDateFields(library.fields).length === 0) return null;
+  return readCaptureDate(sourceImagePath).catch(() => null);
+}
+
 /** Adds the image's dimensions when its CDN-bound library stores them. A file
  * that can't be measured falls through to the schema's own validation. */
 async function metadataForImport(
   library: MediaLibrary,
   draft: ImageLibraryImportDraft,
 ): Promise<Record<string, unknown>> {
-  if (!library.mediaSource || !imageDimensionFields(library)) return draft.metadata;
+  // The form normally shows the capture date already; this covers an import
+  // that starts before reading it finished.
+  const metadata = withCaptureDate(
+    library,
+    draft.metadata,
+    await captureDateFor(library, draft.sourceImagePath),
+  );
+  if (!library.mediaSource || !imageDimensionFields(library)) return metadata;
   const inspected = await inspectMediaFile(draft.sourceImagePath).catch(() => null);
   return inspected?.dimensions
-    ? withImageDimensions(library, draft.metadata, inspected.dimensions)
-    : draft.metadata;
+    ? withImageDimensions(library, metadata, inspected.dimensions)
+    : metadata;
 }
 
 /** Drives a multi-image import into one library: a single chosen location
@@ -83,17 +130,43 @@ export function useImageLibraryImport(input: {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /** Shows each photo's capture date in the form, where it can be adjusted
+   * before importing. Values the user already typed are kept. */
+  function prefillCaptureDates(paths: string[], library: MediaLibrary) {
+    for (const path of paths) {
+      void captureDateFor(library, path).then((date) => {
+        if (!date) return;
+        setDrafts((current) =>
+          current.map((draft) =>
+            draft.sourceImagePath === path
+              ? { ...draft, metadata: withCaptureDate(library, draft.metadata, date) }
+              : draft,
+          ),
+        );
+      });
+    }
+  }
+
+  useEffect(() => {
+    prefillCaptureDates(input.initialSources ?? [], input.library);
+    // Only the sources the importer opened with; later ones prefill as chosen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function setSources(paths: string[]) {
     setDrafts(paths.map((path) => makeDraft(path, input.library)));
     setIndex(0);
     setError(null);
+    prefillCaptureDates(paths, input.library);
   }
 
   function retarget(library: MediaLibrary) {
     setFolder("");
+    const paths = drafts.map((draft) => draft.sourceImagePath);
     setDrafts((current) => current.map((draft) => makeDraft(draft.sourceImagePath, library)));
     setIndex(0);
     setError(null);
+    prefillCaptureDates(paths, library);
   }
 
   function updateDraft(
