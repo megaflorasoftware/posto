@@ -246,6 +246,7 @@ function LibraryMediaPane(props: {
         <ValidateImageLibraryAssetsDialog
           library={library}
           assets={selectedLibraryAssets(libraryState.assets, selected, selectedDirectories)}
+          onBeforeChange={props.onBeforeChange}
           onClose={() => setValidating(false)}
           onValidated={() => {
             void libraryState.refresh();

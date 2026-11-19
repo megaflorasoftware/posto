@@ -1,4 +1,4 @@
-import type { MediaLibrary } from "@posto/core/pagescms/config";
+import { plainDateField, type MediaLibrary } from "@posto/core/pagescms/config";
 import { imageFields } from "@posto/core/posto/annotations";
 import {
   dataDocumentFormat,
@@ -7,6 +7,7 @@ import {
   setDataValue,
 } from "@posto/core/project/dataDocument";
 import {
+  imageDetailTargets,
   imageDetailUpdates,
   type ImageDetails,
   type ImageLibraryAsset,
@@ -23,27 +24,26 @@ export interface ImageLibraryValidation {
   failed: Array<{ entryId: string; message: string }>;
 }
 
-/** Whether the library has fields Posto controls from the image (`value=`). */
-export function hasLockedImageFields(library: MediaLibrary): boolean {
-  return imageFields(library.fields, library.imageFieldPath).some(({ source }) => source.locked);
+/** Whether the library has fields that take a value from the image. */
+export function hasImageDetailFields(library: MediaLibrary): boolean {
+  return imageFields(library.fields, library.imageFieldPath).length > 0;
 }
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function detailsFor(library: MediaLibrary, asset: ImageLibraryAsset): Promise<ImageDetails> {
+async function detailsFor(asset: ImageLibraryAsset, needsDate: boolean): Promise<ImageDetails> {
   if (asset.imagePath) return readImageDetails(asset.imagePath);
   if (!asset.imageUrl) throw new Error("This entry has no image.");
-  const needsDate = imageFields(library.fields, library.imageFieldPath).some(
-    ({ source }) => source.locked && source.value === "capture-date",
-  );
   return readRemoteImageDetails(asset.imageUrl, needsDate);
 }
 
-/** Sets every locked (`value=`) field of the given entries from their image,
- * for example after a schema starts locking a field. Entries that already
- * match are left untouched, and failures don't stop the rest. */
+/** Brings entries up to date with their schema after it changes: sets every
+ * locked (`value=`) field from the image, and fills `initial=` fields whose
+ * key the entry doesn't have. A key that's present but empty stays empty.
+ * Entries that already match are left untouched, and failures don't stop
+ * the rest. */
 export async function validateImageLibraryAssets(input: {
   library: MediaLibrary;
   assets: ImageLibraryAsset[];
@@ -55,16 +55,28 @@ export async function validateImageLibraryAssets(input: {
     CONCURRENCY,
     async (asset): Promise<"updated" | "unchanged" | { message: string }> => {
       try {
-        const details = await detailsFor(input.library, asset);
-        const changes = imageDetailUpdates(input.library, asset.metadata, details, {
-          lockedOnly: true,
-        }).filter(({ path, value }) => valueAtPath(asset.metadata, path) !== value);
+        const targets = imageDetailTargets(input.library, asset.metadata, "when-missing");
+        if (targets.length === 0) return "unchanged";
+        const needsDate = targets.some(({ source }) => source.value === "capture-date");
+        // Schema dates stay unquoted so Astro reads them as dates.
+        const dateFields = new Set(
+          targets.filter(({ field }) => plainDateField(field)).map(({ path }) => path.join(".")),
+        );
+        const details = await detailsFor(asset, needsDate);
+        const changes = imageDetailUpdates(
+          input.library,
+          asset.metadata,
+          details,
+          "when-missing",
+        ).filter(({ path, value }) => valueAtPath(asset.metadata, path) !== value);
         if (changes.length === 0) return "unchanged";
         const format = dataDocumentFormat(asset.metadataPath);
         if (!format) throw new Error("Its metadata format isn't supported.");
         const parsed = parseDataDocument(asset.metadataSource, format);
         if (parsed.error) throw new Error(parsed.error);
-        for (const { path, value } of changes) setDataValue(parsed, path, value);
+        for (const { path, value } of changes) {
+          setDataValue(parsed, path, value, { dateField: dateFields.has(path.join(".")) });
+        }
         await invoke("write_text_file", {
           path: asset.metadataPath,
           content: serializeDataDocument(parsed),

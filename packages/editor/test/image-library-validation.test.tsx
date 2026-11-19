@@ -3,6 +3,7 @@
 import React from "react";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { MantineProvider } from "@mantine/core";
+import YAML from "yaml";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { Field, MediaLibrary } from "@posto/core/pagescms/config";
 import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
@@ -60,18 +61,12 @@ const locked = library([
 
 const root = "/site/src/media/photos";
 function asset(name: string, source: string, image: Partial<ImageLibraryAsset> = {}) {
-  const metadata: Record<string, unknown> = {};
-  for (const line of source.trim().split("\n")) {
-    const [key, ...rest] = line.split(": ");
-    if (!key.startsWith("#"))
-      metadata[key] = /^\d+$/.test(rest.join(": ")) ? Number(rest.join(": ")) : rest.join(": ");
-  }
   return {
     libraryId: "photos",
     entryId: name,
     metadataPath: `${root}/${name}.yml`,
     imagePath: `${root}/${name}.jpg`,
-    metadata,
+    metadata: YAML.parse(source, { schema: "core" }) as Record<string, unknown>,
     metadataSource: source,
     health: ["valid"],
     ...image,
@@ -85,6 +80,7 @@ const writes = () =>
     .map(([, args]) => args as { path: string; content: string });
 
 beforeEach(() => {
+  vi.clearAllMocks();
   vi.mocked(invoke).mockReset().mockResolvedValue(null);
   vi.mocked(readImageDetails)
     .mockReset()
@@ -117,8 +113,26 @@ describe("validating library entries", () => {
     expect(write.content).toContain("height: 900");
   });
 
+  test("fills initial fields whose key is missing, but not empty ones", async () => {
+    const missing = asset("harbor", "image: ./harbor.jpg\nwidth: 1600\nheight: 900\n");
+    const cleared = asset("dock", "image: ./dock.jpg\ntaken_at:\nwidth: 1600\nheight: 900\n");
+
+    const result = await validateImageLibraryAssets({
+      library: locked,
+      assets: [missing, cleared],
+    });
+
+    expect(result).toEqual({ updated: ["harbor"], unchanged: 1, failed: [] });
+    expect(writes().map((write) => write.content)).toEqual([
+      "image: ./harbor.jpg\nwidth: 1600\nheight: 900\ntaken_at: 2026-10-07T13:26:04\n",
+    ]);
+  });
+
   test("entries that already match aren't rewritten", async () => {
-    const right = asset("harbor", "image: ./harbor.jpg\nwidth: 1600\nheight: 900\n");
+    const right = asset(
+      "harbor",
+      "image: ./harbor.jpg\ntaken_at: 2020-01-01\nwidth: 1600\nheight: 900\n",
+    );
 
     const result = await validateImageLibraryAssets({ library: locked, assets: [right] });
 
@@ -126,9 +140,24 @@ describe("validating library entries", () => {
     expect(writes()).toEqual([]);
   });
 
+  test("an entry with nothing to fill isn't read", async () => {
+    const editable = library([{ name: "width", type: "number", options: from("width", false) }]);
+
+    const result = await validateImageLibraryAssets({
+      library: editable,
+      assets: [asset("harbor", "image: ./harbor.jpg\nwidth: 10\n")],
+    });
+
+    expect(result.unchanged).toBe(1);
+    expect(readImageDetails).not.toHaveBeenCalled();
+  });
+
   test("CDN images are measured from their URL", async () => {
     const url = "https://www.example.com/photo/harbor-1a2b3c4d.jpg";
-    const published = asset("harbor", `image: ${url}\n`, { imagePath: null, imageUrl: url });
+    const published = asset("harbor", `image: ${url}\ntaken_at: 2020-01-01\n`, {
+      imagePath: null,
+      imageUrl: url,
+    });
 
     await validateImageLibraryAssets({ library: locked, assets: [published] });
 
@@ -136,7 +165,7 @@ describe("validating library entries", () => {
     expect(writes()[0].content).toContain("width: 4128");
   });
 
-  test("a locked capture date asks for the date too", async () => {
+  test("a capture date to fill asks for the date too", async () => {
     const url = "https://www.example.com/photo/harbor-1a2b3c4d.jpg";
     const dated = library([
       { name: "taken_at", type: "date", options: from("capture-date", true) },
@@ -174,6 +203,7 @@ describe("validating library entries", () => {
 });
 
 describe("the Validate items dialog", () => {
+  const onBeforeChange = vi.fn(() => Promise.resolve());
   function dialog(target: MediaLibrary, assets: ImageLibraryAsset[]) {
     const onValidated = vi.fn();
     render(
@@ -181,6 +211,7 @@ describe("the Validate items dialog", () => {
         <ValidateImageLibraryAssetsDialog
           library={target}
           assets={assets}
+          onBeforeChange={onBeforeChange}
           onClose={vi.fn()}
           onValidated={onValidated}
         />
@@ -192,18 +223,19 @@ describe("the Validate items dialog", () => {
   test("reports what changed and refreshes the library", async () => {
     const onValidated = dialog(locked, [
       asset("harbor", "image: ./harbor.jpg\n"),
-      asset("dock", "image: ./dock.jpg\nwidth: 1600\nheight: 900\n"),
+      asset("dock", "image: ./dock.jpg\ntaken_at: 2020-01-01\nwidth: 1600\nheight: 900\n"),
     ]);
 
     expect(await screen.findByText(/Updated 1 item\. 1 item was already correct\./)).toBeTruthy();
+    expect(onBeforeChange).toHaveBeenCalledOnce();
     expect(onValidated).toHaveBeenCalledOnce();
   });
 
-  test("explains when the library has no locked fields", async () => {
-    const editable = library([{ name: "width", type: "number", options: from("width", false) }]);
-    const onValidated = dialog(editable, [asset("harbor", "image: ./harbor.jpg\n")]);
+  test("explains when no fields come from the image", async () => {
+    const plain = library([{ name: "width", type: "number" }]);
+    const onValidated = dialog(plain, [asset("harbor", "image: ./harbor.jpg\n")]);
 
-    expect(screen.getByText(/no fields that take a locked value/)).toBeTruthy();
+    expect(screen.getByText(/no fields that take a value from its image/)).toBeTruthy();
     await waitFor(() => expect(readImageDetails).not.toHaveBeenCalled());
     expect(onValidated).not.toHaveBeenCalled();
   });

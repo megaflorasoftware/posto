@@ -415,6 +415,7 @@ function LibraryMediaBrowserContent(props: {
         <ValidateImageLibraryAssetsDialog
           library={library}
           assets={selectedLibraryAssets(state.assets, selected, selectedDirectories)}
+          onBeforeChange={props.onBeforeChange}
           onClose={() => setValidating(false)}
           onValidated={() => {
             void state.refresh();

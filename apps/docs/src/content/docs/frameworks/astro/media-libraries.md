@@ -71,7 +71,7 @@ The action decides who controls the field:
 | `width`        | The width the photo displays at, after any rotation recorded by the camera.                   |
 | `height`       | The height the photo displays at, after any rotation recorded by the camera.                  |
 
-The middle part is the image field's name, or a dotted path such as `asset.src` for a nested one. If it doesn't name the library's image field, Posto shows a warning and leaves the field alone. When a library [stores images on a CDN](/frameworks/cdn-media/), Posto also sets width and height when it uploads an image, because the original leaves the device at that point. Capture dates are only read at import. After switching a field to `value=`, select the existing entries and choose **Validate items** to set it from their images.
+The middle part is the image field's name, or a dotted path such as `asset.src` for a nested one. If it doesn't name the library's image field, Posto shows a warning and leaves the field alone. When a library [stores images on a CDN](/frameworks/cdn-media/), Posto also sets width and height when it uploads an image, because the original leaves the device at that point. Capture dates are only read at import. After adding an annotation or switching a field to `value=`, select the existing entries and choose **Validate items**. It sets `value=` fields from each image, and fills `initial=` fields only where the entry doesn't have the key, so a value someone cleared stays empty.
 
 ## Storing images on a CDN
 

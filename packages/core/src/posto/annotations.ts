@@ -85,24 +85,27 @@ function samePath(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((part, index) => part === right[index]);
 }
 
+export interface AnnotatedField {
+  path: string[];
+  field: Field;
+  source: FieldDefaultSource;
+}
+
 /** Every annotated field outside lists, with the path it's stored at. */
-export function annotatedFields(
-  fields: Field[],
-  prefix: string[] = [],
-): Array<{ path: string[]; source: FieldDefaultSource }> {
+export function annotatedFields(fields: Field[], prefix: string[] = []): AnnotatedField[] {
   return fields.flatMap((field) => {
     if (field.list) return [];
     const path = [...prefix, field.name];
     const source = defaultSourceOf(field);
-    return [...(source ? [{ path, source }] : []), ...annotatedFields(field.fields ?? [], path)];
+    return [
+      ...(source ? [{ path, field, source }] : []),
+      ...annotatedFields(field.fields ?? [], path),
+    ];
   });
 }
 
 /** Annotated fields that take their value from the image at `imageField`. */
-export function imageFields(
-  fields: Field[],
-  imageField: string[],
-): Array<{ path: string[]; source: FieldDefaultSource }> {
+export function imageFields(fields: Field[], imageField: string[]): AnnotatedField[] {
   return annotatedFields(fields).filter(({ source }) => samePath(source.field, imageField));
 }
 

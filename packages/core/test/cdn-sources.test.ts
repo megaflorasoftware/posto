@@ -15,6 +15,7 @@ import {
 import { mediaInputPath, type MediaLibrary, type PagesConfig } from "../src/pagescms/config";
 import {
   discoverImageLibraryAssets,
+  imageDetailUpdates,
   imageDimensionFields,
   withImageDetails,
 } from "../src/project/mediaLibrary";
@@ -329,6 +330,19 @@ describe("library image dimensions", () => {
     expect(withImageDetails(locked, { asset: { width: 1200 } }, details)).toEqual({
       asset: { width: 40 },
     });
+  });
+
+  test("validation fills only initial fields whose key is missing", () => {
+    const updates = (metadata: Record<string, unknown>) =>
+      imageDetailUpdates(nested, metadata, details, "when-missing");
+    expect(updates({})).toEqual([
+      { path: ["asset", "width"], value: 40 },
+      { path: ["asset", "height"], value: 20 },
+    ]);
+    expect(updates({ asset: { width: null, height: "" } })).toEqual([]);
+    expect(updates({ asset: { width: 1200 } })).toEqual([{ path: ["asset", "height"], value: 20 }]);
+    // Import treats empty values as unset.
+    expect(imageDetailUpdates(nested, { asset: { width: null } }, details)).toHaveLength(2);
   });
 
   test("parses the annotations from generated schemas", () => {

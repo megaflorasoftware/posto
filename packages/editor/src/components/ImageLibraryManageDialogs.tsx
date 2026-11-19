@@ -29,7 +29,7 @@ import {
 } from "../imageLibraryReferences";
 import { moveImageLibraryItems } from "../mediaMoves";
 import {
-  hasLockedImageFields,
+  hasImageDetailFields,
   validateImageLibraryAssets,
   type ImageLibraryValidation,
 } from "../imageLibraryValidation";
@@ -569,43 +569,56 @@ function count(value: number, one: string, many: string): string {
   return `${value} ${value === 1 ? one : many}`;
 }
 
-/** Sets the locked (`value=`) fields of the chosen entries from their images,
- * and reports what changed. */
+/** Updates the chosen entries' image-derived fields from their images, and
+ * reports what changed. */
 export function ValidateImageLibraryAssetsDialog(props: {
   library: MediaLibrary;
   assets: ImageLibraryAsset[];
+  /** Saves open edits first, so they can't overwrite the updated files. */
+  onBeforeChange: () => Promise<void>;
   onClose: () => void;
   onValidated: () => void;
 }) {
-  const lockable = hasLockedImageFields(props.library);
+  const applicable = hasImageDetailFields(props.library);
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<ImageLibraryValidation | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const started = useRef(false);
 
   useEffect(() => {
-    if (!lockable || started.current) return;
+    if (!applicable || started.current) return;
     started.current = true;
-    void validateImageLibraryAssets({
-      library: props.library,
-      assets: props.assets,
-      onProgress: (done) => setProgress(done),
-    }).then((validation) => {
-      setResult(validation);
-      if (validation.updated.length > 0) props.onValidated();
-    });
+    void props
+      .onBeforeChange()
+      .then(() =>
+        validateImageLibraryAssets({
+          library: props.library,
+          assets: props.assets,
+          onProgress: (done) => setProgress(done),
+        }),
+      )
+      .then((validation) => {
+        setResult(validation);
+        if (validation.updated.length > 0) props.onValidated();
+      })
+      .catch((caught) => setError(caught instanceof Error ? caught.message : String(caught)));
     // Runs once for the entries chosen when the dialog opened.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const total = props.assets.length;
+  const imageField = props.library.imageFieldPath.join(".");
   return (
     <Dialog opened onClose={props.onClose} title="Validate items" size="sm">
       <Stack gap="sm">
-        {!lockable ? (
+        {!applicable ? (
           <Text size="sm">
-            {props.library.collection} has no fields that take a locked value from its image, such
-            as <code>value=schema.{props.library.imageFieldPath.join(".")}.width</code>.
+            {props.library.collection} has no fields that take a value from its image, such as{" "}
+            <code>value=schema.{imageField}.width</code> or{" "}
+            <code>initial=schema.{imageField}.capture-date</code>.
           </Text>
+        ) : error ? (
+          <Alert color="red">{error}</Alert>
         ) : !result ? (
           <Group gap="xs">
             <Loader size="xs" />
@@ -636,7 +649,11 @@ export function ValidateImageLibraryAssetsDialog(props: {
           </>
         )}
         <Group justify="flex-end">
-          <Button variant="default" disabled={lockable && !result} onClick={props.onClose}>
+          <Button
+            variant="default"
+            disabled={applicable && !result && !error}
+            onClick={props.onClose}
+          >
             Close
           </Button>
         </Group>

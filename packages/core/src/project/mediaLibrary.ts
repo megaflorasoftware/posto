@@ -2,7 +2,7 @@ import YAML from "yaml";
 import picomatch from "picomatch";
 import type { MediaLibrary, Field, MediaLibraryMetadataExtension } from "../pagescms/config";
 import { isRemoteMediaUrl } from "../media/sources";
-import { fieldsWithDefault, imageFields } from "../posto/annotations";
+import { fieldsWithDefault, imageFields, type AnnotatedField } from "../posto/annotations";
 import { validateForm } from "../pagescms/validate";
 import { pathEntryId } from "./entryIds";
 
@@ -394,18 +394,40 @@ export function usesImageDetails(library: MediaLibrary): boolean {
 /** The writes that bring a library entry in line with its image. Locked
  * (`value=`) fields always take the image's value; editable defaults
  * (`initial=`) only fill an empty field. */
+function hasKey(value: unknown, path: string[]): boolean {
+  const parent = valueAt(value, path.slice(0, -1));
+  return record(parent) && Object.prototype.hasOwnProperty.call(parent, path[path.length - 1]);
+}
+
+/** When an `initial=` field takes the image's value: at import whenever it's
+ * empty, and when validating only if the entry lacks the key, so a value
+ * someone cleared on purpose stays cleared. */
+export type InitialFill = "when-empty" | "when-missing";
+
+/** Fields of an entry that should take a value from its image. Locked
+ * (`value=`) fields always do. */
+export function imageDetailTargets(
+  library: MediaLibrary,
+  metadata: Record<string, unknown>,
+  initial: InitialFill = "when-empty",
+): AnnotatedField[] {
+  return imageFields(library.fields, library.imageFieldPath).filter(
+    ({ path, source }) =>
+      source.locked ||
+      (initial === "when-empty" ? emptyValue(valueAt(metadata, path)) : !hasKey(metadata, path)),
+  );
+}
+
 export function imageDetailUpdates(
   library: MediaLibrary,
   metadata: Record<string, unknown>,
   details: ImageDetails,
-  options: { lockedOnly?: boolean } = {},
+  initial: InitialFill = "when-empty",
 ): Array<{ path: string[]; value: string | number }> {
-  return imageFields(library.fields, library.imageFieldPath).flatMap(({ path, source }) => {
-    if (options.lockedOnly && !source.locked) return [];
+  return imageDetailTargets(library, metadata, initial).flatMap(({ path, source }) => {
     const value =
       source.value === "capture-date" ? details.captureDate : details.dimensions?.[source.value];
-    if (value === null || value === undefined) return [];
-    return source.locked || emptyValue(valueAt(metadata, path)) ? [{ path, value }] : [];
+    return value === null || value === undefined ? [] : [{ path, value }];
   });
 }
 
