@@ -3365,6 +3365,7 @@ dependencies = [
  "base64 0.22.1",
  "fix-path-env",
  "fs2",
+ "futures-util",
  "git2",
  "image",
  "imagesize",

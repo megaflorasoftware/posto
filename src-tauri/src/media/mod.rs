@@ -2,16 +2,22 @@
 //! Secrets stay on the Rust side; the webview can only save, check, or remove them.
 
 pub mod bunny;
+pub mod journal;
 pub mod probe;
 pub mod provider;
+pub mod publish;
 pub mod s3;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::secrets;
 use probe::FileInspection;
 use provider::{Credential, Listing, MediaSource, Provider, ProviderKind};
+use publish::{Hooks, PublishProgress, PublishRequest, PublishSummary, RecoveryOutcome};
 use serde::{Deserialize, Serialize};
+use tauri::ipc::Channel;
 
 const SECRET_SERVICE: &str = "net.megaflora.posto.media";
 
@@ -59,7 +65,7 @@ fn load_credential(source: &MediaSource) -> Result<Option<Credential>, String> {
         .transpose()
 }
 
-async fn blocking<T: Send + 'static>(
+pub(crate) async fn blocking<T: Send + 'static>(
     task: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
     tauri::async_runtime::spawn_blocking(task)
@@ -115,6 +121,34 @@ pub async fn media_list_objects(source: MediaSource, prefix: String) -> Result<L
 #[tauri::command]
 pub async fn media_inspect_file(path: PathBuf) -> Result<FileInspection, String> {
     blocking(move || probe::inspect_file(&path)).await
+}
+
+/// Uploads pending images, rewrites content, and publishes it as one transaction.
+#[tauri::command]
+pub async fn media_publish(
+    request: PublishRequest,
+    on_progress: Channel<PublishProgress>,
+) -> Result<PublishSummary, String> {
+    let mut providers = HashMap::new();
+    for source in &request.sources {
+        if request
+            .uploads
+            .iter()
+            .any(|upload| upload.source_name == source.name)
+        {
+            providers.insert(source.name.clone(), connected(&source.connection).await?);
+        }
+    }
+    let progress = Arc::new(move |event| {
+        let _ = on_progress.send(event);
+    });
+    publish::execute(request, providers, progress, Hooks::default()).await
+}
+
+/// Finishes or undoes a publish that was interrupted, such as by a crash.
+#[tauri::command]
+pub async fn media_publish_recover(root: String) -> Result<RecoveryOutcome, String> {
+    blocking(move || publish::recover(&root)).await
 }
 
 #[cfg(test)]

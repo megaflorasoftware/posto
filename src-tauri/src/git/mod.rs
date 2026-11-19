@@ -10,6 +10,7 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use tauri::Emitter;
 
+use crate::media::journal;
 use creds::{platform_creds, platform_signature, remote_callbacks};
 
 #[derive(Serialize)]
@@ -658,8 +659,21 @@ impl Client {
     }
 
     /// Takes the repository-wide lock that serializes operations which rewrite
-    /// HEAD, the index, or the working tree. It is released on drop.
+    /// HEAD, the index, or the working tree. It is released on drop. Refused
+    /// while an interrupted media publish still has to be recovered.
     pub fn lock(&self) -> Result<RepositoryLock, String> {
+        let lock = self.lock_for_recovery()?;
+        if journal::exists(self.repo.path()) {
+            return Err(
+                "A previous publish didn't finish. Reopen this project to recover it, then try again."
+                    .to_string(),
+            );
+        }
+        Ok(lock)
+    }
+
+    /// The repository lock without the interrupted-publish check.
+    pub(crate) fn lock_for_recovery(&self) -> Result<RepositoryLock, String> {
         let directory = self.repo.commondir().join("posto");
         std::fs::create_dir_all(&directory)
             .map_err(|error| format!("Could not prepare the repository lock: {error}"))?;
@@ -676,9 +690,42 @@ impl Client {
         Ok(RepositoryLock { _file: file })
     }
 
+    /// The repository's git directory, which is private to this worktree.
+    pub(crate) fn git_dir(&self) -> &Path {
+        self.repo.path()
+    }
+
+    pub(crate) fn head_oid(&self) -> Option<git2::Oid> {
+        self.repo.head().ok().and_then(|head| head.target())
+    }
+
+    pub(crate) fn parent_oid(&self, commit: git2::Oid) -> Option<git2::Oid> {
+        self.repo.find_commit(commit).ok()?.parent_id(0).ok()
+    }
+
+    /// Whether git ignores a file. Ignored files are never part of a publish.
+    pub(crate) fn is_ignored(&self, path: &Path) -> Result<bool, String> {
+        let workdir = self
+            .workdir()?
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
+        let relative = path
+            .strip_prefix(&workdir)
+            .map_err(|_| format!("{} is outside the repository", path.display()))?;
+        self.repo.is_path_ignored(relative).map_err(err_str)
+    }
+
+    pub(crate) fn capture_index(&self) -> Result<IndexSnapshot, String> {
+        IndexSnapshot::capture(&self.repo)
+    }
+
+    pub(crate) fn restore_index(&self, snapshot: &IndexSnapshot) -> Result<(), String> {
+        snapshot.restore(&self.repo)
+    }
+
     /// Stages the selected scope and commits it, leaving the push to the
     /// caller. The working tree is never touched.
-    fn commit_scoped(&self, message: &str) -> Result<ScopedCommit, String> {
+    pub(crate) fn commit_scoped(&self, message: &str) -> Result<ScopedCommit, String> {
         let mut index = self.repo.index().map_err(err_str)?;
         // add_all picks up new/modified files, update_all staged deletions —
         // together they are `git add -A`.
@@ -742,7 +789,7 @@ impl Client {
 
     /// Whether HEAD holds commits its upstream lacks, such as a commit left by
     /// an earlier push that never landed. No upstream means nothing to compare.
-    fn ahead_of_upstream(&self) -> bool {
+    pub(crate) fn ahead_of_upstream(&self) -> bool {
         let Some(local) = self.repo.head().ok().and_then(|head| head.target()) else {
             return false;
         };
@@ -760,7 +807,7 @@ impl Client {
 
     /// Pushes HEAD to origin and records origin as the upstream of a branch
     /// on its first push.
-    fn push_head(&self) -> Result<(), PushFailure> {
+    pub(crate) fn push_head(&self) -> Result<(), PushFailure> {
         let transport = |error: git2::Error| PushFailure::Transport(err_str(error));
         let head = self.repo.head().map_err(transport)?;
         let refname = head.name().map_err(transport)?.to_string();
@@ -791,7 +838,7 @@ impl Client {
 
     /// First push of a locally-created branch: record origin as its upstream
     /// so the fetch/behind indicators work on it from now on.
-    fn record_upstream(&self) {
+    pub(crate) fn record_upstream(&self) {
         let Ok(head) = self.repo.head() else {
             return;
         };
@@ -810,37 +857,47 @@ impl Client {
 
     /// Whether origin's copy of HEAD's branch already points at `commit`. A
     /// connection that drops after the server accepted a push reports failure
-    /// even though the commit landed; an unreachable remote answers false.
-    fn remote_has_commit(&self, commit: git2::Oid) -> bool {
+    /// even though the commit landed.
+    pub(crate) fn remote_commit_status(&self, commit: git2::Oid) -> RemoteCommit {
         let Some(refname) = self
             .repo
             .head()
             .ok()
             .and_then(|head| head.name().ok().map(str::to_string))
         else {
-            return false;
+            return RemoteCommit::Unreachable;
         };
         let Ok(mut remote) = self.repo.find_remote("origin") else {
-            return false;
+            return RemoteCommit::Unreachable;
         };
         let Ok(config) = self.repo.config() else {
-            return false;
+            return RemoteCommit::Unreachable;
         };
         let callbacks = remote_callbacks(config, platform_creds());
         let Ok(connection) = remote.connect_auth(git2::Direction::Push, Some(callbacks), None)
         else {
-            return false;
+            return RemoteCommit::Unreachable;
         };
-        connection.list().is_ok_and(|heads| {
-            heads
-                .iter()
-                .any(|head| head.name() == refname && head.oid() == commit)
-        })
+        match connection.list() {
+            Ok(heads)
+                if heads
+                    .iter()
+                    .any(|head| head.name() == refname && head.oid() == commit) =>
+            {
+                RemoteCommit::Landed
+            }
+            Ok(_) => RemoteCommit::Absent,
+            Err(_) => RemoteCommit::Unreachable,
+        }
     }
 
     /// Removes a commit whose push failed, provided HEAD still points at it.
     /// The working tree is untouched, so the changes are ready to publish again.
-    fn rollback_commit(&self, commit: git2::Oid, parent: Option<git2::Oid>) -> Result<(), String> {
+    pub(crate) fn rollback_commit(
+        &self,
+        commit: git2::Oid,
+        parent: Option<git2::Oid>,
+    ) -> Result<(), String> {
         let head = self.repo.head().map_err(err_str)?;
         if head.target() != Some(commit) {
             return Err("HEAD moved while publishing".to_string());
@@ -897,7 +954,9 @@ impl Client {
             Ok(()) => return Ok("Published.".to_string()),
             Err(failure) => failure,
         };
-        if matches!(failure, PushFailure::Transport(_)) && self.remote_has_commit(commit) {
+        if matches!(failure, PushFailure::Transport(_))
+            && self.remote_commit_status(commit) == RemoteCommit::Landed
+        {
             self.record_upstream();
             return Ok("Published.".to_string());
         }
@@ -917,8 +976,16 @@ pub struct RepositoryLock {
     _file: std::fs::File,
 }
 
+/// Whether a commit reached origin, as far as the remote can be asked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RemoteCommit {
+    Landed,
+    Absent,
+    Unreachable,
+}
+
 /// What staging the selected scope produced.
-enum ScopedCommit {
+pub(crate) enum ScopedCommit {
     /// The scope already matches HEAD, so no commit was made.
     Unchanged,
     Created {
@@ -928,7 +995,7 @@ enum ScopedCommit {
     },
 }
 
-enum PushFailure {
+pub(crate) enum PushFailure {
     /// The remote answered and refused the update, so the commit did not land.
     Rejected(String),
     /// The connection failed, so the outcome must be checked against the remote.
@@ -936,7 +1003,7 @@ enum PushFailure {
 }
 
 impl PushFailure {
-    fn into_message(self) -> String {
+    pub(crate) fn into_message(self) -> String {
         match self {
             PushFailure::Rejected(message) | PushFailure::Transport(message) => message,
         }
@@ -945,10 +1012,10 @@ impl PushFailure {
 
 /// The on-disk index as it was before publishing staged anything. Restoring it
 /// returns new files to untracked and preserves staged work outside the scope.
-struct IndexSnapshot {
-    path: PathBuf,
+pub(crate) struct IndexSnapshot {
+    pub(crate) path: PathBuf,
     /// `None` when the repository had no index file yet.
-    bytes: Option<Vec<u8>>,
+    pub(crate) bytes: Option<Vec<u8>>,
 }
 
 impl IndexSnapshot {

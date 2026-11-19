@@ -32,6 +32,7 @@ rusty-s3 = { version = "0.12", default-features = false, features = ["aws-lc-rs"
 sha2 = "0.10"
 base64 = "0.22"
 imagesize = { version = "0.15", default-features = false, features = ["jpeg", "png", "gif", "webp", "tiff", "bmp", "ico", "heif"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
 # Desktop-only: file watching, PATH fixup, updater, process restart, and the
 # OS keychain for the stored GitHub session. Mobile builds (iOS/Android)

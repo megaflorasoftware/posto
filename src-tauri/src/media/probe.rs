@@ -60,7 +60,7 @@ pub fn content_type(path: &Path) -> &'static str {
     }
 }
 
-fn file_digest(path: &Path) -> Result<(String, u64), String> {
+pub fn file_digest(path: &Path) -> Result<(String, u64), String> {
     let mut file =
         std::fs::File::open(path).map_err(|error| format!("Could not read the image: {error}"))?;
     let mut hasher = Sha256::new();
