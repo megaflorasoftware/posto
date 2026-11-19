@@ -65,11 +65,11 @@ The action decides who controls the field:
 - **`initial`** sets a default when an import creates the entry. It appears in the import form, so you can change it, and Posto never replaces a value that's already set.
 - **`value`** makes Posto control the field. It's always set from the photo and appears in forms locked.
 
-| Value          | Takes                                                                                         |
-| -------------- | --------------------------------------------------------------------------------------------- |
-| `capture-date` | When the photo was taken, from its metadata, in local time. Empty when the photo has no date. |
-| `width`        | The width the photo displays at, after any rotation recorded by the camera.                   |
-| `height`       | The height the photo displays at, after any rotation recorded by the camera.                  |
+| Value          | Takes                                                                                                                                                                                       |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `capture-date` | When the photo was taken, from its metadata, as a local date and time, so photos from the same day sort in order. The field shows a date and time picker. Empty when the photo has no date. |
+| `width`        | The width the photo displays at, after any rotation recorded by the camera.                                                                                                                 |
+| `height`       | The height the photo displays at, after any rotation recorded by the camera.                                                                                                                |
 
 The middle part is the image field's name, or a dotted path such as `asset.src` for a nested one. If it doesn't name the library's image field, Posto shows a warning and leaves the field alone. When a library [stores images on a CDN](/frameworks/cdn-media/), Posto also sets width and height when it uploads an image, because the original leaves the device at that point. Capture dates are only read at import. After adding an annotation or switching a field to `value=`, select the existing entries and choose **Validate items**. It sets `value=` fields from each image, and fills `initial=` fields only where the entry doesn't have the key, so a value someone cleared stays empty.
 

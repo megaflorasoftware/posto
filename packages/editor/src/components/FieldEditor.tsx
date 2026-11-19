@@ -22,7 +22,13 @@ import type { EntryIdSource } from "@posto/core/project/entryIds";
 import { expandEntryName } from "@posto/core/posto/config";
 import { isLockedField } from "@posto/core/posto/annotations";
 import { applyCollectionPrefs } from "../collectionPrefs";
-import { dateControlValue, dateValueFromControl } from "../dateValues";
+import {
+  dateControlValue,
+  dateTimeControlValue,
+  dateTimeValueFromControl,
+  dateValueFromControl,
+  hasTimeOfDay,
+} from "../dateValues";
 import {
   appendListItem,
   deleteValue,
@@ -515,9 +521,11 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
             }
           />
         );
-      case "date":
-        if (!field.options?.time) {
-          const rawValue = asString(value);
+      case "date": {
+        const rawValue = asString(value);
+        // A value that records a time of day, such as a photo's capture
+        // time, gets a picker that shows and keeps it.
+        if (!field.options?.time && !hasTimeOfDay(rawValue)) {
           const controlValue = dateControlValue(rawValue);
           const nativeControl = rawValue === "" || controlValue !== "";
           return (
@@ -541,16 +549,12 @@ function SingleField(props: { field: Field; path: ValuePath; ctx: FieldContext }
             size="xs"
             disabled={locked}
             type="datetime-local"
-            value={asString(value)}
-            onChange={(e) => {
-              let raw = e.currentTarget.value;
-              // datetime-local omits seconds, but a YAML timestamp needs
-              // them — and only real timestamps satisfy date-typed schemas.
-              if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw)) raw += ":00";
-              editText(raw);
-            }}
+            step={1}
+            value={dateTimeControlValue(rawValue)}
+            onChange={(e) => editText(dateTimeValueFromControl(e.currentTarget.value, rawValue))}
           />
         );
+      }
       case "boolean":
         return (
           <Switch

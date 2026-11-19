@@ -141,3 +141,32 @@ export function dateValueFromControl(value: string, template: string): string {
   const iso = /^\d{4}-\d{2}-\d{2}([Tt ].*)$/.exec(source);
   return iso ? `${isoDate(parsed)}${iso[1]}` : isoDate(parsed);
 }
+
+/** An ISO date with a time of day, then any fraction or time zone. */
+const DATE_TIME = /^(\d{4}-\d{2}-\d{2})([Tt ])(\d{2}:\d{2}(?::\d{2})?)(.*)$/;
+
+/** Whether a value records a time of day, such as a photo's capture time,
+ * so editing it needs a date-and-time picker. */
+export function hasTimeOfDay(value: string): boolean {
+  const match = DATE_TIME.exec(value.trim());
+  return !!match && parseDate(match[1]) !== null;
+}
+
+/** Value accepted by a native date-and-time input. */
+export function dateTimeControlValue(value: string): string {
+  const match = DATE_TIME.exec(value.trim());
+  return match && parseDate(match[1]) ? `${match[1]}T${match[3]}` : "";
+}
+
+/** Converts a native date-and-time value back, keeping the document's
+ * separator and time zone. The input drops zero seconds, but YAML only reads
+ * a timestamp with them, so they're restored. */
+export function dateTimeValueFromControl(value: string, template: string): string {
+  const control = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(:\d{2})?/.exec(value);
+  if (!control) return value;
+  const existing = DATE_TIME.exec(template.trim());
+  const separator = existing?.[2] ?? "T";
+  // An edited time no longer matches the old fraction of a second.
+  const zone = existing?.[4].replace(/^\.\d+/, "") ?? "";
+  return `${control[1]}${separator}${control[2]}${control[3] ?? ":00"}${zone}`;
+}
