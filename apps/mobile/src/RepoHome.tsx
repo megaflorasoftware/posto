@@ -242,6 +242,10 @@ export default function RepoHome({
     afterPull: refreshAfterPull,
     // Publish progress lives on the Publish button; only failures surface.
     onPublishError: setStatus,
+    media: {
+      config: () => schemas.configRef.current,
+      groups: () => files.groupsRef.current,
+    },
   });
   const branches = useBranches(root, {
     onError: notifyError,
@@ -934,7 +938,7 @@ export default function RepoHome({
               fullWidth
               size="sm"
               leftSection={<GitCommitHorizontal size={19} />}
-              disabled={!git.hasLocalChanges}
+              disabled={!git.canPublish}
               loading={checkingChanges || git.publishing}
               onClick={() => void openPublish()}
             >
@@ -942,7 +946,7 @@ export default function RepoHome({
                 ? "Publishing…"
                 : checkingChanges
                   ? "Checking changes…"
-                  : git.hasLocalChanges
+                  : git.canPublish
                     ? "Publish…"
                     : "Up to date"}
             </Button>
@@ -972,11 +976,15 @@ export default function RepoHome({
             changes={git.changes}
             error={git.changesError}
             scopeLabel={root !== repoRoot ? root.slice(repoRoot.length + 1) : undefined}
+            publishing={git.publishing}
+            media={git.mediaPublish}
             onClose={() => setPublishOpen(false)}
             onRevert={(file) => void revert(file)}
             onPublish={(message) => {
-              setPublishOpen(false);
-              void git.publish(message);
+              // The sheet stays open, blocking edits, until the publish ends.
+              void git.publish(message).then((published) => {
+                if (published) setPublishOpen(false);
+              });
             }}
           />
         </main>

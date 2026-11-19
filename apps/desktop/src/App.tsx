@@ -193,6 +193,10 @@ function App() {
     onPublishError: notifyError,
     beforeSync: () => currentFile.flushPendingSave(),
     afterPull: refreshAfterPull,
+    media: {
+      config: () => schemas.configRef.current,
+      groups: () => files.groupsRef.current,
+    },
   });
 
   // Every event that can change git status also refreshes the sidebar, so
@@ -818,7 +822,7 @@ function App() {
         behindUpstream={git.behindUpstream}
         pulling={git.pulling}
         publishing={git.publishing}
-        hasLocalChanges={git.hasLocalChanges}
+        hasLocalChanges={git.canPublish}
         onFetchChanges={() => void git.fetchChanges()}
         onOpenPublish={() => void openPublishModal()}
       />
@@ -869,13 +873,17 @@ function App() {
             scopeLabel={
               repoRoot && root && repoRoot !== root ? root.slice(repoRoot.length + 1) : undefined
             }
+            publishing={git.publishing}
+            media={git.mediaPublish}
             onClose={() => setPublishOpen(false)}
             onRevert={(file) => void revertChange(file)}
             onPublish={(message) => {
-              setPublishOpen(false);
               const sinceRunId = deployment.latestRun?.id ?? null;
+              // The dialog stays open, blocking edits, until the publish ends.
               void git.publish(message).then((published) => {
-                if (published) deployment.expectNewRun(sinceRunId);
+                if (!published) return;
+                setPublishOpen(false);
+                deployment.expectNewRun(sinceRunId);
               });
             }}
           />

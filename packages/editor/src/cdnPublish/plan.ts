@@ -121,6 +121,9 @@ export interface CdnPublishPlan {
   warnings: CdnPlanWarning[];
   /** Problems that must be fixed before Publish can continue. */
   blockers: string[];
+  /** Collections publishing CDN images for the first time. Their templates
+   * start receiving URL strings instead of local image metadata. */
+  firstMigrations: string[];
 }
 
 interface PendingImage {
@@ -161,6 +164,9 @@ interface PlanContext {
   root: string;
   config: PagesConfig;
   sources: Map<string, CdnSource>;
+  /** Collections with images about to move, and those already on a CDN. */
+  migrating: Set<string>;
+  published: Set<string>;
 }
 
 function inside(root: string, path: string): string | null {
@@ -247,7 +253,9 @@ async function collectLibraryImages(
       files.map((file) => file.path),
     );
     for (const asset of assets) {
+      if (asset.imageUrl) context.published.add(library.collection);
       if (!asset.imagePath || asset.health.includes("missing-image")) continue;
+      context.migrating.add(library.collection);
       const relative = inside(libraryRoot, asset.imagePath);
       addPending(pending, {
         path: asset.imagePath,
@@ -421,21 +429,26 @@ async function collectFieldImages(
   documents: ContentDocument[],
   pending: Map<string, PendingImage>,
 ): Promise<void> {
-  const found: Array<{ source: CdnSource; candidates: string[] }> = [];
+  const found: Array<{ source: CdnSource; candidates: string[]; collection: string }> = [];
   for (const document of documents) {
     const open = openDocument(document);
     if ("error" in open) continue;
     for (const record of open.records) {
       visitImageValues(document.entry.fields, record, (field, _path, value) => {
         const source = boundSource(context, field, document.entry, record.values);
+        if (!source) return;
+        if (isRemoteMediaUrl(value)) context.published.add(document.entry.name);
         const candidates = localCandidates(context, document, field, record.values, value);
-        if (source && candidates.length > 0) found.push({ source, candidates });
+        if (candidates.length > 0) {
+          found.push({ source, candidates, collection: document.entry.name });
+        }
       });
     }
   }
-  for (const { source, candidates } of found) {
+  for (const { source, candidates, collection } of found) {
     for (const path of candidates) {
       if (!(await invoke<boolean>("path_exists", { path }))) continue;
+      context.migrating.add(collection);
       const relative = inside(context.root, path) ?? basename(path);
       addPending(pending, {
         path,
@@ -590,13 +603,9 @@ export async function planCdnPublish(input: {
   config: PagesConfig;
   groups: FileGroup[];
 }): Promise<CdnPublishPlan> {
-  const context: PlanContext = {
-    root: input.root,
-    config: input.config,
-    sources: new Map((input.config.cdnSources ?? []).map((source) => [source.name, source])),
-  };
+  const context = planContext(input.root, input.config);
   const warnings: CdnPlanWarning[] = [];
-  const empty = { uploads: [], writes: [], removals: [] };
+  const empty = { uploads: [], writes: [], removals: [], firstMigrations: [] };
   // Without a defined source, annotated images simply stay local.
   if (context.sources.size === 0) return { ...empty, warnings, blockers: [] };
   const blockers = await unreadableBindingBlockers(context);
@@ -694,5 +703,30 @@ export async function planCdnPublish(input: {
     removals,
     warnings,
     blockers,
+    firstMigrations: [...context.migrating]
+      .filter((collection) => !context.published.has(collection))
+      .sort(),
   };
+}
+
+function planContext(root: string, config: PagesConfig): PlanContext {
+  return {
+    root,
+    config,
+    sources: new Map((config.cdnSources ?? []).map((source) => [source.name, source])),
+    migrating: new Set(),
+    published: new Set(),
+  };
+}
+
+/** Counts local images waiting for a CDN without reading or hashing them, so
+ * Publish can be offered when only a migration is pending. Images used only by
+ * CDN-bound content fields are found when that content is next published. */
+export async function countPendingCdnMedia(root: string, config: PagesConfig): Promise<number> {
+  const context = planContext(root, config);
+  if (context.sources.size === 0) return 0;
+  const pending = new Map<string, PendingImage>();
+  await collectLibraryImages(context, pending);
+  await collectMediaSourceImages(context, pending);
+  return pending.size;
 }

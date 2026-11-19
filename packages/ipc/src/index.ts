@@ -1,4 +1,4 @@
-import { convertFileSrc, invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { Channel, convertFileSrc, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -154,6 +154,57 @@ export interface MediaFileInspection {
   contentType: string;
   /** Display dimensions, or null when the format doesn't declare them. */
   dimensions: { width: number; height: number } | null;
+}
+
+/** A storage secret entered by the user. Bunny needs only `secret`. */
+export interface MediaCredential {
+  accessKeyId?: string;
+  secret: string;
+}
+
+export type MediaPublishProgress =
+  | { stage: "uploading"; completed: number; total: number }
+  | { stage: "applying" }
+  | { stage: "committing" }
+  | { stage: "pushing" }
+  | { stage: "finishing" };
+
+export interface MediaPublishRequest {
+  root: string;
+  message: string;
+  sources: unknown[];
+  uploads: Array<{
+    sourceName: string;
+    path: string;
+    key: string;
+    sha256: string;
+    size: number;
+    contentType: string;
+  }>;
+  writes: Array<{ path: string; previous: string; content: string }>;
+  removals: string[];
+}
+
+export interface MediaPublishSummary {
+  message: string;
+  /** Local images left in place because git ignores them. */
+  kept: string[];
+}
+
+export type MediaPublishRecovery =
+  | { state: "clean" }
+  | { state: "rolledBack" }
+  | { state: "finalized" }
+  | { state: "blocked"; message: string };
+
+export function publishMedia(
+  request: MediaPublishRequest,
+  onProgress: (progress: MediaPublishProgress) => void,
+): Promise<MediaPublishSummary> {
+  if (!inTauri) return invoke("media_publish", { request, onProgress: null });
+  const channel = new Channel<MediaPublishProgress>();
+  channel.onmessage = onProgress;
+  return invoke("media_publish", { request, onProgress: channel });
 }
 
 export interface PublicMediaImportRequest {

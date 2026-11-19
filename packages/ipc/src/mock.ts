@@ -485,6 +485,25 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     }
     case "image_thumbnail":
       return args?.path as string;
+    case "media_credential_exists":
+      return true;
+    case "media_credential_save":
+    case "media_credential_delete":
+      return null;
+    case "media_publish_recover":
+      return { state: "clean" };
+    case "media_publish": {
+      const request = args?.request as {
+        writes: Array<{ path: string; content: string }>;
+        removals: string[];
+      };
+      for (const write of request.writes) mockFiles[write.path] = write.content;
+      for (const path of request.removals) {
+        delete mockFiles[path];
+        mockDeleted.add(path);
+      }
+      return { message: "Published.", kept: [] };
+    }
     case "media_inspect_file":
       return {
         sha256: "0123456789abcdef".repeat(4),

@@ -6,7 +6,7 @@ import type { MediaLibrary, Field } from "@posto/core/pagescms/config";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 import { validateForm } from "@posto/core/pagescms/validate";
 import { invoke } from "@posto/ipc";
-import { AUTOSAVE_DELAY_MS } from "../autosave";
+import { AUTOSAVE_DELAY_MS, registerPendingSave } from "../autosave";
 import { useImageLibraryAssets } from "../hooks/useImageLibraryAssets";
 import {
   editValueAtPath,
@@ -106,6 +106,11 @@ export function ImageLibraryReferenceField(props: {
     }
     return activeMetadataSave.current ?? Promise.resolve();
   };
+  const flushRef = useRef(flushMetadata);
+  useEffect(() => {
+    flushRef.current = flushMetadata;
+  });
+  useEffect(() => registerPendingSave(() => flushRef.current()), []);
   useEffect(() => {
     const assetForCleanup = selectedAsset;
     return () => {
