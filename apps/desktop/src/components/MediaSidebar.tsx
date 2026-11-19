@@ -359,6 +359,8 @@ function LibraryMediaBrowserContent(props: {
         <DeleteImageLibraryAssetsDialog
           libraryRoot={libraryRoot}
           assets={state.assets.filter((asset) => selected.has(asset.metadataPath))}
+          libraryAssets={state.assets}
+          cdn={{ root: props.root, sources: props.config.cdnSources ?? [] }}
           directories={[...selectedDirectories]}
           onClose={() => setDeleting(false)}
           onDeleted={() => {

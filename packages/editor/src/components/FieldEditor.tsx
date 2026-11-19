@@ -6,7 +6,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { Document } from "yaml";
 
 import { isRemoteMediaUrl } from "@posto/core/media/sources";
-import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
+import type { ContentEntry, Field, MediaEntry, PagesConfig } from "@posto/core/pagescms/config";
 import {
   collectionExtension,
   entryFilenamePattern,
@@ -342,6 +342,14 @@ function imagePickable(field: Field): boolean {
   );
 }
 
+/** The CDN source an image field's picks belong to, from its schema annotation
+ * or a media source named after one. */
+function fieldCdnSource(config: PagesConfig, field: Field, media: MediaEntry) {
+  const name =
+    typeof field.options?.mediaSource === "string" ? field.options.mediaSource : media.name;
+  return config.cdnSources?.find((source) => source.name === name);
+}
+
 /** Right-aligned text button across from the label; opens the media picker
  * and writes the picked image's output path as the field's value. */
 function PickImageCta(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
@@ -363,6 +371,7 @@ function PickImageCta(props: { field: Field; path: ValuePath; ctx: FieldContext 
           root={props.ctx.root}
           media={media}
           documentPath={props.ctx.documentPath}
+          cdnSource={fieldCdnSource(props.ctx.config, props.field, media)}
           onClose={() => setOpen(false)}
           onPick={(outputPath) => {
             setOpen(false);
@@ -1030,6 +1039,7 @@ function ImageField(props: { field: Field; path: ValuePath; ctx: FieldContext })
           root={props.ctx.root}
           media={media}
           documentPath={props.ctx.documentPath}
+          cdnSource={fieldCdnSource(props.ctx.config, props.field, media)}
           onClose={() => setPickerOpen(false)}
           onClear={
             value

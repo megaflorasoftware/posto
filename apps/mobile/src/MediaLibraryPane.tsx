@@ -189,6 +189,8 @@ function LibraryMediaPane(props: {
         <DeleteImageLibraryAssetsDialog
           libraryRoot={libraryRoot}
           assets={libraryState.assets.filter((asset) => selected.has(asset.metadataPath))}
+          libraryAssets={libraryState.assets}
+          cdn={{ root: props.root, sources: props.config.cdnSources ?? [] }}
           directories={[...selectedDirectories]}
           onClose={() => setDeleting(false)}
           onDeleted={() => {

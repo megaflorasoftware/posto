@@ -8,10 +8,11 @@ use axum::response::Response;
 use axum::Router;
 use posto_lib::git::Client;
 use posto_lib::media::bunny::BunnyClient;
+use posto_lib::media::deletes::{self, DeleteIntent};
 use posto_lib::media::provider::{MediaSource, Provider, ProviderKind};
 use posto_lib::media::publish::{
-    execute, recover, Hooks, PlannedUpload, PlannedWrite, PublishProgress, PublishRequest,
-    PublishSource, RecoveryOutcome,
+    execute, recover, Hooks, PlannedDelete, PlannedUpload, PlannedWrite, PublishProgress,
+    PublishRequest, PublishSource, RecoveryOutcome,
 };
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
@@ -38,6 +39,7 @@ struct Storage {
     objects: Mutex<BTreeMap<String, Vec<u8>>>,
     puts: AtomicUsize,
     reject_uploads: AtomicBool,
+    fail_deletes: AtomicBool,
 }
 
 async fn storage_handler(State(storage): State<Arc<Storage>>, request: Request) -> Response {
@@ -54,6 +56,13 @@ async fn storage_handler(State(storage): State<Arc<Storage>>, request: Request) 
         .to_string();
     let method = request.method().clone();
     let bytes = to_bytes(request.into_body(), usize::MAX).await.unwrap();
+    if method == Method::DELETE {
+        if storage.fail_deletes.load(Ordering::SeqCst) {
+            return respond(500, "{}".to_string());
+        }
+        let removed = storage.objects.lock().unwrap().remove(&key).is_some();
+        return respond(if removed { 200 } else { 404 }, "{}".to_string());
+    }
     if method == Method::PUT {
         storage.puts.fetch_add(1, Ordering::SeqCst);
         if storage.reject_uploads.load(Ordering::SeqCst) {
@@ -250,6 +259,7 @@ impl Fixture {
                 self.path("src/data/photos/harbor.jpg"),
                 self.path("src/data/photos/fresh.jpg"),
             ],
+            deletes: Vec::new(),
         }
     }
 
@@ -702,4 +712,137 @@ async fn an_unreachable_server_keeps_the_interrupted_publish_blocked() {
     f.set_origin(&f.origin);
     assert_eq!(recover(root).unwrap(), RecoveryOutcome::RolledBack);
     assert_eq!(state(&f.local), before);
+}
+
+const LIVE_KEY: &str = "images/live-9a8b7c6d.jpg";
+const LIVE_URL: &str = "https://media.example.com/images/live-9a8b7c6d.jpg";
+
+/// A library entry already published to the CDN, then deleted from the library.
+async fn deleted_entry() -> Fixture {
+    let f = fixture().await;
+    write(
+        &f.local,
+        "src/data/photos/live.yaml",
+        format!("src: {LIVE_URL}\n").as_bytes(),
+    );
+    commit_all(&f.local, "publish live entry");
+    push(&f.local);
+    f.storage
+        .objects
+        .lock()
+        .unwrap()
+        .insert(LIVE_KEY.to_string(), b"live".to_vec());
+    std::fs::remove_file(f.local.join("src/data/photos/live.yaml")).unwrap();
+    let client = Client::open(f.local.to_str().unwrap()).unwrap();
+    deletes::record(
+        &client,
+        DeleteIntent {
+            source_name: "cdn".to_string(),
+            key: LIVE_KEY.to_string(),
+            url: LIVE_URL.to_string(),
+            metadata_path: Some(f.path("src/data/photos/live.yaml")),
+        },
+    )
+    .unwrap();
+    f
+}
+
+fn with_delete(mut request: PublishRequest) -> PublishRequest {
+    request.deletes.push(PlannedDelete {
+        source_name: "cdn".to_string(),
+        key: LIVE_KEY.to_string(),
+    });
+    request
+}
+
+fn pending(f: &Fixture) -> Vec<DeleteIntent> {
+    deletes::pending(&Client::open(f.local.to_str().unwrap()).unwrap()).unwrap()
+}
+
+#[tokio::test]
+async fn deleted_library_entries_remove_their_cdn_object_after_publishing() {
+    let f = deleted_entry().await;
+    assert_eq!(pending(&f).len(), 1);
+
+    f.run(with_delete(f.request()), Hooks::default())
+        .await
+        .unwrap();
+
+    assert!(!f.storage.objects.lock().unwrap().contains_key(LIVE_KEY));
+    assert_eq!(f.origin_file("src/data/photos/live.yaml"), None);
+    assert!(pending(&f).is_empty());
+}
+
+#[tokio::test]
+async fn restoring_the_entry_cancels_its_delete() {
+    let f = deleted_entry().await;
+    Client::open(f.local.to_str().unwrap())
+        .unwrap()
+        .revert_file("src/data/photos/live.yaml")
+        .unwrap();
+
+    assert!(
+        pending(&f).is_empty(),
+        "the restored entry cancels the delete"
+    );
+    f.run(with_delete(f.request()), Hooks::default())
+        .await
+        .unwrap();
+    assert!(f.storage.objects.lock().unwrap().contains_key(LIVE_KEY));
+}
+
+#[tokio::test]
+async fn unrecorded_deletes_are_ignored() {
+    let f = fixture().await;
+    f.storage
+        .objects
+        .lock()
+        .unwrap()
+        .insert(LIVE_KEY.to_string(), b"live".to_vec());
+
+    f.run(with_delete(f.request()), Hooks::default())
+        .await
+        .unwrap();
+
+    assert!(f.storage.objects.lock().unwrap().contains_key(LIVE_KEY));
+}
+
+#[tokio::test]
+async fn a_failed_publish_never_deletes() {
+    let f = deleted_entry().await;
+    f.set_origin(&f.local.parent().unwrap().join("missing.git"));
+
+    assert!(f
+        .run(with_delete(f.request()), Hooks::default())
+        .await
+        .is_err());
+
+    assert!(f.storage.objects.lock().unwrap().contains_key(LIVE_KEY));
+    assert_eq!(
+        pending(&f).len(),
+        1,
+        "the delete waits for a successful publish"
+    );
+}
+
+#[tokio::test]
+async fn failed_deletes_are_retried_on_the_next_publish() {
+    let f = deleted_entry().await;
+    f.storage.fail_deletes.store(true, Ordering::SeqCst);
+
+    let summary = f.run(with_delete(f.request()), Hooks::default()).await;
+
+    assert!(summary.is_ok(), "the content still published");
+    assert!(f.storage.objects.lock().unwrap().contains_key(LIVE_KEY));
+    assert_eq!(pending(&f).len(), 1);
+
+    f.storage.fail_deletes.store(false, Ordering::SeqCst);
+    let mut retry = with_delete(f.request());
+    retry.uploads.clear();
+    retry.writes.clear();
+    retry.removals.clear();
+    f.run(retry, Hooks::default()).await.unwrap();
+
+    assert!(!f.storage.objects.lock().unwrap().contains_key(LIVE_KEY));
+    assert!(pending(&f).is_empty());
 }

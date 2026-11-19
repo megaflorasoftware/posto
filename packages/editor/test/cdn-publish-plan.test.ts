@@ -3,7 +3,8 @@ import type { CdnSource } from "@posto/core/media/sources";
 import type { Field, MediaLibrary, PagesConfig } from "@posto/core/pagescms/config";
 import type { FileGroup, MediaFileInspection } from "@posto/ipc";
 
-const { files, images, invoke, inspectMediaFile } = vi.hoisted(() => {
+const { deletes, files, images, invoke, inspectMediaFile } = vi.hoisted(() => {
+  const deletes: Array<{ sourceName: string; key: string; url: string }> = [];
   const files = new Map<string, string>();
   const images = new Map<string, Partial<MediaFileInspection>>();
   const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
@@ -44,10 +45,14 @@ const { files, images, invoke, inspectMediaFile } = vi.hoisted(() => {
       ...image,
     };
   });
-  return { files, images, invoke, inspectMediaFile };
+  return { deletes, files, images, invoke, inspectMediaFile };
 });
 
-vi.mock("@posto/ipc", () => ({ invoke, inspectMediaFile }));
+vi.mock("@posto/ipc", () => ({
+  invoke,
+  inspectMediaFile,
+  pendingMediaDeletes: vi.fn(async () => deletes),
+}));
 
 import { countPendingCdnMedia, planCdnPublish } from "../src/cdnPublish/plan";
 
@@ -104,6 +109,7 @@ function addLibraryImage() {
 }
 
 beforeEach(() => {
+  deletes.length = 0;
   files.clear();
   images.clear();
   invoke.mockClear();
@@ -396,6 +402,41 @@ describe("CDN-bound fields", () => {
   });
 });
 
+describe("recorded deletes", () => {
+  const deleted = {
+    sourceName: "cdn",
+    key: "images/old-1a2b3c4d.jpg",
+    url: "https://media.example.com/images/old-1a2b3c4d.jpg",
+  };
+
+  test("plans recorded deletes even without uploads", async () => {
+    deletes.push(deleted);
+
+    const plan = await planCdnPublish({ root, config: config(), groups: [] });
+
+    expect(plan.uploads).toEqual([]);
+    expect(plan.deletes).toEqual([deleted]);
+    expect(await countPendingCdnMedia(root, config())).toBe(1);
+  });
+
+  test("never deletes an object another library entry still uses", async () => {
+    deletes.push(deleted);
+    files.set(`${root}/src/data/photos/copy.yaml`, `src: ${deleted.url}\n`);
+
+    const plan = await planCdnPublish({ root, config: config(), groups: [] });
+
+    expect(plan.deletes).toEqual([]);
+  });
+
+  test("keeps deletes for sources this site no longer defines", async () => {
+    deletes.push({ ...deleted, sourceName: "retired" });
+
+    const plan = await planCdnPublish({ root, config: config(), groups: [] });
+
+    expect(plan.deletes).toEqual([]);
+  });
+});
+
 describe("first migrations", () => {
   test("flags a library moving its first images to the CDN", async () => {
     addLibraryImage();
@@ -463,6 +504,7 @@ describe("unreadable schemas", () => {
       uploads: [],
       writes: [],
       removals: [],
+      deletes: [],
       warnings: [],
       blockers: [],
       firstMigrations: [],

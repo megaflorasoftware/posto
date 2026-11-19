@@ -6,7 +6,7 @@ import { MantineProvider } from "@mantine/core";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { MediaLibrary, PagesConfig } from "@posto/core/pagescms/config";
 import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
-import { deleteFileMediaItem, invoke, thumbnailUrl } from "@posto/ipc";
+import { deleteFileMediaItem, invoke, recordMediaDelete, thumbnailUrl } from "@posto/ipc";
 import { CachedImage } from "../src/components/CachedImage";
 import { ImageLibraryBrowser } from "../src/components/ImageLibraryBrowser";
 import {
@@ -36,6 +36,7 @@ vi.mock("@posto/ipc", () => ({
   onFileDrop: vi.fn().mockReturnValue(() => undefined),
   onFsChanged: vi.fn().mockReturnValue(() => undefined),
   openPath: vi.fn(),
+  recordMediaDelete: vi.fn().mockResolvedValue(undefined),
   thumbnailUrl: vi.fn().mockResolvedValue(null),
 }));
 
@@ -125,4 +126,65 @@ test("the edit dialog shows the CDN URL and can't rename the object", async () =
   expect(field).toHaveProperty("readOnly", true);
   expect(screen.queryByLabelText("Filename")).toBeNull();
   expect(screen.getByRole("button", { name: "Save changes" })).toHaveProperty("disabled", false);
+});
+
+test("deleting a published image records its CDN object for Publish", async () => {
+  const onDeleted = vi.fn();
+  const source = {
+    name: "cdn",
+    provider: "bunny" as const,
+    bucket: "site-media",
+    prefix: "images",
+    publicUrl: "https://media.example.com",
+  };
+  renderWithTheme(
+    <DeleteImageLibraryAssetsDialog
+      libraryRoot="/repo/src/data/photos"
+      assets={[published]}
+      cdn={{ root: "/repo", sources: [source] }}
+      onClose={vi.fn()}
+      onDeleted={onDeleted}
+    />,
+  );
+
+  fireEvent.click(await screen.findByRole("button", { name: "Delete item" }));
+
+  await waitFor(() => expect(onDeleted).toHaveBeenCalledOnce());
+  expect(recordMediaDelete).toHaveBeenCalledWith("/repo", {
+    sourceName: "cdn",
+    key: "images/harbor-1a2b3c4d.jpg",
+    url,
+    metadataPath: published.metadataPath,
+  });
+  const recorded = vi.mocked(recordMediaDelete).mock.invocationCallOrder[0];
+  const removed = vi.mocked(deleteFileMediaItem).mock.invocationCallOrder[0];
+  expect(recorded).toBeLessThan(removed);
+});
+
+test("deleting a folder records the CDN images inside it", async () => {
+  const nested = { ...published, metadataPath: "/repo/src/data/photos/trips/harbor.yaml" };
+  const source = {
+    name: "cdn",
+    provider: "bunny" as const,
+    bucket: "site-media",
+    publicUrl: "https://media.example.com",
+  };
+  const onDeleted = vi.fn();
+  renderWithTheme(
+    <DeleteImageLibraryAssetsDialog
+      libraryRoot="/repo/src/data/photos"
+      assets={[]}
+      directories={["/repo/src/data/photos/trips"]}
+      libraryAssets={[nested, published]}
+      cdn={{ root: "/repo", sources: [source] }}
+      onClose={vi.fn()}
+      onDeleted={onDeleted}
+    />,
+  );
+
+  fireEvent.click(await screen.findByRole("button", { name: "Delete item" }));
+
+  await waitFor(() => expect(onDeleted).toHaveBeenCalledOnce());
+  expect(recordMediaDelete).toHaveBeenCalledOnce();
+  expect(vi.mocked(recordMediaDelete).mock.calls[0][1].metadataPath).toBe(nested.metadataPath);
 });

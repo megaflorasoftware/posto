@@ -1183,6 +1183,18 @@ button.picker-card:focus-visible .picker-card-preview,
   font-size: 0.85rem;
 }
 
+/* Image picker sections for a CDN source: local uploads, then the CDN. */
+.picker-section-title {
+  margin: 0.75rem 0 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+}
+
+.picker-section-title:first-child {
+  margin-top: 0;
+}
+
 /* Collection order dialog: label rows with up/down movers. */
 .collection-order-list {
   display: flex;

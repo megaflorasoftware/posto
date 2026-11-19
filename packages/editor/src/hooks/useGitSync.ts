@@ -323,10 +323,11 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
     });
     setMediaPlan(plan);
     if (plan.blockers.length > 0) throw new Error(plan.blockers.join(" "));
-    if (plan.uploads.length === 0) return invoke<string>("publish", { root: dir, message });
-    const sources = (config.cdnSources ?? []).filter((source) =>
-      plan.uploads.some((upload) => upload.sourceName === source.name),
-    );
+    if (plan.uploads.length === 0 && plan.deletes.length === 0) {
+      return invoke<string>("publish", { root: dir, message });
+    }
+    const used = new Set([...plan.uploads, ...plan.deletes].map((item) => item.sourceName));
+    const sources = (config.cdnSources ?? []).filter((source) => used.has(source.name));
     if (!(await ensureCredentials(sources))) return null;
     try {
       const summary = await publishMedia(
@@ -337,13 +338,21 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
           uploads: plan.uploads,
           writes: plan.writes,
           removals: plan.removals,
+          deletes: plan.deletes.map(({ sourceName, key }) => ({ sourceName, key })),
         },
         setStage,
       );
       const kept = summary.kept.length;
-      return kept === 0
-        ? summary.message
-        : `${summary.message} ${kept} ${kept === 1 ? "image" : "images"} that git ignores stayed on this device.`;
+      const failed = summary.failedDeletes.length;
+      return [
+        summary.message,
+        kept > 0 &&
+          `${kept} ${kept === 1 ? "image" : "images"} that git ignores stayed on this device.`,
+        failed > 0 &&
+          `${failed} ${failed === 1 ? "image" : "images"} couldn't be deleted from the CDN and will be retried next time.`,
+      ]
+        .filter(Boolean)
+        .join(" ");
     } finally {
       // Content was rewritten, or restored after a failure.
       await cb.current.afterPull?.(dir);
@@ -367,7 +376,7 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
         const result = await publishOnce(dir, message);
         if (result !== null) {
           published = true;
-          if (!quiet || result.includes("stayed on this device")) {
+          if (!quiet || result !== "Published.") {
             cb.current.onStatus(result, "success");
           }
         }

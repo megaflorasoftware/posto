@@ -9,7 +9,14 @@ import type { MediaLibrary, PagesConfig } from "@posto/core/pagescms/config";
 import type { ValuePath } from "@posto/core/pagescms/frontmatter";
 import { pathEntryId } from "@posto/core/project/entryIds";
 import { validateForm } from "@posto/core/pagescms/validate";
-import { createFileMediaDirectory, deleteFileMediaItem, invoke, type FileGroup } from "@posto/ipc";
+import { cdnObjectForUrl, type CdnSource } from "@posto/core/media/sources";
+import {
+  createFileMediaDirectory,
+  deleteFileMediaItem,
+  invoke,
+  recordMediaDelete,
+  type FileGroup,
+} from "@posto/ipc";
 import {
   editValueAtPath,
   imageLibraryMetadataFields,
@@ -109,9 +116,32 @@ function metadataAlt(metadata: Record<string, unknown>): string | undefined {
     : undefined;
 }
 
-async function deleteAsset(libraryRoot: string, asset: ImageLibraryAsset): Promise<void> {
-  // A published image has no local file, so only its metadata entry is removed.
+/** Where deleted CDN images are recorded so Publish can remove them. */
+export interface CdnDeleteContext {
+  root: string;
+  sources: CdnSource[];
+}
+
+async function recordCdnDelete(cdn: CdnDeleteContext | undefined, asset: ImageLibraryAsset) {
+  const object = cdn && asset.imageUrl ? cdnObjectForUrl(cdn.sources, asset.imageUrl) : null;
+  if (!cdn || !object) return;
+  await recordMediaDelete(cdn.root, {
+    sourceName: object.source.name,
+    key: object.key,
+    url: asset.imageUrl!,
+    metadataPath: asset.metadataPath,
+  });
+}
+
+async function deleteAsset(
+  libraryRoot: string,
+  asset: ImageLibraryAsset,
+  cdn?: CdnDeleteContext,
+): Promise<void> {
+  // A published image has no local file. Its metadata entry is removed now,
+  // and its CDN object is deleted once Publish confirms the removal.
   if (asset.imageUrl) {
+    await recordCdnDelete(cdn, asset);
     await deleteFileMediaItem({ mediaRoot: libraryRoot, path: asset.metadataPath });
     return;
   }
@@ -127,6 +157,9 @@ export function DeleteImageLibraryAssetsDialog(props: {
   libraryRoot: string;
   assets: ImageLibraryAsset[];
   directories?: string[];
+  /** Every asset in the library, so deleted folders record their CDN images. */
+  libraryAssets?: ImageLibraryAsset[];
+  cdn?: CdnDeleteContext;
   onClose: () => void;
   onDeleted: () => void;
 }) {
@@ -141,10 +174,15 @@ export function DeleteImageLibraryAssetsDialog(props: {
     let deletedAny = false;
     try {
       for (const asset of props.assets) {
-        await deleteAsset(props.libraryRoot, asset);
+        await deleteAsset(props.libraryRoot, asset, props.cdn);
         deletedAny = true;
       }
       for (const directoryPath of directories) {
+        for (const asset of props.libraryAssets ?? []) {
+          if (asset.metadataPath.startsWith(`${directoryPath}/`)) {
+            await recordCdnDelete(props.cdn, asset);
+          }
+        }
         await invoke("delete_image_library_directory", {
           libraryRoot: props.libraryRoot,
           directoryPath,
@@ -457,7 +495,10 @@ export function ImageLibraryEditDialog(props: {
     setDeleting(true);
     setError(null);
     try {
-      await deleteAsset(libraryRoot, props.asset);
+      await deleteAsset(libraryRoot, props.asset, {
+        root: props.root,
+        sources: props.config.cdnSources ?? [],
+      });
       props.onChanged({ silent: true });
       props.onClose();
     } catch (caught) {

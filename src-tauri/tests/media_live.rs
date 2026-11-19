@@ -242,6 +242,7 @@ async fn a_full_publish_reaches_real_storage() {
             content: format!("src: \"{url}\"\nalt: Harbor\nwidth: 12\nheight: 8\n"),
         }],
         removals: vec![image.to_string_lossy().to_string()],
+        deletes: Vec::new(),
     };
     let credential = Credential {
         access_key_id: None,

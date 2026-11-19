@@ -2,6 +2,7 @@
 //! Secrets stay on the Rust side; the webview can only save, check, or remove them.
 
 pub mod bunny;
+pub mod deletes;
 pub mod journal;
 pub mod probe;
 pub mod provider;
@@ -12,7 +13,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::git::Client;
 use crate::secrets;
+use deletes::DeleteIntent;
 use probe::FileInspection;
 use provider::{Credential, Listing, MediaSource, Provider, ProviderKind};
 use publish::{Hooks, PublishProgress, PublishRequest, PublishSummary, RecoveryOutcome};
@@ -131,11 +134,13 @@ pub async fn media_publish(
 ) -> Result<PublishSummary, String> {
     let mut providers = HashMap::new();
     for source in &request.sources {
-        if request
+        let used = request
             .uploads
             .iter()
-            .any(|upload| upload.source_name == source.name)
-        {
+            .map(|upload| &upload.source_name)
+            .chain(request.deletes.iter().map(|delete| &delete.source_name))
+            .any(|name| *name == source.name);
+        if used {
             providers.insert(source.name.clone(), connected(&source.connection).await?);
         }
     }
@@ -143,6 +148,18 @@ pub async fn media_publish(
         let _ = on_progress.send(event);
     });
     publish::execute(request, providers, progress, Hooks::default()).await
+}
+
+/// Remembers that a library entry's CDN object should be deleted at Publish.
+#[tauri::command]
+pub async fn media_record_delete(root: String, intent: DeleteIntent) -> Result<(), String> {
+    blocking(move || deletes::record(&Client::open(&root)?, intent)).await
+}
+
+/// CDN deletes waiting for the next Publish.
+#[tauri::command]
+pub async fn media_pending_deletes(root: String) -> Result<Vec<DeleteIntent>, String> {
+    blocking(move || deletes::pending(&Client::open(&root)?)).await
 }
 
 /// Finishes or undoes a publish that was interrupted, such as by a crash.

@@ -492,6 +492,12 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       return null;
     case "media_publish_recover":
       return { state: "clean" };
+    case "media_pending_deletes":
+      return [];
+    case "media_list_objects":
+      return { objects: [], directories: [] };
+    case "media_record_delete":
+      return null;
     case "media_publish": {
       const request = args?.request as {
         writes: Array<{ path: string; content: string }>;
@@ -502,7 +508,7 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
         delete mockFiles[path];
         mockDeleted.add(path);
       }
-      return { message: "Published.", kept: [] };
+      return { message: "Published.", kept: [], failedDeletes: [] };
     }
     case "media_inspect_file":
       return {

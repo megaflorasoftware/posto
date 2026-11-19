@@ -39,6 +39,7 @@ import {
 import {
   inspectMediaFile,
   invoke,
+  pendingMediaDeletes,
   type FileEntry,
   type FileGroup,
   type MediaFileInspection,
@@ -101,6 +102,13 @@ export interface CdnUpload {
   contentType: string;
 }
 
+/** A CDN object whose library entry was deleted, removed after Publish lands. */
+export interface CdnDelete {
+  sourceName: string;
+  key: string;
+  url: string;
+}
+
 export interface CdnPlanWrite {
   path: string;
   previous: string;
@@ -118,6 +126,7 @@ export interface CdnPublishPlan {
   writes: CdnPlanWrite[];
   /** Local images that are safe to remove once their uploads are committed. */
   removals: string[];
+  deletes: CdnDelete[];
   warnings: CdnPlanWarning[];
   /** Problems that must be fixed before Publish can continue. */
   blockers: string[];
@@ -167,6 +176,8 @@ interface PlanContext {
   /** Collections with images about to move, and those already on a CDN. */
   migrating: Set<string>;
   published: Set<string>;
+  /** CDN URLs still used by a library entry, which must never be deleted. */
+  liveUrls: Set<string>;
 }
 
 function inside(root: string, path: string): string | null {
@@ -253,7 +264,10 @@ async function collectLibraryImages(
       files.map((file) => file.path),
     );
     for (const asset of assets) {
-      if (asset.imageUrl) context.published.add(library.collection);
+      if (asset.imageUrl) {
+        context.published.add(library.collection);
+        context.liveUrls.add(asset.imageUrl);
+      }
       if (!asset.imagePath || asset.health.includes("missing-image")) continue;
       context.migrating.add(library.collection);
       const relative = inside(libraryRoot, asset.imagePath);
@@ -294,6 +308,16 @@ async function collectMediaSourceImages(
       });
     }
   }
+}
+
+/** Recorded deletes whose object no remaining library entry uses. A delete for
+ * a source this device can't see stays recorded for later. */
+async function collectDeletes(context: PlanContext): Promise<CdnDelete[]> {
+  const intents = await pendingMediaDeletes(context.root);
+  return intents
+    .filter((intent) => context.sources.has(intent.sourceName))
+    .filter((intent) => !context.liveUrls.has(intent.url))
+    .map(({ sourceName, key, url }) => ({ sourceName, key, url }));
 }
 
 async function readDocuments(
@@ -605,13 +629,14 @@ export async function planCdnPublish(input: {
 }): Promise<CdnPublishPlan> {
   const context = planContext(input.root, input.config);
   const warnings: CdnPlanWarning[] = [];
-  const empty = { uploads: [], writes: [], removals: [], firstMigrations: [] };
+  const empty = { uploads: [], writes: [], removals: [], deletes: [], firstMigrations: [] };
   // Without a defined source, annotated images simply stay local.
   if (context.sources.size === 0) return { ...empty, warnings, blockers: [] };
   const blockers = await unreadableBindingBlockers(context);
 
   const pending = new Map<string, PendingImage>();
   const libraryImages = await collectLibraryImages(context, pending);
+  const deletes = await collectDeletes(context);
   await collectMediaSourceImages(context, pending);
   const documents = await readDocuments(context, input.groups);
   await collectFieldImages(context, documents, pending);
@@ -645,7 +670,7 @@ export async function planCdnPublish(input: {
     });
     inspections.set(image.path, inspection);
   }
-  if (uploads.size === 0) return { ...empty, warnings, blockers };
+  if (uploads.size === 0) return { ...empty, deletes, warnings, blockers };
 
   const rewritten = new Map<string, string>();
   const previous = new Map<string, string>();
@@ -701,6 +726,7 @@ export async function planCdnPublish(input: {
       content,
     })),
     removals,
+    deletes,
     warnings,
     blockers,
     firstMigrations: [...context.migrating]
@@ -716,17 +742,19 @@ function planContext(root: string, config: PagesConfig): PlanContext {
     sources: new Map((config.cdnSources ?? []).map((source) => [source.name, source])),
     migrating: new Set(),
     published: new Set(),
+    liveUrls: new Set(),
   };
 }
 
-/** Counts local images waiting for a CDN without reading or hashing them, so
- * Publish can be offered when only a migration is pending. Images used only by
- * CDN-bound content fields are found when that content is next published. */
+/** Counts CDN work waiting for Publish without reading or hashing images, so
+ * Publish can be offered when only a migration or a retried delete is pending.
+ * Images used only by CDN-bound content fields are found when that content is
+ * next published. */
 export async function countPendingCdnMedia(root: string, config: PagesConfig): Promise<number> {
   const context = planContext(root, config);
   if (context.sources.size === 0) return 0;
   const pending = new Map<string, PendingImage>();
   await collectLibraryImages(context, pending);
   await collectMediaSourceImages(context, pending);
-  return pending.size;
+  return pending.size + (await collectDeletes(context)).length;
 }

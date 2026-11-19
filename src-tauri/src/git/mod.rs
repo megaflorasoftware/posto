@@ -690,6 +690,21 @@ impl Client {
         Ok(RepositoryLock { _file: file })
     }
 
+    /// The canonical working directory of the repository.
+    pub(crate) fn workdir_path(&self) -> Result<PathBuf, String> {
+        self.workdir()?
+            .canonicalize()
+            .map_err(|error| error.to_string())
+    }
+
+    /// Whether the commit at HEAD contains a repository-relative path.
+    pub(crate) fn head_contains(&self, path: &Path) -> bool {
+        self.repo
+            .head()
+            .and_then(|head| head.peel_to_tree())
+            .is_ok_and(|tree| tree.get_path(path).is_ok())
+    }
+
     /// The repository's git directory, which is private to this worktree.
     pub(crate) fn git_dir(&self) -> &Path {
         self.repo.path()

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { buildAstroConfig, parseLoaderConfig } from "../src/astro/collections";
 import {
+  cdnObjectForUrl,
   cdnObjectKey,
   cdnObjectUrl,
   mediaSourceAnnotation,
@@ -215,6 +216,30 @@ describe("CDN object keys", () => {
     expect(cdnObjectUrl(source, "images/a-1a2b3c4d.jpg")).toBe(
       "https://media.example.com/site/images/a-1a2b3c4d.jpg",
     );
+  });
+});
+
+describe("CDN URLs", () => {
+  const sources = parseCdnSources([
+    { ...bunny, name: "a", prefix: "images" },
+    { ...bunny, name: "b", publicUrl: "https://other.example.com", prefix: undefined },
+  ])!;
+
+  test("finds the source and key behind a URL", () => {
+    expect(cdnObjectForUrl(sources, "https://media.example.com/images/a%20b-1a2b3c4d.jpg")).toEqual(
+      { source: sources[0], key: "images/a b-1a2b3c4d.jpg" },
+    );
+    expect(cdnObjectForUrl(sources, "https://other.example.com/x.jpg")?.source.name).toBe("b");
+  });
+
+  test.each([
+    "https://elsewhere.example.com/images/a.jpg",
+    "https://media.example.com/private/a.jpg",
+    "https://media.example.com/images/../secret.jpg",
+    "https://media.example.com/images/%E0%A4%A.jpg",
+    "https://media.example.com/images/",
+  ])("rejects %s", (url) => {
+    expect(cdnObjectForUrl(sources, url)).toBeNull();
   });
 });
 

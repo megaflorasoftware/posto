@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use super::blocking;
+use super::deletes;
 use super::journal::{self, BackedUpFile, Journal, Phase};
 use super::probe::file_digest;
 use super::provider::{validate_object_key, MediaSource, Provider, Upload};
@@ -46,6 +47,15 @@ pub struct PlannedWrite {
     pub content: String,
 }
 
+/// A CDN object to delete once the publish has landed. It must match a
+/// recorded delete, so the webview can't delete arbitrary objects.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlannedDelete {
+    pub source_name: String,
+    pub key: String,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PublishRequest {
@@ -55,6 +65,8 @@ pub struct PublishRequest {
     pub uploads: Vec<PlannedUpload>,
     pub writes: Vec<PlannedWrite>,
     pub removals: Vec<String>,
+    #[serde(default)]
+    pub deletes: Vec<PlannedDelete>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -73,6 +85,8 @@ pub struct PublishSummary {
     pub message: String,
     /// Local images left in place because git ignores them.
     pub kept: Vec<String>,
+    /// CDN objects that couldn't be deleted. They're retried next publish.
+    pub failed_deletes: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -146,18 +160,25 @@ fn validate(request: &PublishRequest) -> Result<(), String> {
         .iter()
         .map(|source| (source.name.as_str(), source))
         .collect();
+    let check_key = |source_name: &str, key: &str| -> Result<(), String> {
+        let source = sources
+            .get(source_name)
+            .ok_or_else(|| format!("Unknown CDN source: {source_name}"))?;
+        validate_object_key(key)?;
+        match &source.prefix {
+            Some(prefix) if !key.starts_with(&format!("{prefix}/")) => {
+                Err(format!("{key} is outside its CDN folder"))
+            }
+            _ => Ok(()),
+        }
+    };
     let mut uploaded = HashSet::new();
     for upload in &request.uploads {
-        let source = sources
-            .get(upload.source_name.as_str())
-            .ok_or_else(|| format!("Unknown CDN source: {}", upload.source_name))?;
-        validate_object_key(&upload.key)?;
-        if let Some(prefix) = &source.prefix {
-            if !upload.key.starts_with(&format!("{prefix}/")) {
-                return Err(format!("{} is outside its CDN folder", upload.key));
-            }
-        }
+        check_key(&upload.source_name, &upload.key)?;
         uploaded.insert(contained(&root, &upload.path)?);
+    }
+    for delete in &request.deletes {
+        check_key(&delete.source_name, &delete.key)?;
     }
     for write in &request.writes {
         contained(&root, &write.path)?;
@@ -424,7 +445,61 @@ fn transact(
     Ok(PublishSummary {
         message: "Published.".to_string(),
         kept: changes.kept,
+        failed_deletes: Vec::new(),
     })
+}
+
+/// Deletes recorded CDN objects whose library entries the publish removed.
+/// Returns the keys that failed; they stay recorded for the next publish.
+async fn delete_published(
+    root: &str,
+    planned: &[PlannedDelete],
+    providers: &HashMap<String, Provider>,
+) -> Result<Vec<String>, String> {
+    if planned.is_empty() {
+        return Ok(Vec::new());
+    }
+    let lookup = root.to_string();
+    let wanted: Vec<_> = planned
+        .iter()
+        .map(|delete| (delete.source_name.clone(), delete.key.clone()))
+        .collect();
+    let ready = blocking(move || {
+        let client = Client::open(&lookup)?;
+        let mut ready = Vec::new();
+        for intent in deletes::load(client.git_dir())? {
+            let requested = wanted
+                .iter()
+                .any(|(source, key)| *source == intent.source_name && *key == intent.key);
+            if requested && deletes::confirmed(&client, &intent)? {
+                ready.push(intent);
+            }
+        }
+        Ok(ready)
+    })
+    .await?;
+    let mut done = Vec::new();
+    let mut failed = Vec::new();
+    for intent in ready {
+        let deleted = match providers.get(&intent.source_name) {
+            Some(provider) => provider.delete(&intent.key).await.is_ok(),
+            None => false,
+        };
+        if deleted {
+            done.push(intent);
+        } else {
+            failed.push(intent.key);
+        }
+    }
+    let lookup = root.to_string();
+    blocking(move || {
+        let client = Client::open(&lookup)?;
+        let mut remaining = deletes::load(client.git_dir())?;
+        remaining.retain(|intent| !done.contains(intent));
+        deletes::save(client.git_dir(), &remaining)
+    })
+    .await?;
+    Ok(failed)
 }
 
 /// Runs a publish from upload through push while holding the repository lock.
@@ -449,9 +524,16 @@ pub async fn execute(
     })
     .await?;
     upload_all(&request, &providers, progress.as_ref()).await?;
-    let result = blocking(move || transact(&request, progress.as_ref(), hooks)).await;
+    let root = request.root.clone();
+    let planned = request.deletes.clone();
+    let mut summary = blocking(move || transact(&request, progress.as_ref(), hooks)).await?;
+    // The publish has landed, so a failed delete is reported, never fatal.
+    summary.failed_deletes = match delete_published(&root, &planned, &providers).await {
+        Ok(failed) => failed,
+        Err(_) => planned.into_iter().map(|delete| delete.key).collect(),
+    };
     drop(lock);
-    result
+    Ok(summary)
 }
 
 /// Resolves a transaction that stopped partway. A commit known to be on origin

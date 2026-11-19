@@ -61,6 +61,29 @@ export function cdnObjectUrl(source: Pick<CdnSource, "publicUrl">, key: string):
   return `${source.publicUrl}/${key.split("/").map(encodeURIComponent).join("/")}`;
 }
 
+/** The source and object key behind a public CDN URL, when it is one of ours. */
+export function cdnObjectForUrl(
+  sources: CdnSource[],
+  url: string,
+): { source: CdnSource; key: string } | null {
+  for (const source of sources) {
+    const base = `${source.publicUrl}/`;
+    if (!url.startsWith(base)) continue;
+    let key: string;
+    try {
+      key = url.slice(base.length).split("/").map(decodeURIComponent).join("/");
+    } catch {
+      return null;
+    }
+    const safe = key
+      .split("/")
+      .every((segment) => segment !== "" && segment !== "." && segment !== "..");
+    const inPrefix = !source.prefix || key.startsWith(`${source.prefix}/`);
+    return safe && inPrefix ? { source, key } : null;
+  }
+  return null;
+}
+
 const SOURCE_NAME = /^[A-Za-z0-9_-]+$/;
 const DESCRIBE_CALL = /\.describe\(\s*(["'`])((?:\\.|(?!\1)[^\\])*)\1/g;
 const MEDIA_ANNOTATION = /(?:^|\s)posto:media=([A-Za-z0-9_-]+)(?=\s|$)/;

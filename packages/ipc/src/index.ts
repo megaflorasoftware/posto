@@ -183,12 +183,52 @@ export interface MediaPublishRequest {
   }>;
   writes: Array<{ path: string; previous: string; content: string }>;
   removals: string[];
+  deletes: Array<{ sourceName: string; key: string }>;
 }
 
 export interface MediaPublishSummary {
   message: string;
   /** Local images left in place because git ignores them. */
   kept: string[];
+  /** CDN objects that couldn't be deleted; they're retried next publish. */
+  failedDeletes: string[];
+}
+
+/** A CDN object waiting to be deleted at the next Publish. */
+export interface MediaDeleteIntent {
+  sourceName: string;
+  key: string;
+  url: string;
+  /** The library entry whose deletion requested it. Restoring the entry
+   * cancels the delete. */
+  metadataPath?: string | null;
+}
+
+export interface MediaListing {
+  objects: Array<{ key: string; size: number; sha256: string | null }>;
+  /** Full keys of child folders, without a trailing slash. */
+  directories: string[];
+}
+
+/** Lists one folder of a CDN source using this device's saved credentials. */
+export function listMediaObjects(source: unknown, prefix: string): Promise<MediaListing> {
+  return invoke("media_list_objects", { source, prefix });
+}
+
+export function saveMediaCredential(
+  source: unknown,
+  credential: MediaCredential,
+  prefix: string,
+): Promise<void> {
+  return invoke("media_credential_save", { source, credential, prefix });
+}
+
+export function recordMediaDelete(root: string, intent: MediaDeleteIntent): Promise<void> {
+  return invoke("media_record_delete", { root, intent });
+}
+
+export function pendingMediaDeletes(root: string): Promise<MediaDeleteIntent[]> {
+  return invoke("media_pending_deletes", { root });
 }
 
 export type MediaPublishRecovery =

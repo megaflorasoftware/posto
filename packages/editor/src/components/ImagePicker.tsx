@@ -4,9 +4,11 @@ import { Dialog } from "./Dialog";
 
 import { invoke, openPath } from "@posto/ipc";
 import type { FileEntry } from "@posto/ipc";
+import type { CdnSource } from "@posto/core/media/sources";
 import type { MediaEntry } from "@posto/core/pagescms/config";
 import { mediaOutputPath } from "@posto/core/pagescms/config";
 import { CachedImage } from "./CachedImage";
+import { CdnObjectBrowser } from "./CdnObjectBrowser";
 
 const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "ico"];
 
@@ -18,6 +20,8 @@ export function ImagePicker(props: {
   root: string;
   media: MediaEntry;
   documentPath?: string;
+  /** Set when picked images belong on a CDN, which then lists its images too. */
+  cdnSource?: CdnSource;
   onClose: () => void;
   onClear?: () => void;
   onPick: (outputPath: string) => void;
@@ -30,9 +34,10 @@ export function ImagePicker(props: {
     let cancelled = false;
     setFiles(null);
     setError(null);
-    invoke<FileEntry[]>("list_dir_files", { dir, extensions: IMAGE_EXTENSIONS })
+    // Once a CDN source's images are uploaded, its local folder may be gone.
+    invoke<FileEntry[] | null>("list_dir_files_optional", { dir, extensions: IMAGE_EXTENSIONS })
       .then((list) => {
-        if (!cancelled) setFiles(list);
+        if (!cancelled) setFiles(list ?? []);
       })
       .catch((e) => {
         if (!cancelled) setError(e);
@@ -49,9 +54,14 @@ export function ImagePicker(props: {
           Could not read {props.media.input}: {errorMessage(error)}
         </div>
       )}
+      {props.cdnSource && files && files.length > 0 && (
+        <h3 className="picker-section-title">Waiting to upload</h3>
+      )}
       {files &&
         (files.length === 0 ? (
-          <div className="picker-empty">No images in {props.media.input}</div>
+          props.cdnSource ? null : (
+            <div className="picker-empty">No images in {props.media.input}</div>
+          )
         ) : (
           <div className="picker-grid">
             {files.map((file) => {
@@ -84,6 +94,12 @@ export function ImagePicker(props: {
             })}
           </div>
         ))}
+      {props.cdnSource && (
+        <>
+          <h3 className="picker-section-title">On the CDN</h3>
+          <CdnObjectBrowser source={props.cdnSource} onPick={props.onPick} />
+        </>
+      )}
       {props.onClear ? (
         <Button fullWidth variant="outline" color="red" mt="sm" onClick={props.onClear}>
           Clear Image Selection

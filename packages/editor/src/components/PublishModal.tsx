@@ -7,15 +7,15 @@ import {
   Checkbox,
   Group,
   Loader,
-  PasswordInput,
   Stack,
   Text,
   TextInput,
 } from "@mantine/core";
 import { Dialog } from "./Dialog";
-import { CloudUpload, Undo2 } from "lucide-react";
-import type { ChangedFile, MediaCredential } from "@posto/ipc";
-import type { CredentialRequest, MediaPublishState, PublishStage } from "../hooks/useGitSync";
+import { CloudOff, CloudUpload, Undo2 } from "lucide-react";
+import type { ChangedFile } from "@posto/ipc";
+import type { MediaPublishState, PublishStage } from "../hooks/useGitSync";
+import { CdnCredentialForm } from "./CdnCredentialForm";
 
 // Must match the backend's fallback commit message in publish().
 const DEFAULT_COMMIT_MESSAGE = "Site updates";
@@ -95,64 +95,6 @@ function RevertButton(props: {
   );
 }
 
-/** Asks for the storage password that lets this device upload images. */
-function CredentialForm(props: {
-  request: CredentialRequest;
-  onSubmit: (credential: MediaCredential | null) => void;
-}) {
-  const { source } = props.request;
-  const needsKeyId = source.provider === "s3";
-  const [accessKeyId, setAccessKeyId] = useState(needsKeyId ? "" : undefined);
-  const [secret, setSecret] = useState("");
-  const name = source.label ?? source.name;
-  const ready = secret.trim() !== "" && (!needsKeyId || !!accessKeyId?.trim());
-  const submit = () =>
-    ready &&
-    props.onSubmit({
-      ...(needsKeyId ? { accessKeyId: accessKeyId!.trim() } : {}),
-      secret: secret.trim(),
-    });
-  return (
-    <Stack gap="xs" className="publish-credentials">
-      <Text size="sm">
-        {source.provider === "bunny"
-          ? `Enter the password for the ${source.bucket} storage zone to upload images to ${name}.`
-          : `Enter the access key for the ${source.bucket} bucket to upload images to ${name}.`}{" "}
-        It's saved in this device's keychain.
-      </Text>
-      {props.request.error && <Alert color="red">{props.request.error}</Alert>}
-      {needsKeyId && (
-        <TextInput
-          size="xs"
-          label="Access key ID"
-          autoComplete="off"
-          value={accessKeyId}
-          onChange={(event) => setAccessKeyId(event.currentTarget.value)}
-        />
-      )}
-      <PasswordInput
-        size="xs"
-        label={needsKeyId ? "Secret access key" : "Storage zone password"}
-        autoComplete="off"
-        value={secret}
-        data-autofocus
-        onChange={(event) => setSecret(event.currentTarget.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") submit();
-        }}
-      />
-      <Group justify="flex-end" gap="xs">
-        <Button size="xs" variant="default" onClick={() => props.onSubmit(null)}>
-          Cancel
-        </Button>
-        <Button size="xs" disabled={!ready} onClick={submit}>
-          Save and continue
-        </Button>
-      </Group>
-    </Stack>
-  );
-}
-
 /** What publishing will do with CDN media, and anything that blocks it. */
 function MediaSummary(props: {
   media: MediaPublishState;
@@ -177,7 +119,12 @@ function MediaSummary(props: {
       </Alert>
     );
   }
-  if (!plan || (plan.uploads.length === 0 && plan.blockers.length === 0)) return null;
+  if (
+    !plan ||
+    (plan.uploads.length === 0 && plan.deletes.length === 0 && plan.blockers.length === 0)
+  ) {
+    return null;
+  }
   return (
     <Stack gap="xs" mt="sm" className="publish-media">
       {plan.uploads.length > 0 && (
@@ -185,6 +132,15 @@ function MediaSummary(props: {
           <CloudUpload size={16} />
           <Text size="sm">
             {plural(plan.uploads.length, "image", "images")} will upload to the CDN.
+          </Text>
+        </Group>
+      )}
+      {plan.deletes.length > 0 && (
+        <Group gap="xs" wrap="nowrap">
+          <CloudOff size={16} />
+          <Text size="sm">
+            {plural(plan.deletes.length, "deleted image", "deleted images")} will be removed from
+            the CDN after publishing.
           </Text>
         </Group>
       )}
@@ -246,7 +202,7 @@ function PublishModalContent(props: {
   const plan = media?.plan ?? null;
   const publishing = props.publishing ?? false;
   const credentialRequest = media?.credentialRequest ?? null;
-  const pendingUploads = plan?.uploads.length ?? 0;
+  const pendingUploads = (plan?.uploads.length ?? 0) + (plan?.deletes.length ?? 0);
   const nothingToPublish =
     props.changes === null || (props.changes.length === 0 && pendingUploads === 0);
   const blocked =
@@ -301,9 +257,11 @@ function PublishModalContent(props: {
         </Alert>
       )}
       {credentialRequest ? (
-        <CredentialForm
+        <CdnCredentialForm
           key={credentialRequest.source.name + (credentialRequest.error ?? "")}
-          request={credentialRequest}
+          source={credentialRequest.source}
+          error={credentialRequest.error}
+          purpose="upload"
           onSubmit={media!.submitCredential}
         />
       ) : (

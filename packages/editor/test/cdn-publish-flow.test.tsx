@@ -63,6 +63,7 @@ const plan = (overrides: Partial<CdnPublishPlan> = {}): CdnPublishPlan => ({
   uploads: [upload],
   writes: [{ path: "/site/src/data/photos/harbor.yaml", previous: "a", content: "b" }],
   removals: [upload.path],
+  deletes: [],
   warnings: [],
   blockers: [],
   firstMigrations: [],
@@ -97,7 +98,7 @@ beforeEach(() => {
     .mockReset()
     .mockImplementation(async (_request, onProgress) => {
       onProgress({ stage: "uploading", completed: 1, total: 1 });
-      return { message: "Published.", kept: [] };
+      return { message: "Published.", kept: [], failedDeletes: [] };
     });
   vi.mocked(invoke)
     .mockReset()
@@ -148,6 +149,7 @@ describe("publishing CDN media", () => {
         uploads: [upload],
         writes: plan().writes,
         removals: [upload.path],
+        deletes: [],
       },
       expect.any(Function),
     );
@@ -225,6 +227,29 @@ describe("publishing CDN media", () => {
 
     expect(afterPull).toHaveBeenCalledWith("/site");
     expect(result.current.mediaPublish.publishError).toBe("Publish failed: Push rejected");
+  });
+
+  test("deletes alone still publish through the transaction", async () => {
+    credentialSaved = true;
+    const deleted = { sourceName: "cdn", key: "images/old-1a2b3c4d.jpg", url: "https://x/y" };
+    vi.mocked(planCdnPublish).mockResolvedValue(
+      plan({ uploads: [], writes: [], removals: [], deletes: [deleted] }),
+    );
+    vi.mocked(publishMedia).mockResolvedValue({
+      message: "Published.",
+      kept: [],
+      failedDeletes: ["images/old-1a2b3c4d.jpg"],
+    });
+    const { result, onStatus } = setup();
+
+    await act(async () => {
+      expect(await result.current.publish("ship it")).toBe(true);
+    });
+
+    expect(vi.mocked(publishMedia).mock.calls[0][0].deletes).toEqual([
+      { sourceName: "cdn", key: "images/old-1a2b3c4d.jpg" },
+    ]);
+    expect(onStatus).toHaveBeenCalledWith(expect.stringContaining("retried next time"), "success");
   });
 
   test("publishes normally when nothing needs uploading", async () => {
