@@ -25,6 +25,12 @@ On desktop, you can also drag image files from your computer:
 
 Posto generates thumbnails for browsing. HEIC and HEIF images are converted to a browser-compatible format during import when necessary.
 
+## Images on a CDN
+
+A developer can set up a library or image field to store its images on a CDN. Importing works the same way, but the image stays on your device until you publish, when Posto uploads it. The first time you publish to a CDN, Posto asks for the storage password and saves it on this device. See [CDN media](/frameworks/cdn-media/) for setup.
+
+Images already on a CDN can be edited and deleted, but not renamed or moved. Deleting one removes it from the CDN after your next publish.
+
 ## Organizing files and folders
 
 Each tab supports folders. Create a folder with **New folder**, or drag media and folders onto another folder to move them. Select several items with their selection controls or by holding Shift while clicking, then move or delete the group from the footer. Press Escape to clear the selection.

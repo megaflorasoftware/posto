@@ -113,6 +113,7 @@ export default defineConfig({
                 },
               ],
             },
+            { label: "CDN media", slug: "frameworks/cdn-media" },
             {
               label: "Contributing to Posto",
               items: [{ autogenerate: { directory: "development" } }],

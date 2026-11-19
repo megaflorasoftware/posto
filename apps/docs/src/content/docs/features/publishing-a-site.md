@@ -17,6 +17,12 @@ In a repository with several projects, the review and commit include only change
 
 :::caution[Publishing goes directly to the default branch] Publishing commits and pushes straight to the repository's default branch (usually `main`). There is no draft branch or review step — once the host finishes deploying, the change is live. :::
 
+## Publishing CDN images
+
+When a site stores images on a [CDN](/frameworks/cdn-media/), the review also lists how many images will upload or be deleted. The first time this device publishes to a CDN, Posto asks for the storage password and saves it in the device's keychain.
+
+The review stays open while publishing and shows each step. If anything fails, your changes are left exactly as they were, ready to publish again. If Posto quits partway through, it finishes or undoes that publish the next time you open the project.
+
 ## Pulling in updates
 
 When the upstream branch has new commits—because another person published or you edited from another device—Posto replaces **Publish** with **Fetch Changes** on desktop and shows a **Pull** action on mobile.

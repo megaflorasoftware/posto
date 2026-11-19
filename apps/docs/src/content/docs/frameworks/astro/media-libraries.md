@@ -46,6 +46,10 @@ credit: Jane Rivera
 
 JSON metadata works the same way: use `**/*.json` as the pattern and store each entry as JSON. The image field may be nested inside an object, such as `z.object({ image: image(), focalPoint: z.string() })`, but it cannot be inside a list.
 
+## Storing images on a CDN
+
+A library can keep its images on Bunny Storage or an S3-compatible service instead of in the repository. Add `posto:media=<name>` to the image field's description, as in `image().describe("posto:media=cdn")`, and define the source in `.posto/index.json`. See [CDN media](/frameworks/cdn-media/).
+
 ## When a collection is skipped
 
 If a collection resembles a media library but does not meet these requirements, Posto shows a diagnostic with the relevant resolution:

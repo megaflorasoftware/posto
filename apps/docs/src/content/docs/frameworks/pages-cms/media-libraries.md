@@ -31,6 +31,10 @@ media:
 
 A collection can define its own `media` source. That source takes precedence over the global list for image fields in the collection.
 
+## Storing media on a CDN
+
+A media source named after a CDN source in `.posto/index.json` uploads its images to that CDN when you publish. Its `input` folder holds images until then. See [CDN media](/frameworks/cdn-media/).
+
 ## Image fields
 
 An `image` field opens the relevant media source and stores the selected file's `output` path in the content.
