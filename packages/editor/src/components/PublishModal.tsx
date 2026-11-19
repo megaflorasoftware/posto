@@ -159,7 +159,7 @@ function MediaSummary(props: { media: MediaPublishState }) {
     <Stack gap="xs" mt="sm" className="publish-media">
       {plan.uploads.length > 0 && (
         <Note icon={<CloudUpload size={16} />}>
-          {plural(plan.uploads.length, "image", "images")} will upload to the CDN.
+          {plural(plan.uploads.length, "image", "images")} will be uploaded to the CDN.
         </Note>
       )}
       {plan.deletes.length > 0 && (
@@ -206,13 +206,20 @@ function ChangeList(props: {
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
       >
-        <Group gap={6} wrap="nowrap">
-          <ChevronRight
-            size={16}
-            style={{ transform: open ? "rotate(90deg)" : undefined, transition: "transform 120ms" }}
-          />
-          <Text size="sm">{plural(props.changes.length, "changed file", "changed files")}</Text>
-        </Group>
+        {/* Same layout as the notes below, so icons and text line up. */}
+        <Note
+          icon={
+            <ChevronRight
+              size={16}
+              style={{
+                transform: open ? "rotate(90deg)" : undefined,
+                transition: "transform 120ms",
+              }}
+            />
+          }
+        >
+          {plural(props.changes.length, "changed file", "changed files")}
+        </Note>
       </UnstyledButton>
       <Collapse expanded={open}>
         <div className="publish-list" style={{ marginTop: "var(--mantine-spacing-xs)" }}>

@@ -398,7 +398,7 @@ describe("the Publish dialog", () => {
   test("pending uploads can be published without other changes", () => {
     const { onPublish } = dialog();
 
-    expect(screen.getByText("1 image will upload to the CDN.")).toBeTruthy();
+    expect(screen.getByText("1 image will be uploaded to the CDN.")).toBeTruthy();
     fireEvent.click(publishButton());
     expect(onPublish).toHaveBeenCalledWith("Site updates");
   });
