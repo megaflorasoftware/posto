@@ -363,6 +363,7 @@ describe("recovering an interrupted publish", () => {
 describe("the Publish dialog", () => {
   const media = (overrides: Partial<MediaPublishState> = {}): MediaPublishState => ({
     plan: plan(),
+    sources: [source],
     planning: false,
     planError: null,
     previewChanges: null,
@@ -398,7 +399,7 @@ describe("the Publish dialog", () => {
   test("pending uploads can be published without other changes", () => {
     const { onPublish } = dialog();
 
-    expect(screen.getByText("1 image will be uploaded to the CDN.")).toBeTruthy();
+    expect(screen.getByText("1 image will be uploaded to Media CDN")).toBeTruthy();
     fireEvent.click(publishButton());
     expect(onPublish).toHaveBeenCalledWith("Site updates");
   });
@@ -431,6 +432,23 @@ describe("the Publish dialog", () => {
     expect(reverts).toHaveLength(1);
     fireEvent.click(reverts[0]);
     expect(onRevert).toHaveBeenCalledWith({ status: "M", path: "index.md" });
+  });
+
+  test("each CDN source gets its own upload line, named by its label", () => {
+    const photos = { ...source, name: "photos", label: "Photos (Bunny Storage)" };
+    const unnamed = { ...source, name: "archive", label: undefined };
+    const to = (sourceName: string, key: string) => ({ ...upload, sourceName, key });
+    dialog({
+      media: media({
+        sources: [photos, unnamed],
+        plan: plan({
+          uploads: [to("photos", "a.jpg"), to("photos", "b.jpg"), to("archive", "c.jpg")],
+        }),
+      }),
+    });
+
+    expect(screen.getByText("2 images will be uploaded to Photos (Bunny Storage)")).toBeTruthy();
+    expect(screen.getByText("1 image will be uploaded to archive")).toBeTruthy();
   });
 
   test("uploads show a progress bar", () => {

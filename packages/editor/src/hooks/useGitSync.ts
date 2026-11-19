@@ -49,6 +49,8 @@ export interface CredentialRequest {
 /** CDN media state the Publish dialog shows. */
 export interface MediaPublishState {
   plan: CdnPublishPlan | null;
+  /** The site's CDN sources, for naming where images go. */
+  sources: CdnSource[];
   /** True until the plan and its preview are both ready. */
   planning: boolean;
   planError: string | null;
@@ -419,6 +421,7 @@ export function useGitSync(root: string | null, callbacks: Callbacks) {
 
   const mediaPublish: MediaPublishState = {
     plan: mediaPlan,
+    sources: mediaConfig()?.cdnSources ?? [],
     planning,
     planError,
     previewChanges,

@@ -17,7 +17,8 @@ import { Dialog } from "./Dialog";
 import { ChevronRight, CloudOff, CloudUpload, Info, Undo2 } from "lucide-react";
 import type { ChangedFile } from "@posto/ipc";
 import type { MediaPublishState, PublishStage } from "../hooks/useGitSync";
-import type { CdnPlanWarning } from "../cdnPublish/plan";
+import type { CdnSource } from "@posto/core/media/sources";
+import type { CdnPlanWarning, CdnPublishPlan } from "../cdnPublish/plan";
 import { CdnCredentialForm } from "./CdnCredentialForm";
 
 // Must match the backend's fallback commit message in publish().
@@ -139,9 +140,21 @@ function Note(props: { icon: ReactNode; children: ReactNode }) {
   );
 }
 
+/** How many images go to each CDN source, named by its label. */
+export function uploadNotes(plan: CdnPublishPlan, sources: CdnSource[]): string[] {
+  const counts = new Map<string, number>();
+  for (const upload of plan.uploads) {
+    counts.set(upload.sourceName, (counts.get(upload.sourceName) ?? 0) + 1);
+  }
+  return [...counts].map(([name, count]) => {
+    const label = sources.find((source) => source.name === name)?.label ?? name;
+    return `${plural(count, "image", "images")} will be uploaded to ${label}`;
+  });
+}
+
 /** What publishing will do with CDN media, and anything that blocks it. */
 function MediaSummary(props: { media: MediaPublishState }) {
-  const { plan, planError } = props.media;
+  const { plan, planError, sources } = props.media;
   if (planError) {
     return (
       <Alert color="red" mt="sm">
@@ -157,11 +170,11 @@ function MediaSummary(props: { media: MediaPublishState }) {
   }
   return (
     <Stack gap="xs" mt="sm" className="publish-media">
-      {plan.uploads.length > 0 && (
-        <Note icon={<CloudUpload size={16} />}>
-          {plural(plan.uploads.length, "image", "images")} will be uploaded to the CDN.
+      {uploadNotes(plan, sources).map((note) => (
+        <Note key={note} icon={<CloudUpload size={16} />}>
+          {note}
         </Note>
-      )}
+      ))}
       {plan.deletes.length > 0 && (
         <Note icon={<CloudOff size={16} />}>
           {plural(plan.deletes.length, "deleted image", "deleted images")} will be removed from the
