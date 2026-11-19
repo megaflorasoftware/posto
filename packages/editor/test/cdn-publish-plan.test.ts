@@ -3,9 +3,10 @@ import type { CdnSource } from "@posto/core/media/sources";
 import type { Field, MediaLibrary, PagesConfig } from "@posto/core/pagescms/config";
 import type { FileGroup, MediaFileInspection } from "@posto/ipc";
 
-const { deletes, files, images, invoke, inspectMediaFile } = vi.hoisted(() => {
+const { deletes, files, ignored, images, invoke, inspectMediaFile } = vi.hoisted(() => {
   const deletes: Array<{ sourceName: string; key: string; url: string }> = [];
   const files = new Map<string, string>();
+  const ignored = new Set<string>();
   const images = new Map<string, Partial<MediaFileInspection>>();
   const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
     const path = args?.path as string;
@@ -17,6 +18,8 @@ const { deletes, files, images, invoke, inspectMediaFile } = vi.hoisted(() => {
         return files.get(path) ?? null;
       case "path_exists":
         return files.has(path) || images.has(path);
+      case "ignored_paths":
+        return ((args?.paths ?? []) as string[]).filter((item) => ignored.has(item));
       case "list_dir_files_optional": {
         const dir = args?.dir as string;
         const extensions = args?.extensions as string[];
@@ -45,7 +48,7 @@ const { deletes, files, images, invoke, inspectMediaFile } = vi.hoisted(() => {
       ...image,
     };
   });
-  return { deletes, files, images, invoke, inspectMediaFile };
+  return { deletes, files, ignored, images, invoke, inspectMediaFile };
 });
 
 vi.mock("@posto/ipc", () => ({
@@ -119,6 +122,7 @@ function addLibraryImage() {
 beforeEach(() => {
   deletes.length = 0;
   files.clear();
+  ignored.clear();
   images.clear();
   invoke.mockClear();
   inspectMediaFile.mockClear();
@@ -319,7 +323,37 @@ describe("local file safety", () => {
 
     expect(plan.uploads).toHaveLength(1);
     expect(plan.removals).toEqual([]);
-    expect(plan.warnings[0].message).toContain(path);
+    expect(plan.warnings).toEqual([
+      { path: `${root}/src/data/photos/trips/harbor.jpg`, reason: "referenced", by: path },
+    ]);
+  });
+
+  test("files git ignores, like build caches, don't keep an image", async () => {
+    addLibraryImage();
+    files.set(`${root}/cache/data-store.json`, '{"src":"./harbor.jpg"}');
+    ignored.add(`${root}/cache/data-store.json`);
+
+    const plan = await planCdnPublish({ root, config: config(), groups: [] });
+
+    expect(plan.warnings).toEqual([]);
+    expect(plan.removals).toEqual([`${root}/src/data/photos/trips/harbor.jpg`]);
+  });
+
+  test("if git can't say what's ignored, every file counts", async () => {
+    addLibraryImage();
+    files.set(`${root}/cache/data-store.json`, '{"src":"./harbor.jpg"}');
+    const actual = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (command, args) => {
+      if (command === "ignored_paths") throw new Error("not a repository");
+      return actual(command, args);
+    });
+
+    const plan = await planCdnPublish({ root, config: config(), groups: [] }).finally(() =>
+      invoke.mockImplementation(actual),
+    );
+
+    expect(plan.removals).toEqual([]);
+    expect(plan.warnings[0]).toMatchObject({ reason: "referenced", by: "cache/data-store.json" });
   });
 
   test("keeps an image stored outside the library folder", async () => {
@@ -330,7 +364,9 @@ describe("local file safety", () => {
 
     expect(plan.uploads).toHaveLength(1);
     expect(plan.removals).toEqual([]);
-    expect(plan.warnings[0].message).toContain("outside the CDN library");
+    expect(plan.warnings).toEqual([
+      { path: `${root}/src/assets/shared.jpg`, reason: "outside-library" },
+    ]);
   });
 
   test("reports an image that disappears during planning", async () => {
@@ -341,7 +377,10 @@ describe("local file safety", () => {
 
     expect(plan.uploads).toEqual([]);
     expect(plan.writes).toEqual([]);
-    expect(plan.warnings[0].message).toContain("Could not read the image");
+    expect(plan.warnings[0]).toMatchObject({
+      reason: "unreadable",
+      error: "Could not read the image",
+    });
   });
 
   test("never writes, deletes, or uploads while planning", async () => {
@@ -350,6 +389,7 @@ describe("local file safety", () => {
     await planCdnPublish({ root, config: config(), groups: [] });
 
     const readOnly = new Set([
+      "ignored_paths",
       "list_dir_files_optional",
       "path_exists",
       "read_text_file",

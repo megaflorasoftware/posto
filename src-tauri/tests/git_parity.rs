@@ -635,3 +635,28 @@ fn stash_count(mut repo: git2::Repository) -> usize {
     .unwrap();
     count
 }
+
+#[test]
+fn reports_which_files_git_ignores() {
+    let f = fixture();
+    write(&f.local, ".gitignore", "cache\n*.log\n");
+    write(&f.local, "cache/data-store.json", "{}");
+    write(&f.local, "debug.log", "");
+    write(&f.local, "src/page.astro", "");
+    let path = |rel: &str| f.local.join(rel).to_string_lossy().to_string();
+    let client = Client::open(f.local.to_str().unwrap()).unwrap();
+
+    let ignored = client
+        .ignored_paths(vec![
+            path("cache/data-store.json"),
+            path("debug.log"),
+            path("src/page.astro"),
+            "/elsewhere/file.json".to_string(),
+        ])
+        .unwrap();
+
+    assert_eq!(
+        ignored,
+        vec![path("cache/data-store.json"), path("debug.log")]
+    );
+}

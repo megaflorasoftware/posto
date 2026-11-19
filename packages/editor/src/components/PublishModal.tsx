@@ -4,7 +4,6 @@ import {
   Alert,
   Badge,
   Button,
-  Checkbox,
   Group,
   Loader,
   Stack,
@@ -12,9 +11,10 @@ import {
   TextInput,
 } from "@mantine/core";
 import { Dialog } from "./Dialog";
-import { CloudOff, CloudUpload, Undo2 } from "lucide-react";
+import { CloudOff, CloudUpload, Info, Undo2 } from "lucide-react";
 import type { ChangedFile } from "@posto/ipc";
 import type { MediaPublishState, PublishStage } from "../hooks/useGitSync";
+import type { CdnPlanWarning } from "../cdnPublish/plan";
 import { CdnCredentialForm } from "./CdnCredentialForm";
 
 // Must match the backend's fallback commit message in publish().
@@ -95,12 +95,39 @@ function RevertButton(props: {
   );
 }
 
+/** Explains, grouped by cause, why some images keep their local copy or
+ * don't upload. */
+export function keptCopyNotes(warnings: CdnPlanWarning[]): string[] {
+  const referenced = new Map<string, number>();
+  const unreadable = new Map<string, number>();
+  let outside = 0;
+  for (const warning of warnings) {
+    if (warning.reason === "referenced") {
+      referenced.set(warning.by, (referenced.get(warning.by) ?? 0) + 1);
+    } else if (warning.reason === "outside-library") outside += 1;
+    else unreadable.set(warning.error, (unreadable.get(warning.error) ?? 0) + 1);
+  }
+  const copies = (count: number) =>
+    count === 1 ? "The local copy of 1 image" : `Local copies of ${count} images`;
+  return [
+    ...[...referenced].map(
+      ([by, count]) =>
+        `${copies(count)} will stay after uploading, because ${by} still mentions ${count === 1 ? "it" : "them"}.`,
+    ),
+    ...(outside > 0
+      ? [
+          `${copies(outside)} will stay after uploading, because ${outside === 1 ? "it's" : "they're"} outside the library's folder.`,
+        ]
+      : []),
+    ...[...unreadable].map(
+      ([error, count]) =>
+        `${plural(count, "image", "images")} couldn't be read and won't upload: ${error.replace(/\.?$/, ".")}`,
+    ),
+  ];
+}
+
 /** What publishing will do with CDN media, and anything that blocks it. */
-function MediaSummary(props: {
-  media: MediaPublishState;
-  acknowledged: boolean;
-  onAcknowledge: (acknowledged: boolean) => void;
-}) {
+function MediaSummary(props: { media: MediaPublishState }) {
   const { plan, planning, planError } = props.media;
   if (planning && !plan) {
     return (
@@ -149,20 +176,18 @@ function MediaSummary(props: {
           {blocker}
         </Alert>
       ))}
-      {plan.warnings.length > 0 && (
-        <Text size="xs" c="dimmed">
-          {plural(plan.warnings.length, "local image stays", "local images stay")} on this device
-          because something else still uses {plan.warnings.length === 1 ? "it" : "them"}:{" "}
-          {plan.warnings.map((warning) => warning.path.split("/").pop()).join(", ")}
-        </Text>
-      )}
+      {keptCopyNotes(plan.warnings).map((note) => (
+        <Group key={note} gap="xs" wrap="nowrap" align="flex-start">
+          {/* Stays beside the first line when the note wraps. */}
+          <Info size={16} style={{ flexShrink: 0, marginTop: 3 }} />
+          <Text size="sm">{note}</Text>
+        </Group>
+      ))}
       {plan.firstMigrations.length > 0 && (
-        <Checkbox
-          size="xs"
-          checked={props.acknowledged}
-          onChange={(event) => props.onAcknowledge(event.currentTarget.checked)}
-          label={`${plan.firstMigrations.join(", ")} will use CDN URLs for the first time. Site templates must pass a width and height to <Image> for these images.`}
-        />
+        <Text size="xs" c="dimmed">
+          Astro's &lt;Image&gt; component requires a width and height value for remote images, so
+          make sure you've added them.
+        </Text>
       )}
     </Stack>
   );
@@ -197,7 +222,6 @@ function PublishModalContent(props: {
   media?: MediaPublishState;
 }) {
   const [commitMessage, setCommitMessage] = useState(DEFAULT_COMMIT_MESSAGE);
-  const [acknowledged, setAcknowledged] = useState(false);
   const media = props.media;
   const plan = media?.plan ?? null;
   const publishing = props.publishing ?? false;
@@ -205,10 +229,7 @@ function PublishModalContent(props: {
   const pendingUploads = (plan?.uploads.length ?? 0) + (plan?.deletes.length ?? 0);
   const nothingToPublish =
     props.changes === null || (props.changes.length === 0 && pendingUploads === 0);
-  const blocked =
-    (plan?.blockers.length ?? 0) > 0 ||
-    ((plan?.firstMigrations.length ?? 0) > 0 && !acknowledged) ||
-    (media?.planning ?? false);
+  const blocked = (plan?.blockers.length ?? 0) > 0 || (media?.planning ?? false);
 
   const close = () => {
     if (credentialRequest) media?.submitCredential(null);
@@ -248,9 +269,7 @@ function PublishModalContent(props: {
           })}
         </div>
       )}
-      {media && (
-        <MediaSummary media={media} acknowledged={acknowledged} onAcknowledge={setAcknowledged} />
-      )}
+      {media && <MediaSummary media={media} />}
       {media?.publishError && (
         <Alert color="red" mt="sm">
           {media.publishError}

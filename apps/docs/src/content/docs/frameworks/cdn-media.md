@@ -105,7 +105,7 @@ const { src, alt, width, height } = photo.data;
 
 To let Astro optimize CDN images, authorize the host in `astro.config.mjs` with `image: { domains: ["media.example.com"] }`.
 
-The first time a collection publishes CDN images, Posto asks the editor to confirm the templates are ready.
+The first time a collection publishes CDN images, the publish review reminds the editor that Astro's `<Image>` component needs a width and height for remote images.
 
 ## How publishing works
 
@@ -113,7 +113,7 @@ Publishing uploads images first, then commits and pushes the updated content. If
 
 Each object is named `<prefix>/<folder>/<name>-<hash>.<extension>`. The hash comes from the file's content, so a replaced image gets a new URL and CDN caches never serve an old copy.
 
-Posto keeps the local copy, and shows a warning, when something it doesn't rewrite still refers to the image, such as a component import or a stylesheet.
+Posto keeps the local copy when a file it doesn't rewrite still mentions the image's name, such as a component import or a stylesheet. The publish review names that file. Files Git ignores, such as Astro's build cache, don't count, because they never reach the site.
 
 ## Deleting images
 

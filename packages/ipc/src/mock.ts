@@ -594,6 +594,8 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       }
       return path in mockFiles && !mockDeleted.has(path) ? mockFiles[path] : null;
     }
+    case "ignored_paths":
+      return [];
     case "path_exists": {
       const path = args?.path as string;
       const kind = args?.kind;

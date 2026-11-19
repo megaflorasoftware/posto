@@ -116,10 +116,13 @@ export interface CdnPlanWrite {
   content: string;
 }
 
-export interface CdnPlanWarning {
-  path: string;
-  message: string;
-}
+/** An image that won't be fully moved to the CDN. A `referenced` or
+ * `outside-library` image still uploads, but its local copy stays; an
+ * `unreadable` one doesn't upload at all. */
+export type CdnPlanWarning =
+  | { path: string; reason: "referenced"; /** Repository-relative file naming it. */ by: string }
+  | { path: string; reason: "outside-library" }
+  | { path: string; reason: "unreadable"; error: string };
 
 /** Everything Publish would change. Building a plan changes nothing. */
 export interface CdnPublishPlan {
@@ -601,11 +604,21 @@ async function stillReferenced(
   uploads: CdnUpload[],
   rewritten: Map<string, string>,
 ): Promise<Map<string, string>> {
-  const files = await invoke<FileEntry[] | null>("list_dir_files_optional", {
-    dir: root,
-    extensions: REFERENCE_EXTENSIONS,
-  });
-  const contents = await mapWithConcurrency(files ?? [], READ_CONCURRENCY, async (file) => ({
+  const listed =
+    (await invoke<FileEntry[] | null>("list_dir_files_optional", {
+      dir: root,
+      extensions: REFERENCE_EXTENSIONS,
+    })) ?? [];
+  // Ignored files, such as build caches, never reach the site. If git can't
+  // say, every file counts, which only keeps more local copies.
+  const ignored = new Set(
+    await invoke<string[]>("ignored_paths", {
+      root,
+      paths: listed.map((file) => file.path),
+    }).catch(() => []),
+  );
+  const files = listed.filter((file) => !ignored.has(file.path));
+  const contents = await mapWithConcurrency(files, READ_CONCURRENCY, async (file) => ({
     path: file.path,
     content:
       rewritten.get(file.path) ??
@@ -651,7 +664,7 @@ export async function planCdnPublish(input: {
       try {
         return { image, inspection: await inspectMediaFile(image.path) };
       } catch (error) {
-        warnings.push({ path: image.path, message: `Skipped: ${errorText(error)}` });
+        warnings.push({ path: image.path, reason: "unreadable", error: errorText(error) });
         return null;
       }
     },
@@ -710,15 +723,13 @@ export async function planCdnPublish(input: {
     if (reference) {
       warnings.push({
         path: upload.path,
-        message: `Kept the local file because ${inside(input.root, reference) ?? reference} still refers to it.`,
+        reason: "referenced",
+        by: inside(input.root, reference) ?? reference,
       });
     } else if (pending.get(upload.path)?.managed) {
       removals.push(upload.path);
     } else {
-      warnings.push({
-        path: upload.path,
-        message: "Kept the local file because it's outside the CDN library's folder.",
-      });
+      warnings.push({ path: upload.path, reason: "outside-library" });
     }
   }
   return {

@@ -369,12 +369,44 @@ describe("the Publish dialog", () => {
     expect(publishButton()).toHaveProperty("disabled", true);
   });
 
-  test("a first migration needs confirmation", () => {
+  test("a first migration reminds about image sizes without blocking", () => {
     dialog({ media: media({ plan: plan({ firstMigrations: ["photos"] }) }) });
 
-    expect(publishButton()).toHaveProperty("disabled", true);
-    fireEvent.click(screen.getByRole("checkbox"));
+    expect(
+      screen.getByText(
+        "Astro's <Image> component requires a width and height value for remote images, so make sure you've added them.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("checkbox")).toBeNull();
     expect(publishButton()).toHaveProperty("disabled", false);
+  });
+
+  test("explains why local copies stay, grouped by cause", () => {
+    const names = Array.from({ length: 7 }, (_, index) => `/site/src/data/photos/p${index}.jpg`);
+    const warnings: CdnPublishPlan["warnings"] = [
+      ...names.map((path) => ({ path, reason: "referenced" as const, by: "src/pages/a.astro" })),
+      { path: "/site/src/assets/shared.jpg", reason: "outside-library" },
+      {
+        path: "/site/src/data/photos/gone.jpg",
+        reason: "unreadable",
+        error: "The file is missing",
+      },
+    ];
+    dialog({ media: media({ plan: plan({ warnings }) }) });
+
+    expect(
+      screen.getByText(
+        "Local copies of 7 images will stay after uploading, because src/pages/a.astro still mentions them.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "The local copy of 1 image will stay after uploading, because it's outside the library's folder.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("1 image couldn't be read and won't upload: The file is missing."),
+    ).toBeTruthy();
   });
 
   test("a Bunny source asks only for the zone password", () => {

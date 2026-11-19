@@ -730,6 +730,28 @@ impl Client {
         self.repo.is_path_ignored(relative).map_err(err_str)
     }
 
+    /// The given files that git ignores. They never reach the published site,
+    /// so nothing in them can still need an image. Paths outside the
+    /// repository count as not ignored.
+    pub fn ignored_paths(&self, paths: Vec<String>) -> Result<Vec<String>, String> {
+        let workdir = self
+            .workdir()?
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
+        Ok(paths
+            .into_iter()
+            .filter(|path| {
+                let path = Path::new(path);
+                let resolved = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+                resolved
+                    .strip_prefix(&workdir)
+                    .ok()
+                    .and_then(|relative| self.repo.is_path_ignored(relative).ok())
+                    .unwrap_or(false)
+            })
+            .collect())
+    }
+
     pub(crate) fn capture_index(&self) -> Result<IndexSnapshot, String> {
         IndexSnapshot::capture(&self.repo)
     }
@@ -1066,6 +1088,14 @@ impl IndexSnapshot {
             .and_then(|mut index| index.read(true))
             .map_err(err_str)
     }
+}
+
+/// Which of `paths` git ignores.
+#[tauri::command]
+pub async fn ignored_paths(root: String, paths: Vec<String>) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || Client::open(&root)?.ignored_paths(paths))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
