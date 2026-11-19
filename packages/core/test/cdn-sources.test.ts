@@ -249,6 +249,8 @@ describe("CDN URLs", () => {
 });
 
 describe("library image dimensions", () => {
+  const width = { name: "width", type: "number", options: { defaultFrom: "width" } };
+  const height = { name: "height", type: "number", options: { defaultFrom: "height" } };
   const nested: MediaLibrary = {
     collection: "photos",
     base: "src/data/photos",
@@ -259,48 +261,62 @@ describe("library image dimensions", () => {
       {
         name: "asset",
         type: "object",
-        fields: [
-          { name: "src", type: "image" },
-          { name: "width", type: "number" },
-          { name: "height", type: "number" },
-        ],
+        fields: [{ name: "src", type: "image" }, width, height],
       },
     ],
   };
 
-  test("finds numeric fields beside the image field", () => {
+  test("finds annotated dimension fields anywhere in the entry", () => {
     expect(imageDimensionFields(nested)).toEqual({
-      width: ["asset", "width"],
-      height: ["asset", "height"],
+      width: [["asset", "width"]],
+      height: [["asset", "height"]],
     });
   });
 
-  test("requires both numeric fields", () => {
-    const partial = {
-      ...nested,
-      fields: [{ ...nested.fields[0], fields: nested.fields[0].fields!.slice(0, 2) }],
-    };
-    const textual = {
+  test("ignores fields that are only named width and height", () => {
+    const plain = {
       ...nested,
       fields: [
         {
           ...nested.fields[0],
-          fields: nested.fields[0].fields!.map((field) =>
-            field.name === "height" ? { ...field, type: "string" } : field,
-          ),
+          fields: [
+            { name: "src", type: "image" },
+            { name: "width", type: "number" },
+            { name: "height", type: "number" },
+          ],
         },
       ],
     };
-    expect(imageDimensionFields(partial)).toBeNull();
-    expect(imageDimensionFields(textual)).toBeNull();
+    expect(imageDimensionFields(plain)).toBeNull();
+    expect(withImageDimensions(plain, {}, { width: 40, height: 20 })).toEqual({});
   });
 
-  test("sets dimensions without changing the original metadata", () => {
+  test("fills empty fields without changing the original metadata", () => {
     const metadata = { asset: { alt: "Harbor" } };
     expect(withImageDimensions(nested, metadata, { width: 40, height: 20 })).toEqual({
       asset: { alt: "Harbor", width: 40, height: 20 },
     });
     expect(metadata).toEqual({ asset: { alt: "Harbor" } });
+  });
+
+  test("keeps dimensions that are already set", () => {
+    expect(
+      withImageDimensions(nested, { asset: { width: 1200 } }, { width: 40, height: 20 }),
+    ).toEqual({ asset: { width: 1200, height: 20 } });
+  });
+
+  test("parses the annotations from generated schemas", () => {
+    const fields = parseCollectionSchema(
+      "photos",
+      JSON.stringify({
+        type: "object",
+        properties: {
+          width: { type: "number", description: "posto:default=width" },
+          height: { type: "number", description: "posto:default=height" },
+        },
+      }),
+    )!;
+    expect(fields.map((field) => field.options?.defaultFrom)).toEqual(["width", "height"]);
   });
 });
 

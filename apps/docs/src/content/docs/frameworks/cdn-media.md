@@ -61,8 +61,8 @@ const photos = defineCollection({
     z.object({
       src: image().describe("posto:media=cdn"),
       alt: z.string(),
-      width: z.number().optional(),
-      height: z.number().optional(),
+      width: z.number().optional().describe("posto:default=width"),
+      height: z.number().optional().describe("posto:default=height"),
     }),
 });
 ```
@@ -88,7 +88,7 @@ The `input` folder holds images until they're published. Every image in it uploa
 
 `image()` accepts both local paths and URLs, so one library can hold local and CDN images while it migrates. In a template, a local image arrives as image metadata, and a CDN image arrives as a URL string.
 
-Astro can't measure remote images, so `<Image>` needs a width and height for them. Without those, the site build fails with `MissingImageDimension`. When a CDN-bound library has numeric `width` and `height` fields beside its image field, Posto fills them in during import and migration, and hides them from editors:
+Astro can't measure remote images, so `<Image>` needs a width and height for them. Without those, the site build fails with `MissingImageDimension`. Mark the library's `width` and `height` fields with `posto:default=width` and `posto:default=height`, as in the schema above. Posto then fills them at import and, for images already in the repository, when it uploads them, and hides them from editors. See [filling fields at import](/frameworks/astro/media-libraries/#filling-fields-at-import):
 
 ```astro
 ---

@@ -8,12 +8,8 @@ import {
   withImageDimensions,
   type MediaImportPlan,
 } from "@posto/core/project/mediaLibrary";
-import type {
-  Field,
-  MediaLibrary,
-  MediaLibraryMetadataExtension,
-} from "@posto/core/pagescms/config";
-import type { ValuePath } from "@posto/core/pagescms/frontmatter";
+import type { MediaLibrary, MediaLibraryMetadataExtension } from "@posto/core/pagescms/config";
+import { fieldsWithDefault } from "@posto/core/posto/annotations";
 import { editValueAtPath, valueAtPath } from "../imageLibraryMetadata";
 import {
   importImageLibraryAsset,
@@ -58,16 +54,6 @@ function makeDraft(sourceImagePath: string, library: MediaLibrary): ImageLibrary
   };
 }
 
-/** Fields annotated `posto:default=capture-date`, outside lists. */
-function captureDateFields(fields: Field[], prefix: ValuePath = []): ValuePath[] {
-  return fields.flatMap((field) => {
-    if (field.list) return [];
-    const path = [...prefix, field.name];
-    const own = field.options?.defaultFrom === "capture-date" ? [path] : [];
-    return [...own, ...captureDateFields(field.fields ?? [], path)];
-  });
-}
-
 function isEmpty(value: unknown): boolean {
   return value === undefined || value === null || value === "";
 }
@@ -79,7 +65,7 @@ function withCaptureDate(
   date: string | null,
 ): Record<string, unknown> {
   if (!date) return metadata;
-  return captureDateFields(library.fields).reduce(
+  return fieldsWithDefault(library.fields, "capture-date").reduce(
     (current, path) =>
       isEmpty(valueAtPath(current, path)) ? editValueAtPath(current, path, date) : current,
     metadata,
@@ -87,12 +73,12 @@ function withCaptureDate(
 }
 
 async function captureDateFor(library: MediaLibrary, sourceImagePath: string) {
-  if (captureDateFields(library.fields).length === 0) return null;
+  if (fieldsWithDefault(library.fields, "capture-date").length === 0) return null;
   return readCaptureDate(sourceImagePath).catch(() => null);
 }
 
-/** Adds the image's dimensions when its CDN-bound library stores them. A file
- * that can't be measured falls through to the schema's own validation. */
+/** Adds the capture date and dimensions that the library's schema asks for. A
+ * file that can't be measured falls through to the schema's own validation. */
 async function metadataForImport(
   library: MediaLibrary,
   draft: ImageLibraryImportDraft,
@@ -104,7 +90,7 @@ async function metadataForImport(
     draft.metadata,
     await captureDateFor(library, draft.sourceImagePath),
   );
-  if (!library.mediaSource || !imageDimensionFields(library)) return metadata;
+  if (!imageDimensionFields(library)) return metadata;
   const inspected = await inspectMediaFile(draft.sourceImagePath).catch(() => null);
   return inspected?.dimensions
     ? withImageDimensions(library, metadata, inspected.dimensions)

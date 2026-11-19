@@ -75,8 +75,8 @@ const library: MediaLibrary = {
   fields: [
     { name: "src", type: "image", required: true },
     { name: "alt", type: "string" },
-    { name: "width", type: "number" },
-    { name: "height", type: "number" },
+    { name: "width", type: "number", options: { defaultFrom: "width" } },
+    { name: "height", type: "number", options: { defaultFrom: "height" } },
   ],
 };
 const posts = (fields: Field[] = []) => ({
@@ -231,6 +231,35 @@ describe("CDN-bound libraries", () => {
     });
 
     expect(plan.blockers[0]).toContain("couldn't read the dimensions of harbor.jpg");
+  });
+
+  test("keeps dimensions an entry already has", async () => {
+    addLibraryImage();
+    files.set(
+      `${root}/src/data/photos/trips/harbor.yaml`,
+      "src: ./harbor.jpg\nwidth: 1200\nheight: 800\n",
+    );
+
+    const plan = await planCdnPublish({ root, config: config(), groups: [] });
+
+    expect(plan.writes[0].content).toContain("width: 1200");
+    expect(plan.writes[0].content).toContain("height: 800");
+  });
+
+  test("leaves width and height alone unless they're annotated", async () => {
+    addLibraryImage();
+    const plain = {
+      ...library,
+      fields: library.fields.map((field) => ({ ...field, options: undefined })),
+    };
+
+    const plan = await planCdnPublish({
+      root,
+      config: config({ mediaLibraries: [plain] }),
+      groups: [],
+    });
+
+    expect(plan.writes[0].content).not.toContain("width:");
   });
 
   test("continues when optional dimensions can't be read", async () => {

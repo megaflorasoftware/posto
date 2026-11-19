@@ -25,8 +25,8 @@ const library: MediaLibrary = {
   fields: [
     { name: "src", type: "image", required: true },
     { name: "alt", type: "string" },
-    { name: "width", type: "number", required: true },
-    { name: "height", type: "number", required: true },
+    { name: "width", type: "number", required: true, options: { defaultFrom: "width" } },
+    { name: "height", type: "number", required: true, options: { defaultFrom: "height" } },
   ],
 };
 
@@ -55,8 +55,13 @@ beforeEach(() => {
   });
 });
 
-test("imports into a CDN-bound library record the image's dimensions", async () => {
+test("imports record the image's dimensions when the schema asks for them", async () => {
   const plan = await planImport(library);
+  expect(plan.metadata).toMatchObject({ width: 1600, height: 900 });
+});
+
+test("local libraries are measured too when annotated", async () => {
+  const plan = await planImport({ ...library, mediaSource: undefined });
   expect(plan.metadata).toMatchObject({ width: 1600, height: 900 });
 });
 
@@ -65,22 +70,26 @@ test("an unmeasurable image reports the schema's required fields", async () => {
   await expect(planImport(library)).rejects.toThrow();
 });
 
-test("local libraries aren't measured", async () => {
-  const local = {
+test("libraries without dimension annotations aren't measured", async () => {
+  const plain = {
     ...library,
-    mediaSource: undefined,
-    fields: library.fields.map((field) => ({ ...field, required: false })),
+    fields: library.fields.map((field) => ({ ...field, required: false, options: undefined })),
   };
-  const plan = await planImport(local);
+  const plan = await planImport(plain);
   expect(plan.metadata.width).toBeUndefined();
   expect(inspectMediaFile).not.toHaveBeenCalled();
 });
 
-test("editors only see dimension fields on local libraries", () => {
+test("annotated dimension fields are hidden from editors", () => {
   const names = (target: MediaLibrary) =>
     imageLibraryMetadataFields(target).map((field) => field.name);
   expect(names(library)).toEqual(["alt"]);
-  expect(names({ ...library, mediaSource: undefined })).toEqual(["alt", "width", "height"]);
+  expect(names({ ...library, mediaSource: undefined })).toEqual(["alt"]);
+  const plain = {
+    ...library,
+    fields: library.fields.map((field) => ({ ...field, options: undefined })),
+  };
+  expect(names(plain)).toEqual(["alt", "width", "height"]);
 });
 
 describe("capture dates", () => {

@@ -46,15 +46,27 @@ credit: Jane Rivera
 
 JSON metadata works the same way: use `**/*.json` as the pattern and store each entry as JSON. The image field may be nested inside an object, such as `z.object({ image: image(), focalPoint: z.string() })`, but it cannot be inside a list.
 
-## Filling in capture dates
+## Filling fields at import
 
-Add `posto:default=capture-date` to a field's description and Posto fills it with the date each photo was taken when you import it:
+Add `posto:default=<value>` to a field's description and Posto fills that field from the photo when an import creates the entry:
 
 ```ts
-taken_at: z.date().optional().describe("posto:default=capture-date"),
+schema: ({ image }) =>
+  z.object({
+    src: image(),
+    taken_at: z.date().optional().describe("posto:default=capture-date"),
+    width: z.number().optional().describe("posto:default=width"),
+    height: z.number().optional().describe("posto:default=height"),
+  }),
 ```
 
-Posto reads the date from the photo's metadata, including iPhone HEIC photos, and shows it in the import form, so you can change it before importing. It records local time, as cameras do, and leaves the field empty when a photo has no date. Posto only fills the field when an import creates the entry, and never changes it afterward.
+| Value          | Fills the field with                                                                          |
+| -------------- | --------------------------------------------------------------------------------------------- |
+| `capture-date` | When the photo was taken, from its metadata, in local time. Empty when the photo has no date. |
+| `width`        | The width the photo displays at, after any rotation recorded by the camera.                   |
+| `height`       | The height the photo displays at, after any rotation recorded by the camera.                  |
+
+Posto never replaces a value that's already set. The capture date appears in the import form, so you can change it, and it's only filled at import. Width and height are measured exactly, so Posto hides them from the form. When a library [stores images on a CDN](/frameworks/cdn-media/), Posto also fills any empty width and height when it uploads an image, because the original leaves the device at that point.
 
 ## Storing images on a CDN
 

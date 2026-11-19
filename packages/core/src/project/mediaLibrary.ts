@@ -2,6 +2,7 @@ import YAML from "yaml";
 import picomatch from "picomatch";
 import type { MediaLibrary, Field, MediaLibraryMetadataExtension } from "../pagescms/config";
 import { isRemoteMediaUrl } from "../media/sources";
+import { fieldsWithDefault } from "../posto/annotations";
 import { validateForm } from "../pagescms/validate";
 import { pathEntryId } from "./entryIds";
 
@@ -363,26 +364,23 @@ export function discoverImageLibraryAssets(
 }
 
 export interface ImageDimensionFields {
-  width: string[];
-  height: string[];
+  width: string[][];
+  height: string[][];
 }
 
-/** Numeric `width` and `height` fields beside a library's image field. Astro
- * can't size remote images itself, so CDN-bound libraries store them. */
+/** Fields annotated `posto:default=width` or `posto:default=height`. Astro
+ * can't size remote images itself, so CDN images rely on them. */
 export function imageDimensionFields(library: MediaLibrary): ImageDimensionFields | null {
-  const parent = library.imageFieldPath.slice(0, -1);
-  let fields = library.fields;
-  for (const segment of parent) {
-    fields = fields.find((field) => field.name === segment)?.fields ?? [];
-  }
-  const numeric = (name: string) =>
-    fields.some((field) => field.name === name && field.type === "number" && !field.list);
-  return numeric("width") && numeric("height")
-    ? { width: [...parent, "width"], height: [...parent, "height"] }
-    : null;
+  const width = fieldsWithDefault(library.fields, "width");
+  const height = fieldsWithDefault(library.fields, "height");
+  return width.length > 0 || height.length > 0 ? { width, height } : null;
 }
 
-/** Returns metadata with the library's dimension fields set, when it has any. */
+function emptyValue(value: unknown): boolean {
+  return value === undefined || value === null || value === "";
+}
+
+/** Fills the library's empty dimension fields, keeping any existing value. */
 export function withImageDimensions(
   library: MediaLibrary,
   metadata: Record<string, unknown>,
@@ -391,8 +389,13 @@ export function withImageDimensions(
   const fields = imageDimensionFields(library);
   if (!fields) return metadata;
   const next = structuredClone(metadata);
-  setAt(next, fields.width, dimensions.width);
-  setAt(next, fields.height, dimensions.height);
+  const fill = (paths: string[][], value: number) => {
+    for (const path of paths) {
+      if (emptyValue(valueAt(next, path))) setAt(next, path, value);
+    }
+  };
+  fill(fields.width, dimensions.width);
+  fill(fields.height, dimensions.height);
   return next;
 }
 

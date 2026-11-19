@@ -1,9 +1,11 @@
+import type { Field } from "../pagescms/config";
+
 // Posto annotations written into schema descriptions, such as
 // `z.date().describe("posto:default=capture-date")`. Astro copies descriptions
 // into its generated JSON schemas, so they work without running the site.
 
 /** Values Posto can fill in when an import creates a library entry. */
-export const FIELD_DEFAULTS = ["capture-date"] as const;
+export const FIELD_DEFAULTS = ["capture-date", "width", "height"] as const;
 export type FieldDefault = (typeof FIELD_DEFAULTS)[number];
 
 const DEFAULT_ANNOTATION = /(?:^|\s)posto:default=([A-Za-z0-9_-]+)(?=\s|$)/;
@@ -14,4 +16,18 @@ export function fieldDefaultAnnotation(description: unknown): FieldDefault | und
   if (typeof description !== "string") return undefined;
   const value = description.match(DEFAULT_ANNOTATION)?.[1];
   return FIELD_DEFAULTS.find((known) => known === value);
+}
+
+/** Paths of the fields annotated with one default, outside lists. */
+export function fieldsWithDefault(
+  fields: Field[],
+  value: FieldDefault,
+  prefix: string[] = [],
+): string[][] {
+  return fields.flatMap((field) => {
+    if (field.list) return [];
+    const path = [...prefix, field.name];
+    const own = field.options?.defaultFrom === value ? [path] : [];
+    return [...own, ...fieldsWithDefault(field.fields ?? [], value, path)];
+  });
 }

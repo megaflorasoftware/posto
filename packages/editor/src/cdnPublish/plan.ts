@@ -560,7 +560,8 @@ function fieldAtPath(fields: Field[], path: string[]): Field | undefined {
   return found;
 }
 
-/** Points a library entry at its uploaded image and records its dimensions. */
+/** Points a library entry at its uploaded image. Empty dimension fields are
+ * filled too, since the original file leaves the device with this publish. */
 function rewriteMetadata(
   image: LibraryImage,
   upload: CdnUpload,
@@ -573,17 +574,19 @@ function rewriteMetadata(
   if (parsed.error) return { blocker: `${asset.metadataPath}: ${parsed.error}` };
   setDataValue(parsed, library.imageFieldPath, upload.url);
   const fields = imageDimensionFields(library);
+  const paths = fields ? [...fields.width, ...fields.height] : [];
+  const missing = paths.filter((path) => {
+    const value = valueAt(asset.metadata, path);
+    return value === undefined || value === null || value === "";
+  });
   if (fields && inspection.dimensions) {
-    setDataValue(parsed, fields.width, inspection.dimensions.width);
-    setDataValue(parsed, fields.height, inspection.dimensions.height);
-  } else if (fields) {
-    const required = [fields.width, fields.height].some(
-      (path) => fieldAtPath(library.fields, path)?.required === true,
-    );
-    const stored = [fields.width, fields.height].every(
-      (path) => typeof valueAt(asset.metadata, path) === "number",
-    );
-    if (required && !stored) {
+    const { width, height } = inspection.dimensions;
+    for (const path of missing) {
+      setDataValue(parsed, path, fields.width.includes(path) ? width : height);
+    }
+  } else {
+    const required = missing.some((path) => fieldAtPath(library.fields, path)?.required === true);
+    if (required) {
       return {
         blocker: `Posto couldn't read the dimensions of ${basename(upload.path)}, which ${library.collection} requires. Add its width and height, then publish again.`,
       };
