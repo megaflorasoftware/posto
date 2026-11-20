@@ -51,6 +51,7 @@ import {
   directoriesContainingFiles,
   isPublicMediaFile,
 } from "../../../../packages/editor/src/hooks/usePublicMediaFiles";
+import { dateControls, type DateControl } from "./dates";
 import { fieldViews, type FieldView } from "./fieldViews";
 import { errorMessage, invoke, notify } from "./host";
 import {
@@ -148,6 +149,7 @@ export interface AssetEditorView {
   fields: FieldView[];
   values: Record<string, unknown>;
   errors: Record<string, string>;
+  dates: Record<string, DateControl>;
 }
 
 export interface ImportDraft {
@@ -169,6 +171,7 @@ export interface ImportView {
     metadataExtension: MediaLibraryMetadataExtension | null;
     values: Record<string, unknown>;
     errors: Record<string, string>;
+    dates: Record<string, DateControl>;
   }>;
   fields: FieldView[];
   canImport: boolean;
@@ -380,6 +383,20 @@ export class MediaSession {
       error: state.error,
       readOnly: false,
     };
+  }
+
+  /** Every usable entry of a library, for image-library reference fields. */
+  async libraryAssets(collection: string) {
+    const library = this.library(collection);
+    const state = this.libraries.get(collection) ?? (await this.loadLibrary(library));
+    return state.assets
+      .filter((asset) => asset.health.includes("valid"))
+      .map((asset) => ({
+        entryId: asset.entryId,
+        name: asset.entryId.split("/").pop() ?? asset.entryId,
+        imagePath: asset.imagePath,
+        imageUrl: asset.imageUrl ?? null,
+      }));
   }
 
   private asset(tab: string, id: string): ImageLibraryAsset {
@@ -658,6 +675,7 @@ export class MediaSession {
       fields: fieldViews(form.fields, null, this.config, false, []),
       values: form.values(),
       errors: Object.fromEntries(form.errors()),
+      dates: dateControls(form.fields, form.values()),
     };
   }
 
@@ -888,6 +906,7 @@ export class MediaSession {
         metadataExtension: draft.metadataExtension,
         values: draft.form.values(),
         errors: Object.fromEntries(draft.form.errors()),
+        dates: dateControls(draft.form.fields, draft.form.values()),
       })),
       fields: fieldViews(fields, null, this.config, false, []),
       canImport:

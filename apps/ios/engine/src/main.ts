@@ -31,6 +31,7 @@ import {
   setNotifier,
   setTransport,
 } from "./host";
+import { dateControls, dateFromControl } from "./dates";
 import { rememberConvertedSource } from "./ipc";
 import { MediaSession } from "./media";
 import { RepoSession, type RepoIdentity } from "./repo";
@@ -76,7 +77,11 @@ function formFor(target: string): { store: FormStore | null; document: boolean }
 function formResult(target: string, store: FormStore | null) {
   if (!store) return requireRepo().requireDocument().view();
   void target;
-  return { values: store.values(), errors: Object.fromEntries(store.errors()) };
+  return {
+    values: store.values(),
+    errors: Object.fromEntries(store.errors()),
+    dates: dateControls(store.fields, store.values()),
+  };
 }
 
 function formEdit(
@@ -232,6 +237,23 @@ const methods: Record<string, Method> = {
       (document) => document.listMove(path(args), args.from as number, args.to as number),
     ),
 
+  "form.editDate": (args) => {
+    const target = (args.form as string | undefined) ?? "document";
+    const { store } = formFor(target);
+    const values = store ? store.values() : requireRepo().requireDocument().view().form?.values;
+    let current: unknown = values;
+    for (const key of path(args)) {
+      current =
+        current && typeof current === "object"
+          ? (current as Record<string | number, unknown>)[key as string | number]
+          : undefined;
+    }
+    const value = args.control
+      ? dateFromControl(args.control as string, current, args.time === true)
+      : undefined;
+    return methods["form.edit"]({ ...args, value: value ?? null });
+  },
+
   // Git.
   "git.checkUpstream": async () => {
     await requireRepo().git.checkUpstream();
@@ -298,6 +320,7 @@ const methods: Record<string, Method> = {
 
   // Media.
   "media.tabs": () => requireMedia().tabs(),
+  "media.libraryAssets": (args) => requireMedia().libraryAssets(args.library as string),
   "media.list": (args) =>
     requireMedia().list(args.tab as string, (args.directory as string) ?? "", args.reload === true),
   "media.createFolder": async (args) => {

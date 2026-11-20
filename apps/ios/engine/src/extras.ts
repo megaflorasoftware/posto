@@ -18,6 +18,7 @@ import {
   type PostoCollectionSettings,
 } from "@posto/core/posto/config";
 import { orderableCollections } from "../../../../packages/editor/src/sidebarTree";
+import { dateControls, type DateControl } from "./dates";
 import { fieldViews, type FieldView } from "./fieldViews";
 import { invoke } from "./host";
 import { MetadataForm } from "./metadataForm";
@@ -241,6 +242,7 @@ export function componentFormView(): {
   fields: FieldView[];
   values: Record<string, unknown>;
   errors: Record<string, string>;
+  dates: Record<string, DateControl>;
   slots: string[];
   hasDefaultSlot: boolean;
 } {
@@ -250,6 +252,7 @@ export function componentFormView(): {
     fields: fieldViews(componentForm.form.fields, null, { media: [], content: [] }, false, []),
     values: componentForm.form.values(),
     errors: Object.fromEntries(componentForm.form.errors()),
+    dates: dateControls(componentForm.form.fields, componentForm.form.values()),
     slots: componentForm.slots,
     hasDefaultSlot: componentForm.hasDefaultSlot,
   };

@@ -1,0 +1,270 @@
+import SwiftUI
+
+/// Site settings: Deployments, Branch, Media, Switch project, and removing
+/// the local copy — the same rows as the Tauri app's settings page.
+struct SiteSettingsView: View {
+    @Bindable var repo: RepoModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var confirmingRemove = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if let view = repo.view {
+                    Section {
+                        if view.repo != nil {
+                            NavigationLink {
+                                DeploymentsView(repo: repo)
+                            } label: {
+                                SettingsRow(title: "Deployments", subtitle: "Live GitHub Actions status", symbol: "antenna.radiowaves.left.and.right")
+                            }
+                        }
+                        if let branch = view.branch {
+                            Button {
+                                repo.branchesOpen = true
+                            } label: {
+                                SettingsRow(title: "Branch", subtitle: branch, symbol: "arrow.triangle.branch")
+                            }
+                            .foregroundStyle(.primary)
+                        }
+                        NavigationLink {
+                            MediaView(repo: repo)
+                        } label: {
+                            SettingsRow(
+                                title: "Media",
+                                subtitle: view.mediaLibraryCount > 0
+                                    ? "\(view.mediaLibraryCount) media \(view.mediaLibraryCount == 1 ? "library" : "libraries") + public"
+                                    : "Public media",
+                                symbol: "photo.on.rectangle"
+                            )
+                        }
+                        if view.canSwitchProject {
+                            NavigationLink {
+                                WorkspaceChooserView(repo: repo, candidates: nil, dismissible: true)
+                            } label: {
+                                SettingsRow(title: "Switch Project", subtitle: view.projectDirectory, symbol: "square.stack.3d.up")
+                            }
+                        }
+                    }
+                    Section {
+                        Button(role: .destructive) {
+                            confirmingRemove = true
+                        } label: {
+                            Label("Delete from Device", systemImage: "trash")
+                        }
+                    } footer: {
+                        Text("Removes this repository's downloaded copy from this device. Unpublished changes will be lost. You can download it again anytime.")
+                    }
+                }
+            }
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .confirmationDialog(
+                "Delete \(repo.name) from this device?",
+                isPresented: $confirmingRemove,
+                titleVisibility: .visible
+            ) {
+                Button("Delete from Device", role: .destructive) {
+                    Task {
+                        do {
+                            try await repo.app.removeRepo(root: repo.repoRoot)
+                        } catch {
+                            repo.openError = "Could not remove the repository: \(error.localizedDescription)"
+                        }
+                    }
+                }
+            } message: {
+                Text("Unpublished changes will be lost.")
+            }
+        }
+    }
+}
+
+struct SettingsRow: View {
+    let title: String
+    let subtitle: String
+    let symbol: String
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+        } icon: {
+            Image(systemName: symbol)
+        }
+    }
+}
+
+/// Live deployment status: the ring the desktop app shows, full screen.
+struct DeploymentsView: View {
+    let repo: RepoModel
+    @State private var model: DeploymentModel?
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        let status = model?.status
+        let ring = model?.ring ?? status?.ring
+        List {
+            if let error = model?.error {
+                Section { NoticeRow(message: error, systemImage: "exclamationmark.triangle.fill", tint: .red) }
+            }
+            Section {
+                VStack(spacing: 18) {
+                    DeploymentRingView(ring: ring)
+                        .frame(width: 200, height: 200)
+                    VStack(spacing: 4) {
+                        Text(statusText(ring?.state)).font(.title3.weight(.semibold))
+                        if let status {
+                            Text("\(status.owner)/\(status.name) · \(status.branch)")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 20)
+            }
+            Section {
+                if let site = status?.siteUrl, let url = URL(string: site) {
+                    Button {
+                        openURL(url)
+                    } label: {
+                        Label("Open Site", systemImage: "globe")
+                    }
+                }
+                if let actions = status.flatMap({ URL(string: $0.actionsUrl) }) {
+                    Button {
+                        openURL(actions)
+                    } label: {
+                        Label("View on GitHub Actions", systemImage: "arrow.up.right.square")
+                    }
+                }
+            }
+        }
+        .navigationTitle("Deployments")
+        .onAppear {
+            let deployments = model ?? DeploymentModel(repo: repo)
+            model = deployments
+            deployments.start()
+        }
+        .onDisappear { model?.stop() }
+    }
+
+    private func statusText(_ state: String?) -> String {
+        switch state {
+        case "running": return "Deploying…"
+        case "queued": return "Queued"
+        case "success": return "Deployed"
+        case "failure": return "Deployment failed"
+        case nil: return "Checking…"
+        default: return "No recent deployments"
+        }
+    }
+}
+
+struct DeploymentRingView: View {
+    let ring: DeploymentRing?
+
+    var body: some View {
+        let value = (ring?.value ?? 0) / 100
+        let color: Color = switch ring?.state {
+        case "running": .blue
+        case "success": .teal
+        case "failure": .red
+        default: .gray
+        }
+        ZStack {
+            Circle().stroke(Color.secondary.opacity(0.15), lineWidth: 18)
+            Circle()
+                .trim(from: 0, to: value)
+                .stroke(color, style: StrokeStyle(lineWidth: 18, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .animation(.easeInOut, value: value)
+            if ring?.done == true {
+                Image(systemName: ring?.success == true ? "checkmark" : "xmark")
+                    .font(.system(size: 48, weight: .bold))
+                    .foregroundStyle(ring?.success == true ? Color.teal : Color.red)
+            } else if ring?.state == "running" {
+                Text("\(Int((ring?.value ?? 0).rounded()))%")
+                    .font(.title.bold())
+                    .contentTransition(.numericText())
+            }
+        }
+    }
+}
+
+/// Find or create a branch: search the local and remote list, or create one
+/// from the typed (slugified) name.
+struct BranchPickerView: View {
+    let repo: RepoModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    var body: some View {
+        NavigationStack {
+            let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
+            let filtered = repo.branches.filter { needle.isEmpty || $0.name.lowercased().contains(needle) }
+            let slug = slugifyBranchName(query)
+            let createName = !slug.isEmpty && !repo.branches.contains { $0.name == slug } ? slug : nil
+            List {
+                ForEach(filtered) { branch in
+                    Button {
+                        dismiss()
+                        if !branch.current { Task { await repo.switchBranch(branch.name, create: false) } }
+                    } label: {
+                        HStack {
+                            Label(branch.name, systemImage: branch.local ? "laptopcomputer" : "cloud")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            if branch.current { Image(systemName: "checkmark").foregroundStyle(.tint) }
+                        }
+                    }
+                }
+                if let createName {
+                    Button {
+                        dismiss()
+                        Task { await repo.switchBranch(createName, create: true) }
+                    } label: {
+                        Label("Create branch “\(createName)”", systemImage: "plus")
+                    }
+                }
+            }
+            .overlay {
+                if filtered.isEmpty && createName == nil && !repo.branches.isEmpty {
+                    ContentUnavailableView.search(text: query)
+                } else if repo.branches.isEmpty {
+                    ProgressView()
+                }
+            }
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Find or create a branch")
+            .navigationTitle("Branch")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            }
+            .task { await repo.loadBranches() }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+/// Lowercase, dashes for spaces, characters git refs disallow removed —
+/// `slugifyBranchName` from @posto/editor.
+func slugifyBranchName(_ input: String) -> String {
+    var value = input.lowercased()
+    value = value.replacingOccurrences(of: #"\s+"#, with: "-", options: .regularExpression)
+    value = value.replacingOccurrences(of: #"[~^:?*\[\]\\@{}]"#, with: "", options: .regularExpression)
+    value = value.replacingOccurrences(of: #"\.{2,}"#, with: ".", options: .regularExpression)
+    value = value.replacingOccurrences(of: #"/{2,}"#, with: "/", options: .regularExpression)
+    value = value.replacingOccurrences(of: #"-{2,}"#, with: "-", options: .regularExpression)
+    value = value.replacingOccurrences(of: #"\.lock$"#, with: "", options: .regularExpression)
+    value = value.replacingOccurrences(of: #"^[-./]+|[-./]+$"#, with: "", options: .regularExpression)
+    return value
+}

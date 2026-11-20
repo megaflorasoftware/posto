@@ -36,6 +36,7 @@ import {
   type SelectValue,
 } from "../../../../packages/editor/src/formModel";
 import { DataEntryForm, FrontmatterForm, type FormEmit, type FormStore } from "./forms";
+import { dateControls, type DateControl } from "./dates";
 import { fieldViews, type FieldView } from "./fieldViews";
 import { errorMessage, invoke } from "./host";
 
@@ -79,6 +80,8 @@ export interface DocumentView {
   tabs: EditorTab[];
   tab: EditorTab;
   saveState: SaveState;
+  /** Bumped whenever the form is rebuilt from content (external changes). */
+  revision: number;
   collectionLabel: string | null;
   filename: {
     value: string;
@@ -93,6 +96,7 @@ export interface DocumentView {
     fields: FieldView[];
     values: Record<string, unknown>;
     errors: Record<string, string>;
+    dates: Record<string, DateControl>;
   } | null;
   body: { kind: "markdown" | "mdx" | "plain"; text: string; componentBlocks: boolean } | null;
   /** The whole file, only while the raw tab is showing. */
@@ -108,6 +112,7 @@ export class DocumentSession {
   tab: EditorTab;
   private form: FormStore | null = null;
   private imports: ManagedImport[] = [];
+  private revision = 0;
   private bodyText = "";
   private saveTimer: ReturnType<typeof setTimeout> | undefined;
   private activeSave: Promise<void> | null = null;
@@ -161,6 +166,7 @@ export class DocumentSession {
 
   /** Rebuilds the form from `content`, as FormEditor does for external changes. */
   rebuild(): void {
+    this.revision += 1;
     const entry = this.entry;
     if (this.dataEntry && entry) {
       this.form = new DataEntryForm(this.content, entry, this.dataEntry);
@@ -235,6 +241,7 @@ export class DocumentSession {
       tabs,
       tab,
       saveState: this.saveState,
+      revision: this.revision,
       collectionLabel: entry ? (entry.label ?? entry.name) : null,
       filename: {
         value: this.name,
@@ -260,6 +267,7 @@ export class DocumentSession {
               ),
               values: form.values(),
               errors: Object.fromEntries(form.errors()),
+              dates: dateControls(form.fields, form.values()),
             }
           : null,
       body:
