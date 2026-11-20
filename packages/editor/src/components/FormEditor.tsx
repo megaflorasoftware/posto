@@ -2,18 +2,11 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Alert } from "@mantine/core";
 
 import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
-import {
-  expandFieldTemplate,
-  frontmatterFields,
-  inferFields,
-  plainDateField,
-} from "@posto/core/pagescms/config";
+import { frontmatterFields, inferFields, plainDateField } from "@posto/core/pagescms/config";
 import {
   type ParsedFile,
-  type ValuePath,
   appendListItem,
   deleteValue,
-  getValue,
   moveListItem,
   parseFile,
   removeListItem,
@@ -26,25 +19,7 @@ import type { ComponentSchemaSource } from "@posto/core/project/adapter";
 import type { EntryIdSource } from "@posto/core/project/entryIds";
 import { BodyEditor } from "./BodyEditor";
 import { FieldEditor, type FieldContext } from "./FieldEditor";
-
-/** Schema field a frontmatter path lands on; numeric list indices stay on
- * the list's own field definition. Null for paths the schema doesn't know. */
-function fieldAt(fields: Field[], path: ValuePath): Field | null {
-  let scope = fields;
-  let found: Field | null = null;
-  for (const key of path) {
-    if (typeof key === "number") continue;
-    found = scope.find((f) => f.name === key) ?? null;
-    if (!found) return null;
-    scope = found.fields ?? [];
-  }
-  return found;
-}
-
-function plainValues(parsed: ParsedFile): Record<string, unknown> {
-  const js = parsed.doc.toJS();
-  return js && typeof js === "object" && !Array.isArray(js) ? (js as Record<string, unknown>) : {};
-}
+import { applyControlledTemplates, fieldAt, materializeDefaults, plainValues } from "../formModel";
 
 /**
  * The Form tab. Owns the parsed YAML Document (kept in refs outside React so
@@ -125,23 +100,6 @@ export function FormEditor(props: {
     setErrors(validateForm(fieldList, current));
   });
 
-  function materializeDefaults(fieldList: Field[], base: ValuePath) {
-    for (const field of fieldList) {
-      if (field.name === "body") continue;
-      const path = [...base, field.name];
-      const current = getValue(parsedRef.current.doc, path);
-      if (current === undefined) {
-        if (field.default !== undefined) {
-          setValue(parsedRef.current.doc, path, field.default, {
-            dateField: plainDateField(field),
-          });
-        }
-      } else if (field.type === "object" && !field.list && field.fields) {
-        materializeDefaults(field.fields, path);
-      }
-    }
-  }
-
   function emit() {
     const current = plainValues(parsedRef.current);
     setValues(current);
@@ -152,37 +110,10 @@ export function FormEditor(props: {
     props.onChange(content, errs.size === 0);
   }
 
-  /** Recompute every controlled field after an item edit. Unrelated
-   * templates resolve to their existing value, while repeated passes let
-   * controlled fields feed one another without relying on fragile path-key
-   * comparisons for nested schemas. */
-  function applyControlledTemplates() {
-    const schemas = props.entry?.fieldSchemas;
-    if (!schemas) return;
-    const controlled = Object.entries(schemas).filter(
-      ([name, schema]) =>
-        name !== "filename" && schema.template && schema.editBehavior === "controlled",
-    );
-    for (let pass = 0; pass <= controlled.length; pass++) {
-      let changed = false;
-      for (const [name, schema] of Object.entries(schemas)) {
-        if (name === "filename" || !schema.template || schema.editBehavior !== "controlled")
-          continue;
-        const values = plainValues(parsedRef.current);
-        const expanded = expandFieldTemplate(schema.template, values);
-        const path = name.split(".");
-        if (expanded === null || getValue(parsedRef.current.doc, path) === expanded) continue;
-        setValue(parsedRef.current.doc, path, expanded);
-        changed = true;
-      }
-      if (!changed) break;
-    }
-  }
-
   function beforeEdit() {
     if (!defaultsApplied.current) {
       defaultsApplied.current = true;
-      materializeDefaults(fields, []);
+      materializeDefaults(parsedRef.current.doc, fields, []);
     }
   }
 
@@ -215,7 +146,7 @@ export function FormEditor(props: {
           dateField: plainDateField(fieldAt(fields, path)),
         });
       }
-      applyControlledTemplates();
+      applyControlledTemplates(parsedRef.current.doc, props.entry);
       emit();
     },
     listAppend: (path, value) => {

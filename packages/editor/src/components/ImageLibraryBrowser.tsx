@@ -13,15 +13,12 @@ import { PickerCardSelection } from "./PickerCardSelection";
 import { PickerDirectoryCard } from "./PickerDirectoryCard";
 import { useShiftPressed } from "../hooks/useShiftPressed";
 
+import { imageLibraryItemsIn } from "../imageLibraryItems";
+
+export { imageLibraryItemsIn };
+
 function normalize(path: string): string {
   return path.replace(/\\/g, "/").replace(/\/+$/, "");
-}
-
-function relative(root: string, path: string): string | null {
-  const base = normalize(root);
-  const target = normalize(path);
-  if (target === base) return "";
-  return target.startsWith(`${base}/`) ? target.slice(base.length + 1) : null;
 }
 
 function dirname(path: string): string {
@@ -44,26 +41,6 @@ function directoryPreviewImages(directory: string, assets: ImageLibraryAsset[]):
       return preview;
     })
     .slice(0, 4);
-}
-
-/** The folders and selectable entries shown in one folder of a library. */
-export function imageLibraryItemsIn(
-  rootDirectory: string,
-  currentDirectory: string,
-  directories: string[],
-  assets: ImageLibraryAsset[],
-): { folders: Array<{ name: string; path: string }>; assets: ImageLibraryAsset[] } {
-  const root = normalize(rootDirectory);
-  const current = currentDirectory ? `${root}/${currentDirectory}` : root;
-  return {
-    folders: directories
-      .flatMap((directory) => {
-        const location = relative(current, directory);
-        return location && !location.includes("/") ? [{ name: location, path: directory }] : [];
-      })
-      .sort((a, b) => a.name.localeCompare(b.name)),
-    assets: assets.filter((asset) => normalize(dirname(asset.metadataPath)) === normalize(current)),
-  };
 }
 
 export function ImageLibraryBrowser(props: {

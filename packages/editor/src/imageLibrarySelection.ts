@@ -1,5 +1,5 @@
 import type { ImageLibraryAsset } from "@posto/core/project/mediaLibrary";
-import { imageLibraryItemsIn } from "./components/ImageLibraryBrowser";
+import { imageLibraryItemsIn } from "./imageLibraryItems";
 
 export interface LibraryItems {
   assetIds: string[];

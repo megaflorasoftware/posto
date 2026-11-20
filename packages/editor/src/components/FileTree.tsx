@@ -9,17 +9,12 @@ import {
 } from "@mantine/core";
 import { FileText, Folder, FolderOpen, Pin, Plus, SlidersHorizontal } from "lucide-react";
 import type { ContentEntry } from "@posto/core/pagescms/config";
-import { expandEntryName } from "@posto/core/posto/config";
+import { canCreateFileInGroup, sidebarFileLabel } from "../fileTreeModel";
 import type { FileEntry, FileGroup } from "@posto/ipc";
 import type { DisplayGroupNode } from "./Sidebar";
 import { FileList } from "./FileList";
 
-/** Public media is managed through the media library, not this text-file tree. */
-export function canCreateFileInGroup(root: string, group: FileGroup): boolean {
-  const normalizedRoot = root.replace(/\\/g, "/").replace(/\/+$/, "");
-  const normalizedGroup = group.path.replace(/\\/g, "/").replace(/\/+$/, "");
-  return group.kind !== "styles" && normalizedGroup !== `${normalizedRoot}/public`;
-}
+export { canCreateFileInGroup, sidebarFileLabel } from "../fileTreeModel";
 
 type DirectoryNodeProps = {
   type: "directory";
@@ -40,12 +35,6 @@ function fileValue(file: FileEntry): string {
 
 function directoryValue(node: DisplayGroupNode): string {
   return `directory:${node.group.kind ?? ""}:${node.group.path}`;
-}
-
-/** A custom collection entry-label template wins; otherwise show the filename. */
-export function sidebarFileLabel(file: FileEntry, collection: ContentEntry | null): string {
-  if (!collection?.entryName) return file.name;
-  return expandEntryName(collection.entryName, file.frontmatter) ?? file.name;
 }
 
 function fileData(file: FileEntry, collection: ContentEntry | null): TreeNodeData {

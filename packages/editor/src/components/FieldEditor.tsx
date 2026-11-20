@@ -50,6 +50,13 @@ import { FieldRowsAction, FieldTemplateActions } from "./FieldTemplateActions";
 import { AdaptiveSelect } from "./AdaptiveSelect";
 import { Dialog } from "./Dialog";
 import { useMediaDropZone, type PostoListDragData } from "./MediaDragDrop";
+import {
+  asString,
+  newItemValue,
+  referenceOptions,
+  referenceTemplate,
+  selectValues,
+} from "../formModel";
 
 export interface FieldContext {
   config: PagesConfig;
@@ -74,43 +81,6 @@ export interface FieldContext {
   onPostoSaved?: () => void;
   /** Refreshes collection data after creating an item from a reference field. */
   onReferenceCreated?: (collection: ContentEntry) => Promise<void> | void;
-}
-
-function asString(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint")
-    return String(value);
-  return "";
-}
-
-/** Initial value for a newly added list item, built from nested defaults. */
-function newItemValue(field: Field): unknown {
-  if (field.type === "object") {
-    const item: Record<string, unknown> = {};
-    for (const child of field.fields ?? []) {
-      item[child.name] = child.default ?? (child.type === "object" ? newItemValue(child) : "");
-    }
-    return item;
-  }
-  return field.default ?? "";
-}
-
-interface SelectValue {
-  value: string;
-  label: string;
-}
-
-function selectValues(field: Field): SelectValue[] {
-  const values = field.options?.values;
-  if (!Array.isArray(values)) return [];
-  return values.map((v) => {
-    if (v && typeof v === "object") {
-      const item = v as Record<string, unknown>;
-      const value = asString(item.value ?? item.name);
-      return { value, label: asString(item.label) || value };
-    }
-    return { value: asString(v), label: asString(v) };
-  });
 }
 
 function draftValues(doc: Document): Record<string, unknown> {
@@ -1089,26 +1059,6 @@ function referenceLabel(ctx: FieldContext, value: string): string {
   return value;
 }
 
-/**
- * Expands a Pages CMS reference `value`/`label` template for one file:
- * `{name}` (filename with extension), `{path}` (repo-root-relative),
- * `{filename}` (name without extension), `{extension}`, and `{primary}`
- * (frontmatter title when known, else the bare filename). Unknown tokens
- * expand to "" like Pages CMS.
- */
-function referenceTemplate(template: string, root: string, file: FileEntry): string {
-  const dot = file.name.lastIndexOf(".");
-  const bare = dot > 0 ? file.name.slice(0, dot) : file.name;
-  const data: Record<string, string> = {
-    name: file.name,
-    path: file.path.slice(root.length + 1),
-    filename: bare,
-    extension: dot > 0 ? file.name.slice(dot + 1) : "",
-    primary: file.title ?? bare,
-  };
-  return template.replace(/\{([^}]+)\}/g, (_, token: string) => data[token] ?? "");
-}
-
 function ReferenceField(props: { field: Field; path: ValuePath; ctx: FieldContext }) {
   const imageLibrary = props.ctx.config.mediaLibraries?.find(
     (library) => library.collection === props.field.options?.collection,
@@ -1168,35 +1118,12 @@ function FileReferenceField(props: { field: Field; path: ValuePath; ctx: FieldCo
   });
   const ordered = collection ? applyCollectionPrefs(enriched, collection) : enriched;
 
-  const valueTemplate =
-    typeof props.field.options?.value === "string" ? props.field.options.value : null;
-  const labelTemplate =
-    typeof props.field.options?.label === "string" ? props.field.options.label : null;
-  const seen = new Set<string>();
-  // Astro `reference()` frontmatter holds the entry id, not a path; ids come
-  // from the same default-`generateId` rules Astro applies (frontmatter slug
-  // override, slugified base-relative path).
-  const frameworkBase =
-    props.field.options?.idScheme === "framework" && props.ctx.entryIds && collection
-      ? props.ctx.root + "/" + collection.path + "/"
-      : null;
-  const files = ordered.flatMap((file) => {
-    const option = {
-      // Pages CMS stores the repo-root-relative path by default.
-      value: frameworkBase
-        ? (file.dataEntry?.id ??
-          props.ctx.entryIds!.derive(file.path.slice(frameworkBase.length), file.frontmatter?.slug))
-        : valueTemplate
-          ? referenceTemplate(valueTemplate, props.ctx.root, file)
-          : file.path.slice(props.ctx.root.length + 1),
-      label:
-        (labelTemplate
-          ? referenceTemplate(labelTemplate, props.ctx.root, file)
-          : (file.title ?? file.name)) || file.name,
-    };
-    if (option.value === "" || seen.has(option.value)) return [];
-    seen.add(option.value);
-    return [option];
+  const files = referenceOptions({
+    files: ordered,
+    field: props.field,
+    collection: collection ?? null,
+    root: props.ctx.root,
+    entryIds: props.ctx.entryIds ?? null,
   });
   const value = asString(props.ctx.value(props.path));
   const missing = value !== "" && !files.some((f) => f.value === value);
