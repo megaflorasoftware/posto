@@ -37,7 +37,8 @@ xcodebuild -project Posto.xcodeproj -scheme Posto -configuration Debug \
   -destination "id=$udid" -derivedDataPath build/DerivedData -quiet build
 
 xcrun simctl boot "$udid" 2>/dev/null || true
-open -a Simulator
+# Xcode 27 replaced Simulator.app with Device Hub.
+open -a Simulator 2>/dev/null || open -a DeviceHub
 xcrun simctl install "$udid" build/DerivedData/Build/Products/Debug-iphonesimulator/Posto.app
 
 case "$mode" in
