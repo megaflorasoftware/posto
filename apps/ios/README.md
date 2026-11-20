@@ -47,7 +47,6 @@ apps/ios/scripts/catalyst-demo.sh  # run the demo on this Mac (--tour snapshots 
 
 ## Not ported yet
 
-- Creating a referenced entry from a reference field (the desktop "+" draft).
 - Editing an existing MDX component's props in place. New components insert
   with a props form, and existing JSX stays editable as text.
 - Browsing CDN objects from an image field.

@@ -148,6 +148,20 @@ describe("repository session", () => {
     expect(created.form.values.title).toBe("Untitled");
   });
 
+  it("creates a referenced entry from a reference field", async () => {
+    const view = await call<{ tree: TreeNode[] }>("repo.view");
+    const file = allFiles(view.tree).find((candidate) => candidate.label === "Y")!;
+    await call("doc.open", { key: file.key });
+    const draft = await call<{ collection: { name: string }; values: Record<string, unknown> }>(
+      "reference.start",
+      { path: ["related"] },
+    );
+    expect(draft.collection.name).toBe("blog");
+    await call("form.edit", { form: "reference", path: ["title"], value: "Fresh related post" });
+    const document = await call<{ form: { values: Record<string, unknown> } }>("reference.finish");
+    expect(String(document.form.values.related)).toContain("Fresh related post");
+  });
+
   it("lists changes for the publish sheet and publishes", async () => {
     const publish = await call<{ changes: unknown[] | null; changesError: string | null }>(
       "git.loadChanges",

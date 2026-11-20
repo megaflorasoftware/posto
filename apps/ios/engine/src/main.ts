@@ -34,6 +34,12 @@ import {
 import { expandFieldTemplate } from "@posto/core/pagescms/config";
 import { dateControls, dateFromControl } from "./dates";
 import { rememberConvertedSource } from "./ipc";
+import {
+  cancelReferenceDraft,
+  finishReferenceDraft,
+  referenceDraftForm,
+  startReferenceDraft,
+} from "./references";
 import { MediaSession } from "./media";
 import { RepoSession, type RepoIdentity } from "./repo";
 
@@ -69,6 +75,7 @@ function formFor(target: string): { store: FormStore | null; document: boolean }
     return { store: editor.form, document: false };
   }
   if (target === "component") return { store: componentFormStore(), document: false };
+  if (target === "reference") return { store: referenceDraftForm(), document: false };
   if (target.startsWith("import:")) {
     return { store: requireMedia().importDraft(Number(target.slice(7))).form, document: false };
   }
@@ -264,6 +271,17 @@ const methods: Record<string, Method> = {
     const value = template ? expandFieldTemplate(template, values) : null;
     if (value === null) return document.view();
     return methods["form.edit"]({ ...args, value });
+  },
+
+  // Creating a referenced entry from a reference field.
+  "reference.start": (args) => startReferenceDraft(requireRepo(), path(args)),
+  "reference.finish": async () => {
+    await finishReferenceDraft(requireRepo());
+    return requireRepo().requireDocument().view();
+  },
+  "reference.cancel": () => {
+    cancelReferenceDraft();
+    return null;
   },
 
   // Git.

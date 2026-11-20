@@ -154,6 +154,7 @@ struct ReferenceFieldRow: View {
     let label: String
     @State private var options: ReferenceOptions?
     @State private var pickingAsset = false
+    @State private var creating = false
 
     var body: some View {
         if let library = field.imageLibrary {
@@ -180,21 +181,37 @@ struct ReferenceFieldRow: View {
             }
         } else {
             let known = options?.options.contains { $0.value == value } ?? true
-            Picker(selection: Binding(
-                get: { value },
-                set: { next in Task { await document.edit(path, next.isEmpty ? nil : .string(next)) } }
-            )) {
-                if !field.required || value.isEmpty { Text("None").tag("") }
-                if !value.isEmpty && !known { Text("\(value) (missing)").tag(value) }
-                ForEach(options?.options ?? []) { option in
-                    Text(option.label).tag(option.value)
+            HStack {
+                Picker(selection: Binding(
+                    get: { value },
+                    set: { next in Task { await document.edit(path, next.isEmpty ? nil : .string(next)) } }
+                )) {
+                    if !field.required || value.isEmpty { Text("None").tag("") }
+                    if !value.isEmpty && !known { Text("\(value) (missing)").tag(value) }
+                    ForEach(options?.options ?? []) { option in
+                        Text(option.label).tag(option.value)
+                    }
+                } label: {
+                    Text(label.isEmpty ? field.label : label)
                 }
-            } label: {
-                Text(label.isEmpty ? field.label : label)
+                .pickerStyle(.navigationLink)
+                if options?.collection != nil {
+                    Button {
+                        creating = true
+                    } label: {
+                        Image(systemName: "plus.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Create \(options?.collection?.label ?? "entry")")
+                }
             }
-            .pickerStyle(.navigationLink)
             .task(id: field.referenceCollection) {
                 options = try? await document.engine.call("doc.referenceOptions", ["path": path.json])
+            }
+            .sheet(isPresented: $creating, onDismiss: {
+                Task { options = try? await document.engine.call("doc.referenceOptions", ["path": path.json]) }
+            }) {
+                ReferenceDraftSheet(document: document, path: path)
             }
         }
     }
@@ -266,6 +283,70 @@ struct LibraryAssetPicker: View {
                 }
             }
             .task { assets = (try? await engine.call("media.libraryAssets", ["library": .string(library)])) ?? [] }
+        }
+    }
+}
+
+/// Creates an entry in the referenced collection, then points the field at
+/// it (or appends it, for reference lists).
+struct ReferenceDraftSheet: View {
+    let document: DocumentModel
+    let path: [PathKey]
+    @Environment(\.dismiss) private var dismiss
+    @State private var form: MetadataFormModel?
+    @State private var title = "New Entry"
+    @State private var error: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let form, let state = form.formState() {
+                    FieldSections(sink: form, state: state, fields: form.fields)
+                }
+            }
+            .overlay { if form == nil && error == nil { ProgressView() } }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        Task { try? await document.engine.run("reference.cancel") }
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    AsyncButton {
+                        do {
+                            let next: DocumentView = try await document.engine.call("reference.finish")
+                            document.apply(next)
+                            dismiss()
+                        } catch {
+                            self.error = error.localizedDescription
+                        }
+                    } label: {
+                        Text("Save").bold()
+                    }
+                    .disabled(form?.valid != true)
+                }
+            }
+            .task {
+                do {
+                    let draft: JSONValue = try await document.engine.call("reference.start", ["path": path.json])
+                    let fields = try draft["fields"]?.decode(as: [FieldView].self) ?? []
+                    form = MetadataFormModel(
+                        engine: document.engine,
+                        target: "reference",
+                        fields: fields,
+                        values: draft["values"] ?? .object([:]),
+                        errors: (try? draft["errors"]?.decode(as: [String: String].self)) ?? [:],
+                        dates: (try? draft["dates"]?.decode(as: [String: DateControl].self)) ?? [:]
+                    )
+                    title = "New \(draft["collection"]?["label"]?.stringValue ?? "Entry")"
+                } catch {
+                    self.error = error.localizedDescription
+                }
+            }
+            .errorAlert($error)
         }
     }
 }

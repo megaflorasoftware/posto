@@ -377,6 +377,7 @@ struct ListFieldSection: View {
     let field: FieldView
     let path: [PathKey]
     var document: DocumentModel?
+    @State private var creatingReference = false
 
     var body: some View {
         let items = state.values.value(at: path)?.arrayValue ?? []
@@ -445,6 +446,17 @@ struct ListFieldSection: View {
                 Label("Add Item", systemImage: "plus")
             }
             .disabled(!canAdd)
+            if field.type == "reference", field.imageLibrary == nil, let document {
+                Button {
+                    creatingReference = true
+                } label: {
+                    Label("Create New Entry", systemImage: "plus.square.on.square")
+                }
+                .disabled(!canAdd)
+                .sheet(isPresented: $creatingReference) {
+                    ReferenceDraftSheet(document: document, path: path)
+                }
+            }
         } header: {
             Text(field.displayLabel)
         } footer: {
