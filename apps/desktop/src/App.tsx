@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ActionIcon, Button, MantineProvider, Modal, Switch } from "@mantine/core";
+import { ActionIcon, Button, Group, MantineProvider, Modal, Switch, Text } from "@mantine/core";
 import { Notifications, notifications } from "@mantine/notifications";
 import {
   invoke,
@@ -33,6 +33,7 @@ import {
 } from "@posto/core/project/workspace";
 import {
   BranchConflictDialog,
+  Dialog,
   EditorPane,
   ImageLibraryDropImport,
   MediaDragDropProvider,
@@ -95,6 +96,7 @@ function App() {
   const [editorTab, setEditorTab] = useState<EditorTab>("content");
   const [publishOpen, setPublishOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [discardEditsOpen, setDiscardEditsOpen] = useState(false);
   const [developerMode, setDeveloperMode] = useState(false);
   const [sidebarView, setSidebarView] = useState<"files" | "media">("files");
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -176,6 +178,12 @@ function App() {
   function openFile(target: string | FileEntry, navigatePreview = true) {
     navigatePreviewRef.current = navigatePreview;
     void currentFile.openFile(target);
+  }
+
+  // Closing removes the editor pane. Edits that could not be saved (an
+  // invalid form, a failed write) are only dropped once the user confirms.
+  async function closeEditor() {
+    if ((await currentFile.closeFileAfterSave()) === "unsaved") setDiscardEditsOpen(true);
   }
 
   const preview = usePreview({
@@ -747,6 +755,8 @@ function App() {
       />
     ) : null;
 
+  const editorPaneOpen = fullscreenEditorOpen || currentFile.filePath !== null;
+
   const renderEditorPane = (withFullscreenButton = false, fullscreen = false) =>
     root ? (
       <EditorPane
@@ -785,6 +795,7 @@ function App() {
         }}
         developerMode={developerMode}
         onFullscreen={withFullscreenButton ? () => setFullscreenEditorOpen(true) : undefined}
+        onClose={fullscreen ? undefined : () => void closeEditor()}
         headerLeading={fullscreen ? renderFullscreenExit() : undefined}
         headerTrailing={fullscreen ? renderFullscreenSidebarToggle() : undefined}
       />
@@ -887,6 +898,31 @@ function App() {
               });
             }}
           />
+
+          <Dialog
+            opened={discardEditsOpen}
+            onClose={() => setDiscardEditsOpen(false)}
+            title="Discard unsaved changes?"
+          >
+            <Text size="sm">
+              Some edits to this file could not be saved because a field is invalid or the last save
+              failed. Closing the editor will discard them.
+            </Text>
+            <Group justify="flex-end" mt="lg">
+              <Button variant="default" onClick={() => setDiscardEditsOpen(false)}>
+                Keep editing
+              </Button>
+              <Button
+                color="red"
+                onClick={() => {
+                  setDiscardEditsOpen(false);
+                  currentFile.closeFile();
+                }}
+              >
+                Discard and close
+              </Button>
+            </Group>
+          </Dialog>
 
           <Modal opened={settingsOpen} onClose={() => setSettingsOpen(false)} title="Settings">
             <Switch
@@ -999,55 +1035,67 @@ function App() {
                 className={`panes${sidebarOpen ? "" : " sidebar-collapsed"}`}
                 ref={preview.panesEl}
               >
-                <div
-                  className={`pane editor-pane${
-                    fullscreenEditorOpen
-                      ? ` fullscreen-workspace fullscreen-editor-pane${
-                          fullscreenSidebarOpen ? " fullscreen-sidebars-open" : ""
-                        }${currentFile.filePath ? "" : " fullscreen-no-file"}`
-                      : ""
-                  }`}
-                  style={{ flexBasis: `${preview.split}%` }}
-                >
-                  {renderEditorPane(!fullscreenEditorOpen, fullscreenEditorOpen)}
-                  {fullscreenEditorOpen && (
-                    <>
-                      <div className="fullscreen-sidebar-rail fullscreen-sidebar-rail-left">
-                        <aside className="fullscreen-floating-sidebar" aria-label="Files sidebar">
-                          <div className="fullscreen-floating-sidebar-header">
-                            <Files size={16} />
-                            <span>Files</span>
+                {/* The editor pane exists only while a file is open (or as the
+                    fullscreen workspace); otherwise the preview takes its room. */}
+                {editorPaneOpen && (
+                  <>
+                    <div
+                      className={`pane editor-pane${
+                        fullscreenEditorOpen
+                          ? ` fullscreen-workspace fullscreen-editor-pane${
+                              fullscreenSidebarOpen ? " fullscreen-sidebars-open" : ""
+                            }${currentFile.filePath ? "" : " fullscreen-no-file"}`
+                          : ""
+                      }`}
+                      style={{ flexBasis: `${preview.split}%` }}
+                    >
+                      {renderEditorPane(!fullscreenEditorOpen, fullscreenEditorOpen)}
+                      {fullscreenEditorOpen && (
+                        <>
+                          <div className="fullscreen-sidebar-rail fullscreen-sidebar-rail-left">
+                            <aside
+                              className="fullscreen-floating-sidebar"
+                              aria-label="Files sidebar"
+                            >
+                              <div className="fullscreen-floating-sidebar-header">
+                                <Files size={16} />
+                                <span>Files</span>
+                              </div>
+                              <div className="fullscreen-floating-sidebar-content">
+                                {renderFileSidebar()}
+                              </div>
+                            </aside>
                           </div>
-                          <div className="fullscreen-floating-sidebar-content">
-                            {renderFileSidebar()}
-                          </div>
-                        </aside>
-                      </div>
-                      {config && (
-                        <div className="fullscreen-sidebar-rail fullscreen-sidebar-rail-right">
-                          <aside className="fullscreen-floating-sidebar" aria-label="Media sidebar">
-                            <div className="fullscreen-floating-sidebar-header">
-                              <ImageIcon size={16} />
-                              <span>Media</span>
+                          {config && (
+                            <div className="fullscreen-sidebar-rail fullscreen-sidebar-rail-right">
+                              <aside
+                                className="fullscreen-floating-sidebar"
+                                aria-label="Media sidebar"
+                              >
+                                <div className="fullscreen-floating-sidebar-header">
+                                  <ImageIcon size={16} />
+                                  <span>Media</span>
+                                </div>
+                                <div className="fullscreen-floating-sidebar-content">
+                                  {renderMediaSidebar()}
+                                </div>
+                              </aside>
                             </div>
-                            <div className="fullscreen-floating-sidebar-content">
-                              {renderMediaSidebar()}
-                            </div>
-                          </aside>
-                        </div>
+                          )}
+                        </>
                       )}
-                    </>
-                  )}
-                </div>
+                    </div>
 
-                <div
-                  className="pane-divider"
-                  onPointerDown={(e) => {
-                    e.currentTarget.setPointerCapture(e.pointerId);
-                    preview.setDragging(true);
-                  }}
-                  onPointerMove={preview.onDividerPointerMove}
-                />
+                    <div
+                      className="pane-divider"
+                      onPointerDown={(e) => {
+                        e.currentTarget.setPointerCapture(e.pointerId);
+                        preview.setDragging(true);
+                      }}
+                      onPointerMove={preview.onDividerPointerMove}
+                    />
+                  </>
+                )}
 
                 {renderPreviewPane()}
               </div>

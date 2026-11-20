@@ -36,6 +36,13 @@ export function useCurrentFile(callbacks: Callbacks) {
 
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const activeSave = useRef<Promise<void> | null>(null);
+  // The open file's content as last read from or written to disk. Content
+  // still differing after a flush could not be saved (invalid form, failed
+  // write).
+  const savedContentRef = useRef("");
+  // Bumped when another document opens or the file closes, never on renames,
+  // so a close that waited on a save can tell it still applies.
+  const openGeneration = useRef(0);
 
   useEffect(() => {
     return () => clearTimeout(saveTimer.current);
@@ -54,6 +61,7 @@ export function useCurrentFile(callbacks: Callbacks) {
         return invoke("write_text_file", { path: target, content });
       })
       .then(() => {
+        if (filePathRef.current === target) savedContentRef.current = content;
         setSaveState("saved");
         cb.current.onAfterSave?.(target, content);
       })
@@ -147,6 +155,7 @@ export function useCurrentFile(callbacks: Callbacks) {
     const path = typeof target === "string" ? target : target.path;
     const key = file?.key ?? path;
     if (key === activeKeyRef.current) return;
+    openGeneration.current++;
     await flushPendingSave();
     if (path === filePathRef.current) {
       setActiveKey(key);
@@ -161,6 +170,7 @@ export function useCurrentFile(callbacks: Callbacks) {
       filePathRef.current = path;
       setFileContent(content);
       fileContentRef.current = content;
+      savedContentRef.current = content;
       setActiveKey(key);
       activeKeyRef.current = key;
       setDataEntry(file?.dataEntry);
@@ -173,6 +183,7 @@ export function useCurrentFile(callbacks: Callbacks) {
 
   /** Resets to "no file selected". */
   function closeFile() {
+    openGeneration.current++;
     setFilePath(null);
     filePathRef.current = null;
     setFileContent("");
@@ -180,13 +191,28 @@ export function useCurrentFile(callbacks: Callbacks) {
     activeKeyRef.current = null;
     setDataEntry(undefined);
     fileContentRef.current = "";
+    savedContentRef.current = "";
     setSaveState("saved");
+  }
+
+  /** Saves pending edits, then closes the file. "unsaved" leaves it open
+   * because some edits could not be saved; the caller decides whether to
+   * discard them with closeFile. "superseded" means another document was
+   * opened while the save ran. */
+  async function closeFileAfterSave(): Promise<"closed" | "unsaved" | "superseded"> {
+    const generation = openGeneration.current;
+    await flushPendingSave();
+    if (openGeneration.current !== generation) return "superseded";
+    if (fileContentRef.current !== savedContentRef.current) return "unsaved";
+    closeFile();
+    return "closed";
   }
 
   /** Replaces the in-memory content with what's on disk (already read). */
   function setContentFromDisk(content: string) {
     setFileContent(content);
     fileContentRef.current = content;
+    savedContentRef.current = content;
     setSaveState("saved");
   }
 
@@ -221,6 +247,7 @@ export function useCurrentFile(callbacks: Callbacks) {
     saveState,
     openFile,
     closeFile,
+    closeFileAfterSave,
     onEdit,
     onFormEdit,
     renameOpenFile,

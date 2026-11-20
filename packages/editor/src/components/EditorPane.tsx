@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ActionIcon, Alert, TextInput } from "@mantine/core";
-import { Code2, Maximize2, RefreshCw } from "lucide-react";
+import { Code2, Maximize2, RefreshCw, X } from "lucide-react";
 import type { FileEntry, FileGroup } from "@posto/ipc";
 import { EMPTY_CONFIG, type ContentEntry, type PagesConfig } from "@posto/core/pagescms/config";
 import { FormEditor } from "./FormEditor";
@@ -81,6 +81,8 @@ export function EditorPane(props: {
   developerMode?: boolean;
   /** Opens the desktop editor in its distraction-free workspace. */
   onFullscreen?: () => void;
+  /** Closes the open file, rendered after the fullscreen button. */
+  onClose?: () => void;
   /** Control rendered before the filename, used by the fullscreen header. */
   headerLeading?: ReactNode;
   /** Control rendered after the editor actions, used by the fullscreen header. */
@@ -125,6 +127,17 @@ export function EditorPane(props: {
       onClick={props.onFullscreen}
     >
       <Maximize2 size={13} />
+    </ActionIcon>
+  ) : null;
+  const closeAction = props.onClose ? (
+    <ActionIcon
+      size={26}
+      variant="default"
+      title="Close editor"
+      aria-label="Close editor"
+      onClick={props.onClose}
+    >
+      <X size={13} />
     </ActionIcon>
   ) : null;
 
@@ -251,6 +264,7 @@ export function EditorPane(props: {
               </ActionIcon>
             )}
             {fullscreenAction}
+            {closeAction}
             {props.headerTrailing}
           </div>
         </div>
