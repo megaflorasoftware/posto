@@ -62,6 +62,9 @@ struct Thumbnail: View {
                 }
             }
             .clipped()
+            // clipped() trims the drawing, not hit-testing: without this, a
+            // tall image's overflow takes taps meant for whatever sits above.
+            .contentShape(.rect)
         .task(id: path) {
             guard url == nil, let path else { return }
             let loaded = await ThumbnailCache.shared.image(path: path, maxPixels: maxPixels)
