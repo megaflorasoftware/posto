@@ -1,0 +1,10 @@
+module PostoNative {
+    header "posto_native.h"
+    // What the static library needs from the SDK (rustc's
+    // native-static-libs), autolinked into whatever imports the module.
+    link framework "Security"
+    link framework "CoreFoundation"
+    link "iconv"
+    link "z"
+    export *
+}

@@ -1,0 +1,9 @@
+[package]
+name = "posto-tauri-shim-macros"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The `#[tauri::command]` attribute for posto-tauri-shim."
+
+[lib]
+proc-macro = true

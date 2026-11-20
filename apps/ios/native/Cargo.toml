@@ -1,0 +1,72 @@
+# The Rust engine for the native SwiftUI app. It compiles the Tauri backend's
+# own modules from src-tauri/src (see src/lib.rs) against a small stand-in for
+# the `tauri` crate, and exposes their commands through a C ABI
+# (include/posto_native.h). Dependencies mirror src-tauri/Cargo.toml, and
+# Cargo.lock started as a copy of src-tauri's so versions match the shipping
+# app.
+[workspace]
+members = [".", "tauri-shim", "tauri-shim/macros"]
+# Plain `cargo test` covers the shim too.
+default-members = [".", "tauri-shim"]
+
+[package]
+name = "posto-native"
+version = "0.10.1"
+description = "Posto's backend, callable from Swift."
+edition = "2021"
+publish = false
+
+[lib]
+name = "posto_native"
+crate-type = ["staticlib", "rlib"]
+doctest = false
+
+[dependencies]
+tauri = { path = "tauri-shim", package = "posto-tauri-shim" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+git2 = { version = "0.21.0", features = ["ssh", "https", "vendored-libgit2", "vendored-openssl"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["form", "json", "rustls", "stream"] }
+tokio = { version = "1", features = ["fs", "time"] }
+image = { version = "0.25", default-features = false, features = ["gif", "ico", "jpeg", "png", "tiff", "webp"] }
+fs2 = "0.4"
+rusty-s3 = { version = "0.12", default-features = false, features = ["aws-lc-rs", "full"] }
+sha2 = "0.10"
+base64 = "0.22"
+imagesize = { version = "0.15", default-features = false, features = ["jpeg", "png", "gif", "webp", "tiff", "bmp", "ico", "heif"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+kamadak-exif = "0.6"
+posto-images = { path = "../../../src-tauri/images" }
+
+# secrets.rs picks its credential store by target OS, not by the `mobile`
+# cfg: iOS gets the data-protection Keychain, as in src-tauri's iOS build. The
+# macOS host (for tests) gets the desktop `keyring` crate and its login
+# Keychain backend.
+[target.'cfg(target_os = "ios")'.dependencies]
+keyring-core = "1.0.0"
+apple-native-keyring-store = { version = "1.0.1", features = ["protected"] }
+
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+keyring = { version = "4", features = ["apple-native-keyring-store"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+# Same as src-tauri: the image pipeline is unusably slow unoptimized.
+[profile.dev.package.sha2]
+opt-level = 3
+
+[profile.dev.package.image]
+opt-level = 3
+
+[profile.dev.package.zune-jpeg]
+opt-level = 3
+
+[profile.dev.package.fast_image_resize]
+opt-level = 3
+
+[profile.dev.package.posto-images]
+opt-level = 3
+
+[profile.dev.package.libwebp-sys]
+opt-level = 3
