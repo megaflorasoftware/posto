@@ -21,6 +21,10 @@ struct SiteSettingsView: View {
                         }
                         if let branch = view.branch {
                             Button {
+                                // The picker and the branch-conflict alert are
+                                // presented by the workspace, which can't while
+                                // this sheet is up: close it, then open the picker.
+                                repo.settingsOpen = false
                                 repo.branchesOpen = true
                             } label: {
                                 SettingsRow(title: "Branch", subtitle: branch, symbol: "arrow.triangle.branch")
