@@ -16,10 +16,15 @@ final class DemoTour {
     static let shared = DemoTour()
     var presented: Screen?
 
+    /// Absolute paths are used as given (Mac Catalyst); relative ones land in
+    /// the app's Documents folder, where the simulator script collects them.
     var directory: URL? {
         let arguments = ProcessInfo.processInfo.arguments
         guard let index = arguments.firstIndex(of: "-PostoTour"), arguments.indices.contains(index + 1) else { return nil }
-        return URL(fileURLWithPath: arguments[index + 1], isDirectory: true)
+        let path = arguments[index + 1]
+        if path.hasPrefix("/") { return URL(fileURLWithPath: path, isDirectory: true) }
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return documents.appendingPathComponent(path, isDirectory: true)
     }
 
     func run(app: AppModel) async {
@@ -97,6 +102,8 @@ final class DemoTour {
     }
 
     private func finish() {
+        // Tells scripts waiting on the tour that every snapshot is written.
+        if let directory { try? Data().write(to: directory.appendingPathComponent("done")) }
         Task {
             try? await Task.sleep(for: .seconds(0.5))
             exit(0)

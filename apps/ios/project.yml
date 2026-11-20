@@ -1,6 +1,6 @@
 # XcodeGen spec for the native iOS prototype. Generate the project with
-# scripts/bootstrap.sh (or `xcodegen generate` once engine.js and the Rust
-# xcframework exist).
+# scripts/bootstrap.sh (or `xcodegen generate` once the Rust xcframework
+# exists).
 name: Posto
 options:
   bundleIdPrefix: net.megaflora
@@ -13,6 +13,7 @@ settings:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "0.10.1"
     CURRENT_PROJECT_VERSION: "1"
+    # The "Bundle engine" phase writes into the source tree.
     ENABLE_USER_SCRIPT_SANDBOXING: NO
     DEAD_CODE_STRIPPING: YES
 targets:
@@ -21,6 +22,13 @@ targets:
     platform: iOS
     sources:
       - path: Posto
+        excludes:
+          - Resources/engine.js
+      # Built by the "Bundle engine" phase; listed even before it exists so
+      # the project never has to be regenerated to pick it up.
+      - path: Posto/Resources/engine.js
+        optional: true
+        buildPhase: resources
     dependencies:
       - framework: native/build/PostoNative.xcframework
         embed: false
@@ -33,6 +41,10 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
+        # The iOS 27 SDK requires the scene lifecycle to be declared. One
+        # window: the app model (and its engine) is shared app-wide.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
         UIApplicationSupportsIndirectInputEvents: true
         ITSAppUsesNonExemptEncryption: false
         UISupportedInterfaceOrientations:
@@ -52,21 +64,27 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_STYLE: Automatic
-        # The Rust static library is built without bitcode or Catalyst slices.
+        # The team the Tauri app signs with (src-tauri/tauri.conf.json).
+        DEVELOPMENT_TEAM: K56D2LK4DS
+        # The Rust static library has no Catalyst slice.
         SUPPORTS_MACCATALYST: NO
         OTHER_LDFLAGS: ["-ObjC"]
     preBuildScripts:
       - name: Bundle engine
         basedOnDependencyAnalysis: false
         script: |
-          export PATH="$HOME/.local/share/vite-plus/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
+          # Xcode runs phases with a minimal PATH; look where node usually lives.
+          export PATH="$HOME/.local/share/vite-plus/bin:$HOME/.volta/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+          for nvm in "$HOME"/.nvm/versions/node/*/bin; do [ -d "$nvm" ] && PATH="$nvm:$PATH"; done
           if ! command -v node >/dev/null 2>&1; then
-            echo "warning: node not found; keeping the existing engine.js"
-            exit 0
+            if [ -f "$SRCROOT/Posto/Resources/engine.js" ]; then
+              echo "warning: node not found; keeping the existing engine.js"
+              exit 0
+            fi
+            echo "error: node not found and engine.js is missing; run scripts/bootstrap.sh"
+            exit 1
           fi
           node "$SRCROOT/engine/build.mjs" "$SRCROOT/Posto/Resources/engine.js"
-    scheme:
-      environmentVariables: {}
 schemes:
   Posto:
     build:

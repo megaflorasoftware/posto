@@ -49,6 +49,19 @@ fi
 # target's SDK through xcrun on its own.
 unset SDKROOT
 
+# GitHub sign-in's OAuth client ID is compiled in (option_env! in auth.rs).
+# The repository's .cargo/config.toml provides it; export it explicitly, as
+# scripts/build-ios.sh does, so a build without that config still signs in.
+if [ -z "${POSTO_GITHUB_CLIENT_ID:-}" ]; then
+  POSTO_GITHUB_CLIENT_ID="$(sed -n 's/^POSTO_GITHUB_CLIENT_ID = { value = "\([^"]*\)".*/\1/p' \
+    "$native_dir/../../../.cargo/config.toml" 2>/dev/null || true)"
+fi
+if [ -z "$POSTO_GITHUB_CLIENT_ID" ]; then
+  echo "error: POSTO_GITHUB_CLIENT_ID is unset and .cargo/config.toml has no default" >&2
+  exit 1
+fi
+export POSTO_GITHUB_CLIENT_ID
+
 if [ "$mode" = host ]; then
   cargo build --release --locked --lib
   echo

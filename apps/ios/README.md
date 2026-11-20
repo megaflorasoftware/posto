@@ -22,19 +22,23 @@ SwiftUI views ──► Swift models ──► engine.js in JavaScriptCore ─�
 
 ## Building
 
-You need Xcode (26 or later), Rust (via rustup), Node 24 with pnpm, and
-XcodeGen (`brew install xcodegen`).
+You need Xcode 26 or later with an iOS simulator runtime, Rust (via rustup),
+Node 24 with pnpm, and XcodeGen (`brew install xcodegen`).
 
 ```sh
-pnpm install                     # from the repository root
-apps/ios/scripts/bootstrap.sh    # engine.js, the Rust xcframework, Posto.xcodeproj
-open apps/ios/Posto.xcodeproj
+apps/ios/scripts/bootstrap.sh          # JS deps, engine.js, the Rust xcframework, Posto.xcodeproj
+apps/ios/scripts/run-simulator.sh      # build, install, and launch on an iPhone simulator
+apps/ios/scripts/run-simulator.sh --demo
+apps/ios/scripts/run-simulator.sh --tour   # demo walkthrough, a snapshot per screen
 ```
 
-Run the **Posto** scheme to sign in with GitHub, or **Posto Demo** for
-fixture content with no network or Rust. On the sign-in screen, "Explore a
-demo site" switches modes too. A device build needs your team set under
-Signing & Capabilities.
+Or open `apps/ios/Posto.xcodeproj` and run the **Posto** scheme to sign in
+with GitHub, or **Posto Demo** for fixture content with no network. On the
+sign-in screen, "Explore a demo site" switches modes too. Device builds sign
+with the Tauri app's team; change it under Signing & Capabilities if needed.
+
+The first Rust build takes several minutes. After editing Rust, rerun
+`scripts/build-native.sh`; the engine is rebundled on every Xcode build.
 
 ## Checks that don't need Xcode
 
