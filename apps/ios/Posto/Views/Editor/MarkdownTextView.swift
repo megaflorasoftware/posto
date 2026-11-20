@@ -278,7 +278,10 @@ enum MarkdownStyler {
     static func style(_ textView: UITextView) {
         let storage = textView.textStorage
         let full = NSRange(location: 0, length: storage.length)
-        let base = textView.font ?? .preferredFont(forTextStyle: .body)
+        // Not textView.font: with mixed attributes it reports the font near
+        // the caret, so a restyle inside bold text would make everything bold
+        // (and inside a heading, grow with every keystroke).
+        let base = UIFont.preferredFont(forTextStyle: .body, compatibleWith: textView.traitCollection)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = 3
         storage.beginEditing()
