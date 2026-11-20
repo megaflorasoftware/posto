@@ -52,11 +52,14 @@ codesign --force --sign - "$app" >/dev/null 2>&1
 echo "Built $app"
 case "${1:-}" in
   --build-only) ;;
-  --tour)
-    # Walks the demo and writes a snapshot per screen to $2 (default build/tour).
+  --tour | --tour-compact)
+    # Walks the demo and writes a snapshot per screen to $2 (default
+    # build/tour); --tour-compact uses an iPhone-sized window.
     shots="${2:-$here/build/tour}"
+    compact=()
+    [ "$1" = --tour-compact ] && compact=(-PostoTourCompact)
     rm -rf "$shots"
-    "$app/Contents/MacOS/Posto" -PostoDemo -PostoTour "$shots" >/dev/null 2>&1 || true
+    "$app/Contents/MacOS/Posto" -PostoDemo -PostoTour "$shots" "${compact[@]}" >/dev/null 2>&1 || true
     ls "$shots"
     ;;
   *) open -n "$app" --args -PostoDemo ;;

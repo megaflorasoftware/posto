@@ -32,6 +32,15 @@ final class DemoTour {
             write(directory.appendingPathComponent(String(format: "%02d-%@.png", step, name)))
         }
 
+        if ProcessInfo.processInfo.arguments.contains("-PostoTourCompact") {
+            // An iPhone-sized window: compact width collapses the split view.
+            for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+                scene.sizeRestrictions?.minimumSize = CGSize(width: 390, height: 844)
+                scene.sizeRestrictions?.maximumSize = CGSize(width: 390, height: 844)
+            }
+            try? await Task.sleep(for: .seconds(1))
+        }
+
         await waitFor { app.stage != .loading }
         await snap("sign-in")
         if app.stage == .signedOut {
@@ -52,6 +61,8 @@ final class DemoTour {
             await snap("editor", wait: 1.5)
         }
 
+        model.selectedKey = nil
+        try? await Task.sleep(for: .seconds(0.8))
         if let index = model.view?.looseFiles.first(where: { $0.name == "index.md" }) {
             model.selectedKey = index.key
             await waitFor { model.document?.key == index.key }

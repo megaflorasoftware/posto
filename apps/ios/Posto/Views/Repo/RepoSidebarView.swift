@@ -28,6 +28,12 @@ struct RepoSidebarView: View {
         .navigationTitle(repo.name)
         .refreshable { await repo.refresh() }
         .overlay { emptyState }
+        .safeAreaInset(edge: .bottom) {
+            PublishButton(repo: repo)
+                .padding(.horizontal)
+                .padding(.vertical, 10)
+                .background(.bar)
+        }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
@@ -42,9 +48,6 @@ struct RepoSidebarView: View {
                 } label: {
                     Label("Site Settings", systemImage: "gearshape")
                 }
-            }
-            ToolbarItem(placement: .bottomBar) {
-                PublishButton(repo: repo)
             }
         }
     }
@@ -254,6 +257,7 @@ private struct PublishButton: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
+        .controlSize(.large)
         .disabled(git?.canPublish != true || busy)
     }
 
