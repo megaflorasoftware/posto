@@ -178,7 +178,9 @@ body,
   left: 5.375rem;
 }
 
-.sidebar-collapsed .editor-pane:not(.fullscreen-editor-pane) > .pane-header {
+/* The leftmost pane (the preview when no file is open) clears the window
+   controls and the sidebar reopen button. */
+.sidebar-collapsed > .pane:first-child:not(.fullscreen-editor-pane) > .pane-header {
   padding-left: 7.5rem;
 }
 

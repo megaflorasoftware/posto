@@ -229,4 +229,108 @@ describe("useCurrentFile concurrency", () => {
       content: "still here",
     });
   });
+
+  test("closeFileAfterSave writes pending edits before closing", async () => {
+    const { result } = renderHook(() => useCurrentFile({}));
+    await act(() => result.current.openFile("/site/post.md"));
+    act(() => result.current.onEdit("changed"));
+
+    let outcome: string | undefined;
+    await act(async () => {
+      outcome = await result.current.closeFileAfterSave();
+    });
+
+    expect(outcome).toBe("closed");
+    expect(commandCalls("write_text_file")).toEqual([
+      ["write_text_file", { path: "/site/post.md", content: "changed" }],
+    ]);
+    expect(result.current.filePath).toBeNull();
+  });
+
+  test("closeFileAfterSave keeps a file open when its edits could not be saved", async () => {
+    const { result } = renderHook(() => useCurrentFile({}));
+    await act(() => result.current.openFile("/site/post.md"));
+    act(() => result.current.onFormEdit("invalid draft", false));
+
+    let outcome: string | undefined;
+    await act(async () => {
+      outcome = await result.current.closeFileAfterSave();
+    });
+
+    expect(outcome).toBe("unsaved");
+    expect(result.current.filePath).toBe("/site/post.md");
+    expect(result.current.fileContent).toBe("invalid draft");
+  });
+
+  test("closeFileAfterSave keeps a file open when its last write failed", async () => {
+    invokeMock.mockImplementation(async (command, args) => {
+      if (command === "read_text_file") return `disk:${String(args?.path)}`;
+      if (command === "write_text_file") throw new Error("disk full");
+      return undefined;
+    });
+    const { result } = renderHook(() => useCurrentFile({}));
+    await act(() => result.current.openFile("/site/post.md"));
+    act(() => result.current.onEdit("changed"));
+
+    let outcome: string | undefined;
+    await act(async () => {
+      outcome = await result.current.closeFileAfterSave();
+    });
+
+    expect(outcome).toBe("unsaved");
+    expect(result.current.filePath).toBe("/site/post.md");
+  });
+
+  test("closeFileAfterSave yields to a file opened while its save was in flight", async () => {
+    const write = deferred<void>();
+    invokeMock.mockImplementation(async (command, args) => {
+      if (command === "read_text_file") return `disk:${String(args?.path)}`;
+      if (command === "write_text_file") return write.promise;
+      return undefined;
+    });
+    const { result } = renderHook(() => useCurrentFile({}));
+    await act(() => result.current.openFile("/site/old.md"));
+    act(() => result.current.onEdit("changed"));
+
+    let close!: Promise<string>;
+    let open!: Promise<void>;
+    act(() => {
+      close = result.current.closeFileAfterSave();
+      open = result.current.openFile("/site/next.md");
+    });
+    let outcome: string | undefined;
+    await act(async () => {
+      write.resolve();
+      outcome = await close;
+      await open;
+    });
+
+    expect(outcome).toBe("superseded");
+    expect(result.current.filePath).toBe("/site/next.md");
+  });
+
+  test("closeFileAfterSave still closes a file renamed while it waited", async () => {
+    const rename = deferred<void>();
+    invokeMock.mockImplementation(async (command, args) => {
+      if (command === "read_text_file") return `disk:${String(args?.path)}`;
+      if (command === "rename_file") return rename.promise;
+      return undefined;
+    });
+    const { result } = renderHook(() => useCurrentFile({}));
+    await act(() => result.current.openFile("/site/old.md"));
+
+    let close!: Promise<string>;
+    act(() => {
+      void result.current.renameOpenFile("/site/old.md", "/site/new.md");
+      close = result.current.closeFileAfterSave();
+    });
+    let outcome: string | undefined;
+    await act(async () => {
+      rename.resolve();
+      outcome = await close;
+    });
+
+    expect(outcome).toBe("closed");
+    expect(result.current.filePath).toBeNull();
+  });
 });
