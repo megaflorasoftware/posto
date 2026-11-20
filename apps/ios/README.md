@@ -1,5 +1,7 @@
 # Posto for iOS (native prototype)
 
+> Picking this up on a Mac with Xcode? Start with [HANDOFF.md](HANDOFF.md).
+
 An exploratory SwiftUI version of the mobile app. Every screen is native;
 the logic underneath is the same code the Tauri apps run:
 
