@@ -15,8 +15,8 @@ final class DemoTour {
 
     static let shared = DemoTour()
     var presented: Screen?
-    /// Opens the open document's body full screen.
-    var focusBody = false
+    /// Opens (object: true) or closes the open document's body full screen.
+    static let focusBodyNotification = Notification.Name("PostoTourFocusBody")
 
     /// Absolute paths are used as given (Mac Catalyst); relative ones land in
     /// the app's Documents folder, where the simulator script collects them.
@@ -82,9 +82,9 @@ final class DemoTour {
             await waitFor(timeout: 30) { model.document?.key == file.key }
             await snap("editor", wait: 2)
             if model.document?.view.body != nil {
-                focusBody = true
+                NotificationCenter.default.post(name: Self.focusBodyNotification, object: true)
                 await snap("body", wait: 1.5)
-                focusBody = false
+                NotificationCenter.default.post(name: Self.focusBodyNotification, object: false)
                 try? await Task.sleep(for: .seconds(0.8))
             }
         }

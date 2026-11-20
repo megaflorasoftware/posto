@@ -19,8 +19,12 @@ struct RepoWorkspaceView: View {
                         .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 420)
                 } detail: {
                     if let document = repo.document {
-                        EditorView(document: document)
-                            .id(document.key)
+                        // The editor pushes pages of its own (list items,
+                        // reference pickers, the full-screen body).
+                        NavigationStack {
+                            EditorView(document: document)
+                        }
+                        .id(document.key)
                     } else {
                         ContentUnavailableView(
                             "Select a file",

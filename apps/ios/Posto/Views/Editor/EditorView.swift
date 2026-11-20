@@ -94,7 +94,9 @@ struct EditorView: View {
                 .ignoresSafeArea(.container, edges: .bottom)
         }
         #if DEBUG
-        .onChange(of: DemoTour.shared.focusBody) { _, focus in focusedBody = focus }
+        .onReceive(NotificationCenter.default.publisher(for: DemoTour.focusBodyNotification)) { note in
+            focusedBody = note.object as? Bool ?? false
+        }
         #endif
         .onAppear(perform: wireController)
         .onChange(of: view.body?.componentBlocks) { wireController() }
