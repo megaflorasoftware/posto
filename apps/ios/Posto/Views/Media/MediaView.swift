@@ -217,6 +217,9 @@ struct MediaBrowser: View {
                     RoundedRectangle(cornerRadius: 10).fill(.quaternary)
                     if folder.previews.isEmpty {
                         Image(systemName: "folder.fill").font(.largeTitle).foregroundStyle(.tint)
+                    } else if folder.previews.count == 1, let preview = folder.previews.first {
+                        Thumbnail(path: preview.hasPrefix("http") ? nil : preview, url: preview.hasPrefix("http") ? preview : nil, maxPixels: 300)
+                            .clipShape(.rect(cornerRadius: 10))
                     } else {
                         LazyVGrid(columns: [GridItem(.flexible(), spacing: 2), GridItem(.flexible(), spacing: 2)], spacing: 2) {
                             ForEach(folder.previews.prefix(4), id: \.self) { preview in

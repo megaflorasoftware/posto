@@ -51,6 +51,7 @@ struct SiteSettingsView: View {
                             confirmingRemove = true
                         } label: {
                             Label("Delete from Device", systemImage: "trash")
+                                .foregroundStyle(.red)
                         }
                     } footer: {
                         Text("Removes this repository's downloaded copy from this device. Unpublished changes will be lost. You can download it again anytime.")
@@ -220,12 +221,18 @@ struct BranchPickerView: View {
                         if !branch.current { Task { await repo.switchBranch(branch.name, create: false) } }
                     } label: {
                         HStack {
-                            Label(branch.name, systemImage: branch.local ? "laptopcomputer" : "cloud")
-                                .foregroundStyle(.primary)
+                            Label {
+                                Text(branch.name).foregroundStyle(Color.primary)
+                            } icon: {
+                                Image(systemName: branch.local ? "laptopcomputer" : "cloud")
+                                    .foregroundStyle(Color.secondary)
+                            }
                             Spacer()
                             if branch.current { Image(systemName: "checkmark").foregroundStyle(.tint) }
                         }
+                        .contentShape(.rect)
                     }
+                    .buttonStyle(.plain)
                 }
                 if let createName {
                     Button {

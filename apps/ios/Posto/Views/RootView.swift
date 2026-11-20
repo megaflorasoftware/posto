@@ -25,6 +25,9 @@ struct RootView: View {
         }
         .animation(.default, value: app.stage)
         .task { await app.start() }
+        #if DEBUG
+        .modifier(DemoTourSheets(app: app))
+        #endif
         .sheet(item: Binding(get: { app.browserURL }, set: { app.browserURL = $0 })) { url in
             SafariView(url: url).ignoresSafeArea()
         }
