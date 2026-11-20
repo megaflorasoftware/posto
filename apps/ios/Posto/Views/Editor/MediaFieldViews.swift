@@ -85,39 +85,26 @@ struct ImageChoiceSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var choices: ImageChoices?
     @State private var error: String?
+    @State private var showingCdn = false
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                if let choices, !choices.files.isEmpty {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 8)], spacing: 8) {
-                        ForEach(choices.files) { file in
-                            Button {
-                                onPick(file.value)
-                                dismiss()
-                            } label: {
-                                VStack(spacing: 4) {
-                                    Thumbnail(path: file.path, maxPixels: 300)
-                                        .aspectRatio(1, contentMode: .fit)
-                                        .clipShape(.rect(cornerRadius: 8))
-                                    Text(file.name).font(.caption2).lineLimit(1).foregroundStyle(.secondary)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
+            VStack(spacing: 0) {
+                if let source = choices?.cdnSource {
+                    Picker("Source", selection: $showingCdn) {
+                        Text("On This Device").tag(false)
+                        Text(source["label"]?.stringValue ?? source["name"]?.stringValue ?? "CDN").tag(true)
                     }
+                    .pickerStyle(.segmented)
                     .padding()
                 }
-            }
-            .overlay {
-                if let error {
-                    ContentUnavailableView("Couldn't read images", systemImage: "exclamationmark.triangle", description: Text(error))
-                } else if choices == nil {
-                    ProgressView()
-                } else if choices?.media == nil {
-                    ContentUnavailableView("No media folder", systemImage: "photo", description: Text("This field has no media folder configured."))
-                } else if choices?.files.isEmpty == true {
-                    ContentUnavailableView("No images yet", systemImage: "photo", description: Text("Add images to \(choices?.media?.input ?? "the media folder") from the Media screen."))
+                if showingCdn, let source = choices?.cdnSource {
+                    CdnBrowser(engine: document.engine, source: source) { url in
+                        onPick(url)
+                        dismiss()
+                    }
+                } else {
+                    localGrid
                 }
             }
             .navigationTitle(choices?.media?.label ?? "Choose Image")
@@ -140,6 +127,150 @@ struct ImageChoiceSheet: View {
                     self.error = error.localizedDescription
                 }
             }
+        }
+    }
+
+    private var localGrid: some View {
+        ScrollView {
+            if let choices, !choices.files.isEmpty {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 8)], spacing: 8) {
+                    ForEach(choices.files) { file in
+                        Button {
+                            onPick(file.value)
+                            dismiss()
+                        } label: {
+                            VStack(spacing: 4) {
+                                Thumbnail(path: file.path, maxPixels: 300)
+                                    .aspectRatio(1, contentMode: .fit)
+                                    .clipShape(.rect(cornerRadius: 8))
+                                Text(file.name).font(.caption2).lineLimit(1).foregroundStyle(.secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding()
+            }
+        }
+        .overlay {
+            if let error {
+                ContentUnavailableView("Couldn't read images", systemImage: "exclamationmark.triangle", description: Text(error))
+            } else if choices == nil {
+                ProgressView()
+            } else if choices?.media == nil {
+                ContentUnavailableView("No media folder", systemImage: "photo", description: Text("This field has no media folder configured."))
+            } else if choices?.files.isEmpty == true {
+                ContentUnavailableView("No images yet", systemImage: "photo", description: Text("Add images to \(choices?.media?.input ?? "the media folder") from the Media screen."))
+            }
+        }
+    }
+}
+
+/// Browses images already on a CDN source and picks one by its public URL,
+/// asking for the storage password first when this device has none.
+struct CdnBrowser: View {
+    let engine: Engine
+    let source: JSONValue
+    let onPick: (String) -> Void
+    @State private var folder: CdnFolder?
+    @State private var prefix: String?
+    @State private var error: String?
+    @State private var credentialError: String?
+
+    var body: some View {
+        Group {
+            if let folder, folder.needsCredential, let request = credentialRequest {
+                Form {
+                    CredentialFormSection(request: request, purpose: .browse) { credential in
+                        guard let credential else { return }
+                        Task { await save(credential) }
+                    }
+                }
+            } else if let folder {
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 8)], spacing: 8) {
+                        if folder.prefix != folder.root {
+                            Button {
+                                let parent = folder.prefix.contains("/") ? String(folder.prefix[..<folder.prefix.lastIndex(of: "/")!]) : ""
+                                prefix = parent.count >= folder.root.count ? parent : folder.root
+                            } label: {
+                                cell(name: "..", symbol: "arrow.turn.left.up")
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        ForEach(folder.directories) { directory in
+                            Button { prefix = directory.key } label: { cell(name: directory.name, symbol: "folder.fill") }
+                                .buttonStyle(.plain)
+                        }
+                        ForEach(folder.images) { image in
+                            Button {
+                                onPick(image.url)
+                            } label: {
+                                VStack(spacing: 4) {
+                                    Thumbnail(url: image.url)
+                                        .aspectRatio(1, contentMode: .fit)
+                                        .clipShape(.rect(cornerRadius: 8))
+                                    Text(image.name).font(.caption2).lineLimit(1).foregroundStyle(.secondary)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding()
+                }
+                .overlay {
+                    if folder.images.isEmpty && folder.directories.isEmpty {
+                        ContentUnavailableView("No images on the CDN yet", systemImage: "icloud")
+                    }
+                }
+            } else if let error {
+                ContentUnavailableView {
+                    Label("Couldn't list CDN images", systemImage: "icloud.slash")
+                } description: {
+                    Text(error)
+                } actions: {
+                    Button("Try Again") { Task { await load() } }
+                }
+            } else {
+                ProgressView().frame(maxHeight: .infinity)
+            }
+        }
+        .task(id: prefix) { await load() }
+    }
+
+    private var credentialRequest: CredentialRequest? {
+        guard let decoded = try? source.decode(as: CdnSource.self) else { return nil }
+        return CredentialRequest(source: decoded, error: credentialError)
+    }
+
+    private func cell(name: String, symbol: String) -> some View {
+        VStack(spacing: 4) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8).fill(.quaternary)
+                Image(systemName: symbol).font(.title).foregroundStyle(.tint)
+            }
+            .aspectRatio(1, contentMode: .fit)
+            Text(name).font(.caption2).lineLimit(1).foregroundStyle(.secondary)
+        }
+    }
+
+    private func load() async {
+        error = nil
+        do {
+            folder = try await engine.call("cdn.list", ["source": source, "prefix": JSONValue(prefix)])
+        } catch {
+            folder = nil
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func save(_ credential: JSONValue) async {
+        do {
+            try await engine.run("cdn.saveCredential", ["source": source, "credential": credential])
+            credentialError = nil
+            await load()
+        } catch {
+            credentialError = error.localizedDescription
         }
     }
 }

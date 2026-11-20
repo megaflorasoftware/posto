@@ -16,12 +16,15 @@ import {
   deploymentRing,
   deploymentStatus,
   finishComponent,
+  listCdnImages,
   listComponents,
   openComponentAt,
   openComponentForm,
   saveCollectionOrder,
+  saveCdnCredential,
   saveCollectionSettings,
 } from "./extras";
+import type { CdnSource } from "@posto/core/media/sources";
 import type { FormStore } from "./forms";
 import {
   dispatchBackendEvent,
@@ -448,6 +451,14 @@ const methods: Record<string, Method> = {
   "collections.saveOrder": async (args) => {
     await saveCollectionOrder(requireRepo(), args.order as string[]);
     return requireRepo().view();
+  },
+
+  // CDN browsing for image fields.
+  "cdn.list": (args) =>
+    listCdnImages(args.source as CdnSource, (args.prefix as string | null) ?? null),
+  "cdn.saveCredential": async (args) => {
+    await saveCdnCredential(args.source as CdnSource, args.credential as MediaCredential);
+    return null;
   },
 
   // MDX components.

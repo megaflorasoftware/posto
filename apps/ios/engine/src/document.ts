@@ -5,7 +5,7 @@
  * `view()` and sends edits; every edit runs through the shared form model.
  */
 import type { FileEntry, FileGroup } from "@posto/ipc";
-import { isRemoteMediaUrl } from "@posto/core/media/sources";
+import { isRemoteMediaUrl, type CdnSource } from "@posto/core/media/sources";
 import {
   collectionExtension,
   matchEntry,
@@ -491,13 +491,18 @@ export class DocumentSession {
   async imageChoices(path: ValuePath): Promise<{
     media: { name: string; label: string | null; input: string } | null;
     files: Array<{ name: string; path: string; value: string }>;
+    /** Set when picked images belong on a CDN, which can be browsed too. */
+    cdnSource: CdnSource | null;
   }> {
     const field = this.fieldAtPath(path);
     const config = this.host.config();
     const media = field
       ? resolveMedia(config, field, this.entry, this.templateValues())
       : (this.entry?.media ?? config.media[0] ?? null);
-    if (!media) return { media: null, files: [] };
+    if (!media) return { media: null, files: [], cdnSource: null };
+    const sourceName =
+      typeof field?.options?.mediaSource === "string" ? field.options.mediaSource : media.name;
+    const cdnSource = config.cdnSources?.find((source) => source.name === sourceName) ?? null;
     const dir = `${this.host.root}/${media.input}`;
     const listed =
       (await invoke<FileEntry[] | null>("list_dir_files_optional", {
@@ -510,6 +515,7 @@ export class DocumentSession {
         const value = mediaOutputPath(this.host.root, media, file.path, this.documentPath());
         return value ? [{ name: file.name, path: file.path, value }] : [];
       }),
+      cdnSource,
     };
   }
 

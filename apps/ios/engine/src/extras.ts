@@ -4,6 +4,10 @@
  */
 import type { WorkflowRun } from "@posto/ipc";
 import { computeDeploymentRing } from "@posto/core/github/deployment";
+import { cdnObjectUrl, type CdnSource } from "@posto/core/media/sources";
+import type { MediaCredential } from "@posto/ipc";
+import { markdownMediaKind } from "../../../../packages/editor/src/markdownMedia";
+import { listMediaObjects, saveMediaCredential } from "./ipc";
 import type { ContentEntry } from "@posto/core/pagescms/config";
 import { parseProps, scanJsxBlock, serializeJsx, type MdxProp } from "@posto/core/mdx/mdx";
 import { jsValueProp, propJsValue, UNPARSED, valueFits } from "@posto/core/mdx/propFields";
@@ -197,6 +201,38 @@ export async function saveCollectionOrder(repo: RepoSession, order: string[]): P
   await invoke("write_text_file", { path, content: updatePostoIndexSource(source, order) });
   await repo.schemas.reloadPosto(repo.root);
   repo.changed();
+}
+
+// --- CDN browsing ----------------------------------------------------------
+
+/** One folder of a CDN source's images, or a request for its password. */
+export async function listCdnImages(source: CdnSource, prefix: string | null) {
+  const root = source.prefix ?? "";
+  const current = prefix ?? root;
+  if (!(await invoke<boolean>("media_credential_exists", { source }))) {
+    return { needsCredential: true, root, prefix: current, directories: [], images: [] };
+  }
+  const listing = await listMediaObjects(source, current);
+  return {
+    needsCredential: false,
+    root,
+    prefix: current,
+    directories: listing.directories.map((directory) => ({
+      key: directory,
+      name: directory.slice(directory.lastIndexOf("/") + 1),
+    })),
+    images: listing.objects
+      .filter((object) => markdownMediaKind(object.key) === "image")
+      .map((object) => ({
+        key: object.key,
+        name: object.key.slice(object.key.lastIndexOf("/") + 1),
+        url: cdnObjectUrl(source, object.key),
+      })),
+  };
+}
+
+export function saveCdnCredential(source: CdnSource, credential: MediaCredential): Promise<void> {
+  return saveMediaCredential(source, credential, source.prefix ?? "");
 }
 
 // --- MDX components --------------------------------------------------------

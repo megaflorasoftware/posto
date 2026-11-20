@@ -343,6 +343,29 @@ struct ImageChoices: Codable, Sendable {
     }
     let media: Media?
     let files: [ImageChoice]
+    /// The whole source object, passed back to the engine to browse it.
+    let cdnSource: JSONValue?
+}
+
+struct CdnFolder: Codable, Sendable {
+    struct Directory: Codable, Hashable, Identifiable, Sendable {
+        let key: String
+        let name: String
+        var id: String { key }
+    }
+
+    struct Image: Codable, Hashable, Identifiable, Sendable {
+        let key: String
+        let name: String
+        let url: String
+        var id: String { key }
+    }
+
+    let needsCredential: Bool
+    let root: String
+    let prefix: String
+    let directories: [Directory]
+    let images: [Image]
 }
 
 struct ReferenceOptions: Codable, Sendable {

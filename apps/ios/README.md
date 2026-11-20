@@ -47,7 +47,6 @@ apps/ios/scripts/catalyst-demo.sh  # run the demo on this Mac (--tour snapshots 
 
 ## Not ported yet
 
-- Browsing CDN objects from an image field.
 - Editing an image-library entry's metadata inline in a document; it opens
   in the asset editor instead (long-press or swipe the field).
 - Developer-mode field template and row-count editing.
