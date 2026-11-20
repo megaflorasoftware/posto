@@ -60,7 +60,7 @@ case "${1:-}" in
     [ "$1" = --tour-compact ] && compact=(-PostoTourCompact)
     [ -n "${POSTO_TOUR_DARK:-}" ] && compact+=(-PostoTourDark)
     rm -rf "$shots"
-    "$app/Contents/MacOS/Posto" -PostoDemo -PostoTour "$shots" "${compact[@]}" >/dev/null 2>&1 || true
+    "$app/Contents/MacOS/Posto" -PostoDemo -PostoTour "$shots" ${compact[@]+"${compact[@]}"} >/dev/null 2>&1 || true
     ls "$shots"
     ;;
   *) open -n "$app" --args -PostoDemo ;;

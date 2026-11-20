@@ -45,7 +45,11 @@ apps/ios/scripts/typecheck.sh      # every Swift file, as Mac Catalyst
 apps/ios/scripts/catalyst-demo.sh  # run the demo on this Mac (--tour snapshots each screen)
 ```
 
-## Not ported yet
+## Differences from the Tauri app
 
-- Editing an image-library entry's metadata inline in a document; it opens
-  in the asset editor instead (long-press or swipe the field).
+- The body is a markdown editor with live styling and a formatting bar,
+  not the TipTap rich-text editor. MDX components insert and edit through
+  a props form, and the rest of the JSX stays editable as text.
+- An image-library reference's metadata opens in the asset editor (long-press
+  or swipe the field) rather than inline under the field.
+- iPad gets the file tree and the editor side by side.
