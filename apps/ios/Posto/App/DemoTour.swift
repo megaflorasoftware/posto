@@ -41,6 +41,12 @@ final class DemoTour {
             try? await Task.sleep(for: .seconds(1))
         }
 
+        if ProcessInfo.processInfo.arguments.contains("-PostoTourDark") {
+            for window in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).flatMap(\.windows) {
+                window.overrideUserInterfaceStyle = .dark
+            }
+        }
+
         await waitFor { app.stage != .loading }
         await snap("sign-in")
         if app.stage == .signedOut {

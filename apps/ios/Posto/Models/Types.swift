@@ -484,11 +484,18 @@ struct ValidationResult: Codable, Sendable {
 }
 
 struct LibraryAsset: Codable, Hashable, Identifiable, Sendable {
+    /// The entry's metadata file, which the asset editor opens by.
+    let metadataPath: String
     let entryId: String
     let name: String
     let imagePath: String?
     let imageUrl: String?
     var id: String { entryId }
+
+    enum CodingKeys: String, CodingKey {
+        case metadataPath = "id"
+        case entryId, name, imagePath, imageUrl
+    }
 }
 
 struct ComponentRef: Codable, Hashable, Identifiable, Sendable {

@@ -58,6 +58,7 @@ case "${1:-}" in
     shots="${2:-$here/build/tour}"
     compact=()
     [ "$1" = --tour-compact ] && compact=(-PostoTourCompact)
+    [ -n "${POSTO_TOUR_DARK:-}" ] && compact+=(-PostoTourDark)
     rm -rf "$shots"
     "$app/Contents/MacOS/Posto" -PostoDemo -PostoTour "$shots" "${compact[@]}" >/dev/null 2>&1 || true
     ls "$shots"

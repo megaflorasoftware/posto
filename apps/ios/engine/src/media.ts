@@ -392,6 +392,7 @@ export class MediaSession {
     return state.assets
       .filter((asset) => asset.health.includes("valid"))
       .map((asset) => ({
+        id: asset.metadataPath,
         entryId: asset.entryId,
         name: asset.entryId.split("/").pop() ?? asset.entryId,
         imagePath: asset.imagePath,

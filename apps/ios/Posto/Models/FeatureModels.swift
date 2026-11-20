@@ -140,10 +140,15 @@ final class MediaModel {
     unowned let repo: RepoModel
     private(set) var tabs: [MediaTab] = []
     var tab: String = "" {
-        didSet { if oldValue != tab { directory = ""; clearSelection(); Task { await load() } } }
+        didSet {
+            guard oldValue != tab, !suppressLoads else { return }
+            directory = ""
+            clearSelection()
+            Task { await load() }
+        }
     }
     var directory = "" {
-        didSet { if oldValue != directory { clearSelection(); Task { await load() } } }
+        didSet { if oldValue != directory && !suppressLoads { clearSelection(); Task { await load() } } }
     }
     private(set) var listing: MediaListing?
     private(set) var loading = false
@@ -189,6 +194,22 @@ final class MediaModel {
     func clearSelection() {
         selectedItems = []
         selectedFolders = []
+    }
+
+    /// Points at a tab for a one-off sheet (the asset editor) without
+    /// listing it.
+    func selectTabWithoutLoading(_ id: String) {
+        tabs = [MediaTab(id: id, label: id, kind: "library")]
+        listing = nil
+        withoutLoading { tab = id }
+    }
+
+    private var suppressLoads = false
+
+    private func withoutLoading(_ change: () -> Void) {
+        suppressLoads = true
+        change()
+        suppressLoads = false
     }
 
     var visibleSelectable: (items: [String], folders: [String]) {

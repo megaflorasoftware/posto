@@ -155,6 +155,7 @@ struct ReferenceFieldRow: View {
     @State private var options: ReferenceOptions?
     @State private var pickingAsset = false
     @State private var creating = false
+    @State private var editingDetails: LibraryDetails?
 
     var body: some View {
         if let library = field.imageLibrary {
@@ -174,6 +175,28 @@ struct ReferenceFieldRow: View {
                 }
             }
             .buttonStyle(.plain)
+            .contextMenu {
+                if !value.isEmpty {
+                    Button {
+                        Task { await editDetails(library: library) }
+                    } label: {
+                        Label("Edit Image Details", systemImage: "slider.horizontal.3")
+                    }
+                }
+            }
+            .swipeActions {
+                if !value.isEmpty {
+                    Button {
+                        Task { await editDetails(library: library) }
+                    } label: {
+                        Label("Details", systemImage: "slider.horizontal.3")
+                    }
+                    .tint(.accentColor)
+                }
+            }
+            .sheet(item: $editingDetails, onDismiss: { Task { await document.reload() } }) { details in
+                AssetEditorSheet(media: details.media, item: details.item)
+            }
             .sheet(isPresented: $pickingAsset) {
                 LibraryAssetPicker(engine: document.engine, library: library, allowClear: !value.isEmpty && !field.required) { entryId in
                     Task { await document.edit(path, entryId.map(JSONValue.string)) }
@@ -214,6 +237,28 @@ struct ReferenceFieldRow: View {
                 ReferenceDraftSheet(document: document, path: path)
             }
         }
+    }
+}
+
+/// The library entry a reference points at, opened in the asset editor.
+struct LibraryDetails: Identifiable {
+    let media: MediaModel
+    let item: MediaItem
+    var id: String { item.id }
+}
+
+extension ReferenceFieldRow {
+    /// Image-library references edit the chosen image's metadata (alt text,
+    /// captions…) in the same editor the Media screen uses.
+    func editDetails(library: String) async {
+        let assets: [LibraryAsset] = (try? await document.engine.call("media.libraryAssets", ["library": .string(library)])) ?? []
+        guard let asset = assets.first(where: { $0.entryId == value }) else { return }
+        let media = MediaModel(repo: document.repo)
+        media.selectTabWithoutLoading(library)
+        editingDetails = LibraryDetails(
+            media: media,
+            item: MediaItem(id: asset.metadataPath, name: asset.name, imagePath: asset.imagePath, imageUrl: asset.imageUrl, kind: "image", problem: nil)
+        )
     }
 }
 
