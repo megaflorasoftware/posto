@@ -31,6 +31,7 @@ import {
   setNotifier,
   setTransport,
 } from "./host";
+import { expandFieldTemplate } from "@posto/core/pagescms/config";
 import { dateControls, dateFromControl } from "./dates";
 import { rememberConvertedSource } from "./ipc";
 import { MediaSession } from "./media";
@@ -252,6 +253,17 @@ const methods: Record<string, Method> = {
       ? dateFromControl(args.control as string, current, args.time === true)
       : undefined;
     return methods["form.edit"]({ ...args, value: value ?? null });
+  },
+
+  /** Manual field templates: writes the template's current expansion. */
+  "form.regenerate": (args) => {
+    const document = requireRepo().requireDocument();
+    const schemaPath = (args.path as ValuePath).filter((key) => typeof key === "string").join(".");
+    const template = document.entry?.fieldSchemas?.[schemaPath]?.template;
+    const values = document.view().form?.values ?? {};
+    const value = template ? expandFieldTemplate(template, values) : null;
+    if (value === null) return document.view();
+    return methods["form.edit"]({ ...args, value });
   },
 
   // Git.

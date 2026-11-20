@@ -383,6 +383,10 @@ extension FormSink {
         await perform("form.listAppend", ["path": path.json, "value": value])
     }
 
+    func regenerate(_ path: [PathKey]) async {
+        await perform("form.regenerate", ["path": path.json])
+    }
+
     func listRemove(_ path: [PathKey], _ index: Int) async {
         await perform("form.listRemove", ["path": path.json, "index": .number(Double(index))])
     }

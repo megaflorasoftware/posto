@@ -106,6 +106,23 @@ describe("repository session", () => {
     expect(raw).toContain('title: "Edited from the native app"');
   });
 
+  it("edits dates through native picker values in the document's spelling", async () => {
+    const view = await call<{ tree: TreeNode[] }>("repo.view");
+    const file = allFiles(view.tree).find((candidate) => candidate.label === "Y")!;
+    const before = await call<{
+      form: { values: Record<string, unknown>; dates: Record<string, { date: string }> };
+    }>("doc.open", { key: file.key });
+    const original = String(before.form.values.publish_date ?? "");
+    const edited = await call<{
+      form: { values: Record<string, unknown>; dates: Record<string, { date: string }> };
+    }>("form.editDate", { path: ["publish_date"], control: "2024-03-09", time: false });
+    expect(edited.form.dates.publish_date.date).toBe("2024-03-09");
+    const stored = String(edited.form.values.publish_date);
+    expect(stored).toContain("2024");
+    // A value that already had a spelling keeps its shape (ISO stays ISO).
+    if (/^\d{4}-\d{2}-\d{2}$/.test(original)) expect(stored).toBe("2024-03-09");
+  });
+
   it("keeps MDX imports out of the body and drops unused ones", async () => {
     const view = await call<{ tree: TreeNode[] }>("repo.view");
     const file = allFiles(view.tree).find((candidate) => candidate.name === "mdx-demo.mdx")!;

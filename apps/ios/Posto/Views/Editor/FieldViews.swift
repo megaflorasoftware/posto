@@ -180,6 +180,15 @@ struct FieldRow: View {
                 } commit: { next in
                     await sink.edit(path, next)
                 }
+                if let template = field.template, template.template != nil, !template.controlled, document != nil {
+                    Button {
+                        Task { await sink.regenerate(path) }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Regenerate \(field.label) from its template")
+                }
                 if field.chooseImage, let document {
                     ImageChooserButton(document: document, path: path) { picked in
                         Task { await sink.edit(path, picked.map(JSONValue.string)) }
