@@ -15,6 +15,8 @@ final class DemoTour {
 
     static let shared = DemoTour()
     var presented: Screen?
+    /// Opens the open document's body full screen.
+    var focusBody = false
 
     /// Absolute paths are used as given (Mac Catalyst); relative ones land in
     /// the app's Documents folder, where the simulator script collects them.
@@ -53,31 +55,52 @@ final class DemoTour {
         }
 
         await waitFor { app.stage != .loading }
-        await snap("sign-in")
-        if app.stage == .signedOut {
-            await app.signIn()
+        // A preview of a real site (-PostoOpenRepo) starts inside the repository.
+        let live = LaunchOptions.openRepository != nil
+        if !live {
+            await snap("sign-in")
+            if app.stage == .signedOut {
+                await app.signIn()
+            }
+            await waitFor { app.stage == .repositories && !app.repos.isEmpty }
+            await snap("repositories")
+            guard let repo = app.repos.first(where: { app.managedRepo(for: $0) != nil }) else { return finish() }
+            await app.choose(repo)
         }
-        await waitFor { app.stage == .repositories && !app.repos.isEmpty }
-        await snap("repositories")
-
-        guard let repo = app.repos.first(where: { app.managedRepo(for: $0) != nil }) else { return finish() }
-        await app.choose(repo)
+        await waitFor(timeout: 60) { app.repo != nil }
         guard let model = app.repo else { return finish() }
-        await waitFor { model.view?.loading == false }
-        await snap("sidebar")
+        await waitFor(timeout: 90) { model.view?.loading == false }
+        await snap("sidebar", wait: 2)
 
-        if let file = model.view?.tree.first(where: { $0.label == "Writing" })?.files.first ?? model.view?.tree.first?.files.first {
+        let preferred = ["writing", "blog", "posts"]
+        let tree = model.view?.tree ?? []
+        let isMarkdown = { (file: TreeFile) in file.name.hasSuffix(".md") || file.name.hasSuffix(".mdx") }
+        let collection = tree.first { preferred.contains($0.label.lowercased()) && $0.files.contains(where: isMarkdown) }
+            ?? tree.first { $0.files.contains(where: isMarkdown) }
+        if let file = collection?.files.first(where: isMarkdown) {
             model.selectedKey = file.key
-            await waitFor { model.document != nil }
-            await snap("editor", wait: 1.5)
+            await waitFor(timeout: 30) { model.document?.key == file.key }
+            await snap("editor", wait: 2)
+            if model.document?.view.body != nil {
+                focusBody = true
+                await snap("body", wait: 1.5)
+                focusBody = false
+                try? await Task.sleep(for: .seconds(0.8))
+            }
         }
 
-        model.selectedKey = nil
-        try? await Task.sleep(for: .seconds(0.8))
-        if let index = model.view?.looseFiles.first(where: { $0.name == "index.md" }) {
-            model.selectedKey = index.key
-            await waitFor { model.document?.key == index.key }
-            await snap("body-editor", wait: 1.5)
+        if live, let document = model.document, document.view.body != nil {
+            // One edit, so Publish has a change to show.
+            document.bodyChanged(document.bodyText + "\n\nA new paragraph, written in Posto Native.\n")
+            await document.flush()
+        } else if !live {
+            model.selectedKey = nil
+            try? await Task.sleep(for: .seconds(0.8))
+            if let index = model.view?.looseFiles.first(where: { $0.name == "index.md" }) {
+                model.selectedKey = index.key
+                await waitFor { model.document?.key == index.key }
+                await snap("body-editor", wait: 1.5)
+            }
         }
 
         model.openPublish()
@@ -90,9 +113,12 @@ final class DemoTour {
 
         try? await Task.sleep(for: .seconds(0.8))
         presented = .media
-        await snap("media", wait: 2)
-        presented = .deployments
-        await snap("deployments", wait: 2)
+        await snap("media", wait: live ? 4 : 2)
+        if !live {
+            // Deployments need a GitHub sign-in, which previews skip.
+            presented = .deployments
+            await snap("deployments", wait: 2)
+        }
         presented = nil
 
         model.branchesOpen = true

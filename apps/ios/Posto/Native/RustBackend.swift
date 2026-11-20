@@ -7,12 +7,16 @@ final class RustBackend: Backend, @unchecked Sendable {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var handler: (@Sendable (String, String) -> Void)?
 
-    init() throws {
+    /// - Parameter dataDirectory: where repositories and settings live;
+    ///   defaults to the app's Application Support folder. Tools on a Mac
+    ///   pass their own so they never touch an installed app's data.
+    init(dataDirectory: URL? = nil) throws {
         let files = FileManager.default
         let identifier = Bundle.main.bundleIdentifier ?? "net.megaflora.posto.native"
-        let support = try files.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        let support = try dataDirectory ?? files.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             .appendingPathComponent(identifier, isDirectory: true)
-        let caches = try files.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        let caches = try dataDirectory?.appendingPathComponent("cache", isDirectory: true)
+            ?? files.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             .appendingPathComponent(identifier, isDirectory: true)
         for directory in [support, caches] {
             try files.createDirectory(at: directory, withIntermediateDirectories: true)

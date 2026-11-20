@@ -66,6 +66,12 @@ final class AppModel {
                 let engine = try Engine(backend: UnavailableBackend(), onEvent: events)
                 return (engine, backend, nil)
             }
+            #if DEBUG
+            if let socket = LaunchOptions.backendSocket {
+                let backend = SocketBackend(socket: socket)
+                return (try Engine(backend: backend, onEvent: events), backend, nil)
+            }
+            #endif
             let backend = try RustBackend()
             let engine = try Engine(backend: backend, onEvent: events)
             return (engine, backend, nil)
@@ -87,6 +93,22 @@ final class AppModel {
             return
         }
         if demo { try? await engine?.run("engine.useDemo") }
+        #if DEBUG
+        if let open = LaunchOptions.openRepository {
+            // Previews of a real site skip sign-in and open it directly.
+            stage = .repositories
+            reposLoaded = true
+            let repo = GitHubRepo(
+                id: 0, owner: open.owner, name: open.name, fullName: "\(open.owner)/\(open.name)",
+                isPrivate: true, cloneURL: "https://github.com/\(open.owner)/\(open.name).git",
+                defaultBranch: open.branch, updatedAt: ""
+            )
+            repos = [repo]
+            managed = [ManagedRepo(owner: open.owner, name: open.name, root: open.root, url: repo.cloneURL)]
+            await self.open(repo: repo, root: open.root)
+            return
+        }
+        #endif
         do {
             developerMode = try await backend.call("get_developer_mode", as: Bool.self)
         } catch {
@@ -299,3 +321,29 @@ final class AppModel {
         UserDefaults.standard.set(data, forKey: Self.cacheKey)
     }
 }
+
+#if DEBUG
+/// Debug launch arguments for previews and scripted tours.
+enum LaunchOptions {
+    private static var arguments: [String] { ProcessInfo.processInfo.arguments }
+
+    private static func value(after flag: String) -> String? {
+        guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(index + 1) else { return nil }
+        return arguments[index + 1]
+    }
+
+    /// `-PostoBackendSocket <path>`: use Tools/BackendHost instead of the
+    /// linked Rust bridge.
+    static var backendSocket: String? { value(after: "-PostoBackendSocket") }
+
+    /// `-PostoOpenRepo <root> -PostoRepo <owner/name> [-PostoBranch <name>]`:
+    /// open a downloaded repository without signing in.
+    static var openRepository: (root: String, owner: String, name: String, branch: String)? {
+        guard let root = value(after: "-PostoOpenRepo"),
+              let slug = value(after: "-PostoRepo"),
+              let slash = slug.firstIndex(of: "/")
+        else { return nil }
+        return (root, String(slug[..<slash]), String(slug[slug.index(after: slash)...]), value(after: "-PostoBranch") ?? "main")
+    }
+}
+#endif

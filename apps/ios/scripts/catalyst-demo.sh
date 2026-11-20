@@ -56,6 +56,8 @@ case "${1:-}" in
     # Walks the demo and writes a snapshot per screen to $2 (default
     # build/tour); --tour-compact uses an iPhone-sized window.
     shots="${2:-$here/build/tour}"
+    # The app reads relative tour paths as inside its Documents folder.
+    case "$shots" in /*) ;; *) shots="$here/$shots" ;; esac
     compact=()
     [ "$1" = --tour-compact ] && compact=(-PostoTourCompact)
     [ -n "${POSTO_TOUR_DARK:-}" ] && compact+=(-PostoTourDark)

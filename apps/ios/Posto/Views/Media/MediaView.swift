@@ -224,8 +224,8 @@ struct MediaBrowser: View {
                         LazyVGrid(columns: [GridItem(.flexible(), spacing: 2), GridItem(.flexible(), spacing: 2)], spacing: 2) {
                             ForEach(folder.previews.prefix(4), id: \.self) { preview in
                                 Thumbnail(path: preview.hasPrefix("http") ? nil : preview, url: preview.hasPrefix("http") ? preview : nil, maxPixels: 160)
-                                    .aspectRatio(1, contentMode: .fill)
-                                    .clipped()
+                                    .aspectRatio(1, contentMode: .fit)
+                                    .clipShape(.rect(cornerRadius: 4))
                             }
                         }
                         .padding(4)

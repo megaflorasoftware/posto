@@ -93,6 +93,9 @@ struct EditorView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .ignoresSafeArea(.container, edges: .bottom)
         }
+        #if DEBUG
+        .onChange(of: DemoTour.shared.focusBody) { _, focus in focusedBody = focus }
+        #endif
         .onAppear(perform: wireController)
         .onChange(of: view.body?.componentBlocks) { wireController() }
         .onDisappear { Task { await document.flush() } }

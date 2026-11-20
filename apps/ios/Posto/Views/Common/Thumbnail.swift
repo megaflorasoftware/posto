@@ -40,25 +40,28 @@ struct Thumbnail: View {
     @State private var failed = false
 
     var body: some View {
-        ZStack {
-            Rectangle().fill(.quaternary)
-            if let url, let remote = URL(string: url) {
-                AsyncImage(url: remote) { phase in
-                    if let loaded = phase.image {
-                        loaded.resizable().scaledToFill()
-                    } else if phase.error != nil {
-                        fallback
-                    } else {
-                        ProgressView()
+        // The rectangle takes the frame it's offered; the image fills it and
+        // is clipped, so any aspect ratio stays inside its cell.
+        Rectangle()
+            .fill(.quaternary)
+            .overlay {
+                if let url, let remote = URL(string: url) {
+                    AsyncImage(url: remote) { phase in
+                        if let loaded = phase.image {
+                            loaded.resizable().scaledToFill()
+                        } else if phase.error != nil {
+                            fallback
+                        } else {
+                            ProgressView()
+                        }
                     }
+                } else if let image {
+                    Image(decorative: image, scale: 1).resizable().scaledToFill()
+                } else if failed || path == nil {
+                    fallback
                 }
-            } else if let image {
-                Image(decorative: image, scale: 1).resizable().scaledToFill()
-            } else if failed || path == nil {
-                fallback
             }
-        }
-        .clipped()
+            .clipped()
         .task(id: path) {
             guard url == nil, let path else { return }
             let loaded = await ThumbnailCache.shared.image(path: path, maxPixels: maxPixels)
