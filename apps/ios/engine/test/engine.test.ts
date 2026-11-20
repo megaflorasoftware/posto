@@ -157,6 +157,29 @@ describe("repository session", () => {
     expect(done.snippet).toContain("Body");
   });
 
+  it("applies a controlled field template saved in developer mode", async () => {
+    const view = await call<{ tree: TreeNode[] }>("repo.view");
+    const file = allFiles(view.tree).find((candidate) => candidate.label === "Y")!;
+    await call("doc.open", { key: file.key });
+    const result = await call<{
+      error: string | null;
+      view: {
+        form: {
+          values: Record<string, unknown>;
+          fields: Array<{ name: string; template: unknown }>;
+        };
+      };
+    }>("collections.saveFieldTemplate", {
+      fieldName: "slug",
+      schema: { template: "{fields.title|slug}-post", editBehavior: "controlled" },
+    });
+    expect(result.error).toBeNull();
+    expect(result.view.form.values.slug).toBe("y-post");
+    expect(result.view.form.fields.find((field) => field.name === "slug")?.template).toMatchObject({
+      controlled: true,
+    });
+  });
+
   it("creates a new entry in a collection and opens it", async () => {
     const view = await call<{ tree: TreeNode[]; root: string }>("repo.view");
     const blog = view.tree.find((node) => node.label === "Writing")!;

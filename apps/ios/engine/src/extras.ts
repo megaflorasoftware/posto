@@ -8,7 +8,11 @@ import { cdnObjectUrl, type CdnSource } from "@posto/core/media/sources";
 import type { MediaCredential } from "@posto/ipc";
 import { markdownMediaKind } from "../../../../packages/editor/src/markdownMedia";
 import { listMediaObjects, saveMediaCredential } from "./ipc";
-import type { ContentEntry } from "@posto/core/pagescms/config";
+import {
+  expandFieldTemplate,
+  type ContentEntry,
+  type FieldTemplateSchema,
+} from "@posto/core/pagescms/config";
 import { parseProps, scanJsxBlock, serializeJsx, type MdxProp } from "@posto/core/mdx/mdx";
 import { jsValueProp, propJsValue, UNPARSED, valueFits } from "@posto/core/mdx/propFields";
 import type { ProjectAdapter } from "@posto/core/project/adapter";
@@ -18,6 +22,7 @@ import {
   POSTO_COLLECTIONS_DIR,
   POSTO_INDEX_PATH,
   updatePostoCollectionSource,
+  updatePostoFieldTemplateSource,
   updatePostoIndexSource,
   type PostoCollectionSettings,
 } from "@posto/core/posto/config";
@@ -201,6 +206,33 @@ export async function saveCollectionOrder(repo: RepoSession, order: string[]): P
   await invoke("write_text_file", { path, content: updatePostoIndexSource(source, order) });
   await repo.schemas.reloadPosto(repo.root);
   repo.changed();
+}
+
+/** Developer mode: saves (or removes) a field's template or row count in
+ * the open document's collection settings, then applies a controlled
+ * template right away, as the desktop dialogs do. */
+export async function saveFieldTemplate(
+  repo: RepoSession,
+  fieldName: string,
+  schema: FieldTemplateSchema | null,
+): Promise<string | null> {
+  const document = repo.requireDocument();
+  const entry = document.entry;
+  if (!entry || document.dataEntry)
+    throw new Error("Only collection entries have field templates.");
+  const path = `${repo.root}/${POSTO_COLLECTIONS_DIR}/${entry.name}.json`;
+  const source = await invoke<string | null>("read_text_file_optional", { path });
+  await invoke("write_text_file", {
+    path,
+    content: updatePostoFieldTemplateSource(source, fieldName, schema),
+  });
+  await repo.schemas.reloadPosto(repo.root);
+  repo.changed();
+  if (!schema?.template || schema.editBehavior !== "controlled") return null;
+  if (fieldName === "filename") return repo.refreshFilename();
+  const value = expandFieldTemplate(schema.template, document.view().form?.values ?? {});
+  if (value !== null) document.edit(fieldName.split("."), value);
+  return null;
 }
 
 // --- CDN browsing ----------------------------------------------------------

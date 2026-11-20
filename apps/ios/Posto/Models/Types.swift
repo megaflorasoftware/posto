@@ -289,6 +289,8 @@ struct FilenameState: Codable, Hashable, Sendable {
     let value: String
     let readOnly: Bool
     let refreshTemplate: String?
+    let template: String?
+    let controlled: Bool
 }
 
 struct BodyState: Codable, Hashable, Sendable {

@@ -23,7 +23,9 @@ import {
   saveCollectionOrder,
   saveCdnCredential,
   saveCollectionSettings,
+  saveFieldTemplate,
 } from "./extras";
+import type { FieldTemplateSchema } from "@posto/core/pagescms/config";
 import type { CdnSource } from "@posto/core/media/sources";
 import type { FormStore } from "./forms";
 import {
@@ -451,6 +453,16 @@ const methods: Record<string, Method> = {
   "collections.saveOrder": async (args) => {
     await saveCollectionOrder(requireRepo(), args.order as string[]);
     return requireRepo().view();
+  },
+
+  "collections.saveFieldTemplate": async (args) => {
+    const current = requireRepo();
+    const error = await saveFieldTemplate(
+      current,
+      args.fieldName as string,
+      (args.schema as FieldTemplateSchema | null) ?? null,
+    );
+    return { error, view: current.requireDocument().view() };
   },
 
   // CDN browsing for image fields.

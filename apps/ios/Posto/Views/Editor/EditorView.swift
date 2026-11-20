@@ -191,6 +191,7 @@ private struct FilenameRow: View {
     let document: DocumentModel
     @State private var draft = ""
     @FocusState private var focused: Bool
+    @State private var editingTemplate = false
 
     var body: some View {
         let filename = document.view.filename
@@ -222,6 +223,23 @@ private struct FilenameRow: View {
         }
         .onAppear { draft = filename.value }
         .onChange(of: filename.value) { _, next in if !focused { draft = next } }
+        .contextMenu {
+            if document.repo.app.developerMode, !document.view.isData, document.view.collectionLabel != nil {
+                Button {
+                    editingTemplate = true
+                } label: {
+                    Label("Filename Template…", systemImage: "wand.and.stars")
+                }
+            }
+        }
+        .sheet(isPresented: $editingTemplate) {
+            FieldTemplateSheet(
+                document: document,
+                fieldName: "filename",
+                label: "Filename",
+                current: filename.template.map { FieldTemplate(template: $0, controlled: filename.controlled, rows: nil) }
+            )
+        }
     }
 
     private func commit() {

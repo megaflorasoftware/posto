@@ -98,6 +98,18 @@ struct FieldRow: View {
     private var value: JSONValue? { state.values.value(at: path) }
     private var error: String? { state.errors[path.dotted] }
 
+    @State private var editingTemplate = false
+    @State private var editingRows = false
+
+    /// Developer mode: top-level fields of collection entries can carry
+    /// `.posto` templates and row counts.
+    private var templatable: Bool {
+        guard let document, showLabel, document.repo.app.developerMode, !document.view.isData,
+              document.view.collectionLabel != nil
+        else { return false }
+        return !path.contains { if case .index = $0 { return true } else { return false } }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             control
@@ -106,6 +118,37 @@ struct FieldRow: View {
             }
             if showLabel, let description = field.description, !description.isEmpty, field.type != "boolean" {
                 Text(description).font(.caption).foregroundStyle(.secondary)
+            }
+            if templatable, let template = field.template?.template {
+                Label(template, systemImage: field.controlled ? "lock" : "wand.and.stars")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .contextMenu {
+            if templatable {
+                Button {
+                    editingTemplate = true
+                } label: {
+                    Label("Template…", systemImage: "wand.and.stars")
+                }
+                if field.type == "string" {
+                    Button {
+                        editingRows = true
+                    } label: {
+                        Label("Rows…", systemImage: "text.alignleft")
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $editingTemplate) {
+            if let document {
+                FieldTemplateSheet(document: document, fieldName: field.schemaPath, label: field.label, current: field.template)
+            }
+        }
+        .sheet(isPresented: $editingRows) {
+            if let document {
+                FieldRowsSheet(document: document, fieldName: field.schemaPath, label: field.label, current: field.template)
             }
         }
     }
@@ -519,5 +562,145 @@ struct ObjectItemSummary: View {
             }
         }
         return nil
+    }
+}
+
+/// Developer mode: a field's `.posto` template — controlled (always follows
+/// the template, read-only) or manual (a regenerate button).
+struct FieldTemplateSheet: View {
+    let document: DocumentModel
+    let fieldName: String
+    let label: String
+    let current: FieldTemplate?
+    @Environment(\.dismiss) private var dismiss
+    @State private var template = ""
+    @State private var controlled = false
+    @State private var error: String?
+
+    private var trimmed: String { template.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var missingExtension: Bool {
+        fieldName == "filename" && !trimmed.isEmpty && trimmed.range(of: #"\.[A-Za-z0-9]+$"#, options: .regularExpression) == nil
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("{fields.title|slug}", text: $template, axis: .vertical)
+                        .font(.body.monospaced())
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } header: {
+                    Text("Template")
+                } footer: {
+                    if missingExtension {
+                        Text("Filename templates must end with an extension, such as .mdx.").foregroundStyle(.red)
+                    } else {
+                        Text("Use {fields.x} for a raw field value or {fields.x|slug} for a slug.")
+                    }
+                }
+                Section("Edit behavior") {
+                    Picker("Edit behavior", selection: $controlled) {
+                        Text("Manual: regenerate on request").tag(false)
+                        Text("Controlled: always follows the template").tag(true)
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                }
+                if current?.template != nil {
+                    Section {
+                        AsyncButton(role: .destructive) {
+                            await save(fieldName == "filename" || current?.rows != nil
+                                ? schema(template: nil) : nil)
+                        } label: {
+                            Text("Remove Template")
+                        }
+                    }
+                }
+            }
+            .navigationTitle("\(label) Template")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    AsyncButton("Save") { await save(schema(template: trimmed)) }
+                        .disabled(trimmed.isEmpty || missingExtension)
+                }
+            }
+            .onAppear {
+                template = current?.template ?? ""
+                controlled = current.map(\.controlled) ?? (fieldName == "filename")
+            }
+            .errorAlert($error)
+        }
+    }
+
+    private func schema(template: String?) -> JSONValue {
+        var object: [String: JSONValue] = ["editBehavior": .string(controlled ? "controlled" : "manual")]
+        if let template { object["template"] = .string(template) }
+        if let rows = current?.rows { object["rows"] = .number(Double(rows)) }
+        return .object(object)
+    }
+
+    private func save(_ schema: JSONValue?) async {
+        do {
+            let result: JSONValue = try await document.engine.call("collections.saveFieldTemplate", [
+                "fieldName": .string(fieldName), "schema": schema ?? .null,
+            ])
+            if let next = try? result["view"]?.decode(as: DocumentView.self) { document.apply(next) }
+            if let message = result["error"]?.stringValue { document.renameError = message }
+            dismiss()
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+}
+
+/// Developer mode: how many rows a string field shows.
+struct FieldRowsSheet: View {
+    let document: DocumentModel
+    let fieldName: String
+    let label: String
+    let current: FieldTemplate?
+    @Environment(\.dismiss) private var dismiss
+    @State private var rows = 1
+    @State private var error: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Stepper("\(rows) \(rows == 1 ? "row" : "rows")", value: $rows, in: 1...50)
+                } footer: {
+                    Text("Number of visible rows in this string field.")
+                }
+            }
+            .navigationTitle("\(label) Rows")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    AsyncButton("Save") {
+                        var schema: [String: JSONValue] = [
+                            "editBehavior": .string(current?.controlled == true ? "controlled" : "manual"),
+                            "rows": .number(Double(rows)),
+                        ]
+                        if let template = current?.template { schema["template"] = .string(template) }
+                        do {
+                            let result: JSONValue = try await document.engine.call("collections.saveFieldTemplate", [
+                                "fieldName": .string(fieldName), "schema": .object(schema),
+                            ])
+                            if let next = try? result["view"]?.decode(as: DocumentView.self) { document.apply(next) }
+                            dismiss()
+                        } catch {
+                            self.error = error.localizedDescription
+                        }
+                    }
+                }
+            }
+            .onAppear { rows = current?.rows ?? 1 }
+            .errorAlert($error)
+        }
+        .presentationDetents([.medium])
     }
 }

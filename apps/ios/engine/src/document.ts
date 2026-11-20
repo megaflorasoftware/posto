@@ -88,6 +88,9 @@ export interface DocumentView {
     readOnly: boolean;
     /** Set when a manual filename template can regenerate the name. */
     refreshTemplate: string | null;
+    /** The filename template itself, for developer mode. */
+    template: string | null;
+    controlled: boolean;
   };
   configError: string | null;
   form: {
@@ -260,6 +263,8 @@ export class DocumentSession {
           !readOnly && schema?.template && schema.editBehavior === "manual"
             ? schema.template
             : null,
+        template: schema?.template ?? null,
+        controlled: schema?.editBehavior === "controlled",
       },
       configError: configError
         ? `Schema configuration issue${this.host.hasDerivedFallback() ? " (using the last available schemas)" : ""} — ${configError}`
