@@ -2,6 +2,10 @@
 # The real stack on macOS, no Xcode: the app's RustBackend over the Rust
 # bridge (host build), under the engine in JavaScriptCore, editing and
 # reverting a file in a throwaway git copy of the docs site.
+#
+# On macOS the Rust host build reads desktop Posto's Keychain entries for
+# GitHub and CDN credentials. Keep this test away from them: its repository
+# has no remote, and it never calls auth, publish, pull, or media_credential_*.
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 out="${TMPDIR:-/tmp}/posto-native-smoke"
