@@ -367,6 +367,9 @@ export class RepoSession {
       }
     }
     void this.renameForTemplate(path, content);
+    // No filesystem watcher here (the desktop app has one): keep Publish's
+    // state current as saves land, since iPad shows it beside the editor.
+    void this.git.refreshLocalChanges(this.root);
     this.changed();
   }
 

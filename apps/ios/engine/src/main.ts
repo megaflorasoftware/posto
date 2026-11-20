@@ -301,6 +301,7 @@ const methods: Record<string, Method> = {
   "git.loadChanges": async () => {
     const current = requireRepo();
     await current.document?.flushPendingSave();
+    await current.git.refreshLocalChanges();
     await current.git.loadChanges();
     return current.git.publishView(scopeLabel(current));
   },
