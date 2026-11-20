@@ -74,6 +74,7 @@ final class RepoModel {
         switch name {
         case "repo":
             if let next = try? JSONDecoder().decode(RepoView.self, from: data) { view = next }
+            publish?.engineChanged()
         case "document":
             if let next = try? JSONDecoder().decode(DocumentView.self, from: data) { document?.apply(next) }
         case "component-schemas-changed":

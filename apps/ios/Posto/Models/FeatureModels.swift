@@ -39,6 +39,16 @@ final class PublishModel {
         return hasChanges && !message.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
+    /// The engine reports publish-state changes outside a call (the media
+    /// plan finishing after a revert, say) only as repo events; re-read the
+    /// sheet's view on each one.
+    func engineChanged() {
+        guard !loading else { return }
+        Task {
+            if let next: PublishView = try? await engine.call("git.publishView") { view = next }
+        }
+    }
+
     func revert(_ file: ChangedFile) async {
         view = try? await engine.call("git.revert", ["file": try JSONValue(encoding: file)])
         await repo.document?.reload()
