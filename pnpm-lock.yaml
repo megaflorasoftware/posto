@@ -94,6 +94,31 @@ importers:
         specifier: ^0.34.5
         version: 0.34.5
 
+  apps/ios:
+    dependencies:
+      '@posto/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@posto/editor':
+        specifier: workspace:*
+        version: link:../../packages/editor
+      '@posto/ipc':
+        specifier: workspace:*
+        version: link:../../packages/ipc
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
+    devDependencies:
+      esbuild:
+        specifier: ^0.28.1
+        version: 0.28.1
+      typescript:
+        specifier: ~5.6.2
+        version: 5.6.3
+      vitest:
+        specifier: ^3.2.7
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.13.3)(jsdom@26.1.0)(lightningcss@1.33.0)(sugarss@5.0.1(postcss@8.5.20))(yaml@2.9.0)
+
   apps/mobile:
     dependencies:
       '@mantine/core':

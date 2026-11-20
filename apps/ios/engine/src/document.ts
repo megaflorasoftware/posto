@@ -1,0 +1,583 @@
+/**
+ * The open file. A headless port of useCurrentFile (load, debounced
+ * autosave, a save/rename queue, save state) joined with EditorPane's tab and
+ * filename rules and BodyEditor's managed MDX imports. Swift renders
+ * `view()` and sends edits; every edit runs through the shared form model.
+ */
+import type { FileEntry, FileGroup } from "@posto/ipc";
+import { isRemoteMediaUrl } from "@posto/core/media/sources";
+import {
+  collectionExtension,
+  matchEntry,
+  mediaInputPath,
+  mediaOutputPath,
+  renamedFilename,
+  resolveMedia,
+  resolveMediaForValue,
+  type ContentEntry,
+  type Field,
+  type FieldTemplateSchema,
+  type MediaEntry,
+  type PagesConfig,
+} from "@posto/core/pagescms/config";
+import { parseFile, type ValuePath } from "@posto/core/pagescms/frontmatter";
+import { importInfo, splitLeadingImports } from "@posto/core/mdx/mdx";
+import type { ProjectAdapter } from "@posto/core/project/adapter";
+import { AUTOSAVE_DELAY_MS } from "../../../../packages/editor/src/autosave";
+import { applyCollectionPrefs } from "../../../../packages/editor/src/collectionPrefs";
+import {
+  editorTabsForFile,
+  resolveEditorTab,
+  type EditorTab,
+} from "../../../../packages/editor/src/editorTabs";
+import {
+  fieldAt,
+  referenceOptions,
+  type SelectValue,
+} from "../../../../packages/editor/src/formModel";
+import { DataEntryForm, FrontmatterForm, type FormEmit, type FormStore } from "./forms";
+import { fieldViews, type FieldView } from "./fieldViews";
+import { errorMessage, invoke } from "./host";
+
+export type SaveState = "saved" | "saving" | "error" | "invalid";
+
+/** What the document needs from the repository it belongs to. */
+export interface DocumentHost {
+  readonly root: string;
+  config(): PagesConfig;
+  configError(): string | null;
+  hasDerivedFallback(): boolean;
+  adapter(): ProjectAdapter;
+  groups(): FileGroup[];
+  developerMode(): boolean;
+  /** Runs after every successful write (sidebar titles, invalidations,
+   * template-driven renames). */
+  afterSave(path: string, content: string): void;
+  /** The document's visible state changed. */
+  changed(): void;
+}
+
+/** An import statement managed outside the editable body. */
+interface ManagedImport {
+  statement: string;
+  names: string[];
+  pinned: boolean;
+}
+
+function bodyComponentNames(markdown: string): Set<string> {
+  return new Set([...markdown.matchAll(/<([A-Z][\w.]*)[\s/>]/g)].map((m) => m[1].split(".")[0]));
+}
+
+const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "ico"];
+const MARKDOWN = /\.(md|mdx|markdown)$/i;
+
+export interface DocumentView {
+  key: string;
+  path: string;
+  name: string;
+  isData: boolean;
+  tabs: EditorTab[];
+  tab: EditorTab;
+  saveState: SaveState;
+  collectionLabel: string | null;
+  filename: {
+    value: string;
+    readOnly: boolean;
+    /** Set when a manual filename template can regenerate the name. */
+    refreshTemplate: string | null;
+  };
+  configError: string | null;
+  form: {
+    parseError: string | null;
+    missing: boolean;
+    fields: FieldView[];
+    values: Record<string, unknown>;
+    errors: Record<string, string>;
+  } | null;
+  body: { kind: "markdown" | "mdx" | "plain"; text: string; componentBlocks: boolean } | null;
+  /** The whole file, only while the raw tab is showing. */
+  raw: string | null;
+}
+
+export class DocumentSession {
+  path: string;
+  key: string;
+  readonly dataEntry: FileEntry["dataEntry"];
+  content: string;
+  saveState: SaveState = "saved";
+  tab: EditorTab;
+  private form: FormStore | null = null;
+  private imports: ManagedImport[] = [];
+  private bodyText = "";
+  private saveTimer: ReturnType<typeof setTimeout> | undefined;
+  private activeSave: Promise<void> | null = null;
+  closed = false;
+
+  constructor(
+    private readonly host: DocumentHost,
+    file: FileEntry,
+    content: string,
+  ) {
+    this.path = file.path;
+    this.key = file.key ?? file.path;
+    this.dataEntry = file.dataEntry;
+    this.content = content;
+    this.tab = this.dataEntry || MARKDOWN.test(this.path) ? "content" : "raw";
+    this.rebuild();
+  }
+
+  static async open(host: DocumentHost, file: FileEntry): Promise<DocumentSession> {
+    const content = await invoke<string>("read_text_file", { path: file.path });
+    return new DocumentSession(host, file, content);
+  }
+
+  get entry(): ContentEntry | null {
+    const config = this.host.config();
+    if (this.dataEntry) {
+      return (
+        config.content.find((candidate) => candidate.name === this.dataEntry?.collection) ?? null
+      );
+    }
+    return matchEntry(config, this.host.root, this.path);
+  }
+
+  get name(): string {
+    return this.dataEntry?.id ?? this.path.slice(this.path.lastIndexOf("/") + 1);
+  }
+
+  private get isMdx(): boolean {
+    return /\.mdx$/i.test(this.path);
+  }
+
+  tabs(): EditorTab[] {
+    return editorTabsForFile({
+      filePath: this.path,
+      fileContent: this.content,
+      entry: this.entry,
+      dataEntry: this.dataEntry,
+      developerMode: this.host.developerMode(),
+    });
+  }
+
+  /** Rebuilds the form from `content`, as FormEditor does for external changes. */
+  rebuild(): void {
+    const entry = this.entry;
+    if (this.dataEntry && entry) {
+      this.form = new DataEntryForm(this.content, entry, this.dataEntry);
+      this.bodyText = "";
+      return;
+    }
+    if (!entry && !MARKDOWN.test(this.path)) {
+      this.form = null;
+      return;
+    }
+    const form = new FrontmatterForm(this.content, entry);
+    this.form = form;
+    const body = form.body();
+    if (this.isMdx) {
+      const split = splitLeadingImports(body);
+      const used = bodyComponentNames(split.body);
+      this.imports = split.imports.map((statement) => {
+        const { names } = importInfo(statement);
+        return { statement, names, pinned: !names.some((name) => used.has(name)) };
+      });
+      this.bodyText = split.body;
+    } else {
+      this.imports = [];
+      this.bodyText = body;
+    }
+  }
+
+  /** Managed imports (filtered to what the body still uses) above the body. */
+  private composeBody(body: string): string {
+    if (!this.isMdx) return body;
+    const used = bodyComponentNames(body);
+    this.imports = this.imports.filter((imp) => {
+      if (imp.names.length === 0) return true;
+      if (imp.names.some((name) => used.has(name))) {
+        imp.pinned = false;
+        return true;
+      }
+      return imp.pinned;
+    });
+    if (this.imports.length === 0) return body;
+    return this.imports.map((imp) => imp.statement).join("\n") + "\n\n" + body;
+  }
+
+  /** Adds an import for a component inserted into the body. */
+  addImport(statement: string): void {
+    if (this.imports.some((imp) => imp.statement === statement)) return;
+    const { names } = importInfo(statement);
+    if (names.some((name) => this.imports.some((imp) => imp.names.includes(name)))) return;
+    this.imports.push({ statement, names, pinned: false });
+  }
+
+  hasImportFor(name: string): boolean {
+    return this.imports.some((imp) => imp.names.includes(name));
+  }
+
+  view(): DocumentView {
+    const entry = this.entry;
+    const tabs = this.tabs();
+    const tab = resolveEditorTab(tabs, this.tab);
+    const schema: FieldTemplateSchema | undefined =
+      entry?.fieldSchemas?.filename ??
+      (entry?.filename ? { template: entry.filename, editBehavior: "controlled" } : undefined);
+    const readOnly = Boolean(this.dataEntry) || schema?.editBehavior === "controlled";
+    const configError = this.host.configError();
+    const form = this.form;
+    const markdown = MARKDOWN.test(this.path);
+    return {
+      key: this.key,
+      path: this.path,
+      name: this.name,
+      isData: Boolean(this.dataEntry),
+      tabs,
+      tab,
+      saveState: this.saveState,
+      collectionLabel: entry ? (entry.label ?? entry.name) : null,
+      filename: {
+        value: this.name,
+        readOnly,
+        refreshTemplate:
+          !readOnly && schema?.template && schema.editBehavior === "manual"
+            ? schema.template
+            : null,
+      },
+      configError: configError
+        ? `Schema configuration issue${this.host.hasDerivedFallback() ? " (using the last available schemas)" : ""} — ${configError}`
+        : null,
+      form:
+        form && tab === "content"
+          ? {
+              parseError: form.parseError,
+              missing: form instanceof DataEntryForm && form.missing,
+              fields: fieldViews(
+                form.fields,
+                entry,
+                this.host.config(),
+                this.host.adapter().capabilities.entryIds !== null,
+              ),
+              values: form.values(),
+              errors: Object.fromEntries(form.errors()),
+            }
+          : null,
+      body:
+        form instanceof FrontmatterForm && tab === "content" && !form.parseError
+          ? {
+              kind: markdown ? (this.isMdx ? "mdx" : "markdown") : "plain",
+              text: this.bodyText,
+              componentBlocks:
+                this.isMdx && this.host.adapter().capabilities.componentBlocks !== null,
+            }
+          : null,
+      raw: tab === "raw" ? this.content : null,
+    };
+  }
+
+  setTab(tab: EditorTab): void {
+    if (tab === this.tab) return;
+    this.tab = tab;
+    if (tab === "content") this.rebuild();
+  }
+
+  // --- Edits -------------------------------------------------------------
+
+  private onEdit(content: string) {
+    this.content = content;
+    this.saveState = "saving";
+    clearTimeout(this.saveTimer);
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = undefined;
+      void this.saveNow(this.path, content);
+    }, AUTOSAVE_DELAY_MS);
+  }
+
+  /** Form edits only reach disk while the form validates; invalid states
+   * keep the in-memory content (so Raw shows it) but never save. */
+  private onFormEdit({ content, valid }: FormEmit) {
+    if (valid) this.onEdit(content);
+    else {
+      this.content = content;
+      this.clearPendingSave();
+      this.saveState = "invalid";
+    }
+  }
+
+  private requireForm(): FormStore {
+    if (!this.form) throw new Error("This file has no form");
+    return this.form;
+  }
+
+  edit(path: ValuePath, value: unknown): void {
+    this.onFormEdit(this.requireForm().edit(path, value === null ? undefined : value));
+  }
+
+  listAppend(path: ValuePath, value: unknown): void {
+    this.onFormEdit(this.requireForm().listAppend(path, value));
+  }
+
+  listRemove(path: ValuePath, index: number): void {
+    this.onFormEdit(this.requireForm().listRemove(path, index));
+  }
+
+  listMove(path: ValuePath, from: number, to: number): void {
+    this.onFormEdit(this.requireForm().listMove(path, from, to));
+  }
+
+  setBody(text: string): void {
+    const form = this.form;
+    if (!(form instanceof FrontmatterForm)) throw new Error("This file has no body");
+    this.bodyText = text;
+    this.onFormEdit(form.setBody(this.composeBody(text)));
+  }
+
+  setRaw(content: string): void {
+    this.onEdit(content);
+  }
+
+  // --- Saving ------------------------------------------------------------
+
+  private saveNow(path: string, content: string): Promise<void> {
+    this.saveState = "saving";
+    this.host.changed();
+    const previous = this.activeSave ?? Promise.resolve();
+    // The target resolves when the write runs: a rename queued ahead of it
+    // may have moved the file, and writing the old path would resurrect it.
+    let target = path;
+    const task = previous
+      .then(() => {
+        if (!this.closed) target = this.path;
+        return invoke("write_text_file", { path: target, content });
+      })
+      .then(() => {
+        if (this.saveTimer === undefined && this.saveState !== "invalid") this.saveState = "saved";
+        this.host.afterSave(target, content);
+      })
+      .catch((error) => {
+        console.error("Save failed", errorMessage(error));
+        this.saveState = "error";
+      })
+      .finally(() => {
+        if (this.activeSave === task) this.activeSave = null;
+        this.host.changed();
+      });
+    this.activeSave = task;
+    return task;
+  }
+
+  /** Moves the open file on disk, queued behind any in-flight save. Resolves
+   * false when the rename failed; the file then keeps its name. */
+  renameOpenFile(from: string, to: string): Promise<boolean> {
+    const previous = this.activeSave ?? Promise.resolve();
+    let renamed = false;
+    const task = previous
+      .then(() => invoke("rename_file", { from, to }))
+      .then(() => {
+        renamed = true;
+        if (this.path === from) {
+          this.path = to;
+          this.key = to;
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (this.activeSave === task) this.activeSave = null;
+      });
+    this.activeSave = task;
+    return task.then(() => renamed);
+  }
+
+  async flushPendingSave(): Promise<void> {
+    if (this.saveTimer !== undefined) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = undefined;
+      await this.saveNow(this.path, this.content);
+      return;
+    }
+    if (this.activeSave) await this.activeSave;
+  }
+
+  clearPendingSave(): void {
+    clearTimeout(this.saveTimer);
+    this.saveTimer = undefined;
+  }
+
+  get hasPendingSave(): boolean {
+    return this.saveTimer !== undefined;
+  }
+
+  /** Re-reads the file after an external change, unless an edit is pending. */
+  async reloadFromDisk(): Promise<boolean> {
+    if (this.saveTimer !== undefined) return false;
+    const path = this.path;
+    let content: string;
+    try {
+      content = await invoke<string>("read_text_file", { path });
+    } catch {
+      return false;
+    }
+    if (this.path !== path || this.saveTimer !== undefined || content === this.content)
+      return false;
+    this.content = content;
+    this.saveState = "saved";
+    this.rebuild();
+    return true;
+  }
+
+  // --- Field helpers -----------------------------------------------------
+
+  private fieldAtPath(path: ValuePath): Field | null {
+    return this.form ? fieldAt(this.form.fields, path) : null;
+  }
+
+  private templateValues(): Record<string, unknown> {
+    return this.form?.values() ?? {};
+  }
+
+  private documentPath(): string | undefined {
+    return this.dataEntry ? undefined : this.path;
+  }
+
+  /** Where an image value can be previewed: a local absolute path or URL. */
+  imagePreview(path: ValuePath, value: string): { path: string | null; url: string | null } {
+    if (!value) return { path: null, url: null };
+    if (isRemoteMediaUrl(value)) return { path: null, url: value };
+    const config = this.host.config();
+    const field = this.fieldAtPath(path);
+    const values = this.templateValues();
+    const media = field ? resolveMedia(config, field, this.entry, values) : null;
+    const valueMedia = field
+      ? resolveMediaForValue(config, field, value, this.entry, values)
+      : null;
+    const libraryMedia: MediaEntry[] = (config.mediaLibraries ?? []).map((library) => {
+      const input = library.base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
+      return { name: `library:${library.collection}`, input, output: `/${input}` };
+    });
+    let decoded = value;
+    try {
+      decoded = decodeURIComponent(value);
+    } catch {
+      // Keep malformed escapes resolvable as their literal filename.
+    }
+    const resolved =
+      [valueMedia, media, ...config.media, ...libraryMedia]
+        .filter((candidate): candidate is MediaEntry => candidate !== null)
+        .map((candidate) => mediaInputPath(this.host.root, candidate, value, this.documentPath()))
+        .find((candidate): candidate is string => candidate !== null) ??
+      (value.startsWith("/") ? `${this.host.root}/public${decoded}` : null);
+    return { path: resolved, url: null };
+  }
+
+  /** The images an image field can pick from its media folder. */
+  async imageChoices(path: ValuePath): Promise<{
+    media: { name: string; label: string | null; input: string } | null;
+    files: Array<{ name: string; path: string; value: string }>;
+  }> {
+    const field = this.fieldAtPath(path);
+    const config = this.host.config();
+    const media = field
+      ? resolveMedia(config, field, this.entry, this.templateValues())
+      : (this.entry?.media ?? config.media[0] ?? null);
+    if (!media) return { media: null, files: [] };
+    const dir = `${this.host.root}/${media.input}`;
+    const listed =
+      (await invoke<FileEntry[] | null>("list_dir_files_optional", {
+        dir,
+        extensions: IMAGE_EXTENSIONS,
+      })) ?? [];
+    return {
+      media: { name: media.name, label: media.label ?? null, input: media.input },
+      files: listed.flatMap((file) => {
+        const value = mediaOutputPath(this.host.root, media, file.path, this.documentPath());
+        return value ? [{ name: file.name, path: file.path, value }] : [];
+      }),
+    };
+  }
+
+  /** The stored value for a file picked into the body (document-relative
+   * outside `public/`, a site path inside it). */
+  bodyMediaValue(absolutePath: string): string | null {
+    const publicRoot = `${this.host.root}/public/`;
+    if (absolutePath.startsWith(publicRoot)) {
+      return (
+        "/" +
+        absolutePath
+          .slice(publicRoot.length)
+          .split("/")
+          .map((segment) => encodeURIComponent(segment))
+          .join("/")
+      );
+    }
+    const media = this.entry?.media ?? this.host.config().media[0] ?? null;
+    if (!media) return null;
+    return mediaOutputPath(this.host.root, media, absolutePath, this.documentPath());
+  }
+
+  async referenceOptions(path: ValuePath): Promise<{
+    options: SelectValue[];
+    collection: { name: string; label: string } | null;
+  }> {
+    const field = this.fieldAtPath(path);
+    const config = this.host.config();
+    const collection =
+      config.content.find(
+        (entry) => entry.type === "collection" && entry.name === field?.options?.collection,
+      ) ?? null;
+    if (!field || !collection) return { options: [], collection: null };
+    let listed: FileEntry[] = [];
+    if (collection.dataFile) {
+      listed =
+        this.host.groups().find((group) => group.dataCollection === collection.name)?.files ?? [];
+    } else {
+      const extension = collectionExtension(collection);
+      try {
+        listed = await invoke<FileEntry[]>("list_dir_files", {
+          dir: `${this.host.root}/${collection.path}`,
+          extensions: extension ? [extension] : [],
+        });
+      } catch {
+        listed = [];
+      }
+    }
+    const known = new Map<string, FileEntry>();
+    for (const group of this.host.groups()) {
+      for (const file of group.files) known.set(file.path, file);
+    }
+    const enriched = listed.map((file) => {
+      if (file.dataEntry) return file;
+      const match = known.get(file.path);
+      return match
+        ? { ...file, title: file.title ?? match.title, frontmatter: match.frontmatter }
+        : file;
+    });
+    return {
+      options: referenceOptions({
+        files: applyCollectionPrefs(enriched, collection),
+        field,
+        collection,
+        root: this.host.root,
+        entryIds: this.host.adapter().capabilities.entryIds,
+      }),
+      collection: { name: collection.name, label: collection.label ?? collection.name },
+    };
+  }
+
+  /** The filename a manual template would produce now, or null. */
+  templatedFilename(template: string): string | null {
+    const entry = this.entry;
+    if (!entry) return null;
+    const parsed = parseFile(this.content);
+    const raw = parsed.doc.toJSON() as unknown;
+    if (parsed.error || !raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new Error("Fix the file's frontmatter before refreshing its filename.");
+    }
+    return renamedFilename(template, entry, raw as Record<string, unknown>, this.name);
+  }
+
+  close(): Promise<void> {
+    const pending = this.flushPendingSave();
+    this.closed = true;
+    return pending;
+  }
+}

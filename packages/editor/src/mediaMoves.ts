@@ -17,7 +17,7 @@ import {
 } from "./imageLibraryReferences";
 import { publicMediaOutputPath } from "./markdownMedia";
 
-function markdownReferenceReplacements(
+export function markdownReferenceReplacements(
   root: string,
   relocations: Array<{ from: string; to: string }>,
 ): Map<string, string> {
