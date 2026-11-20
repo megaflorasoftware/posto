@@ -47,8 +47,6 @@ apps/ios/scripts/catalyst-demo.sh  # run the demo on this Mac (--tour snapshots 
 
 ## Not ported yet
 
-- Editing an existing MDX component's props in place. New components insert
-  with a props form, and existing JSX stays editable as text.
 - Browsing CDN objects from an image field.
 - Editing an image-library entry's metadata inline in a document. Media
   covers this.

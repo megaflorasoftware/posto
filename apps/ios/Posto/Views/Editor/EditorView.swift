@@ -9,6 +9,7 @@ struct EditorView: View {
     @State private var rawController = MarkdownEditorController()
     @State private var insertingMedia = false
     @State private var insertingComponent = false
+    @State private var editingComponent: ComponentEdit?
     @State private var focusedBody = false
 
     var body: some View {
@@ -70,6 +71,17 @@ struct EditorView: View {
                 Task { await insertMedia(path: absolutePath, url: url, alt: alt, kind: kind) }
             }
         }
+        .sheet(item: $editingComponent) { edit in
+            NavigationStack {
+                ComponentPropsView(engine: document.engine, mode: .edit(edit.text, edit.offset)) { snippet, range in
+                    if let range { controller.replace(range: range, with: snippet) }
+                    editingComponent = nil
+                }
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { editingComponent = nil } }
+                }
+            }
+        }
         .sheet(isPresented: $insertingComponent) {
             ComponentPickerView(engine: document.engine) { snippet in
                 controller.insert(snippet, asBlock: true)
@@ -92,6 +104,9 @@ struct EditorView: View {
         rawController.onChange = { [document] text in document.rawChanged(text) }
         controller.onRequestImage = { insertingMedia = true }
         controller.onRequestComponent = { insertingComponent = true }
+        controller.onRequestEditComponent = { text, offset in
+            editingComponent = ComponentEdit(text: text, offset: offset)
+        }
         controller.componentsEnabled = document.view.body?.componentBlocks == true
     }
 
@@ -222,4 +237,11 @@ private struct FilenameRow: View {
             if document.renameError != nil { draft = document.view.filename.value }
         }
     }
+}
+
+/// The body and caret an "Edit Component" request started from.
+private struct ComponentEdit: Identifiable {
+    let id = UUID()
+    let text: String
+    let offset: Int
 }

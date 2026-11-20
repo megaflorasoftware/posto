@@ -5,8 +5,8 @@
 import type { WorkflowRun } from "@posto/ipc";
 import { computeDeploymentRing } from "@posto/core/github/deployment";
 import type { ContentEntry } from "@posto/core/pagescms/config";
-import { serializeJsx } from "@posto/core/mdx/mdx";
-import { jsValueProp } from "@posto/core/mdx/propFields";
+import { parseProps, scanJsxBlock, serializeJsx, type MdxProp } from "@posto/core/mdx/mdx";
+import { jsValueProp, propJsValue, UNPARSED, valueFits } from "@posto/core/mdx/propFields";
 import type { ProjectAdapter } from "@posto/core/project/adapter";
 import {
   LABEL_SORT,
@@ -221,7 +221,56 @@ let componentForm: {
   form: MetadataForm;
   slots: string[];
   hasDefaultSlot: boolean;
+  /** Set when editing a block already in the body: where it is, its
+   * children, and props the form doesn't cover (kept verbatim). */
+  editing?: { start: number; end: number; children: string | null; kept: MdxProp[] };
 } | null = null;
+
+/** Opens the props form for the component block around `offset` in the
+ * body `text` (offsets in UTF-16 units, as UITextView counts them). */
+export async function openComponentAt(repo: RepoSession, text: string, offset: number) {
+  let found: { start: number; block: NonNullable<ReturnType<typeof scanJsxBlock>> } | null = null;
+  for (const match of text.matchAll(/(^|\n)[ \t]*<[A-Z]/g)) {
+    const start = (match.index ?? 0) + match[0].length - 2;
+    if (start > offset) break;
+    const block = scanJsxBlock(text.slice(start));
+    // Later starts are nested inside earlier ones, so the innermost wins.
+    if (block && offset <= start + block.raw.length) found = { start, block };
+  }
+  if (!found) throw new Error("Put the cursor inside a component to edit it.");
+  const { start, block } = found;
+  const props = parseProps(block.propsSource);
+  if (!props) {
+    throw new Error(
+      `${block.name}'s props use expressions Posto can't edit here. Edit them as text.`,
+    );
+  }
+  const document = repo.requireDocument();
+  const source = repo.adapter.capabilities.componentBlocks;
+  const path = document.importPathFor(block.name);
+  const schema =
+    source && path
+      ? await source.componentFields({ name: block.name, path }, ipcProjectIO, repo.config)
+      : null;
+  const fields = schema?.fields ?? [];
+  const values: Record<string, unknown> = {};
+  const kept: MdxProp[] = [];
+  for (const prop of props) {
+    const field = fields.find((candidate) => candidate.name === prop.name);
+    const value = field ? propJsValue(prop) : UNPARSED;
+    if (field && value !== UNPARSED && valueFits(field, value)) values[prop.name] = value;
+    else kept.push(prop);
+  }
+  componentForm = {
+    name: block.name,
+    path: path ?? "",
+    form: new MetadataForm(fields, values),
+    slots: schema?.slots ?? [],
+    hasDefaultSlot: schema?.hasDefaultSlot ?? true,
+    editing: { start, end: start + block.raw.length, children: block.children, kept },
+  };
+  return componentFormView();
+}
 
 export async function openComponentForm(repo: RepoSession, name: string, path: string) {
   const source = repo.adapter.capabilities.componentBlocks;
@@ -263,8 +312,12 @@ export function componentFormStore(): MetadataForm {
   return componentForm.form;
 }
 
-/** The JSX to insert, and the import the document now needs. */
-export function finishComponent(repo: RepoSession): { snippet: string } {
+/** The JSX to insert (or the range it replaces, when editing), and the
+ * import the document now needs. */
+export function finishComponent(repo: RepoSession): {
+  snippet: string;
+  range: [number, number] | null;
+} {
   const pending = componentForm;
   if (!pending) throw new Error("No component is being inserted");
   if (!pending.form.valid) throw new Error("Fix the highlighted fields first.");
@@ -278,12 +331,19 @@ export function finishComponent(repo: RepoSession): { snippet: string } {
     );
     return prop ? [prop] : [];
   });
+  componentForm = null;
+  if (pending.editing) {
+    const { start, end, children, kept } = pending.editing;
+    return {
+      snippet: serializeJsx(pending.name, [...props, ...kept], children),
+      range: [start, end],
+    };
+  }
   const children = pending.hasDefaultSlot || pending.slots.length > 0 ? "\n" : null;
   if (source && !document.hasImportFor(pending.name)) {
     document.addImport(source.importFor({ name: pending.name, path: pending.path }, document.path));
   }
-  componentForm = null;
-  return { snippet: serializeJsx(pending.name, props, children) };
+  return { snippet: serializeJsx(pending.name, props, children), range: null };
 }
 
 export { fieldViews };

@@ -21,7 +21,7 @@ import {
   type PagesConfig,
 } from "@posto/core/pagescms/config";
 import { parseFile, type ValuePath } from "@posto/core/pagescms/frontmatter";
-import { importInfo, splitLeadingImports } from "@posto/core/mdx/mdx";
+import { importInfo, resolveImportPath, splitLeadingImports } from "@posto/core/mdx/mdx";
 import type { ProjectAdapter } from "@posto/core/project/adapter";
 import { AUTOSAVE_DELAY_MS } from "../../../../packages/editor/src/autosave";
 import { applyCollectionPrefs } from "../../../../packages/editor/src/collectionPrefs";
@@ -220,6 +220,16 @@ export class DocumentSession {
 
   hasImportFor(name: string): boolean {
     return this.imports.some((imp) => imp.names.includes(name));
+  }
+
+  /** The file a component in the body is imported from, when resolvable. */
+  importPathFor(name: string): string | null {
+    for (const imp of this.imports) {
+      if (!imp.names.includes(name)) continue;
+      const { spec } = importInfo(imp.statement);
+      return spec ? resolveImportPath(this.path, spec) : null;
+    }
+    return null;
   }
 
   view(): DocumentView {

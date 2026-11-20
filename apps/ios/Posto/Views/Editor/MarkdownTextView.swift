@@ -9,7 +9,19 @@ final class MarkdownEditorController {
     var onChange: ((String) -> Void)?
     var onRequestImage: (() -> Void)?
     var onRequestComponent: (() -> Void)?
+    /// Edit the component around the caret: (body text, UTF-16 offset).
+    var onRequestEditComponent: ((String, Int) -> Void)?
     var componentsEnabled = false
+
+    func requestEditComponent() {
+        guard let textView else { return }
+        onRequestEditComponent?(textView.text, textView.selectedRange.location)
+    }
+
+    /// Replaces a UTF-16 range of the body (an edited component block).
+    func replace(range: NSRange, with string: String) {
+        replace(range, with: string, selecting: NSRange(location: range.location + (string as NSString).length, length: 0))
+    }
 
     /// Inserts at the caret; blocks get blank lines around them.
     func insert(_ snippet: String, asBlock: Bool = false) {
@@ -203,7 +215,17 @@ struct MarkdownTextView: UIViewRepresentable {
                 item("photo", "Insert media") { controller.onRequestImage?() },
             ]
             if controller.componentsEnabled {
-                items.append(item("square.on.square", "Insert component") { controller.onRequestComponent?() })
+                let components = UIMenu(children: [
+                    UIAction(title: "Insert Component", image: UIImage(systemName: "plus.square.on.square")) { _ in
+                        controller.onRequestComponent?()
+                    },
+                    UIAction(title: "Edit Component at Cursor", image: UIImage(systemName: "slider.horizontal.3")) { _ in
+                        controller.requestEditComponent()
+                    },
+                ])
+                let component = UIBarButtonItem(image: UIImage(systemName: "square.on.square"), menu: components)
+                component.accessibilityLabel = "Components"
+                items.append(component)
             }
             items.append(.flexibleSpace())
             items.append(item("keyboard.chevron.compact.down", "Hide keyboard") { controller.textView?.resignFirstResponder() })

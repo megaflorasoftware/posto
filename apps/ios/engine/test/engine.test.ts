@@ -137,6 +137,26 @@ describe("repository session", () => {
     expect(raw).not.toMatch(/^import Callout/m);
   });
 
+  it("edits an existing component's props in place", async () => {
+    const view = await call<{ tree: TreeNode[] }>("repo.view");
+    const file = allFiles(view.tree).find((candidate) => candidate.name === "with-slug.mdx");
+    const key = file?.key ?? allFiles(view.tree).find((c) => c.name.endsWith(".mdx"))!.key;
+    await call("doc.open", { key });
+    const text = 'Intro\n\n<Callout tone="info" extra={x}>\nBody\n</Callout>\n';
+    const form = await call<{ name: string; values: Record<string, unknown> }>(
+      "components.openAt",
+      {
+        text,
+        offset: text.indexOf("tone"),
+      },
+    );
+    expect(form.name).toBe("Callout");
+    const done = await call<{ snippet: string; range: [number, number] }>("components.finish");
+    expect(done.range[0]).toBe(text.indexOf("<Callout"));
+    expect(done.snippet).toContain("extra={x}");
+    expect(done.snippet).toContain("Body");
+  });
+
   it("creates a new entry in a collection and opens it", async () => {
     const view = await call<{ tree: TreeNode[]; root: string }>("repo.view");
     const blog = view.tree.find((node) => node.label === "Writing")!;

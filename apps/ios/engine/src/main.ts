@@ -17,6 +17,7 @@ import {
   deploymentStatus,
   finishComponent,
   listComponents,
+  openComponentAt,
   openComponentForm,
   saveCollectionOrder,
   saveCollectionSettings,
@@ -450,6 +451,8 @@ const methods: Record<string, Method> = {
 
   // MDX components.
   "components.list": () => listComponents(requireRepo()),
+  "components.openAt": (args) =>
+    openComponentAt(requireRepo(), args.text as string, args.offset as number),
   "components.open": (args) =>
     openComponentForm(requireRepo(), args.name as string, args.path as string),
   "components.view": () => componentFormView(),
