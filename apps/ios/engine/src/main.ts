@@ -172,6 +172,7 @@ const methods: Record<string, Method> = {
     requireRepo().cancelWorkspaceChooser();
     return requireRepo().view();
   },
+  "repo.listWorkspaceCandidates": () => requireRepo().listWorkspaceCandidates(),
   "repo.listChildDirectories": (args) => invoke("list_child_directories", { dir: args.dir }),
   "repo.setDeveloperMode": (args) => {
     const current = requireRepo();
@@ -192,6 +193,14 @@ const methods: Record<string, Method> = {
       (args.severity as "success" | "error") ?? "success",
     );
     return null;
+  },
+  "repo.dismissStatus": (args) => {
+    requireRepo().dismissStatus(args.id as number);
+    return requireRepo().view();
+  },
+  "repo.deleteFile": async (args) => {
+    await requireRepo().deleteFile(args.key as string);
+    return requireRepo().view();
   },
 
   // Open document.
@@ -390,17 +399,22 @@ const methods: Record<string, Method> = {
     await requireRepo().branches.load();
     return requireRepo().branches.branches;
   },
+  // A failed switch also shows as an error notice, as the Tauri app's
+  // branch errors do.
   "branch.switch": async (args) => {
     const current = requireRepo();
     await current.document?.flushPendingSave();
-    return {
-      error: await current.branches.switchTo(args.name as string, { create: args.create === true }),
-      view: current.view(),
-    };
+    const error = await current.branches.switchTo(args.name as string, {
+      create: args.create === true,
+    });
+    if (error) current.setStatus(error, "error");
+    return { error, view: current.view() };
   },
   "branch.force": async () => {
     const current = requireRepo();
-    return { error: await current.branches.forceSwitch(), view: current.view() };
+    const error = await current.branches.forceSwitch();
+    if (error) current.setStatus(error, "error");
+    return { error, view: current.view() };
   },
   "branch.clearConflict": () => {
     requireRepo().branches.clearConflict();

@@ -442,15 +442,15 @@ export class Branches {
   }
 
   /** The local list shows immediately; a background fetch refreshes the
-   * remote-only entries. */
+   * remote-only entries. Rejects when the local list can't be read. */
   async load(): Promise<void> {
     const dir = this.root();
     try {
       this.branches = await invoke<BranchInfo[]>("list_branches", { root: dir });
-    } catch {
+    } catch (error) {
       this.branches = [];
       this.changed();
-      return;
+      throw error;
     }
     this.changed();
     void invoke("fetch_upstream", { root: dir })

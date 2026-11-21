@@ -1,6 +1,6 @@
 // End-to-end engine flows against the in-memory demo backend: the same
 // methods Swift calls, with the same JSON envelopes.
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { scanBodyEmbeds } from "../src/bodyEmbeds";
 
 const scope = globalThis as unknown as Record<string, unknown>;
@@ -456,6 +456,169 @@ describe("repository session", () => {
     });
     expect(result.error).toBeNull();
     expect(result.view.branch).toBe("drafts");
+  });
+});
+
+describe("repository home", () => {
+  type Status = { id: number; message: string; severity: string } | null;
+  type HomeView = {
+    tree: TreeNode[];
+    documentKey: string | null;
+    status: Status;
+    workspaceCandidates: Array<{ dir: string }> | null;
+    canCancelWorkspaceChooser: boolean;
+  };
+
+  async function writeFile(path: string, content: string) {
+    await call("backend.invoke", { command: "write_text_file", args: { path, content } });
+  }
+
+  it("lists the projects for Settings without leaving the open one", async () => {
+    const candidates = await call<Array<{ dir: string; label: string; type: string }>>(
+      "repo.listWorkspaceCandidates",
+    );
+    expect(candidates).toEqual([{ dir: "/mock/site", label: "Repository root", type: "astro" }]);
+    const view = await call<HomeView>("repo.view");
+    expect(view.workspaceCandidates).toBeNull();
+    expect(view.canCancelWorkspaceChooser).toBe(false);
+
+    // The chooser shown over an open project can go back to it.
+    const choosing = await call<HomeView>("repo.showWorkspaceChooser");
+    expect(choosing.workspaceCandidates).toHaveLength(1);
+    expect(choosing.canCancelWorkspaceChooser).toBe(true);
+    const back = await call<HomeView>("repo.cancelWorkspaceChooser");
+    expect(back.workspaceCandidates).toBeNull();
+  });
+
+  it("deletes a file from the list and keeps the open one", async () => {
+    await writeFile("/mock/site/src/blog/doomed.md", "---\ntitle: Doomed\n---\n\nBye.\n");
+    const view = await call<HomeView>("repo.refresh");
+    const doomed = allFiles(view.tree).find((file) => file.name === "doomed.md")!;
+    const kept = allFiles(view.tree).find((file) => file.label === "Y")!;
+    await call("doc.open", { key: kept.key });
+
+    const after = await call<HomeView>("repo.deleteFile", { key: doomed.key });
+    expect(allFiles(after.tree).map((file) => file.name)).not.toContain("doomed.md");
+    expect(after.documentKey).toBe(kept.key);
+    expect((await call<{ key: string }>("doc.view")).key).toBe(kept.key);
+    await expect(call("repo.deleteFile", { key: doomed.key })).rejects.toThrow(/no longer exists/);
+  });
+
+  it("deletes the open file, closing it without its pending save", async () => {
+    await writeFile("/mock/site/src/blog/open-doomed.md", "---\ntitle: Open doomed\n---\n\nBye.\n");
+    const view = await call<HomeView>("repo.refresh");
+    const doomed = allFiles(view.tree).find((file) => file.name === "open-doomed.md")!;
+    const opened = await call<{ session: number }>("doc.open", { key: doomed.key });
+    // A pending autosave must not write the file back after the delete.
+    await call("doc.setBody", { session: opened.session, text: "Typed just before deleting." });
+
+    const after = await call<HomeView>("repo.deleteFile", { key: doomed.key });
+    expect(after.documentKey).toBeNull();
+    await expect(call("doc.view")).rejects.toThrow(/No file is open/);
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    const refreshed = await call<HomeView>("repo.refresh");
+    expect(allFiles(refreshed.tree).map((file) => file.name)).not.toContain("open-doomed.md");
+  });
+
+  it("deletes data-document entries, reloading an open sibling", async () => {
+    const configPath = "/mock/site/src/content.config.ts";
+    const schemaPath = "/mock/site/.astro/collections/team.schema.json";
+    const dataPath = "/mock/site/src/data/team.json";
+    const originalConfig = await call<string>("backend.invoke", {
+      command: "read_text_file",
+      args: { path: configPath },
+    });
+    const readData = async () =>
+      JSON.parse(
+        await call<string>("backend.invoke", { command: "read_text_file", args: { path: dataPath } }),
+      ) as Record<string, { name: string }>;
+    try {
+      await writeFile(
+        configPath,
+        originalConfig.replace(
+          "export const collections = { posts, media };",
+          [
+            "const team = defineCollection({",
+            '  loader: file("src/data/team.json"),',
+            "  schema: z.object({ name: z.string() }),",
+            "});",
+            "",
+            "export const collections = { posts, media, team };",
+          ].join("\n"),
+        ),
+      );
+      await writeFile(
+        schemaPath,
+        JSON.stringify({
+          $ref: "#/definitions/team",
+          definitions: {
+            team: {
+              type: "object",
+              properties: { name: { type: "string" } },
+              required: ["name"],
+            },
+          },
+        }),
+      );
+      await writeFile(dataPath, JSON.stringify({ ada: { name: "Ada" }, bob: { name: "Bob" } }));
+      const view = await call<HomeView>("repo.refresh");
+      const team = view.tree.find((node) => node.label === "Team")!;
+      expect(team.files.map((file) => file.name)).toEqual(["ada", "bob"]);
+      const [ada, bob] = team.files;
+
+      // Ada is open with an edit not yet saved; deleting Bob (same file)
+      // keeps that edit and Ada stays open.
+      await call("doc.open", { key: ada.key });
+      await call("form.edit", { path: ["name"], value: "Ada L." });
+      const afterBob = await call<HomeView>("repo.deleteFile", { key: bob.key });
+      expect(afterBob.documentKey).toBe(ada.key);
+      expect(afterBob.tree.find((node) => node.label === "Team")!.files.map((f) => f.name)).toEqual(
+        ["ada"],
+      );
+      expect(await readData()).toEqual({ ada: { name: "Ada L." } });
+      expect((await call<{ form: { values: { name: string } } }>("doc.view")).form.values.name).toBe(
+        "Ada L.",
+      );
+
+      const afterAda = await call<HomeView>("repo.deleteFile", { key: ada.key });
+      expect(afterAda.documentKey).toBeNull();
+      expect(await readData()).toEqual({});
+    } finally {
+      await writeFile(configPath, originalConfig);
+      await call("backend.invoke", { command: "delete_file", args: { path: schemaPath } });
+      await call("backend.invoke", { command: "delete_file", args: { path: dataPath } });
+      await call("repo.refresh");
+    }
+  });
+
+  it("keeps error notices until they're dismissed", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await call("repo.setStatus", { message: "Saved", severity: "success" });
+      vi.advanceTimersByTime(6_000);
+      expect((await call<HomeView>("repo.view")).status).toBeNull();
+
+      await call("repo.setStatus", { message: "Something broke", severity: "error" });
+      vi.advanceTimersByTime(60_000);
+      const status = (await call<HomeView>("repo.view")).status!;
+      expect(status).toMatchObject({ message: "Something broke", severity: "error" });
+      // Dismissing an older notice leaves a newer one.
+      expect((await call<HomeView>("repo.dismissStatus", { id: status.id - 1 })).status).toEqual(
+        status,
+      );
+      expect((await call<HomeView>("repo.dismissStatus", { id: status.id })).status).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports a failed branch switch as an error notice", async () => {
+    const result = await call<{ error: string | null; view: HomeView }>("branch.switch", {
+      name: "no-such-branch",
+    });
+    expect(result.error).toMatch(/Could not switch branch/);
+    expect(result.view.status).toMatchObject({ message: result.error, severity: "error" });
+    await call("repo.dismissStatus", { id: result.view.status!.id });
   });
 });
 
