@@ -1,0 +1,89 @@
+# XcodeGen spec for the native macOS prototype: the iOS app's engine, models
+# and most views (../ios/Posto), a desktop layout of its own (PostoMac), and
+# the desktop build of the Rust bridge (the macos slice of
+# ../ios/native/build/PostoNative.xcframework). Build the bridge with
+# ../ios/scripts/build-native.sh, then `xcodegen generate` here.
+name: PostoMac
+options:
+  bundleIdPrefix: net.megaflora
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.10.1"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    DEAD_CODE_STRIPPING: YES
+targets:
+  PostoMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: ../ios/Posto
+        excludes:
+          - Resources/engine.js
+          - Info.plist
+          - App/PostoApp.swift
+          - App/DemoTour.swift
+          - Views/RootView.swift
+          - Views/Repo/RepoWorkspaceView.swift
+          - Views/Common/SafariView.swift
+          - Views/Editor/MarkdownTextView.swift
+      - path: ../ios/Posto/Resources/engine.js
+        optional: true
+        buildPhase: resources
+      - path: PostoMac
+    dependencies:
+      - framework: ../ios/native/build/PostoNative.xcframework
+        embed: false
+      - sdk: JavaScriptCore.framework
+      - sdk: WebKit.framework
+    info:
+      path: PostoMac/Info.plist
+      properties:
+        CFBundleDisplayName: Posto Native
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSApplicationCategoryType: public.app-category.developer-tools
+        NSAppTransportSecurity:
+          # The preview pane loads the site's local dev server over HTTP.
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.megaflora.posto.mac
+        PRODUCT_NAME: Posto Native
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: K56D2LK4DS
+        # Opens arbitrary folders and runs their dev servers, as the Tauri
+        # desktop app does: no App Sandbox.
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: NO
+        OTHER_LDFLAGS: ["-ObjC"]
+    preBuildScripts:
+      - name: Bundle engine
+        basedOnDependencyAnalysis: false
+        script: |
+          export PATH="$HOME/.local/share/vite-plus/bin:$HOME/.volta/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+          for nvm in "$HOME"/.nvm/versions/node/*/bin; do [ -d "$nvm" ] && PATH="$nvm:$PATH"; done
+          ios="$SRCROOT/../ios"
+          if ! command -v node >/dev/null 2>&1; then
+            if [ -f "$ios/Posto/Resources/engine.js" ]; then
+              echo "warning: node not found; keeping the existing engine.js"
+              exit 0
+            fi
+            echo "error: node not found and engine.js is missing"
+            exit 1
+          fi
+          node "$ios/engine/build.mjs" "$ios/Posto/Resources/engine.js"
+schemes:
+  PostoMac:
+    build:
+      targets:
+        PostoMac: all
+    run:
+      config: Debug
