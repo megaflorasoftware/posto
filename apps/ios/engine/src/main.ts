@@ -53,6 +53,7 @@ import type { Field } from "@posto/core/pagescms/config";
 import type { DocumentSession, FieldScope } from "./document";
 import { MediaSession } from "./media";
 import { RepoSession, type RepoIdentity } from "./repo";
+import { pageOnSite, seoPreview, siteUrl } from "./site";
 
 installRuntime();
 
@@ -537,6 +538,12 @@ const methods: Record<string, Method> = {
   // Deployments.
   "deploy.status": () => deploymentStatus(requireRepo()),
   "deploy.ring": (args) => deploymentRing(args.runs as Parameters<typeof deploymentRing>[0]),
+
+  // The live site: its address, the open file's page on it, and the search
+  // and social cards of a page Swift fetched from it.
+  "repo.siteUrl": () => siteUrl(requireRepo()),
+  "site.page": () => pageOnSite(requireRepo()),
+  "seo.preview": (args) => seoPreview(args.html as string, args.url as string),
 
   // Developer-mode collection settings.
   "collections.settings": (args) => collectionSettings(requireRepo(), args.name as string),

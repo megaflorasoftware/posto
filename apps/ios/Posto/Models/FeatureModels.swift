@@ -58,14 +58,22 @@ final class PublishModel {
         await repo.document?.reload()
     }
 
-    /// Publishes; true when the sheet can close.
+    /// Publishes; true when the sheet can close. A publish starts a deploy,
+    /// so the repository's deployment status then watches for its run.
     func publish() async -> Bool {
+        let deployments = repo.deployments
+        let sinceRunId = deployments.status?.latestRun?.id
+        let publishedAt = Date()
         startPolling()
         defer { stopPolling() }
         do {
             let result: JSONValue = try await engine.call("git.publish", ["message": .string(message)])
             view = try? result["view"]?.decode(as: PublishView.self)
-            return result["published"]?.boolValue == true
+            let published = result["published"]?.boolValue == true
+            if published && repo.view?.repo != nil {
+                deployments.expectNewRun(since: sinceRunId, publishedAt: publishedAt)
+            }
+            return published
         } catch {
             return false
         }
@@ -99,51 +107,181 @@ final class PublishModel {
     }
 }
 
-/// The Deployments page: polls GitHub Actions and recomputes the ring.
+extension RepoModel {
+    /// This repository's deployment status, kept for as long as it's open.
+    var deployments: DeploymentModel { DeploymentModel.model(for: self) }
+}
+
+/// A repository's GitHub Actions runs and the ring the desktop app shows.
+/// One per open repository (`repo.deployments`), polled every 15 seconds
+/// while something shows it, for as long as a deploy runs, and a few times
+/// right after a publish until that publish's run appears (the desktop
+/// app's `expectNewRun`).
 @MainActor
 @Observable
 final class DeploymentModel {
-    unowned let repo: RepoModel
+    @ObservationIgnored private(set) weak var repo: RepoModel?
     private(set) var status: DeploymentStatus?
     private(set) var ring: DeploymentRing?
+    /// Why the status couldn't load at all. Runs that couldn't be listed
+    /// arrive as `status.error`, with the links.
     private(set) var error: String?
-    private var task: Task<Void, Never>?
+    @ObservationIgnored private var watchers = 0
+    @ObservationIgnored private var loop: Task<Void, Never>?
+    @ObservationIgnored private var lastPoll = Date.distantPast
+    @ObservationIgnored private var expectation: Expectation?
 
-    init(repo: RepoModel) {
+    private struct Expectation {
+        let sinceRunId: Int?
+        let publishedAt: Date
+        /// When to look again, as the desktop app does: 3, 8 and 15 seconds
+        /// after publishing.
+        var checks: [Date]
+    }
+
+    /// The models of open repositories. A model outlives its repository only
+    /// until the next lookup; its polling stops as soon as the repository
+    /// closes.
+    private static var models: [ObjectIdentifier: DeploymentModel] = [:]
+
+    static func model(for repo: RepoModel) -> DeploymentModel {
+        let key = ObjectIdentifier(repo)
+        if let model = models[key], model.repo === repo { return model }
+        models = models.filter { $0.value.repo != nil && $0.key != key }
+        let model = DeploymentModel(repo: repo)
+        models[key] = model
+        return model
+    }
+
+    private init(repo: RepoModel) {
         self.repo = repo
     }
 
-    func start() {
-        task?.cancel()
-        task = Task {
-            var lastPoll = Date.distantPast
-            while !Task.isCancelled {
-                if Date().timeIntervalSince(lastPoll) >= 15 {
-                    lastPoll = Date()
-                    await load()
-                } else if let status, status.running {
-                    // Between polls the ring keeps filling from the run's history.
-                    ring = try? await repo.engine.call("deploy.ring", ["runs": status.runs])
-                }
+    var running: Bool { status?.running == true }
+    /// Whether there's a run to draw a ring for.
+    var hasRuns: Bool { status?.latestRun != nil }
+
+    /// Something on screen shows the status: poll while it does.
+    func watch() {
+        watchers += 1
+        startLoop()
+    }
+
+    func unwatch() {
+        watchers = max(0, watchers - 1)
+    }
+
+    /// Looks for the run a publish just started. `sinceRunId` is the newest
+    /// run before publishing (nil when none was known: then any run created
+    /// since `publishedAt`, when the publish began, counts). The checks are
+    /// timed from now, when the push is done, as the desktop app's are.
+    func expectNewRun(since sinceRunId: Int?, publishedAt: Date) {
+        let now = Date()
+        expectation = Expectation(
+            sinceRunId: sinceRunId,
+            publishedAt: publishedAt,
+            checks: [3, 8, 15].map { now.addingTimeInterval($0) }
+        )
+        startLoop()
+    }
+
+    func refresh() async {
+        lastPoll = Date()
+        await load()
+    }
+
+    private var isOpen: Bool {
+        guard let repo, repo.hasRemote, repo.app.repo === repo else { return false }
+        // Opened, and found to have no GitHub repository: nothing to poll.
+        if let view = repo.view, view.repo == nil { return false }
+        return true
+    }
+
+    /// The repository has finished opening in the engine (`deploy.status`
+    /// would otherwise ask the session being replaced) and has a GitHub
+    /// remote.
+    private var isReady: Bool { repo?.view?.repo != nil }
+
+    /// Whether the last poll got through: a deploy last seen running keeps
+    /// polling going on its own only while polls succeed, so a phone that
+    /// went offline mid-deploy doesn't poll forever.
+    @ObservationIgnored private var lastPollFailed = false
+
+    private var needed: Bool { watchers > 0 || expectation != nil || (running && !lastPollFailed) }
+
+    private func startLoop() {
+        guard loop == nil else { return }
+        loop = Task {
+            while !Task.isCancelled, isOpen, needed {
+                await step()
                 try? await Task.sleep(for: .seconds(1))
+            }
+            loop = nil
+        }
+    }
+
+    private func step() async {
+        guard isReady else { return }
+        let now = Date()
+        var due = (watchers > 0 || running) && now.timeIntervalSince(lastPoll) >= 15
+        if var expected = expectation, let next = expected.checks.first, now >= next {
+            expected.checks.removeFirst()
+            expectation = expected
+            due = true
+        }
+        if due {
+            lastPoll = now
+            await load()
+            if let expected = expectation, expected.checks.isEmpty || foundRun(after: expected) {
+                expectation = nil
+            }
+        } else if running, let status, let repo {
+            // Between polls the ring keeps filling from the run's history.
+            if let next: DeploymentRing = try? await repo.engine.call("deploy.ring", ["runs": status.runs]) {
+                ring = next
             }
         }
     }
 
-    func stop() {
-        task?.cancel()
-        task = nil
+    private func foundRun(after expected: Expectation) -> Bool {
+        guard let latest = status?.latestRun else { return false }
+        if let since = expected.sinceRunId { return latest.id > since }
+        guard let created = ISO8601DateFormatter().date(from: latest.createdAt) else { return false }
+        // GitHub's clock and this device's can disagree by a little.
+        return created >= expected.publishedAt.addingTimeInterval(-60)
     }
 
     private func load() async {
+        guard let repo else { return }
         do {
-            let next: DeploymentStatus = try await repo.engine.call("deploy.status")
+            var next: DeploymentStatus = try await repo.engine.call("deploy.status")
+            // A poll that couldn't list runs keeps the last ones it could.
+            if next.error != nil, let previous = status, previous.latestRun != nil {
+                next = next.keepingRuns(of: previous)
+            }
             status = next
             ring = next.ring
             error = nil
+            lastPollFailed = next.error != nil
         } catch {
             self.error = error.localizedDescription
+            lastPollFailed = true
         }
+    }
+
+    /// Runs couldn't be listed and none are known.
+    var unavailable: Bool { status?.error != nil && !hasRuns }
+}
+
+/// The ring's state in words, as the Tauri apps label it.
+func deploymentStateText(_ state: String?) -> String {
+    switch state {
+    case "running": return "Deploying…"
+    case "queued": return "Queued"
+    case "success": return "Deployed"
+    case "failure": return "Deployment failed"
+    case nil: return "Checking…"
+    default: return "No recent deployments"
     }
 }
 

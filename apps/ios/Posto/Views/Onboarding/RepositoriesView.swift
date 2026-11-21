@@ -145,7 +145,8 @@ private struct RepoIcon: View {
     let root: String?
     let isPrivate: Bool
 
-    private static let candidates = ["favicon.png", "favicon.ico", "apple-touch-icon.png"]
+    /// favicon.svg is Astro's default (the Tauri app looks for it too).
+    private static let candidates = ["favicon.svg", "favicon.png", "favicon.ico", "apple-touch-icon.png"]
 
     var body: some View {
         let favicon = root.flatMap { root in

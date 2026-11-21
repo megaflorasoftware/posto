@@ -500,11 +500,32 @@ struct DeploymentStatus: Codable, Sendable {
     let owner: String
     let name: String
     let branch: String
-    let running: Bool
-    let ring: DeploymentRing
-    let runs: JSONValue
+    var running: Bool
+    var ring: DeploymentRing
+    var runs: JSONValue
+    /// The newest run, which a publish compares against to find its own.
+    var latestRun: LatestRun?
+    /// Why runs couldn't be listed; the links still come with it.
+    let error: String?
     let siteUrl: String?
     let actionsUrl: String
+
+    struct LatestRun: Codable, Hashable, Sendable {
+        let id: Int
+        let createdAt: String
+        let url: String
+    }
+
+    /// This status with an earlier one's runs, for a poll that couldn't
+    /// list them: the ring keeps showing what was last known.
+    func keepingRuns(of earlier: DeploymentStatus) -> DeploymentStatus {
+        var merged = self
+        merged.running = earlier.running
+        merged.ring = earlier.ring
+        merged.runs = earlier.runs
+        merged.latestRun = earlier.latestRun
+        return merged
+    }
 }
 
 struct MediaTab: Codable, Hashable, Identifiable, Sendable {

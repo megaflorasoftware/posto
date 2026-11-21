@@ -34,6 +34,8 @@ targets:
         embed: false
       - sdk: JavaScriptCore.framework
       - sdk: SafariServices.framework
+      # SVG thumbnails are drawn by a web view (Views/Common/SVGRasterizer).
+      - sdk: WebKit.framework
     info:
       path: Posto/Info.plist
       properties:

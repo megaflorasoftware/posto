@@ -899,8 +899,139 @@ describe("media", () => {
 
 describe("deployments", () => {
   it("computes the deployment ring from workflow runs", async () => {
-    const status = await call<{ ring: { state: string }; siteUrl: string | null }>("deploy.status");
+    const status = await call<{
+      ring: { state: string };
+      siteUrl: string | null;
+      latestRun: { id: number; createdAt: string } | null;
+      error: string | null;
+    }>("deploy.status");
     expect(["running", "queued", "success", "failure", "idle"]).toContain(status.ring.state);
+    expect(status.error).toBeNull();
+    expect(typeof status.latestRun?.id).toBe("number");
+  });
+
+  it("keeps the site and Actions links when runs can't be listed", async () => {
+    await call("backend.invoke", { command: "sign_out" });
+    try {
+      const status = await call<{
+        ring: { state: string };
+        runs: unknown[];
+        latestRun: unknown;
+        error: string | null;
+        siteUrl: string | null;
+        actionsUrl: string;
+      }>("deploy.status");
+      expect(status.error).toContain("Not signed in");
+      expect(status.runs).toEqual([]);
+      expect(status.latestRun).toBeNull();
+      expect(status.ring.state).toBe("idle");
+      expect(status.siteUrl).toBe("https://example.com/");
+      expect(status.actionsUrl).toBe("https://github.com/example-org/posto/actions");
+    } finally {
+      await call("backend.invoke", { command: "sign_in" });
+    }
+  });
+});
+
+describe("live site", () => {
+  it("finds the site URL from the project's config", async () => {
+    expect(await call<string | null>("repo.siteUrl")).toBe("https://example.com/");
+  });
+
+  it("places the open file on the site and says why it may not be there", async () => {
+    type Page = {
+      siteUrl: string | null;
+      route: string | null;
+      certain: boolean;
+      url: string | null;
+      localChanges: string | null;
+      draft: boolean;
+    };
+    const view = await call<{ tree: TreeNode[] }>("repo.view");
+    const files = allFiles(view.tree);
+
+    // A file-based page: its route is certain.
+    const about = files.find((file) => file.name === "about.mdx")!;
+    await call("doc.open", { key: about.key });
+    expect(await call<Page>("site.page")).toEqual({
+      siteUrl: "https://example.com/",
+      route: "/about",
+      certain: true,
+      url: "https://example.com/about",
+      localChanges: null,
+      draft: false,
+    });
+
+    // A collection entry: its route is guessed from the collection and slug.
+    const entry = allFiles(view.tree.filter((node) => node.label === "Writing"))[0];
+    await call("doc.open", { key: entry.key });
+    const guessed = await call<Page>("site.page");
+    expect(guessed.certain).toBe(false);
+    expect(guessed.route).toMatch(/^\/blog\//);
+    expect(guessed.url).toBe(`https://example.com${encodeURI(guessed.route!)}`);
+  });
+
+  it("builds search and social cards from a deployed page", async () => {
+    const preview = await call<{
+      host: string;
+      breadcrumb: string;
+      siteName: string;
+      favicon: string | null;
+      image: string | null;
+      twitterCard: string | null;
+      google: { title: string | null; description: string | null };
+      card: { title: string | null; description: string | null };
+      facebook: { title: string | null; description: string | null };
+    }>("seo.preview", {
+      url: "https://example.org/blog/post/",
+      html: `<html><head>
+        <title>Post &amp; more</title>
+        <meta property="og:title" content="OG post">
+        <meta name="description" content="${"d".repeat(200)}">
+        <meta property="og:image" content="../cover.png">
+        <link rel="canonical" href="https://example.com/blog/post/">
+      </head></html>`,
+    });
+    expect(preview.host).toBe("example.com");
+    expect(preview.breadcrumb).toBe("example.com › blog › post › ");
+    expect(preview.siteName).toBe("example.com");
+    expect(preview.favicon).toBe("https://example.org/favicon.ico");
+    expect(preview.image).toBe("https://example.org/blog/cover.png");
+    expect(preview.twitterCard).toBeNull();
+    expect(preview.google.title).toBe("Post & more");
+    expect(preview.google.description).toHaveLength(160);
+    expect(preview.google.description?.endsWith("…")).toBe(true);
+    expect(preview.card.title).toBe("OG post");
+    expect(preview.facebook.title).toBe("OG post");
+    expect(preview.facebook.description).toHaveLength(110);
+  });
+
+  it("tells new files from modified ones", async () => {
+    const { changeKind } = await import("../src/site");
+    const changed = [
+      { status: "M", path: "src/blog/edited.md" },
+      { status: "??", path: "src/blog/new.md" },
+      { status: "A", path: "src/blog/added.md" },
+      { status: "R", path: "src/blog/old.md -> src/blog/renamed.md" },
+    ];
+    expect(changeKind(changed, "src/blog/edited.md")).toBe("modified");
+    expect(changeKind(changed, "src/blog/new.md")).toBe("new");
+    expect(changeKind(changed, "src/blog/added.md")).toBe("new");
+    expect(changeKind(changed, "src/blog/renamed.md")).toBe("new");
+    expect(changeKind(changed, "src/blog/old.md")).toBeNull();
+    expect(changeKind(changed, "src/blog/untouched.md")).toBeNull();
+  });
+
+  it("joins routes under the site's own path", async () => {
+    const { pageUrl } = await import("../src/site");
+    expect(pageUrl("https://owner.github.io/repo/", "/blog/post")).toBe(
+      "https://owner.github.io/repo/blog/post",
+    );
+    expect(pageUrl("https://owner.github.io/repo", "/")).toBe("https://owner.github.io/repo/");
+    expect(pageUrl("https://example.com", "/notes/café latte")).toBe(
+      "https://example.com/notes/caf%C3%A9%20latte",
+    );
+    expect(pageUrl("not a url", "/x")).toBeNull();
   });
 });
 

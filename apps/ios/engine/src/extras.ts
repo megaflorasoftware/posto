@@ -25,7 +25,6 @@ import {
   type MdxProp,
 } from "@posto/core/mdx/mdx";
 import { jsValueProp, propJsValue, UNPARSED, valueFits } from "@posto/core/mdx/propFields";
-import type { ProjectAdapter } from "@posto/core/project/adapter";
 import {
   LABEL_SORT,
   parsePostoCollection,
@@ -40,96 +39,56 @@ import { orderableCollections } from "../../../../packages/editor/src/sidebarTre
 import { scanBodyEmbeds } from "./bodyEmbeds";
 import { dateControls, type DateControl } from "./dates";
 import { fieldViews, type FieldView } from "./fieldViews";
-import { invoke } from "./host";
+import { errorMessage, invoke } from "./host";
 import { MetadataForm } from "./metadataForm";
 import { ipcProjectIO, type RepoSession } from "./repo";
+import { siteUrl } from "./site";
 
 // --- Deployments -----------------------------------------------------------
 
-function normalizeUrl(value: string): string | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-  try {
-    return new URL(withProtocol).toString();
-  } catch {
-    return null;
-  }
+function deploymentRun(run: WorkflowRun) {
+  return {
+    workflowId: run.workflow_id,
+    status: run.status,
+    conclusion: run.conclusion,
+    runStartedAt: run.run_started_at,
+    updatedAt: run.updated_at,
+    createdAt: run.created_at,
+  };
 }
 
-/** The site's live URL: the adapter's config (Astro `site`), `public/CNAME`,
- * then package.json `homepage` — the same order as useSiteUrl. */
-export async function resolveSiteUrl(
-  root: string,
-  adapter: ProjectAdapter,
-): Promise<string | null> {
-  const read = (path: string) => invoke<string | null>("read_text_file_optional", { path });
-  for (const candidate of adapter.siteUrlSources(root)) {
-    const source = await read(candidate.path);
-    if (source) {
-      const url = normalizeUrl(candidate.extract(source) ?? "");
-      if (url) return url;
-    }
-  }
-  const cname = await read(`${root}/public/CNAME`);
-  if (cname) {
-    const host = cname.split(/\r?\n/).find((line) => line.trim() !== "");
-    const url = host ? normalizeUrl(host) : null;
-    if (url) return url;
-  }
-  const pkg = await read(`${root}/package.json`);
-  if (pkg) {
-    try {
-      const homepage = (JSON.parse(pkg) as { homepage?: unknown }).homepage;
-      if (typeof homepage === "string") return normalizeUrl(homepage);
-    } catch {
-      // Malformed package.json — nothing to learn from it.
-    }
-  }
-  return null;
-}
-
+/** The deployment ring and the links around it. Listing runs can fail
+ * (offline, rate-limited, Actions disabled) without taking the links with
+ * it: the failure comes back as `error`, beside the site and Actions URLs,
+ * as the Tauri apps show them independently. */
 export async function deploymentStatus(repo: RepoSession) {
   const identity = repo.repo;
   if (!identity) throw new Error("No repository is connected.");
   const branch = repo.branches.branch ?? identity.defaultBranch;
-  const [runs, pagesUrl, siteUrl] = await Promise.all([
+  const [listed, site] = await Promise.all([
     invoke<WorkflowRun[]>("list_workflow_runs", {
       owner: identity.owner,
       name: identity.name,
       branch,
-    }),
-    invoke<string | null>("github_pages_url", { owner: identity.owner, name: identity.name }).catch(
-      () => null,
+    }).then(
+      (runs) => ({ runs, error: null as string | null }),
+      (error: unknown) => ({ runs: [] as WorkflowRun[], error: errorMessage(error) }),
     ),
-    resolveSiteUrl(repo.root, repo.adapter).catch(() => null),
+    siteUrl(repo).catch(() => null),
   ]);
-  const latest = runs[0] ?? null;
+  const latest = listed.runs[0] ?? null;
+  const runs = listed.runs.map(deploymentRun);
   return {
     owner: identity.owner,
     name: identity.name,
     branch,
     running: latest !== null && latest.status !== "completed",
-    ring: computeDeploymentRing(
-      runs.map((run) => ({
-        workflowId: run.workflow_id,
-        status: run.status,
-        conclusion: run.conclusion,
-        runStartedAt: run.run_started_at,
-        updatedAt: run.updated_at,
-        createdAt: run.created_at,
-      })),
-      Date.now(),
-    ),
-    runs: runs.map((run) => ({
-      workflowId: run.workflow_id,
-      status: run.status,
-      conclusion: run.conclusion,
-      runStartedAt: run.run_started_at,
-      updatedAt: run.updated_at,
-      createdAt: run.created_at,
-    })),
-    siteUrl: siteUrl ?? pagesUrl,
+    ring: computeDeploymentRing(runs, Date.now()),
+    runs,
+    /** What a publish compares against to spot the run it started. */
+    latestRun: latest ? { id: latest.id, createdAt: latest.created_at, url: latest.html_url } : null,
+    error: listed.error,
+    siteUrl: site,
     actionsUrl: `https://github.com/${identity.owner}/${identity.name}/actions`,
   };
 }

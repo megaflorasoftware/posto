@@ -4,55 +4,15 @@ import { Alert, Button } from "@mantine/core";
 import { CachedImage } from "@posto/editor";
 import { invoke } from "@posto/ipc";
 import { mediaInputPath, type MediaEntry } from "@posto/core/pagescms/config";
+import {
+  parseSeoHead as parseSeo,
+  truncateSeoText as truncate,
+  type SeoData,
+} from "@posto/core/seo/head";
 
 // Search/social previews built from the *rendered* page's <head> — fetched
-// from the dev server and parsed here, so whatever the layout injects is what
-// the cards show.
-
-interface SeoData {
-  title: string | null;
-  description: string | null;
-  ogTitle: string | null;
-  ogDescription: string | null;
-  ogImage: string | null;
-  ogUrl: string | null;
-  ogSiteName: string | null;
-  twitterCard: string | null;
-  twitterTitle: string | null;
-  twitterDescription: string | null;
-  twitterImage: string | null;
-  canonical: string | null;
-  favicon: string | null;
-}
-
-function parseSeo(html: string): SeoData {
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  const meta = (selector: string) =>
-    doc.querySelector<HTMLMetaElement>(selector)?.content?.trim() || null;
-  return {
-    title: doc.querySelector("title")?.textContent?.trim() || null,
-    description: meta('meta[name="description"]'),
-    ogTitle: meta('meta[property="og:title"]'),
-    ogDescription: meta('meta[property="og:description"]'),
-    ogImage: meta('meta[property="og:image"]'),
-    ogUrl: meta('meta[property="og:url"]'),
-    ogSiteName: meta('meta[property="og:site_name"]'),
-    twitterCard: meta('meta[name="twitter:card"]'),
-    twitterTitle: meta('meta[name="twitter:title"]'),
-    twitterDescription: meta('meta[name="twitter:description"]'),
-    twitterImage: meta('meta[name="twitter:image"]'),
-    canonical:
-      doc.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.getAttribute("href") || null,
-    favicon:
-      doc
-        .querySelector<HTMLLinkElement>('link[rel="icon"], link[rel="shortcut icon"]')
-        ?.getAttribute("href") || null,
-  };
-}
-
-function truncate(text: string, max: number): string {
-  return text.length > max ? text.slice(0, max - 1).trimEnd() + "…" : text;
-}
+// from the dev server and parsed with @posto/core's DOM-free reader (shared
+// with the iOS app), so whatever the layout injects is what the cards show.
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

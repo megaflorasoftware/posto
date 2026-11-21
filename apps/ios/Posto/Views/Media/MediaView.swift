@@ -61,12 +61,23 @@ struct MediaBrowser: View {
     /// An import made while picking, picked once its sheet has closed (a
     /// picker closing itself mid-transition would stay open).
     @State private var importedPick: (item: MediaItem, alt: String?)?
+    @State private var dropTargeted = false
 
     private let columns = [GridItem(.adaptive(minimum: 104), spacing: 10)]
 
     var body: some View {
         withPickers(withSheets(grid
             .overlay { overlayContent }
+            .overlay { dropHighlight }
+            // Files dragged in (from Files, Photos or Finder) import into
+            // the open library or folder, as a drop onto the desktop app does.
+            .onDrop(of: MediaDropDelegate.types, delegate: MediaDropDelegate(
+                enabled: mode.isManaging && !media.readOnly && !media.tab.isEmpty,
+                imagesOnly: media.isLibrary,
+                targeted: $dropTargeted
+            ) { providers in
+                receiveDrop(providers)
+            })
             .refreshable { await media.load(reload: true) }
             .toolbar { if mode.isManaging { manageToolbar } else { pickToolbar } }
             .toolbarGroups(.bottomControls, gap: .flexible, active: mode.isManaging && !media.readOnly && media.selecting) {
@@ -254,26 +265,8 @@ struct MediaBrowser: View {
             if media.selecting { media.toggle(folder: folder) } else { media.directory = relative(folder.path) }
         } label: {
             VStack(alignment: .leading, spacing: 6) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10).fill(.quaternary)
-                    if folder.previews.isEmpty {
-                        Image(systemName: "folder.fill").font(.largeTitle).foregroundStyle(.tint)
-                    } else if folder.previews.count == 1, let preview = folder.previews.first {
-                        Thumbnail(path: preview.hasPrefix("http") ? nil : preview, url: preview.hasPrefix("http") ? preview : nil, maxPixels: 300)
-                            .clipShape(.rect(cornerRadius: 10))
-                    } else {
-                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 2), GridItem(.flexible(), spacing: 2)], spacing: 2) {
-                            ForEach(folder.previews.prefix(4), id: \.self) { preview in
-                                Thumbnail(path: preview.hasPrefix("http") ? nil : preview, url: preview.hasPrefix("http") ? preview : nil, maxPixels: 160)
-                                    .aspectRatio(1, contentMode: .fit)
-                                    .clipShape(.rect(cornerRadius: 4))
-                            }
-                        }
-                        .padding(4)
-                    }
-                }
-                .aspectRatio(1, contentMode: .fit)
-                .overlay(alignment: .topTrailing) { selectionBadge(selected) }
+                FolderPreview(previews: folder.previews)
+                    .overlay(alignment: .topTrailing) { selectionBadge(selected) }
                 Label(folder.name, systemImage: "folder").font(.caption).lineLimit(1)
             }
         }
@@ -453,6 +446,52 @@ struct MediaBrowser: View {
 
     // MARK: Importing
 
+    @ViewBuilder
+    private var dropHighlight: some View {
+        if dropTargeted {
+            RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [8, 6]))
+                .background(Color.accentColor.opacity(0.08), in: .rect(cornerRadius: 14))
+                .overlay {
+                    Label(media.isLibrary ? "Drop images to import" : "Drop files to import", systemImage: "square.and.arrow.down")
+                        .font(.headline)
+                        .padding()
+                        .glassPanel(cornerRadius: 14)
+                }
+                .padding(6)
+                .allowsHitTesting(false)
+        }
+    }
+
+    /// Dropped files: into a library through its import sheet (names and
+    /// metadata, as for Photos), into `public` directly. Called while the
+    /// drop is performed, so every item's data is asked for then.
+    private func receiveDrop(_ providers: [NSItemProvider]) {
+        let imagesOnly = media.isLibrary
+        let loading = PhotoImport.loadDropped(providers, imagesOnly: imagesOnly)
+        preparing = true
+        Task {
+            defer { preparing = false }
+            await importDropped(await loading.value, imagesOnly: imagesOnly)
+        }
+    }
+
+    private func importDropped(_ files: [PhotoImport.DroppedFile], imagesOnly: Bool) async {
+        var paths: [String] = []
+        for file in files {
+            paths.append(await PhotoImport.importable(file, engine: media.engine))
+        }
+        guard !paths.isEmpty else {
+            media.error = imagesOnly ? "Only images can be imported into a media library." : "Those items couldn't be imported."
+            return
+        }
+        if imagesOnly {
+            importing = ImportRequest(tab: media.tab, folder: media.directory, sources: paths)
+        } else {
+            await media.importPublic(paths)
+        }
+    }
+
     private func importPhotos(_ items: [PhotosPickerItem]) async {
         preparing = true
         defer { preparing = false }
@@ -497,6 +536,97 @@ struct MediaBrowser: View {
         } catch {
             media.error = error.localizedDescription
         }
+    }
+}
+
+/// A folder tile's square: a folder symbol, its one image, or a 2×2 collage
+/// of its first images. The square alone sets the tile's size, with the
+/// images laid over it at sizes computed from it and clipped to it, so
+/// thumbnails loading (or a sheet still settling its width) can never grow
+/// the tile over its label or the next row.
+private struct FolderPreview: View {
+    let previews: [String]
+
+    var body: some View {
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .background(.quaternary, in: .rect(cornerRadius: 10))
+            .overlay {
+                if previews.isEmpty {
+                    Image(systemName: "folder.fill").font(.largeTitle).foregroundStyle(.tint)
+                } else if previews.count == 1, let preview = previews.first {
+                    thumbnail(preview, maxPixels: 300)
+                } else {
+                    GeometryReader { proxy in
+                        collage(in: proxy.size)
+                    }
+                }
+            }
+            .clipShape(.rect(cornerRadius: 10))
+    }
+
+    private func collage(in size: CGSize) -> some View {
+        let inset: CGFloat = 4
+        let spacing: CGFloat = 2
+        let cell = max(0, (min(size.width, size.height) - inset * 2 - spacing) / 2)
+        let shown = Array(previews.prefix(4))
+        let rows = stride(from: 0, to: shown.count, by: 2).map { Array(shown[$0..<min($0 + 2, shown.count)]) }
+        return VStack(alignment: .leading, spacing: spacing) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: spacing) {
+                    ForEach(Array(row.enumerated()), id: \.offset) { _, preview in
+                        thumbnail(preview, maxPixels: 160)
+                            .frame(width: cell, height: cell)
+                            .clipShape(.rect(cornerRadius: 4))
+                    }
+                }
+            }
+        }
+        .frame(width: size.width, height: size.height)
+    }
+
+    private func thumbnail(_ preview: String, maxPixels: Int) -> some View {
+        let remote = preview.hasPrefix("http")
+        return Thumbnail(path: remote ? nil : preview, url: remote ? preview : nil, maxPixels: maxPixels)
+    }
+}
+
+/// Accepts files dragged onto the media grid: images for a library, any
+/// files for `public`, nothing for the read-only `src` tab or a picker.
+private struct MediaDropDelegate: DropDelegate {
+    /// Images (from Photos, or a file's own type) and file URLs (Finder).
+    static let types: [UTType] = [.image, .fileURL, .data]
+
+    let enabled: Bool
+    let imagesOnly: Bool
+    @Binding var targeted: Bool
+    let receive: ([NSItemProvider]) -> Void
+
+    private var accepted: [UTType] { imagesOnly ? [.image, .fileURL] : Self.types }
+
+    func validateDrop(info: DropInfo) -> Bool {
+        enabled && info.hasItemsConforming(to: accepted)
+    }
+
+    func dropEntered(info: DropInfo) {
+        targeted = validateDrop(info: info)
+    }
+
+    func dropExited(info: DropInfo) {
+        targeted = false
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: validateDrop(info: info) ? .copy : .forbidden)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        targeted = false
+        guard validateDrop(info: info) else { return false }
+        let providers = info.itemProviders(for: accepted)
+        guard !providers.isEmpty else { return false }
+        receive(providers)
+        return true
     }
 }
 
@@ -546,6 +676,129 @@ enum PhotoImport {
         return CGImageDestinationFinalize(output)
     }
 
+    /// A dropped item copied to a temporary file, with the type it was read
+    /// as (HEIC still to convert).
+    struct DroppedFile: Sendable {
+        let path: String
+        let type: UTType?
+    }
+
+    /// Starts reading every dropped item right away, while the drop is
+    /// being performed (later, the system no longer has to hand the data
+    /// over), and finishes when all are copied out. With `imagesOnly`,
+    /// anything that isn't an image is skipped.
+    static func loadDropped(_ providers: [NSItemProvider], imagesOnly: Bool) -> Task<[DroppedFile], Never> {
+        let group = DispatchGroup()
+        let collected = DropCollector(count: providers.count)
+        for (index, provider) in providers.enumerated() {
+            group.enter()
+            loadDropped(provider, imagesOnly: imagesOnly, index: index) { file in
+                collected.set(index, file)
+                group.leave()
+            }
+        }
+        return Task {
+            await withCheckedContinuation { continuation in
+                group.notify(queue: .main) { continuation.resume() }
+            }
+            return collected.files
+        }
+    }
+
+    /// One item: the file itself when it's a file from Finder; otherwise its
+    /// content (Files and Photos on iPad), preferring a web-ready type (Photos
+    /// offers JPEG beside HEIC); else the file a file URL points at.
+    private static func loadDropped(_ provider: NSItemProvider, imagesOnly: Bool, index: Int, done: @escaping @Sendable (DroppedFile?) -> Void) {
+        let hasFileURL = provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
+        #if os(macOS)
+        if hasFileURL {
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                done(url.flatMap { copyDroppedFile($0, imagesOnly: imagesOnly) })
+            }
+            return
+        }
+        #endif
+        let wanted: UTType = imagesOnly ? .image : .data
+        // Real file types only: not links or private pasteboard flavors.
+        let types = provider.registeredTypeIdentifiers.compactMap { UTType($0) }
+            .filter { $0.conforms(to: wanted) && !$0.conforms(to: .url) && !$0.isDynamic && $0.preferredFilenameExtension != nil }
+        if let type = types.first(where: { !isHeif($0) }) ?? types.first {
+            let name = provider.suggestedName
+            _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, _ in
+                // The file is only there until this returns: copy it out now.
+                done(url.flatMap { copyRepresentation($0, type: type, suggestedName: name, index: index) })
+            }
+            return
+        }
+        if hasFileURL {
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                done(url.flatMap { copyDroppedFile($0, imagesOnly: imagesOnly) })
+            }
+            return
+        }
+        done(nil)
+    }
+
+    /// A file representation, named after the item with the extension of
+    /// the type it was read as ("Screenshot 10.30.45" gets ".png", and an
+    /// "IMG_1.HEIC" read as JPEG becomes "IMG_1.jpg").
+    private static func copyRepresentation(_ url: URL, type: UTType, suggestedName: String?, index: Int) -> DroppedFile? {
+        let fileExtension = url.pathExtension.isEmpty ? (type.preferredFilenameExtension ?? "dat") : url.pathExtension
+        var stem = suggestedName.flatMap { $0.isEmpty ? nil : $0 } ?? "dropped-\(Int(Date().timeIntervalSince1970))-\(index + 1)"
+        let named = (stem as NSString).pathExtension
+        if !named.isEmpty, let namedType = UTType(filenameExtension: named), !namedType.isDynamic {
+            if namedType.conforms(to: type) || type.conforms(to: namedType) {
+                stem = (stem as NSString).deletingPathExtension
+                return copy(url, to: "\(stem).\(named)", type: type)
+            }
+            stem = (stem as NSString).deletingPathExtension
+        }
+        return copy(url, to: "\(stem).\(fileExtension)", type: type)
+    }
+
+    /// A file dropped by URL (Finder), when it's one this tab takes.
+    private static func copyDroppedFile(_ url: URL, imagesOnly: Bool) -> DroppedFile? {
+        let type = UTType(filenameExtension: url.pathExtension)
+        if imagesOnly && type?.conforms(to: .image) != true { return nil }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        return copy(url, to: url.lastPathComponent, type: type)
+    }
+
+    private static func copy(_ source: URL, to filename: String, type: UTType?) -> DroppedFile? {
+        let destination = uniqueDestination(filename.replacingOccurrences(of: "/", with: "-"))
+        do {
+            try FileManager.default.copyItem(at: source, to: destination)
+            return DroppedFile(path: destination.path, type: type)
+        } catch {
+            return nil
+        }
+    }
+
+    private static func isHeif(_ type: UTType) -> Bool {
+        type.conforms(to: .heic) || type.conforms(to: .heif)
+    }
+
+    /// A path for `filename` in a folder of its own, so a dropped file keeps
+    /// its name (the import names the asset after it) even when another
+    /// drop had the same one.
+    private static func uniqueDestination(_ filename: String) -> URL {
+        let folder = directory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder.appendingPathComponent(filename)
+    }
+
+    /// A dropped file ready to import: HEIC becomes JPEG, as for Photos
+    /// picks, with the original kept for its capture date.
+    static func importable(_ file: DroppedFile, engine: Engine) async -> String {
+        guard let type = file.type, isHeif(type) else { return file.path }
+        let original = URL(fileURLWithPath: file.path)
+        let converted = original.deletingPathExtension().appendingPathExtension("jpg")
+        guard convertToJPEG(source: original, destination: converted) else { return file.path }
+        try? await engine.run("media.rememberConverted", ["converted": .string(converted.path), "original": .string(file.path)])
+        return converted.path
+    }
+
     static func copyToTemporary(_ url: URL) -> String? {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -557,5 +810,28 @@ enum PhotoImport {
         } catch {
             return nil
         }
+    }
+}
+
+/// Dropped files as their loads finish, which may be on any thread.
+private final class DropCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var slots: [PhotoImport.DroppedFile?]
+
+    init(count: Int) {
+        slots = Array(repeating: nil, count: count)
+    }
+
+    func set(_ index: Int, _ file: PhotoImport.DroppedFile?) {
+        lock.lock()
+        slots[index] = file
+        lock.unlock()
+    }
+
+    /// In drop order.
+    var files: [PhotoImport.DroppedFile] {
+        lock.lock()
+        defer { lock.unlock() }
+        return slots.compactMap { $0 }
     }
 }

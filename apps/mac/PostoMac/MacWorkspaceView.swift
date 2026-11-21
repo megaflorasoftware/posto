@@ -186,9 +186,8 @@ struct MacWorkspaceView: View {
                     Button {
                         window.deploymentsOpen = true
                     } label: {
-                        Label("Deployments", systemImage: "antenna.radiowaves.left.and.right")
+                        DeploymentToolbarLabel(repo: repo)
                     }
-                    .help("Deployments")
                 }
                 Button {
                     repo.settingsOpen = true
