@@ -35,6 +35,7 @@ import {
   type PostoCollectionSettings,
 } from "@posto/core/posto/config";
 import { orderableCollections } from "../../../../packages/editor/src/sidebarTree";
+import { scanBodyEmbeds } from "./bodyEmbeds";
 import { dateControls, type DateControl } from "./dates";
 import { fieldViews, type FieldView } from "./fieldViews";
 import { invoke } from "./host";
@@ -310,6 +311,10 @@ let componentForm: {
   editing?: {
     start: number;
     end: number;
+    /** The component's source as found, kept when nothing is edited. */
+    raw: string;
+    /** The form's values when it opened, to tell whether props changed. */
+    values: string;
     children: string | null;
     kept: MdxProp[];
     /** Opens a line, rather than sitting inside a paragraph. */
@@ -332,9 +337,13 @@ export async function openComponentAt(
     const block = scanJsxBlock(text.slice(start));
     if (block) found = { start, block };
   } else {
+    // Only components the body shows as cards or pills (and those nested in
+    // them), not samples inside code.
+    const outside = scanBodyEmbeds(text, true).filter((embed) => embed.kind === "component");
     for (const match of text.matchAll(/(^|\n)[ \t]*<[A-Z]/g)) {
       const blockStart = (match.index ?? 0) + match[0].length - 2;
       if (blockStart > offset) break;
+      if (!outside.some((embed) => embed.start <= blockStart && blockStart < embed.end)) continue;
       const block = scanJsxBlock(text.slice(blockStart));
       // Later starts are nested inside earlier ones, so the innermost wins.
       if (block && offset <= blockStart + block.raw.length) found = { start: blockStart, block };
@@ -367,16 +376,19 @@ export async function openComponentAt(
   }
   const slots = schema?.slots ?? [];
   const hasDefaultSlot = schema?.hasDefaultSlot ?? true;
+  const form = new MetadataForm(fields, values);
   componentForm = {
     name: block.name,
     path: path ?? "",
-    form: new MetadataForm(fields, values),
+    form,
     slots,
     hasDefaultSlot,
     slotTexts: slotTextsOf(block.children, slots, hasDefaultSlot || schema === null),
     editing: {
       start: blockStart,
       end: blockStart + block.raw.length,
+      raw: block.raw,
+      values: JSON.stringify(form.values()),
       children: block.children,
       kept,
       block: blockStart === 0 || text[blockStart - 1] === "\n",
@@ -496,7 +508,12 @@ export function finishComponent(
           slot.text.trim() !== pending.slotTexts[index].text,
       ));
   if (pending.editing) {
-    const { start, end, children, kept, block } = pending.editing;
+    const { start, end, raw, values, children, kept, block } = pending.editing;
+    // Saved without changes: the source stays exactly as written (prop
+    // order, quotes, spacing), as on desktop.
+    if (!edited && JSON.stringify(pending.form.values()) === values) {
+      return { snippet: raw, range: [start, end] };
+    }
     const multiline = children === null ? block : /^[ \t]*\n/.test(children);
     return {
       snippet: serializeJsx(

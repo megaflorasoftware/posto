@@ -483,9 +483,18 @@ export class DocumentSession {
   bodyImagePreview(src: string): { path: string | null; url: string | null } {
     if (!src) return { path: null, url: null };
     if (isRemoteMediaUrl(src)) return { path: null, url: src };
+    // Previews read only inside the site: a `../../` source can't reach the
+    // rest of the disk (the macOS app isn't sandboxed).
+    const inside = (path: string | null) => {
+      const normal = path === null ? null : normalizeAbsolute(path);
+      return normal !== null && normal.startsWith(`${this.host.root}/`) ? normal : null;
+    };
     if (!src.startsWith("/")) {
       const documentPath = this.documentPath();
-      return { path: documentPath ? resolveRelativeMediaPath(documentPath, src) : null, url: null };
+      return {
+        path: documentPath ? inside(resolveRelativeMediaPath(documentPath, src)) : null,
+        url: null,
+      };
     }
     let decoded = src;
     try {
@@ -505,7 +514,7 @@ export class DocumentSession {
       .filter((candidate): candidate is MediaEntry => candidate !== null)
       .map((candidate) => mediaInputPath(this.host.root, candidate, decoded))
       .find((candidate): candidate is string => candidate !== null);
-    return { path: resolved ?? `${this.host.root}/public${decoded}`, url: null };
+    return { path: inside(resolved ?? `${this.host.root}/public${decoded}`), url: null };
   }
 
   /** Where an image value can be previewed: a local absolute path or URL. */
@@ -655,4 +664,21 @@ export class DocumentSession {
     this.closed = true;
     return pending;
   }
+}
+
+/** An absolute path with `.` and `..` segments resolved; null when it
+ * climbs above the root. */
+function normalizeAbsolute(path: string): string | null {
+  if (!path.startsWith("/")) return null;
+  const parts: string[] = [];
+  for (const part of path.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") {
+      if (parts.length === 0) return null;
+      parts.pop();
+    } else {
+      parts.push(part);
+    }
+  }
+  return `/${parts.join("/")}`;
 }

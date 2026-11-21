@@ -217,6 +217,32 @@ describe("repository session", () => {
     ]);
     expect(embeds[1].image?.path).toMatch(/\/images\/photo\.jpg$/);
     expect(embeds[2].image).toEqual({ path: null, url: "https://example.com/a.png" });
+
+    // Previews never resolve outside the site.
+    const outside = await call<Array<{ image?: { path: string | null } }>>("body.embeds", {
+      text: "![a](../../../../../../etc/x.png)\n\n![b](/../../../etc/y.png)\n\n![c](/%2e%2e/%2e%2e/z.png)\n",
+    });
+    expect(outside.map((embed) => embed.image?.path)).toEqual([null, null, null]);
+  });
+
+  it("keeps a component's source as written when saved unchanged", async () => {
+    const view = await call<{ tree: TreeNode[] }>("repo.view");
+    const file = allFiles(view.tree).find((candidate) =>
+      /^mdx[ -]demo\.mdx$/i.test(candidate.name),
+    )!;
+    await call("doc.open", { key: file.key });
+    const text = "Intro\n\n<Callout   kind='tip' extra={x}/>\n";
+    const start = text.indexOf("<Callout");
+    const form = await call<{ slotTexts: unknown }>("components.openAt", { text, offset: start, start });
+    const done = await call<{ snippet: string }>("components.finish", { slots: form.slotTexts });
+    expect(done.snippet).toBe("<Callout   kind='tip' extra={x}/>");
+  });
+
+  it("edits only components outside code from the cursor", async () => {
+    const text = 'Sample:\n\n```mdx\n<Callout kind="tip" />\n```\n';
+    await expect(
+      call("components.openAt", { text, offset: text.indexOf("kind") }),
+    ).rejects.toThrow(/cursor inside a component/);
   });
 
   it("applies a controlled field template saved in developer mode", async () => {
@@ -337,6 +363,49 @@ describe("body embeds", () => {
   it("treats capitalized tags as HTML outside MDX", () => {
     const embeds = scanBodyEmbeds("A <Kbd>x</Kbd> chip and an\nimport line.", false);
     expect(embeds.map((embed) => [embed.kind, embed.label])).toEqual([["html", "Kbd"]]);
+  });
+
+  it("skips code in quotes, list items, comments and multi-line code spans", () => {
+    const body = [
+      "> ```html",
+      "> <div>hi</div>",
+      "> ```",
+      "",
+      "- ```jsx",
+      '  <Callout kind="tip" />',
+      "  ```",
+      "",
+      "<!-- <div>old</div> -->",
+      "",
+      "Use `<Callout",
+      'kind="tip" />` like so, then <kbd>K</kbd>.',
+    ].join("\n");
+    const embeds = scanBodyEmbeds(body, true);
+    expect(embeds.map((embed) => [embed.kind, embed.label])).toEqual([["html", "kbd"]]);
+  });
+
+  it("reads images as the desktop does", () => {
+    const body = "Some text\n![alt](a.png)\nMore\n\n![a\\]b](foo(1).png)";
+    const embeds = scanBodyEmbeds(body, false);
+    expect(embeds.map((embed) => [embed.block, embed.alt, embed.src])).toEqual([
+      [true, "alt", "a.png"],
+      [true, "a]b", "foo(1).png"],
+    ]);
+    expect(body.slice(embeds[1].start, embeds[1].end)).toBe("![a\\]b](foo(1).png)");
+  });
+
+  it("never splits a surrogate pair in a clipped preview", () => {
+    const body = `<Callout kind="tip">\n${"a".repeat(198)}😀 more\n</Callout>`;
+    const [embed] = scanBodyEmbeds(body, true);
+    expect(embed.preview).toMatch(/…$/);
+    expect(embed.preview).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+  });
+
+  it("scans unclosed elements in linear time", () => {
+    const body = Array.from({ length: 3000 }, (_, n) => `<p>Paragraph ${n} with words`).join("\n\n");
+    const started = performance.now();
+    expect(scanBodyEmbeds(body, false)).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(300);
   });
 
   it("counts offsets in UTF-16 units", () => {

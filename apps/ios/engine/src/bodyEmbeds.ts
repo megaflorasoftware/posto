@@ -42,20 +42,29 @@ export interface BodyEmbed {
   alt?: string;
 }
 
-const IMAGE = /^!\[([^\]\n]*)\]\(\s*(<[^>\n]*>|[^\s)\n]+)(?:\s+(?:"[^"\n]*"|'[^'\n]*'))?\s*\)/;
+// Alt text may hold escaped brackets; a bare source may hold balanced
+// parentheses (`foo(1).png`), as CommonMark allows.
+const IMAGE =
+  /^!\[((?:\\.|[^\]\\\n])*)\]\(\s*(<[^>\n]*>|(?:[^\s()\n]|\([^\s()\n]*\))+)(?:\s+(?:"[^"\n]*"|'[^'\n]*'))?\s*\)/;
+
+/** Blockquote markers and a list item marker before a line's content: code
+ * fences inside quotes and list items still fence. */
+const CONTAINER = /^(?:[ \t]*>[ \t]?)*(?:[ \t]*(?:[-*+]|\d+[.)])[ \t]+)?/;
 
 export function scanBodyEmbeds(text: string, mdx: boolean): BodyEmbed[] {
   const embeds: BodyEmbed[] = [];
+  const scan = new Scan(text, mdx);
   let fence: string | null = null;
   let previousBlank = true;
   let pos = 0;
   while (pos < text.length) {
     const lineEnd = lineEndAt(text, pos);
     const line = text.slice(pos, lineEnd);
-    const fenceMatch = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    const content = line.replace(CONTAINER, "");
+    const fenceMatch = /^ {0,3}(`{3,}|~{3,})/.exec(content);
     if (fence !== null) {
       if (fenceMatch && fenceMatch[1][0] === fence[0] && fenceMatch[1].length >= fence.length) {
-        if (line.trim() === fenceMatch[1]) fence = null;
+        if (content.trim() === fenceMatch[1]) fence = null;
       }
       pos = lineEnd + 1;
       previousBlank = false;
@@ -77,7 +86,7 @@ export function scanBodyEmbeds(text: string, mdx: boolean): BodyEmbed[] {
       pos = lineEnd + 1;
       continue;
     }
-    const block = blockEmbedAt(text, pos, lineEnd, mdx, previousBlank);
+    const block = blockEmbedAt(scan, pos, lineEnd);
     let from = pos;
     if (block) {
       embeds.push(block);
@@ -86,7 +95,7 @@ export function scanBodyEmbeds(text: string, mdx: boolean): BodyEmbed[] {
     // Inline content: the rest of the line (after a block that ended mid-line,
     // or the whole line). Inline elements may run onto later lines.
     const scanTo = from <= lineEnd ? lineEnd : lineEndAt(text, from);
-    const stopped = scanInline(text, from, scanTo, mdx, embeds);
+    const stopped = scanInline(scan, from, scanTo, embeds);
     pos = stopped + 1;
     previousBlank = false;
   }
@@ -98,13 +107,43 @@ function lineEndAt(text: string, pos: number): number {
   return end === -1 ? text.length : end;
 }
 
-function blockEmbedAt(
-  text: string,
-  pos: number,
-  lineEnd: number,
-  mdx: boolean,
-  previousBlank: boolean,
-): BodyEmbed | null {
+/** One scan of a body: the text, plus where each tag name last closes, so
+ * an element that never closes isn't searched for to the end of the body
+ * at every occurrence (thousands of unclosed `<p>`s would be quadratic). */
+class Scan {
+  private lastClose = new Map<string, number>();
+
+  constructor(
+    readonly text: string,
+    readonly mdx: boolean,
+  ) {}
+
+  /** The element (or component) at `at`, scanned no further than it can
+   * reach: when its tag never closes after `at`, only to the paragraph's
+   * end, where a self-closing tag still ends. */
+  element(at: number, component: boolean): JsxBlock | null {
+    const name = /^<([A-Za-z_:][\w:.-]*)/.exec(this.text.slice(at, at + 200))?.[1];
+    if (!name) return null;
+    let close = this.lastClose.get(name);
+    if (close === undefined) {
+      close = this.text.lastIndexOf(`</${name}`);
+      this.lastClose.set(name, close);
+    }
+    const limit = close > at ? this.text.length : paragraphEnd(this.text, at);
+    const source = this.text.slice(at, limit);
+    return component ? scanJsxBlock(source) : scanHtmlElement(source);
+  }
+}
+
+/** Where the paragraph holding `at` ends: its next blank line. */
+function paragraphEnd(text: string, at: number): number {
+  const blank = /\n[ \t\r]*(?:\n|$)/g;
+  blank.lastIndex = at;
+  return blank.exec(text)?.index ?? text.length;
+}
+
+function blockEmbedAt(scan: Scan, pos: number, lineEnd: number): BodyEmbed | null {
+  const { text, mdx } = scan;
   const rest = text.slice(pos);
   if (mdx && /^import\s/.test(rest)) {
     const raw = extendLines(rest, (s) => count(s, /\{/g) > count(s, /\}/g));
@@ -129,11 +168,11 @@ function blockEmbedAt(
     return embed("raw", pos, raw, true, "Expression", excerpt(raw));
   }
   if (mdx && /^<[A-Z]/.test(rest)) {
-    const block = scanJsxBlock(rest);
+    const block = scan.element(pos, true);
     return block ? componentEmbed(pos, block, true) : null;
   }
   if (/^<[A-Za-z_:]/.test(rest)) {
-    const element = scanHtmlElement(rest);
+    const element = scan.element(pos, false);
     if (
       element &&
       (BLOCK_HTML_TAGS.has(element.name.toLowerCase()) ||
@@ -143,28 +182,21 @@ function blockEmbedAt(
     }
     return null;
   }
-  // A paragraph that is only an image is a block image.
+  // A line that is only an image is a block image, as on desktop (marked
+  // ends a paragraph where the image line starts).
   const line = text.slice(pos, lineEnd);
   const image = IMAGE.exec(line.trimStart());
-  if (previousBlank && image && line.trim() === image[0]) {
-    const next = text.slice(lineEnd + 1, lineEndAt(text, lineEnd + 1));
-    if (lineEnd >= text.length || next.trim() === "") {
-      const start = pos + (line.length - line.trimStart().length);
-      return imageEmbed(start, image, true);
-    }
+  if (image && line.trim() === image[0]) {
+    const start = pos + (line.length - line.trimStart().length);
+    return imageEmbed(start, image, true);
   }
   return null;
 }
 
 /** Scans inline content from `from` to `to`; returns where it stopped (at or
  * past `to`, when an element ran onto later lines). */
-function scanInline(
-  text: string,
-  from: number,
-  to: number,
-  mdx: boolean,
-  out: BodyEmbed[],
-): number {
+function scanInline(scan: Scan, from: number, to: number, out: BodyEmbed[]): number {
+  const { text, mdx } = scan;
   let i = from;
   let end = to;
   while (i < end) {
@@ -174,9 +206,22 @@ function scanInline(
       continue;
     }
     if (ch === "`") {
+      // A code span may run onto the paragraph's later lines.
       const run = /^`+/.exec(text.slice(i, end))![0];
       const close = text.indexOf(run, i + run.length);
-      i = close !== -1 && close < end ? close + run.length : i + run.length;
+      if (close !== -1 && close < paragraphEnd(text, i)) {
+        i = close + run.length;
+        if (i > end) end = lineEndAt(text, i);
+      } else {
+        i += run.length;
+      }
+      continue;
+    }
+    if (text.startsWith("<!--", i)) {
+      // Comments are hidden source, not elements.
+      const close = text.indexOf("-->", i + 4);
+      i = close === -1 ? text.length : close + 3;
+      if (i > end) end = lineEndAt(text, i);
       continue;
     }
     if (ch === "!" && text[i + 1] === "[") {
@@ -188,17 +233,17 @@ function scanInline(
       }
     }
     if (ch === "<") {
-      const rest = text.slice(i);
-      if (mdx && /^<[A-Z]/.test(rest)) {
-        const block = scanJsxBlock(rest);
+      const next = text[i + 1] ?? "";
+      if (mdx && /[A-Z]/.test(next)) {
+        const block = scan.element(i, true);
         if (block) {
           out.push(componentEmbed(i, block, false));
           i += block.raw.length;
           if (i > end) end = lineEndAt(text, i);
           continue;
         }
-      } else if (/^<[A-Za-z_:]/.test(rest)) {
-        const element = scanHtmlElement(rest);
+      } else if (/[A-Za-z_:]/.test(next)) {
+        const element = scan.element(i, false);
         if (element) {
           out.push(htmlEmbed(i, element.raw, false));
           i += element.raw.length;
@@ -244,7 +289,7 @@ function htmlEmbed(start: number, raw: string, block: boolean): BodyEmbed {
 }
 
 function imageEmbed(start: number, match: RegExpExecArray, block: boolean): BodyEmbed {
-  const alt = match[1];
+  const alt = match[1].replace(/\\(.)/g, "$1");
   const src = match[2].replace(/^<|>$/g, "");
   const name = src.slice(src.lastIndexOf("/") + 1) || "Image";
   return { ...embed("image", start, match[0], block, alt || name, null), src, alt };
@@ -295,8 +340,14 @@ function excerpt(source: string): string {
   return clip(source.trim(), 400);
 }
 
+/** At most `length` UTF-16 units, never splitting a surrogate pair (a lone
+ * half doesn't survive JSON decoding on the Swift side). */
 function clip(text: string, length: number): string {
-  return text.length > length ? text.slice(0, length - 1).trimEnd() + "…" : text;
+  if (text.length <= length) return text;
+  let cut = length - 1;
+  const last = text.charCodeAt(cut - 1);
+  if (last >= 0xd800 && last <= 0xdbff) cut--;
+  return text.slice(0, cut).trimEnd() + "…";
 }
 
 function count(text: string, pattern: RegExp): number {
