@@ -117,15 +117,17 @@ struct Thumbnail: View {
             // clipped() trims the drawing, not hit-testing: without this, a
             // tall image's overflow takes taps meant for whatever sits above.
             .contentShape(.rect)
+        // The image shown stays until the next one is ready, so a cell that
+        // scrolls back (served from the cache) doesn't flash its placeholder.
         .task(id: "\(source ?? "")#\(maxPixels)") {
-            image = nil
-            failed = false
             let loaded: CGImage?
             if let url, URL(string: url) != nil {
                 loaded = await ThumbnailCache.shared.image(url: url, maxPixels: maxPixels)
             } else if let path {
                 loaded = await ThumbnailCache.shared.image(path: path, maxPixels: maxPixels)
             } else {
+                image = nil
+                failed = false
                 return
             }
             guard !Task.isCancelled else { return }

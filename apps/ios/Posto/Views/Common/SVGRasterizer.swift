@@ -166,12 +166,55 @@ private final class WebSVGRenderer: NSObject, WKNavigationDelegate {
         await Promise.race([new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))), after(500)]);
         return true;
         """
-        guard (try? await webView.callAsyncJavaScript(script, contentWorld: .defaultClient)) as? Bool == true
-        else { return nil }
+        // WebKit's own calls get deadlines too: with the app in the
+        // background (or the window gone) they'd wait indefinitely, and every
+        // SVG thumbnail queues behind this one.
+        let ready = await withDeadline(seconds: 5) {
+            (try? await webView.callAsyncJavaScript(script, contentWorld: .defaultClient)) as? Bool
+        }
+        guard ready == true else {
+            if ready == nil { discard(webView) }
+            return nil
+        }
         let configuration = WKSnapshotConfiguration()
         configuration.rect = webView.bounds
         configuration.afterScreenUpdates = true
-        return try? await webView.takeSnapshot(configuration: configuration).cgImage
+        let snapshot = await withDeadline(seconds: 5) {
+            try? await webView.takeSnapshot(configuration: configuration).cgImage
+        }
+        if snapshot == nil { discard(webView) }
+        return snapshot
+    }
+
+    /// The operation's result, or nil once `seconds` pass without one (the
+    /// operation is left to finish on its own).
+    private final class Once {
+        var settled = false
+    }
+
+    private func withDeadline<T>(seconds: Double, _ operation: @escaping @MainActor () async -> T?) async -> T? {
+        let once = Once()
+        return await withCheckedContinuation { continuation in
+            Task { @MainActor in
+                let value = await operation()
+                guard !once.settled else { return }
+                once.settled = true
+                continuation.resume(returning: value)
+            }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(seconds))
+                guard !once.settled else { return }
+                once.settled = true
+                continuation.resume(returning: nil)
+            }
+        }
+    }
+
+    /// Drops a web view that stopped answering; the next drawing makes a
+    /// fresh one.
+    private func discard(_ webView: WKWebView) {
+        webView.removeFromSuperview()
+        if self.webView === webView { self.webView = nil }
     }
 
     private func makeWebView() -> WKWebView {
