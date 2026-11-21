@@ -73,6 +73,19 @@ struct NestedFields: View {
     }
 }
 
+extension DocumentView {
+    /// Why the form can't edit the file, with the parser's own message: a
+    /// data file's as is (as the desktop data form shows it), frontmatter's
+    /// as a YAML error. The raw view is pointed at only where there is one
+    /// (developer mode).
+    var formUnavailableMessage: String? {
+        guard let error = form?.parseError?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+        if isData { return "Form editing is unavailable: \(error)" }
+        let fix = tabs.contains("raw") ? " Fix it in the raw file view." : ""
+        return "Form editing is unavailable: the frontmatter has a YAML syntax error.\(fix)\n\n\(error)"
+    }
+}
+
 struct FieldFooter: View {
     let field: FieldView
     let error: String?
