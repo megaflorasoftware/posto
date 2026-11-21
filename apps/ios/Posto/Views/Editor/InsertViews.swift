@@ -184,6 +184,9 @@ struct ComponentPropsView: View {
     @State private var unsupported: String?
     @State private var name = "Component"
     @State private var confirmingDelete = false
+    /// Whether the component declares its props (the desktop card's typed
+    /// indicator).
+    @State private var typed: Bool?
 
     private var isEditing: Bool {
         if case .edit = mode { return true }
@@ -197,6 +200,11 @@ struct ComponentPropsView: View {
                     NoticeRow(message: unsupported, systemImage: "exclamationmark.triangle.fill", tint: .orange)
                 }
             } else if let form {
+                if let typed {
+                    Section {
+                        TypedPropsRow(typed: typed)
+                    }
+                }
                 if form.fields.isEmpty {
                     Section {
                         Text("\(name) takes no props Posto can edit.").foregroundStyle(.secondary)
@@ -266,6 +274,7 @@ struct ComponentPropsView: View {
                 }
                 name = view.name
                 slots = view.slotTexts ?? []
+                typed = view.typed
                 form = MetadataFormModel(engine: engine, target: "component", fields: view.fields, values: view.values, errors: view.errors, dates: view.dates)
             } catch {
                 // A tapped card whose props the form can't hold still edits as source.
@@ -277,6 +286,29 @@ struct ComponentPropsView: View {
             }
         }
         .errorAlert($error)
+    }
+}
+
+/// Whether a component's props are verified against its declared types,
+/// with the desktop indicator's explanation.
+private struct TypedPropsRow: View {
+    let typed: Bool
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(typed ? "Typed props" : "Untyped props")
+                Text(typed
+                    ? "We've verified these fields represent all the possible configuration options."
+                    : "We're not sure what the fields for this component should be. If you're a developer, add a type definition to this component.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } icon: {
+            Image(systemName: typed ? "checkmark.circle.fill" : "circle.slash")
+                .foregroundStyle(typed ? Color.green : Color.secondary)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

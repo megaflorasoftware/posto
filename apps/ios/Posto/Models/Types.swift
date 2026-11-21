@@ -590,6 +590,8 @@ struct ComponentFormView: Codable, Sendable {
     let slots: [String]
     let hasDefaultSlot: Bool
     let slotTexts: [SlotText]?
+    /// The component declares its props, so the form covers every option.
+    var typed: Bool? = nil
 }
 
 struct CollectionSettings: Codable, Sendable {
