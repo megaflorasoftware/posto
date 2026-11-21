@@ -37,7 +37,7 @@ struct EmbedSourceView: View {
                     .font(.system(.callout, design: .monospaced))
                     .frame(minHeight: 180)
                     .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
+                    .noAutocapitalization()
             } footer: {
                 Text("Saved into the body exactly as written.")
             }
@@ -46,7 +46,7 @@ struct EmbedSourceView: View {
             }
         }
         .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
+        .inlineNavigationTitle()
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") { onSave(draft) }
@@ -90,7 +90,7 @@ struct EmbedImageView: View {
                 TextField("Path or URL", text: $src)
                     .font(.system(.callout, design: .monospaced))
                     .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
+                    .noAutocapitalization()
             }
             Section {
                 Button {
@@ -109,7 +109,7 @@ struct EmbedImageView: View {
             }
         }
         .navigationTitle("Image")
-        .navigationBarTitleDisplayMode(.inline)
+        .inlineNavigationTitle()
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") { onSave(markdown) }
@@ -117,18 +117,21 @@ struct EmbedImageView: View {
             }
         }
         .sheet(isPresented: $replacing) {
-            BodyMediaPicker(repo: document.repo) { path, url, pickedAlt, _ in
-                Task {
-                    if let url {
-                        src = url
-                        pickedPath = nil
-                    } else if let path, let value = await document.bodyMediaValue(for: path) {
-                        src = value
-                        pickedPath = path
+            Group {
+                BodyMediaPicker(repo: document.repo) { path, url, pickedAlt, _ in
+                    Task {
+                        if let url {
+                            src = url
+                            pickedPath = nil
+                        } else if let path, let value = await document.bodyMediaValue(for: path) {
+                            src = value
+                            pickedPath = path
+                        }
+                        if alt.isEmpty { alt = pickedAlt }
                     }
-                    if alt.isEmpty { alt = pickedAlt }
                 }
             }
+            .macSheetSizing()
         }
         .confirmationDialog("Remove this image?", isPresented: $confirmingRemove, titleVisibility: .visible) {
             Button("Remove Image", role: .destructive) { onSave("") }

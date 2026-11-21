@@ -142,14 +142,20 @@ struct FieldRow: View {
             }
         }
         .sheet(isPresented: $editingTemplate) {
-            if let document {
-                FieldTemplateSheet(document: document, fieldName: field.schemaPath, label: field.label, current: field.template)
+            Group {
+                if let document {
+                    FieldTemplateSheet(document: document, fieldName: field.schemaPath, label: field.label, current: field.template)
+                }
             }
+            .macSheetSizing()
         }
         .sheet(isPresented: $editingRows) {
-            if let document {
-                FieldRowsSheet(document: document, fieldName: field.schemaPath, label: field.label, current: field.template)
+            Group {
+                if let document {
+                    FieldRowsSheet(document: document, fieldName: field.schemaPath, label: field.label, current: field.template)
+                }
             }
+            .macSheetSizing()
         }
     }
 
@@ -183,7 +189,7 @@ struct FieldRow: View {
                 } commit: { next in
                     await sink.edit(path, next)
                 }
-                .keyboardType(.decimalPad)
+                .decimalKeyboard()
             }
         case "date":
             DateFieldRow(sink: sink, field: field, path: path, value: value, control: state.dates[path.dotted], label: label)
@@ -497,7 +503,10 @@ struct ListFieldSection: View {
                 }
                 .disabled(!canAdd)
                 .sheet(isPresented: $creatingReference) {
-                    ReferenceDraftSheet(document: document, path: path)
+                    Group {
+                        ReferenceDraftSheet(document: document, path: path)
+                    }
+                    .macSheetSizing()
                 }
             }
         } header: {
@@ -588,7 +597,7 @@ struct FieldTemplateSheet: View {
                 Section {
                     TextField("{fields.title|slug}", text: $template, axis: .vertical)
                         .font(.body.monospaced())
-                        .textInputAutocapitalization(.never)
+                        .noAutocapitalization()
                         .autocorrectionDisabled()
                 } header: {
                     Text("Template")
@@ -619,7 +628,7 @@ struct FieldTemplateSheet: View {
                 }
             }
             .navigationTitle("\(label) Template")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -676,7 +685,7 @@ struct FieldRowsSheet: View {
                 }
             }
             .navigationTitle("\(label) Rows")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {

@@ -39,6 +39,12 @@ struct DeviceAuthorization: Codable, Hashable, Sendable {
     }
 }
 
+/// A folder's GitHub remote (the desktop backend's `github_remote`).
+struct GitHubSlug: Codable, Hashable, Sendable {
+    let owner: String
+    let name: String
+}
+
 struct GitHubRepo: Codable, Hashable, Identifiable, Sendable {
     let id: Int
     let owner: String

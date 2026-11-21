@@ -26,9 +26,11 @@ struct RepoSidebarView: View {
         }
         .listStyle(.sidebar)
         .navigationTitle(repo.name)
-        .navigationBarTitleDisplayMode(.inline)
+        .inlineNavigationTitle()
         .refreshable { await repo.refresh() }
         .overlay { emptyState }
+        #if os(iOS)
+        // The macOS app keeps Publish and these controls in its window toolbar.
         .softBottomScrollEdge()
         .safeAreaInset(edge: .bottom) {
             PublishButton(repo: repo)
@@ -37,14 +39,14 @@ struct RepoSidebarView: View {
                 .floatingBarBackground()
         }
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
+            ToolbarItem(placement: .barLeading) {
                 Button {
                     Task { await repo.app.closeRepo() }
                 } label: {
                     Label("Repositories", systemImage: "chevron.backward")
                 }
             }
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .barTrailing) {
                 Button {
                     repo.settingsOpen = true
                 } label: {
@@ -52,6 +54,7 @@ struct RepoSidebarView: View {
                 }
             }
         }
+        #endif
     }
 
     @ViewBuilder
@@ -243,7 +246,7 @@ private struct FileRow: View {
     }
 }
 
-private struct PublishButton: View {
+struct PublishButton: View {
     let repo: RepoModel
 
     var body: some View {

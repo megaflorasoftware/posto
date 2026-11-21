@@ -71,7 +71,3 @@ struct RepoWorkspaceView: View {
         .errorAlert($repo.openError)
     }
 }
-
-extension PublishModel: Identifiable {
-    nonisolated var id: ObjectIdentifier { ObjectIdentifier(self) }
-}

@@ -450,7 +450,13 @@ struct MarkdownTextView: UIViewRepresentable {
                     }
                 }
                 let before = attachment.image
-                attachment.render(width: width, font: font, traits: textView.traitCollection)
+                attachment.render(
+                    width: width,
+                    fontSize: font.pointSize,
+                    capHeight: font.capHeight,
+                    dark: textView.traitCollection.userInterfaceStyle == .dark,
+                    scale: textView.traitCollection.displayScale
+                )
                 if attachment.image !== before { changed.append(range) }
             }
             guard !changed.isEmpty else { return }

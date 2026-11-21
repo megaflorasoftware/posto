@@ -1,5 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#endif
 
 // Liquid Glass for the app's own controls. System bars, toolbars, sheets,
 // menus and search fields turn to glass on their own with the iOS 26 SDK.
@@ -12,7 +14,7 @@ extension View {
     @ViewBuilder
     func prominentActionStyle() -> some View {
         #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, macOS 26.0, *) {
             buttonStyle(.glassProminent)
         } else {
             buttonStyle(.borderedProminent)
@@ -27,7 +29,7 @@ extension View {
     @ViewBuilder
     func glassActionStyle(bordered: Bool = true) -> some View {
         #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, macOS 26.0, *) {
             buttonStyle(.glass)
         } else {
             borderedUnlessPlain(bordered)
@@ -50,7 +52,7 @@ extension View {
         fallback: AnyShapeStyle = AnyShapeStyle(.regularMaterial)
     ) -> some View {
         #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, macOS 26.0, *) {
             glassEffect(interactive ? .regular.interactive() : .regular, in: .rect(cornerRadius: cornerRadius))
         } else {
             background(fallback, in: .rect(cornerRadius: cornerRadius))
@@ -65,7 +67,7 @@ extension View {
     @ViewBuilder
     func floatingBarBackground() -> some View {
         #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, macOS 26.0, *) {
             self
         } else {
             background(.bar)
@@ -79,7 +81,7 @@ extension View {
     @ViewBuilder
     func softBottomScrollEdge() -> some View {
         #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, macOS 26.0, *) {
             scrollEdgeEffectStyle(.soft, for: .bottom)
         } else {
             self
@@ -135,7 +137,7 @@ private struct ToolbarGroups<First: View, Second: View>: ViewModifier {
             content.toolbar { ToolbarItemGroup(placement: placement) { second } }
         } else {
             #if compiler(>=6.2)
-            if #available(iOS 26.0, *) {
+            if #available(iOS 26.0, macOS 26.0, *) {
                 content.toolbar {
                     ToolbarItemGroup(placement: placement) { first }
                     ToolbarSpacer(gap == .flexible ? .flexible : .fixed, placement: placement)
@@ -168,7 +170,7 @@ private struct EditorTitle: ViewModifier {
     func body(content: Content) -> some View {
         let state = saveStateLabel(saveState)
         #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, macOS 26.0, *) {
             content
                 .navigationTitle(name)
                 .navigationSubtitle(Text(state.text).foregroundStyle(state.color))
@@ -210,7 +212,7 @@ struct CloseButton: View {
 
     var body: some View {
         #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, macOS 26.0, *) {
             Button(role: .close, action: action)
         } else {
             Button(title, action: action)
@@ -221,12 +223,13 @@ struct CloseButton: View {
     }
 }
 
+#if canImport(UIKit)
 extension UIScrollView {
     /// Hides iOS 26's scroll edge effects. A text view that doesn't scroll
     /// otherwise picks up a nearby bar's effect, which draws over its text.
     func hideScrollEdgeEffects() {
         #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, macOS 26.0, *) {
             topEdgeEffect.isHidden = true
             bottomEdgeEffect.isHidden = true
             leftEdgeEffect.isHidden = true
@@ -235,6 +238,7 @@ extension UIScrollView {
         #endif
     }
 }
+#endif
 
 extension ToolbarItemPlacement {
     /// For a close button that replaced a "Done": the confirmation slot
@@ -242,7 +246,7 @@ extension ToolbarItemPlacement {
     /// slot would tint the ✕ as a prominent action.
     static var closeTrailing: ToolbarItemPlacement {
         #if compiler(>=6.2)
-        if #available(iOS 26.0, *) { return .topBarTrailing }
+        if #available(iOS 26.0, macOS 26.0, *) { return .barTrailing }
         #endif
         return .confirmationAction
     }

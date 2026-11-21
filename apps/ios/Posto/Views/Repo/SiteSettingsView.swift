@@ -50,20 +50,24 @@ struct SiteSettingsView: View {
                             }
                         }
                     }
-                    Section {
-                        Button(role: .destructive) {
-                            confirmingRemove = true
-                        } label: {
-                            Label("Delete from Device", systemImage: "trash")
-                                .foregroundStyle(.red)
+                    // A folder opened on the Mac is the user's own; only
+                    // managed clones can be removed.
+                    if !repo.local {
+                        Section {
+                            Button(role: .destructive) {
+                                confirmingRemove = true
+                            } label: {
+                                Label("Delete from Device", systemImage: "trash")
+                                    .foregroundStyle(.red)
+                            }
+                        } footer: {
+                            Text("Removes this repository's downloaded copy from this device. Unpublished changes will be lost. You can download it again anytime.")
                         }
-                    } footer: {
-                        Text("Removes this repository's downloaded copy from this device. Unpublished changes will be lost. You can download it again anytime.")
                     }
                 }
             }
             .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .closeTrailing) {
                     CloseButton("Done") { dismiss() }
@@ -254,9 +258,9 @@ struct BranchPickerView: View {
                     ProgressView()
                 }
             }
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Find or create a branch")
+            .searchable(text: $query, placement: .alwaysVisible, prompt: "Find or create a branch")
             .navigationTitle("Branch")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
             }

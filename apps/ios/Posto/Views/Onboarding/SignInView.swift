@@ -65,7 +65,7 @@ struct DeviceCodeView: View {
                 Text("Enter this code on GitHub")
                     .font(.title2.bold())
                 Button {
-                    UIPasteboard.general.string = device.userCode
+                    copyToPasteboard(device.userCode)
                     copied = true
                     Task {
                         try? await Task.sleep(for: .seconds(1.5))

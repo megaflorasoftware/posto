@@ -20,7 +20,7 @@ struct RepositoriesView: View {
                     RepositoryRow(app: app, repo: repo)
                 }
             }
-            .listStyle(.insetGrouped)
+            .groupedListStyle()
             .navigationTitle("Repositories")
             .searchable(text: $query, prompt: "Search repositories")
             .refreshable { await app.loadRepos() }
@@ -45,7 +45,7 @@ struct RepositoriesView: View {
                 }
             }
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .barTrailing) {
                     Button {
                         app.settingsOpen = true
                     } label: {
@@ -55,14 +55,20 @@ struct RepositoriesView: View {
                 }
             }
             .sheet(isPresented: Binding(get: { app.settingsOpen }, set: { app.settingsOpen = $0 })) {
-                AppSettingsView(app: app, switchDemo: switchDemo)
+                Group {
+                    AppSettingsView(app: app, switchDemo: switchDemo)
+                }
+                .macSheetSizing()
             }
             .sheet(isPresented: Binding(
                 get: { app.cloneState != .idle },
                 set: { if !$0 { app.dismissCloneError() } }
             )) {
-                CloneSheet(app: app)
-                    .interactiveDismissDisabled(isCloning)
+                Group {
+                    CloneSheet(app: app)
+                        .interactiveDismissDisabled(isCloning)
+                }
+                .macSheetSizing()
             }
         }
     }
@@ -179,7 +185,7 @@ private struct CloneSheet: View {
             }
             .padding(24)
             .frame(maxWidth: 480)
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
         }
         .presentationDetents([.medium, .large])
     }

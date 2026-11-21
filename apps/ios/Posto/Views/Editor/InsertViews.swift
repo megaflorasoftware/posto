@@ -23,7 +23,7 @@ struct BodyMediaPicker: View {
                 }
             }
             .navigationTitle("Insert Media")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
             }
@@ -76,7 +76,7 @@ struct ComponentPickerView: View {
             }
             .searchable(text: $query)
             .navigationTitle("Insert Component")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
             }
@@ -162,7 +162,7 @@ struct ComponentPropsView: View {
         }
         .overlay { if form == nil && error == nil && unsupported == nil { ProgressView() } }
         .navigationTitle(name)
-        .navigationBarTitleDisplayMode(.inline)
+        .inlineNavigationTitle()
         .toolbar {
             if unsupported == nil {
                 ToolbarItem(placement: .confirmationAction) {

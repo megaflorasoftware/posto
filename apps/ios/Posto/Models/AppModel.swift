@@ -140,6 +140,9 @@ final class AppModel {
             if let progress = try? JSONDecoder().decode(CloneProgress.self, from: data) {
                 cloneProgress = progress
             }
+        case "fs-changed":
+            // The macOS app's watcher: files changed outside the app.
+            scheduleRefresh()
         default:
             break
         }
@@ -162,9 +165,72 @@ final class AppModel {
         repo?.engineEvent(name, payloadJSON: payloadJSON)
     }
 
+    // MARK: Local folders (macOS)
+
+    /// Folders opened on this Mac, newest first.
+    private(set) var recentRoots: [String] = []
+    private var refreshTask: Task<Void, Never>?
+
+    /// The macOS app's startup: settings and the GitHub session (without
+    /// the iOS repository list), then the folder that was open last.
+    func startLocal() async {
+        Self.current = self
+        if let startupError {
+            error = startupError
+            return
+        }
+        developerMode = (try? await backend.call("get_developer_mode", as: Bool.self)) ?? false
+        stage = .repositories
+        // The session is in the login Keychain, shared with the Tauri app;
+        // reading it can wait on an access prompt, so it doesn't hold up
+        // opening the folder.
+        Task { user = (try? await backend.call("auth_status", as: AuthStatus.self))?.user }
+        await loadRecentRoots()
+        if let last = (try? await backend.call("get_last_root", as: String?.self)) ?? nil {
+            await openLocal(root: last)
+        }
+    }
+
+    func loadRecentRoots() async {
+        recentRoots = (try? await backend.call("get_recent_roots", as: [String].self)) ?? []
+    }
+
+    /// Opens a folder on this Mac, named for its GitHub remote when it has
+    /// one, and watches it for changes made outside the app.
+    func openLocal(root: String) async {
+        guard let engine else { return }
+        await closeRepo()
+        let remote = (try? await backend.call("github_remote", ["root": .string(root)], as: GitHubSlug?.self)) ?? nil
+        let folder = URL(fileURLWithPath: root).lastPathComponent
+        let owner = remote?.owner ?? ""
+        let name = remote?.name ?? folder
+        let repo = GitHubRepo(
+            id: 0, owner: owner, name: name, fullName: remote == nil ? folder : "\(owner)/\(name)",
+            isPrivate: true, cloneURL: remote == nil ? "" : "https://github.com/\(owner)/\(name).git",
+            defaultBranch: "main", updatedAt: ""
+        )
+        let model = RepoModel(app: self, engine: engine, github: repo, repoRoot: root, local: true, hasRemote: remote != nil)
+        self.repo = model
+        try? await backend.run("set_last_root", ["root": .string(root)])
+        await loadRecentRoots()
+        await model.open()
+        try? await backend.run("watch_root", ["root": .string(root)])
+    }
+
+    private func scheduleRefresh() {
+        refreshTask?.cancel()
+        refreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !Task.isCancelled else { return }
+            await self?.repo?.refresh()
+        }
+    }
+
     // MARK: Sign-in
 
-    func signIn() async {
+    /// Signs in with a GitHub device code. The macOS app has no repository
+    /// list to load afterwards.
+    func signIn(loadsRepositories: Bool = true) async {
         error = nil
         device = nil
         stage = .authorizing
@@ -172,7 +238,7 @@ final class AppModel {
             user = try await backend.call("sign_in", as: GitHubUser.self)
             browserURL = nil
             stage = .repositories
-            await loadRepos()
+            if loadsRepositories { await loadRepos() }
         } catch {
             browserURL = nil
             self.error = error.localizedDescription

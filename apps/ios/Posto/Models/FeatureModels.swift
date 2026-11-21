@@ -1,6 +1,10 @@
 import Foundation
 import Observation
 
+extension PublishModel: Identifiable {
+    nonisolated var id: ObjectIdentifier { ObjectIdentifier(self) }
+}
+
 /// The Publish sheet: change list, CDN media plan, credentials, progress.
 @MainActor
 @Observable

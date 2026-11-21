@@ -48,9 +48,12 @@ struct ImageFieldRow: View {
         .buttonStyle(.plain)
         .disabled(field.locked)
         .sheet(isPresented: $picking) {
-            ImageChoiceSheet(document: document, path: path, hasValue: !value.isEmpty) { picked in
-                Task { await document.edit(path, picked.map(JSONValue.string)) }
+            Group {
+                ImageChoiceSheet(document: document, path: path, hasValue: !value.isEmpty) { picked in
+                    Task { await document.edit(path, picked.map(JSONValue.string)) }
+                }
             }
+            .macSheetSizing()
         }
     }
 }
@@ -71,7 +74,10 @@ struct ImageChooserButton: View {
         .buttonStyle(.borderless)
         .accessibilityLabel("Choose image")
         .sheet(isPresented: $picking) {
-            ImageChoiceSheet(document: document, path: path, hasValue: true, onPick: onPick)
+            Group {
+                ImageChoiceSheet(document: document, path: path, hasValue: true, onPick: onPick)
+            }
+            .macSheetSizing()
         }
     }
 }
@@ -108,7 +114,7 @@ struct ImageChoiceSheet: View {
                 }
             }
             .navigationTitle(choices?.media?.label ?? "Choose Image")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
                 if hasValue {
@@ -326,12 +332,18 @@ struct ReferenceFieldRow: View {
                 }
             }
             .sheet(item: $editingDetails, onDismiss: { Task { await document.reload() } }) { details in
-                AssetEditorSheet(media: details.media, item: details.item)
+                Group {
+                    AssetEditorSheet(media: details.media, item: details.item)
+                }
+                .macSheetSizing()
             }
             .sheet(isPresented: $pickingAsset) {
-                LibraryAssetPicker(engine: document.engine, library: library, allowClear: !value.isEmpty && !field.required) { entryId in
-                    Task { await document.edit(path, entryId.map(JSONValue.string)) }
+                Group {
+                    LibraryAssetPicker(engine: document.engine, library: library, allowClear: !value.isEmpty && !field.required) { entryId in
+                        Task { await document.edit(path, entryId.map(JSONValue.string)) }
+                    }
                 }
+                .macSheetSizing()
             }
         } else {
             let known = options?.options.contains { $0.value == value } ?? true
@@ -348,7 +360,7 @@ struct ReferenceFieldRow: View {
                 } label: {
                     Text(label.isEmpty ? field.label : label)
                 }
-                .pickerStyle(.navigationLink)
+                .navigationLinkPickerStyle()
                 if options?.collection != nil {
                     Button {
                         creating = true
@@ -365,7 +377,10 @@ struct ReferenceFieldRow: View {
             .sheet(isPresented: $creating, onDismiss: {
                 Task { options = try? await document.engine.call("doc.referenceOptions", ["path": path.json]) }
             }) {
-                ReferenceDraftSheet(document: document, path: path)
+                Group {
+                    ReferenceDraftSheet(document: document, path: path)
+                }
+                .macSheetSizing()
             }
         }
     }
@@ -446,7 +461,7 @@ struct LibraryAssetPicker: View {
             }
             .searchable(text: $query)
             .navigationTitle(library)
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
                 if allowClear {
@@ -482,7 +497,7 @@ struct ReferenceDraftSheet: View {
             }
             .overlay { if form == nil && error == nil { ProgressView() } }
             .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     CloseButton {

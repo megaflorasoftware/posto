@@ -30,9 +30,9 @@ struct EditorView: View {
             }
         }
         .editorTitle(view.name, saveState: view.saveState)
-        .navigationBarTitleDisplayMode(.inline)
+        .inlineNavigationTitle()
         // Delete gets a glass group of its own, apart from the view toggle.
-        .toolbarGroups(.topBarTrailing, gap: .fixed, split: view.tabs.contains("content") && view.tabs.contains("raw")) {
+        .toolbarGroups(.barTrailing, gap: .fixed, split: view.tabs.contains("content") && view.tabs.contains("raw")) {
             Button {
                 Task { await document.setTab(view.tab == "raw" ? "content" : "raw") }
             } label: {
@@ -56,61 +56,82 @@ struct EditorView: View {
             Text("This file will be permanently deleted.")
         }
         .sheet(isPresented: $insertingMedia) {
-            BodyMediaPicker(repo: document.repo) { absolutePath, url, alt, kind in
-                Task { await insertMedia(path: absolutePath, url: url, alt: alt, kind: kind) }
+            Group {
+                BodyMediaPicker(repo: document.repo) { absolutePath, url, alt, kind in
+                    Task { await insertMedia(path: absolutePath, url: url, alt: alt, kind: kind) }
+                }
             }
+            .macSheetSizing()
         }
         .sheet(item: $editingComponent) { edit in
-            NavigationStack {
-                ComponentPropsView(
-                    engine: document.engine,
-                    mode: .edit(edit.text, edit.offset, edit.start),
-                    source: edit.card.map { card in
-                        ComponentPropsView.SourceActions(
-                            text: card.source,
-                            save: { replaceEmbed(card, with: $0); editingComponent = nil },
-                            delete: { replaceEmbed(card, with: ""); editingComponent = nil }
-                        )
+            Group {
+                NavigationStack {
+                    ComponentPropsView(
+                        engine: document.engine,
+                        mode: .edit(edit.text, edit.offset, edit.start),
+                        source: edit.card.map { card in
+                            ComponentPropsView.SourceActions(
+                                text: card.source,
+                                save: { replaceEmbed(card, with: $0); editingComponent = nil },
+                                delete: { replaceEmbed(card, with: ""); editingComponent = nil }
+                            )
+                        }
+                    ) { snippet, range in
+                        if let range { controller.replaceSource(range, with: snippet) }
+                        editingComponent = nil
                     }
-                ) { snippet, range in
-                    if let range { controller.replaceSource(range, with: snippet) }
-                    editingComponent = nil
-                }
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { CloseButton { editingComponent = nil } }
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) { CloseButton { editingComponent = nil } }
+                    }
                 }
             }
+            .macSheetSizing()
         }
         .sheet(item: $editingEmbed) { card in
-            NavigationStack {
-                Group {
-                    if card.embed.kind == "image" {
-                        EmbedImageView(document: document, card: card) { replaceEmbed(card, with: $0); editingEmbed = nil }
-                    } else {
-                        EmbedSourceView(title: card.embed.label, text: card.source, deleteTitle: "Delete \(card.kindName)") { next in
-                            replaceEmbed(card, with: next)
-                            editingEmbed = nil
+            Group {
+                NavigationStack {
+                    Group {
+                        if card.embed.kind == "image" {
+                            EmbedImageView(document: document, card: card) { replaceEmbed(card, with: $0); editingEmbed = nil }
+                        } else {
+                            EmbedSourceView(title: card.embed.label, text: card.source, deleteTitle: "Delete \(card.kindName)") { next in
+                                replaceEmbed(card, with: next)
+                                editingEmbed = nil
+                            }
                         }
                     }
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) { CloseButton { editingEmbed = nil } }
+                    }
                 }
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { CloseButton { editingEmbed = nil } }
-                }
+                .presentationDetents(card.embed.kind == "image" ? [.large] : [.medium, .large])
             }
-            .presentationDetents(card.embed.kind == "image" ? [.large] : [.medium, .large])
+            .macSheetSizing()
         }
         .sheet(isPresented: $insertingComponent) {
-            ComponentPickerView(engine: document.engine) { snippet in
-                controller.insert(snippet, asBlock: true)
+            Group {
+                ComponentPickerView(engine: document.engine) { snippet in
+                    controller.insert(snippet, asBlock: true)
+                }
             }
+            .macSheetSizing()
         }
         .navigationDestination(isPresented: $focusedBody) {
-            MarkdownTextView(text: document.bodyText, controller: controller, scrolls: true, embeds: view.body?.isMarkdown == true)
-                .navigationTitle(view.name)
-                .navigationBarTitleDisplayMode(.inline)
-                .ignoresSafeArea(.container, edges: .bottom)
+            VStack(spacing: 0) {
+                #if os(macOS)
+                // macOS has no keyboard bar; the formatting commands sit on top.
+                MarkdownFormatBar(controller: controller)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 6)
+                Divider()
+                #endif
+                MarkdownTextView(text: document.bodyText, controller: controller, scrolls: true, embeds: view.body?.isMarkdown == true)
+            }
+            .navigationTitle(view.name)
+            .inlineNavigationTitle()
+            .ignoresSafeArea(.container, edges: .bottom)
         }
-        #if DEBUG
+        #if DEBUG && os(iOS)
         .onReceive(NotificationCenter.default.publisher(for: DemoTour.focusBodyNotification)) { note in
             focusedBody = note.object as? Bool ?? false
         }
@@ -185,6 +206,9 @@ struct EditorView: View {
             }
             if let body = view.body {
                 Section {
+                    #if os(macOS)
+                    if body.isMarkdown { MarkdownFormatBar(controller: controller) }
+                    #endif
                     MarkdownTextView(
                         text: document.bodyText,
                         controller: controller,
@@ -244,7 +268,7 @@ private struct FilenameRow: View {
                         .textSelection(.enabled)
                 } else {
                     TextField("Filename", text: $draft)
-                        .textInputAutocapitalization(.never)
+                        .noAutocapitalization()
                         .autocorrectionDisabled()
                         .focused($focused)
                         .submitLabel(.done)
@@ -274,12 +298,15 @@ private struct FilenameRow: View {
             }
         }
         .sheet(isPresented: $editingTemplate) {
-            FieldTemplateSheet(
-                document: document,
-                fieldName: "filename",
-                label: "Filename",
-                current: filename.template.map { FieldTemplate(template: $0, controlled: filename.controlled, rows: nil) }
-            )
+            Group {
+                FieldTemplateSheet(
+                    document: document,
+                    fieldName: "filename",
+                    label: "Filename",
+                    current: filename.template.map { FieldTemplate(template: $0, controlled: filename.controlled, rows: nil) }
+                )
+            }
+            .macSheetSizing()
         }
     }
 

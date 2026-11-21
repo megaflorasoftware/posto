@@ -20,16 +20,16 @@ struct LibraryImportSheet: View {
                         ForEach(Array(view.drafts.enumerated()), id: \.offset) { index, draft in
                             draftPage(view: view, draft: draft, index: index)
                                 .tag(index)
+                                .tabItem { Text("Image \(index + 1)") }
                         }
                     }
-                    .tabViewStyle(.page(indexDisplayMode: view.drafts.count > 1 ? .always : .never))
-                    .indexViewStyle(.page(backgroundDisplayMode: .always))
+                    .pagedTabViewStyle(showsIndex: view.drafts.count > 1)
                 } else {
                     ProgressView()
                 }
             }
             .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     CloseButton {
@@ -78,7 +78,7 @@ struct LibraryImportSheet: View {
                             Task { _ = try? await media.engine.call("media.updateDraft", ["index": .number(Double(index)), "filename": .string(next)], as: JSONValue.self) }
                         }
                     ))
-                    .textInputAutocapitalization(.never)
+                    .noAutocapitalization()
                     .autocorrectionDisabled()
                     Text(".\(draft.extension)").foregroundStyle(.secondary)
                 }
@@ -167,7 +167,7 @@ struct AssetEditorSheet: View {
                     Section {
                         if asset.filename != nil {
                             TextField("Filename", text: $filename)
-                                .textInputAutocapitalization(.never)
+                                .noAutocapitalization()
                                 .autocorrectionDisabled()
                         } else if let url = asset.imageUrl {
                             LabeledContent("CDN URL") {
@@ -191,7 +191,7 @@ struct AssetEditorSheet: View {
             }
             .overlay { if asset == nil { ProgressView() } }
             .navigationTitle("Edit Image")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -269,7 +269,7 @@ struct PublicFileSheet: View {
                 }
                 Section {
                     TextField("Filename", text: $filename)
-                        .textInputAutocapitalization(.never)
+                        .noAutocapitalization()
                         .autocorrectionDisabled()
                 } footer: {
                     Text("Renaming updates links to this file in your documents.")
@@ -279,7 +279,7 @@ struct PublicFileSheet: View {
                 }
             }
             .navigationTitle("Edit \(item.name)")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -331,7 +331,7 @@ struct MoveSheet: View {
             }
             .overlay { if targets == nil { ProgressView() } }
             .navigationTitle("Move To")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
             }

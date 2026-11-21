@@ -1,5 +1,9 @@
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#else
+import AppKit
+#endif
 
 /// An element of the body shown as a card or pill instead of text: what the
 /// desktop editor renders as a TipTap node. See engine/src/bodyEmbeds.ts.
@@ -46,7 +50,7 @@ final class EmbedAttachment: NSTextAttachment {
     let source: String
     let embed: BodyEmbed
     var isSelected = false
-    var thumbnail: UIImage?
+    var thumbnail: PlatformImage?
     private var renderedKey: String?
 
     init(source: String, embed: BodyEmbed) {
@@ -60,26 +64,29 @@ final class EmbedAttachment: NSTextAttachment {
     }
 
     /// Draws the card or pill for this width and appearance; skipped when
-    /// nothing it depends on changed.
+    /// nothing it depends on changed. `capHeight` centers a pill on the
+    /// text's capital letters.
     @MainActor
-    func render(width: CGFloat, font: UIFont, traits: UITraitCollection) {
-        let dark = traits.userInterfaceStyle == .dark
-        let key = "\(Int(width))|\(font.pointSize)|\(dark)|\(isSelected)|\(thumbnail != nil)"
+    func render(width: CGFloat, fontSize: CGFloat, capHeight: CGFloat, dark: Bool, scale: CGFloat) {
+        let key = "\(Int(width))|\(fontSize)|\(dark)|\(isSelected)|\(thumbnail != nil)"
         guard key != renderedKey else { return }
-        let view = EmbedView(embed: embed, selected: isSelected, thumbnail: thumbnail, fontSize: font.pointSize, width: width)
+        let view = EmbedView(embed: embed, selected: isSelected, thumbnail: thumbnail, fontSize: fontSize, width: width)
             .environment(\.colorScheme, dark ? .dark : .light)
         let renderer = ImageRenderer(content: view)
-        renderer.scale = max(traits.displayScale, 1)
+        renderer.scale = max(scale, 1)
         renderer.isOpaque = false
+        #if canImport(UIKit)
         guard let rendered = renderer.uiImage else { return }
+        #else
+        guard let rendered = renderer.nsImage else { return }
+        #endif
         renderedKey = key
         image = rendered
         let size = rendered.size
         if embed.isCard {
             bounds = CGRect(origin: .zero, size: size)
         } else {
-            // Center the pill on the text's capital letters.
-            bounds = CGRect(x: 0, y: (font.capHeight - size.height) / 2, width: size.width, height: size.height)
+            bounds = CGRect(x: 0, y: (capHeight - size.height) / 2, width: size.width, height: size.height)
         }
     }
 }
@@ -217,10 +224,10 @@ enum EmbedProjection {
 @MainActor
 final class EmbedThumbnails {
     static let shared = EmbedThumbnails()
-    private var images: [String: UIImage] = [:]
+    private var images: [String: PlatformImage] = [:]
     private var loading: Set<String> = []
 
-    func cached(_ preview: BodyEmbed.ImagePreview?) -> UIImage? {
+    func cached(_ preview: BodyEmbed.ImagePreview?) -> PlatformImage? {
         key(preview).flatMap { images[$0] }
     }
 
@@ -229,14 +236,14 @@ final class EmbedThumbnails {
         guard let preview, let key = key(preview), images[key] == nil, !loading.contains(key) else { return }
         loading.insert(key)
         Task {
-            var image: UIImage?
+            var image: PlatformImage?
             if let path = preview.path {
                 if let cgImage = await ThumbnailCache.shared.image(path: path, maxPixels: 900) {
-                    image = UIImage(cgImage: cgImage)
+                    image = PlatformImage(cgImage: cgImage, platform: ())
                 }
             } else if let url = preview.url.flatMap(URL.init(string:)),
                       let (data, _) = try? await URLSession.shared.data(from: url) {
-                image = UIImage(data: data)
+                image = PlatformImage(data: data)
             }
             loading.remove(key)
             if let image {
@@ -256,7 +263,7 @@ final class EmbedThumbnails {
 private struct EmbedView: View {
     let embed: BodyEmbed
     let selected: Bool
-    let thumbnail: UIImage?
+    let thumbnail: PlatformImage?
     let fontSize: CGFloat
     let width: CGFloat
 
@@ -298,10 +305,10 @@ private struct EmbedView: View {
         }
         .padding(embed.kind == "image" ? 6 : 12)
         .frame(width: width, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(uiColor: .tertiarySystemFill)))
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.cardFill))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(selected ? Color.accentColor : Color(uiColor: .separator), lineWidth: selected ? 2 : 0.5)
+                .strokeBorder(selected ? Color.accentColor : Color.cardStroke, lineWidth: selected ? 2 : 0.5)
         )
     }
 
@@ -310,14 +317,14 @@ private struct EmbedView: View {
         let imageWidth = width - 12
         if let thumbnail {
             let aspect = thumbnail.size.width / max(thumbnail.size.height, 1)
-            Image(uiImage: thumbnail)
+            Image(platformImage: thumbnail)
                 .resizable()
                 .scaledToFill()
                 .frame(width: imageWidth, height: min(260, max(80, imageWidth / max(aspect, 0.1))))
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         } else {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color(uiColor: .quaternarySystemFill))
+                .fill(Color.placeholderFill)
                 .frame(width: imageWidth, height: 120)
                 .overlay(Image(systemName: "photo").font(.system(size: 28)).foregroundStyle(.secondary))
         }
@@ -334,7 +341,7 @@ private struct EmbedView: View {
     private var pill: some View {
         HStack(spacing: 4) {
             if let thumbnail, embed.kind == "image" {
-                Image(uiImage: thumbnail)
+                Image(platformImage: thumbnail)
                     .resizable()
                     .scaledToFill()
                     .frame(width: fontSize * 1.1, height: fontSize * 1.1)

@@ -50,7 +50,7 @@ struct PublishSheet: View {
                 }
             }
             .navigationTitle("Publish")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     CloseButton { dismiss() }
@@ -194,7 +194,7 @@ struct CredentialFormSection: View {
         Section {
             if isS3 {
                 TextField("Access key ID", text: $accessKeyId)
-                    .textInputAutocapitalization(.never)
+                    .noAutocapitalization()
                     .autocorrectionDisabled()
                 SecureField("Secret access key", text: $secret)
             } else {

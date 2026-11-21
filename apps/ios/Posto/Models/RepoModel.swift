@@ -29,11 +29,18 @@ final class RepoModel {
     var mediaCredential: CredentialRequest?
     var mediaProgress: (done: Int, total: Int)?
 
-    init(app: AppModel, engine: Engine, github: GitHubRepo, repoRoot: String) {
+    /// A folder opened on this Mac rather than a managed clone.
+    let local: Bool
+    /// Whether `github` names a real GitHub remote.
+    let hasRemote: Bool
+
+    init(app: AppModel, engine: Engine, github: GitHubRepo, repoRoot: String, local: Bool = false, hasRemote: Bool = true) {
         self.app = app
         self.engine = engine
         self.github = github
         self.repoRoot = repoRoot
+        self.local = local
+        self.hasRemote = hasRemote
     }
 
     var name: String { github.name }
@@ -42,14 +49,16 @@ final class RepoModel {
 
     func open() async {
         do {
+            let identity: JSONValue = hasRemote ? [
+                "owner": .string(github.owner),
+                "name": .string(github.name),
+                "cloneUrl": .string(github.cloneURL),
+                "defaultBranch": .string(github.defaultBranch),
+            ] : .null
             view = try await engine.call("repo.open", [
                 "repoRoot": .string(repoRoot),
-                "repo": [
-                    "owner": .string(github.owner),
-                    "name": .string(github.name),
-                    "cloneUrl": .string(github.cloneURL),
-                    "defaultBranch": .string(github.defaultBranch),
-                ],
+                "repo": identity,
+                "local": .bool(local),
                 "developerMode": .bool(app.developerMode),
             ])
         } catch {

@@ -57,7 +57,7 @@ struct WorkspaceChooserView: View {
         .navigationTitle("Choose Project")
         .toolbar {
             if candidates != nil {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .barLeading) {
                     Button {
                         Task { await repo.app.closeRepo() }
                     } label: {

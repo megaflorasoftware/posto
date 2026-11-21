@@ -21,7 +21,7 @@ struct CollectionSettingsView: View {
                     }
                     Section {
                         TextField("{fields.title}", text: binding.entryName)
-                            .textInputAutocapitalization(.never)
+                            .noAutocapitalization()
                             .autocorrectionDisabled()
                             .font(.body.monospaced())
                     } header: {
@@ -71,7 +71,7 @@ struct CollectionSettingsView: View {
             }
             .overlay { if settings == nil { ProgressView() } }
             .navigationTitle("\(collection.label) Settings")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -123,9 +123,9 @@ struct CollectionOrderView: View {
                 }
                 .onMove { order.move(fromOffsets: $0, toOffset: $1) }
             }
-            .environment(\.editMode, .constant(.active))
+            .alwaysEditing()
             .navigationTitle("Collection Order")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {

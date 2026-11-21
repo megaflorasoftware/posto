@@ -17,7 +17,7 @@ struct MediaView: View {
             }
         }
         .navigationTitle("Media")
-        .navigationBarTitleDisplayMode(.inline)
+        .inlineNavigationTitle()
         .task {
             let model = MediaModel(repo: repo)
             media = model
@@ -61,7 +61,7 @@ struct MediaBrowser: View {
             .overlay { overlayContent }
             .refreshable { await media.load(reload: true) }
             .toolbar { if mode.isManaging { manageToolbar } }
-            .toolbarGroups(.bottomBar, gap: .flexible, active: mode.isManaging && !media.readOnly && media.selecting) {
+            .toolbarGroups(.bottomControls, gap: .flexible, active: mode.isManaging && !media.readOnly && media.selecting) {
                 Button(media.everythingSelected ? "Deselect All" : "Select All") { media.toggleAll() }
             } then: {
                 selectionActions
@@ -144,32 +144,47 @@ struct MediaBrowser: View {
                 Text("This deletes the selected items and everything inside selected folders from the project. This cannot be undone in Posto.")
             }
             .sheet(isPresented: $moving) {
-                MoveSheet(media: media)
+                Group {
+                    MoveSheet(media: media)
+                }
+                .macSheetSizing()
             }
             .sheet(item: $importing) { request in
-                LibraryImportSheet(media: media, request: request)
+                Group {
+                    LibraryImportSheet(media: media, request: request)
+                }
+                .macSheetSizing()
             }
             .sheet(item: $editingAsset) { item in
-                AssetEditorSheet(media: media, item: item)
+                Group {
+                    AssetEditorSheet(media: media, item: item)
+                }
+                .macSheetSizing()
             }
             .sheet(item: $editingFile) { item in
-                PublicFileSheet(media: media, item: item)
+                Group {
+                    PublicFileSheet(media: media, item: item)
+                }
+                .macSheetSizing()
             }
     }
 
     private func withPickers<Content: View>(_ content: Content) -> some View {
         content
             .sheet(item: credentialBinding) { request in
-                NavigationStack {
-                    Form {
-                        CredentialFormSection(request: request, purpose: .upload) { credential in
-                            Task { await media.repo.submitMediaCredential(credential) }
+                Group {
+                    NavigationStack {
+                        Form {
+                            CredentialFormSection(request: request, purpose: .upload) { credential in
+                                Task { await media.repo.submitMediaCredential(credential) }
+                            }
                         }
+                        .navigationTitle("Storage Password")
+                        .inlineNavigationTitle()
                     }
-                    .navigationTitle("Storage Password")
-                    .navigationBarTitleDisplayMode(.inline)
+                    .presentationDetents([.medium])
                 }
-                .presentationDetents([.medium])
+                .macSheetSizing()
             }
             .alert("Validation", isPresented: validationShown, presenting: validation) { _ in
                 Button("OK", role: .cancel) {}
@@ -311,14 +326,14 @@ struct MediaBrowser: View {
     @ToolbarContentBuilder
     private var manageToolbar: some ToolbarContent {
         if !media.readOnly {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .barTrailing) {
                 Button(media.selecting ? "Done" : "Select") {
                     media.selecting.toggle()
                     media.clearSelection()
                 }
             }
             if !media.selecting {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .barTrailing) {
                     Menu {
                         Button {
                             choosingPhotos = true
