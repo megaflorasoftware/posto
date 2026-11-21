@@ -4,24 +4,37 @@ import SwiftUI
 struct RepoSidebarView: View {
     @Bindable var repo: RepoModel
     @Environment(\.horizontalSizeClass) private var sizeClass
+    /// Find a file (iOS): filters every file by title and path.
+    @State private var query = ""
+    @State private var searchPresented = false
 
     var body: some View {
         List(selection: $repo.selectedKey) {
-            notices
-            if let view = repo.view {
-                let looseFiles = listedLooseFiles(view)
-                if !looseFiles.isEmpty {
+            // Nothing but the loading state until the files are listed: a
+            // half-opened repository's notices would read as broken.
+            if let view = repo.view, !view.loading {
+                notices
+                if let results = searchResults(view) {
                     Section {
-                        ForEach(looseFiles) { file in
-                            FileRow(file: file)
+                        ForEach(results) { item in
+                            FileRow(repo: repo, file: item.file, subtitle: item.subtitle)
                         }
                     }
-                }
-                ForEach(view.tree) { node in
-                    TreeSection(repo: repo, node: node)
-                }
-                if repo.app.developerMode {
-                    developerSection(view)
+                } else {
+                    let looseFiles = listedLooseFiles(view)
+                    if !looseFiles.isEmpty {
+                        Section {
+                            ForEach(looseFiles) { file in
+                                FileRow(repo: repo, file: file)
+                            }
+                        }
+                    }
+                    ForEach(view.tree) { node in
+                        TreeSection(repo: repo, node: node)
+                    }
+                    if repo.app.developerMode {
+                        developerSection(view)
+                    }
                 }
             }
         }
@@ -30,6 +43,15 @@ struct RepoSidebarView: View {
         .inlineNavigationTitle()
         .refreshable { await repo.refresh() }
         .overlay { emptyState }
+        #if os(iOS)
+        .searchable(text: $query, isPresented: $searchPresented, placement: .alwaysVisible, prompt: "Find a file")
+        .onChange(of: repo.findFileRequests) { searchPresented = true }
+        // The engine's notices float over whichever column is in use; the
+        // editor shows them while a file is open (RepoWorkspaceView).
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if repo.document == nil { StatusBanner(repo: repo) }
+        }
+        #endif
         #if os(iOS)
         // The macOS app keeps Publish and these controls in its window toolbar.
         .softBottomScrollEdge()
@@ -68,6 +90,23 @@ struct RepoSidebarView: View {
         #endif
     }
 
+    /// The files the list shows, without the search.
+    private func listedFileCount(_ view: RepoView) -> Int {
+        #if os(iOS)
+        view.fileCount - (view.readme == nil ? 0 : 1)
+        #else
+        view.fileCount
+        #endif
+    }
+
+    /// The matches while searching (every file, the README included), or
+    /// nil for the tree.
+    private func searchResults(_ view: RepoView) -> [SearchableFile]? {
+        let needle = query.trimmingCharacters(in: .whitespaces)
+        guard !needle.isEmpty else { return nil }
+        return view.searchableFiles.filter { $0.matches(needle) }
+    }
+
     @ViewBuilder
     private var notices: some View {
         if let view = repo.view {
@@ -82,7 +121,7 @@ struct RepoSidebarView: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                         AsyncButton(role: .destructive) {
-                            try? await repo.app.redownload(repo.github, root: repo.repoRoot)
+                            await redownload()
                         } label: {
                             Text("Remove and Redownload")
                         }
@@ -104,16 +143,29 @@ struct RepoSidebarView: View {
                     Text("Pull the latest changes before editing.")
                 }
             }
+            #if os(macOS)
+            // iOS shows these in a banner over the column in use.
             if let status = view.status {
                 Section {
-                    NoticeRow(
-                        message: status.message,
-                        systemImage: status.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill",
-                        tint: status.isError ? .red : .green
-                    )
+                    HStack(alignment: .top) {
+                        NoticeRow(
+                            message: status.message,
+                            systemImage: status.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill",
+                            tint: status.isError ? .red : .green
+                        )
+                        Spacer(minLength: 0)
+                        Button {
+                            Task { await repo.dismissStatus(status) }
+                        } label: {
+                            Image(systemName: "xmark")
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Dismiss")
+                    }
                 }
                 .id(status.id)
             }
+            #endif
             if let diagnostic = view.projectDiagnostic {
                 Section("Project adapter fallback") {
                     NoticeRow(message: diagnostic, systemImage: "exclamationmark.triangle", tint: .orange)
@@ -132,16 +184,43 @@ struct RepoSidebarView: View {
         }
     }
 
+    /// Removes the damaged copy and downloads it again. The repository
+    /// closes first, so a failed removal shows on the repository list.
+    private func redownload() async {
+        let app = repo.app
+        do {
+            try await app.redownload(repo.github, root: repo.repoRoot)
+        } catch {
+            app.error = "Could not remove \(repo.name) from this device: \(error.localizedDescription)"
+        }
+    }
+
     @ViewBuilder
     private var emptyState: some View {
-        if let view = repo.view, !view.loading, view.fileCount == 0, view.error == nil, view.repairError == nil {
-            ContentUnavailableView(
-                "No editable files found",
-                systemImage: "doc.text.magnifyingglass",
-                description: Text("Markdown, MDX, text, and stylesheet files will appear here.")
-            )
-        } else if repo.view == nil || repo.view?.loading == true {
-            ProgressView()
+        if let view = repo.view, !view.loading {
+            if let results = searchResults(view) {
+                if results.isEmpty { ContentUnavailableView.search(text: query) }
+            } else if listedFileCount(view) == 0, view.error == nil, view.repairError == nil, view.workspaceCandidates == nil {
+                #if os(iOS)
+                let readme = view.readme
+                #else
+                let readme: TreeFile? = nil
+                #endif
+                ContentUnavailableView {
+                    Label("No editable files found", systemImage: "doc.text.magnifyingglass")
+                } description: {
+                    Text(readme == nil
+                         ? "Markdown, MDX, text, and stylesheet files will appear here."
+                         : "Markdown, MDX, text, and stylesheet files will appear here. The project's README is in Settings.")
+                } actions: {
+                    if let readme {
+                        Button("Open README") { repo.selectedKey = readme.key }
+                            .glassActionStyle()
+                    }
+                }
+            }
+        } else {
+            LoadingView("Loading files…")
         }
     }
 
@@ -174,17 +253,49 @@ struct RepoSidebarView: View {
     }
 }
 
+/// A spinner with what it's waiting for. With a delay, quick loads show
+/// nothing rather than a flash of spinner.
+struct LoadingView: View {
+    let title: String
+    let delay: Duration
+    @State private var delayed = false
+
+    init(_ title: String, delay: Duration = .zero) {
+        self.title = title
+        self.delay = delay
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            if delay == .zero || delayed {
+                ProgressView()
+                Text(title)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task {
+            guard delay > .zero else { return }
+            try? await Task.sleep(for: delay)
+            delayed = true
+        }
+    }
+}
+
 /// A collection or top-level folder: a collapsible section with its files
 /// and nested folders.
 private struct TreeSection: View {
     let repo: RepoModel
     let node: TreeNode
-    @State private var expanded = true
 
     var body: some View {
-        Section(isExpanded: $expanded) {
+        Section(isExpanded: Binding(
+            get: { repo.isExpanded(node, default: node.defaultOpen) },
+            set: { repo.setExpanded(node, $0) }
+        )) {
             ForEach(node.files) { file in
-                FileRow(file: file)
+                FileRow(repo: repo, file: file)
             }
             ForEach(node.children) { child in
                 FolderRow(repo: repo, node: child)
@@ -193,68 +304,138 @@ private struct TreeSection: View {
             HStack {
                 Text(node.label)
                 Spacer()
-                if let collection = node.collection {
-                    Button {
-                        repo.collectionSettings = collection
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                    }
-                    .accessibilityLabel("\(node.label) settings")
-                }
-                if node.canCreate {
-                    Button {
-                        Task { await repo.createFile(in: node) }
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel("New file in \(node.label)")
-                }
+                NodeActions(repo: repo, node: node)
             }
         }
-        .onAppear { expanded = node.defaultOpen }
     }
 }
 
+/// A nested folder: the same New File and (developer mode) collection
+/// settings buttons as a section, as the Tauri file tree has on every
+/// folder.
 private struct FolderRow: View {
     let repo: RepoModel
     let node: TreeNode
 
     var body: some View {
-        DisclosureGroup {
+        DisclosureGroup(isExpanded: Binding(
+            get: { repo.isExpanded(node, default: node.defaultOpen) },
+            set: { repo.setExpanded(node, $0) }
+        )) {
             ForEach(node.files) { file in
-                FileRow(file: file)
+                FileRow(repo: repo, file: file)
             }
             ForEach(node.children) { child in
                 FolderRow(repo: repo, node: child)
             }
         } label: {
-            Label(node.label, systemImage: "folder")
-                .contextMenu {
-                    if node.canCreate {
-                        Button {
-                            Task { await repo.createFile(in: node) }
-                        } label: {
-                            Label("New File", systemImage: "doc.badge.plus")
-                        }
+            HStack {
+                Label(node.label, systemImage: "folder")
+                Spacer()
+                NodeActions(repo: repo, node: node)
+                    .buttonStyle(.borderless)
+            }
+            .contextMenu {
+                if node.canCreate {
+                    Button {
+                        Task { await repo.createFile(in: node) }
+                    } label: {
+                        Label("New File", systemImage: "doc.badge.plus")
                     }
                 }
+                if let collection = node.collection {
+                    Button {
+                        repo.collectionSettings = collection
+                    } label: {
+                        Label("Collection Settings", systemImage: "slider.horizontal.3")
+                    }
+                }
+            }
         }
     }
 }
 
+/// A folder's buttons: collection settings (developer mode) and New File.
+private struct NodeActions: View {
+    let repo: RepoModel
+    let node: TreeNode
+
+    var body: some View {
+        if let collection = node.collection {
+            Button {
+                repo.collectionSettings = collection
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+            }
+            .accessibilityLabel("\(node.label) settings")
+        }
+        if node.canCreate {
+            Button {
+                Task { await repo.createFile(in: node) }
+            } label: {
+                Image(systemName: "plus")
+            }
+            .accessibilityLabel("New file in \(node.label)")
+        }
+    }
+}
+
+/// A file: opens on tap; swipe or the context menu deletes it, after
+/// confirming, as the desktop list's delete button does.
 private struct FileRow: View {
+    let repo: RepoModel
     let file: TreeFile
+    /// Where it sits, in search results.
+    var subtitle: String?
+    @State private var confirmingDelete = false
 
     var body: some View {
         NavigationLink(value: file.key) {
             Label {
-                Text(file.label).lineLimit(1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(file.label).lineLimit(1)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
             } icon: {
                 Image(systemName: file.pinned ? "pin" : "doc.text")
             }
         }
+        // Not a destructive role: that would take the row out before the
+        // deletion is confirmed.
+        .swipeActions(edge: .trailing) {
+            Button {
+                confirmingDelete = true
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            .tint(.red)
+        }
+        .contextMenu {
+            Button(role: .destructive) {
+                confirmingDelete = true
+            } label: {
+                Label("Delete…", systemImage: "trash")
+            }
+        }
+        .confirmationDialog("Delete \(file.label)?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button(isDataEntry ? "Delete Entry" : "Delete File", role: .destructive) {
+                Task { await repo.deleteFile(file.key) }
+            }
+        } message: {
+            Text(isDataEntry
+                 ? "The entry \(file.name) will be removed from \(file.path.lastPathComponent)."
+                 : "\(file.name) will be permanently deleted.")
+        }
         .tag(file.key)
     }
+
+    /// An entry of a data file (its key adds the entry to the file's path).
+    private var isDataEntry: Bool { file.key != file.path }
 }
 
 struct PublishButton: View {

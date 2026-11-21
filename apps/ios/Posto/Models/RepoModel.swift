@@ -19,9 +19,16 @@ final class RepoModel {
     var publish: PublishModel?
     var branchesOpen = false
     private(set) var branches: [BranchInfo] = []
+    /// Why the branch list couldn't be read, if it couldn't.
+    private(set) var branchesError: String?
     var settingsOpen = false
     var collectionSettings: CollectionRef?
     var collectionOrderOpen = false
+    /// Folders opened or closed in the sidebar this session, by tree node
+    /// id, so a section keeps its state when it scrolls away and back.
+    var expandedNodes: [String: Bool] = [:]
+    /// Bumped to put the cursor in the sidebar's search field (⌘O).
+    private(set) var findFileRequests = 0
     private(set) var componentSchemaVersion = 0
     private(set) var siteUrlVersion = 0
     private(set) var mediaVersion = 0
@@ -133,8 +140,34 @@ final class RepoModel {
         if let next: RepoView = try? await engine.call("repo.cancelWorkspaceChooser") { view = next }
     }
 
-    func childDirectories(of dir: String) async -> [String] {
-        (try? await engine.call("repo.listChildDirectories", ["dir": .string(dir)], as: [String].self)) ?? []
+    /// The repository's projects, leaving the open one in place until one
+    /// is picked (the chooser Settings opens).
+    func workspaceCandidates() async throws -> [WorkspaceCandidate] {
+        try await engine.call("repo.listWorkspaceCandidates")
+    }
+
+    func childDirectories(of dir: String) async throws -> [String] {
+        try await engine.call("repo.listChildDirectories", ["dir": .string(dir)])
+    }
+
+    func dismissStatus(_ status: StatusNotice) async {
+        if let next: RepoView = try? await engine.call("repo.dismissStatus", ["id": .number(Double(status.id))]) {
+            view = next
+        }
+    }
+
+    // MARK: Sidebar
+
+    func isExpanded(_ node: TreeNode, default open: Bool) -> Bool {
+        expandedNodes[node.id] ?? open
+    }
+
+    func setExpanded(_ node: TreeNode, _ expanded: Bool) {
+        expandedNodes[node.id] = expanded
+    }
+
+    func requestFindFile() {
+        findFileRequests += 1
     }
 
     // MARK: Documents
@@ -144,6 +177,13 @@ final class RepoModel {
     private var openingFile = 0
     /// The file an open in flight is fetching.
     private var openingKey: String?
+    private var creatingFile = false
+
+    /// Another file is on its way in (opening or newly created): the
+    /// editor shows it loading rather than the previous file.
+    var isOpeningAnotherFile: Bool {
+        creatingFile || (openingKey != nil && openingKey != document?.key)
+    }
 
     func openFile(_ key: String) async {
         // Already open (or opening): nothing to do. While another open is in
@@ -163,6 +203,16 @@ final class RepoModel {
             selectedKey = opened.key
         } catch {
             guard opening == openingFile else { return }
+            // The engine closes the open file before reading the next, so a
+            // failed open can leave nothing open. The selection goes back to
+            // what is, so tapping the same row again tries again.
+            if let current: RepoView = try? await engine.call("repo.view") {
+                guard opening == openingFile else { return }
+                view = current
+                if current.documentKey != document?.key { document = nil }
+            }
+            openingKey = nil
+            selectedKey = document?.key
             openError = error.localizedDescription
         }
     }
@@ -183,6 +233,8 @@ final class RepoModel {
         // The current file's debounced typing goes to it first, as on open.
         openingFile += 1
         openingKey = nil
+        creatingFile = true
+        defer { creatingFile = false }
         await document?.flush()
         do {
             let created: DocumentView = try await engine.call("repo.createFile", [
@@ -203,12 +255,32 @@ final class RepoModel {
     }
 
     func deleteOpenFile() async {
+        guard let key = document?.key else { return }
+        await deleteFile(key)
+    }
+
+    /// Deletes a file (or data entry) from the sidebar. The open file
+    /// closes with it; an open entry of the same data file is reloaded.
+    func deleteFile(_ key: String) async {
+        if document?.key == key {
+            // Its unsent typing is dropped with it, and an open in flight
+            // loses to the delete.
+            openingFile += 1
+            openingKey = nil
+        } else {
+            // An open entry of the same data file saves the whole file:
+            // its typing goes first.
+            await document?.flush()
+        }
         do {
-            view = try await engine.call("doc.delete")
-            document = nil
-            selectedKey = nil
+            let next: RepoView = try await engine.call("repo.deleteFile", ["key": .string(key)])
+            view = next
+            if next.documentKey != document?.key {
+                document = nil
+                selectedKey = nil
+            }
         } catch {
-            openError = error.localizedDescription
+            openError = "Could not delete the file: \(error.localizedDescription)"
         }
     }
 
@@ -225,17 +297,22 @@ final class RepoModel {
     }
 
     func loadBranches() async {
-        branches = (try? await engine.call("branch.load")) ?? []
+        branchesError = nil
+        do {
+            branches = try await engine.call("branch.load")
+            branchesError = nil
+        } catch {
+            branches = []
+            branchesError = error.localizedDescription
+        }
     }
 
+    /// A failed switch comes back as the engine's error notice.
     func switchBranch(_ name: String, create: Bool) async {
         await document?.flush()
         do {
             let result: JSONValue = try await engine.call("branch.switch", ["name": .string(name), "create": .bool(create)])
             if let next = try? result["view"]?.decode(as: RepoView.self) { view = next }
-            if let message = result["error"]?.stringValue {
-                try? await engine.run("repo.setStatus", ["message": .string(message), "severity": "error"])
-            }
             await document?.reload()
         } catch {
             openError = error.localizedDescription
@@ -243,9 +320,13 @@ final class RepoModel {
     }
 
     func forceSwitchBranch() async {
-        let result: JSONValue? = try? await engine.call("branch.force")
-        if let next = try? result?["view"]?.decode(as: RepoView.self) { view = next }
-        await document?.reload()
+        do {
+            let result: JSONValue = try await engine.call("branch.force")
+            if let next = try? result["view"]?.decode(as: RepoView.self) { view = next }
+            await document?.reload()
+        } catch {
+            openError = error.localizedDescription
+        }
     }
 
     func clearBranchConflict() async {
