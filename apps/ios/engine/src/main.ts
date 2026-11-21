@@ -276,6 +276,23 @@ const methods: Record<string, Method> = {
     requireRepo()
       .requireDocument()
       .bodyMediaValue(args.absolutePath as string),
+  // The markdown for media picked into the body; a library image brings
+  // its alt text, as on desktop.
+  "doc.bodyMediaSnippet": async (args) => {
+    const document = requireRepo().requireDocument();
+    const absolutePath = (args.absolutePath as string | null) ?? null;
+    const url = (args.url as string | null) ?? null;
+    const alt =
+      (args.alt as string | null) ??
+      (await requireMedia().libraryImageAlt({ path: absolutePath, url }));
+    return document.bodyMediaSnippet({
+      absolutePath,
+      url,
+      kind: (args.kind as string | null) ?? null,
+      alt,
+      label: (args.label as string | null) ?? null,
+    });
+  },
 
   // Field edits on any form.
   "form.edit": (args) =>
@@ -536,6 +553,8 @@ const methods: Record<string, Method> = {
     requireRepo()
       .requireDocument()
       .bodyEmbeds(args.text as string),
+  // The image-library entry a body image shows, for its library editor.
+  "body.imageAsset": (args) => requireMedia().bodyImageAsset(args.src as string),
 
   // MDX components.
   "components.list": () => listComponents(requireRepo()),
@@ -550,7 +569,11 @@ const methods: Record<string, Method> = {
     openComponentForm(requireRepo(), args.name as string, args.path as string),
   "components.view": () => componentFormView(),
   "components.finish": (args) =>
-    finishComponent(requireRepo(), (args.slots as SlotText[] | undefined) ?? undefined),
+    finishComponent(
+      requireRepo(),
+      (args.slots as SlotText[] | undefined) ?? undefined,
+      args.inline === true,
+    ),
 };
 
 function scopeLabel(current: RepoSession): string | null {

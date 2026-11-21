@@ -21,6 +21,7 @@ import {
   type Field,
   type FieldTemplateSchema,
   type MediaEntry,
+  type MediaLibrary,
   type PagesConfig,
 } from "@posto/core/pagescms/config";
 import { parseFile, type ValuePath } from "@posto/core/pagescms/frontmatter";
@@ -28,6 +29,12 @@ import { importInfo, resolveImportPath, splitLeadingImports } from "@posto/core/
 import type { ProjectAdapter } from "@posto/core/project/adapter";
 import { AUTOSAVE_DELAY_MS } from "../../../../packages/editor/src/autosave";
 import { applyCollectionPrefs } from "../../../../packages/editor/src/collectionPrefs";
+import {
+  markdownMediaHtml,
+  markdownMediaKind,
+  markdownMediaOutputPath,
+  type MarkdownMediaKind,
+} from "../../../../packages/editor/src/markdownMedia";
 import {
   editorTabsForFile,
   resolveEditorTab,
@@ -511,14 +518,8 @@ export class DocumentSession {
     } catch {
       // Keep malformed escapes resolvable as their literal filename.
     }
-    const config = this.host.config();
-    const configured = this.entry?.media
-      ? expandMediaEntry(this.entry.media, this.templateValues())
-      : null;
-    const libraryMedia: MediaEntry[] = (config.mediaLibraries ?? []).map((library) => {
-      const input = library.base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
-      return { name: `library:${library.collection}`, input, output: `/${input}` };
-    });
+    const configured = this.bodyConfiguredMedia();
+    const libraryMedia = (this.host.config().mediaLibraries ?? []).map(defaultLibraryMedia);
     const resolved = [configured, ...libraryMedia]
       .filter((candidate): candidate is MediaEntry => candidate !== null)
       .map((candidate) => mediaInputPath(this.host.root, candidate, decoded))
@@ -634,23 +635,55 @@ export class DocumentSession {
     return null;
   }
 
-  /** The stored value for a file picked into the body (document-relative
-   * outside `public/`, a site path inside it). */
-  bodyMediaValue(absolutePath: string): string | null {
-    const publicRoot = `${this.host.root}/public/`;
-    if (absolutePath.startsWith(publicRoot)) {
-      return (
-        "/" +
-        absolutePath
-          .slice(publicRoot.length)
-          .split("/")
-          .map((segment) => encodeURIComponent(segment))
-          .join("/")
-      );
+  /** The stored value for a file picked into the body, as the desktop body
+   * editor writes it (markdownMediaOutputPath): a site path inside
+   * `public/`, relative to the document anywhere else (an image library,
+   * `src/`, a media folder). */
+  bodyMediaValue(absolutePath: string): string {
+    return markdownMediaOutputPath(this.host.root, this.path, absolutePath);
+  }
+
+  /** The markdown the desktop body editor inserts for picked media
+   * (markdownMediaEditorContent, as Tiptap writes it out): an image, an
+   * `<audio>`/`<video>` element, or a link. A local file gets its path from
+   * bodyMediaValue; `url` (a CDN image) is used as is. Without `kind`, the
+   * file's extension decides. */
+  bodyMediaSnippet(pick: {
+    absolutePath?: string | null;
+    url?: string | null;
+    kind?: string | null;
+    /** The image's alt text. Without it, the file's name: as the desktop
+     * picker writes it, but without the extension, as the app always has. */
+    alt?: string | null;
+    /** The file's name, which a link shows. */
+    label?: string | null;
+  }): { snippet: string; kind: MarkdownMediaKind } {
+    const outputPath = pick.url
+      ? pick.url
+      : pick.absolutePath
+        ? this.bodyMediaValue(pick.absolutePath)
+        : null;
+    if (!outputPath) throw new Error("Choose a file or a URL to insert.");
+    const kinds: MarkdownMediaKind[] = ["image", "audio", "video", "link"];
+    const kind = kinds.includes(pick.kind as MarkdownMediaKind)
+      ? (pick.kind as MarkdownMediaKind)
+      : markdownMediaKind(pick.absolutePath ?? outputPath);
+    const file = pick.absolutePath ?? outputPath.replace(/[?#].*$/, "");
+    const label = pick.label || file.slice(file.lastIndexOf("/") + 1);
+    const html = markdownMediaHtml({ outputPath, label, kind });
+    if (html) return { snippet: html, kind };
+    if (kind === "image") {
+      const alt = pick.alt ?? (label.includes(".") ? label.slice(0, label.lastIndexOf(".")) : label);
+      return { snippet: markdownImage(alt, outputPath), kind };
     }
-    const media = this.entry?.media ?? this.host.config().media[0] ?? null;
-    if (!media) return null;
-    return mediaOutputPath(this.host.root, media, absolutePath, this.documentPath());
+    return { snippet: `[${markdownLabel(label)}](${markdownDestination(outputPath)})`, kind };
+  }
+
+  /** The configured media folder of the document's entry, with its
+   * per-entry template filled in (BodyEditor's `configuredMedia`). */
+  bodyConfiguredMedia(): MediaEntry | null {
+    const media = this.entry?.media;
+    return media ? expandMediaEntry(media, this.templateValues()) : null;
   }
 
   async referenceOptions(
@@ -721,6 +754,31 @@ export class DocumentSession {
     this.closed = true;
     return pending;
   }
+}
+
+/** Where an image library's files are served from when no media folder
+ * says otherwise (BodyEditor's defaultLibraryMedia). */
+export function defaultLibraryMedia(library: MediaLibrary): MediaEntry {
+  const input = library.base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
+  return { name: `library:${library.collection}`, input, output: `/${input}` };
+}
+
+/** Alt or link text that stays one label: brackets and backslashes escaped,
+ * line breaks folded (a newline would end the image's paragraph). */
+function markdownLabel(text: string): string {
+  return text.replace(/[\\[\]]/g, "\\$&").replace(/\s*[\r\n]+\s*/g, " ");
+}
+
+/** A link or image destination; one with spaces, parentheses or angle
+ * brackets (a document-relative path keeps its file's name as is) goes in
+ * `<…>`, as CommonMark allows. */
+function markdownDestination(path: string): string {
+  if (!/[\s()<>]/.test(path)) return path;
+  return `<${path.replace(/[<>]/g, (character) => encodeURIComponent(character))}>`;
+}
+
+function markdownImage(alt: string, src: string): string {
+  return `![${markdownLabel(alt)}](${markdownDestination(src)})`;
 }
 
 /** An absolute path with `.` and `..` segments resolved; null when it

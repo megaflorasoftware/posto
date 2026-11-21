@@ -384,6 +384,142 @@ describe("repository session", () => {
     ).toBe("/images/my photo.jpg");
   });
 
+  it("inserts body media with the paths and markup the desktop body editor writes", async () => {
+    const view = await call<{ tree: TreeNode[] }>("repo.view");
+    const file = allFiles(view.tree).find((candidate) => candidate.key.includes("/src/blog/"))!;
+    await call("doc.open", { key: file.key });
+    type Snippet = { snippet: string; kind: string };
+    const snippet = (args: Record<string, unknown>) => call<Snippet>("doc.bodyMediaSnippet", args);
+
+    // `public/` files are site paths, encoded as the desktop encodes them.
+    expect(
+      await snippet({ absolutePath: "/mock/site/public/images/photo.jpg", alt: "A photo" }),
+    ).toEqual({ snippet: "![A photo](/images/photo.jpg)", kind: "image" });
+    expect(
+      (await snippet({ absolutePath: "/mock/site/public/images/my photo (1).jpg", alt: "x" }))
+        .snippet,
+    ).toBe("![x](/images/my%20photo%20%281%29.jpg)");
+    // Everything else, image libraries included, is relative to the document
+    // (it used to fail unless inside the entry's media folder).
+    expect(
+      await snippet({ absolutePath: "/mock/site/media/portraits/person.jpg", alt: "Portrait" }),
+    ).toEqual({ snippet: "![Portrait](../../media/portraits/person.jpg)", kind: "image" });
+    expect(
+      await call("doc.bodyMediaValue", { absolutePath: "/mock/site/media/portraits/person.jpg" }),
+    ).toBe("../../media/portraits/person.jpg");
+    // Alt text stays one label; a path with spaces stays one destination.
+    const spaced = await snippet({
+      absolutePath: "/mock/site/src/assets/my photo.jpg",
+      alt: "A [bracketed]\nalt \\ text",
+    });
+    expect(spaced.snippet).toBe("![A \\[bracketed\\] alt \\\\ text](<../assets/my photo.jpg>)");
+    const [embed] = await call<Array<{ kind: string; src: string; alt: string }>>("body.embeds", {
+      text: spaced.snippet,
+    });
+    expect(embed).toMatchObject({
+      kind: "image",
+      src: "../assets/my photo.jpg",
+      alt: "A [bracketed] alt \\ text",
+    });
+    // Without alt text: a library image's own (as desktop), else the file's
+    // name without its extension.
+    expect(
+      (await snippet({ absolutePath: "/mock/site/media/portraits/person.jpg", label: "person.jpg" }))
+        .snippet,
+    ).toBe("![Portrait](../../media/portraits/person.jpg)");
+    expect(
+      (await snippet({ absolutePath: "/mock/site/public/images/photo.jpg", label: "photo.jpg" }))
+        .snippet,
+    ).toBe("![photo](/images/photo.jpg)");
+
+    // Audio and video as escaped HTML, other files as links.
+    expect(await snippet({ absolutePath: "/mock/site/public/media/theme.mp3" })).toEqual({
+      snippet: '<audio controls src="/media/theme.mp3"></audio>',
+      kind: "audio",
+    });
+    expect(
+      await snippet({ url: 'https://cdn.example.com/clip.mp4?a=1&b="2"', kind: "video" }),
+    ).toEqual({
+      snippet: '<video controls src="https://cdn.example.com/clip.mp4?a=1&amp;b=&quot;2&quot;"></video>',
+      kind: "video",
+    });
+    expect(
+      await snippet({
+        absolutePath: "/mock/site/public/downloads/guide.pdf",
+        label: "guide.pdf",
+        alt: "ignored for links",
+      }),
+    ).toEqual({ snippet: "[guide.pdf](/downloads/guide.pdf)", kind: "link" });
+    // CDN images keep their URL.
+    expect(
+      (await snippet({ url: "https://cdn.example.com/a.png", kind: "image", alt: "A" })).snippet,
+    ).toBe("![A](https://cdn.example.com/a.png)");
+  });
+
+  it("finds the image-library entry a body image shows", async () => {
+    const view = await call<{ tree: TreeNode[] }>("repo.view");
+    const file = allFiles(view.tree).find((candidate) => candidate.key.includes("/src/blog/"))!;
+    await call("doc.open", { key: file.key });
+    type Found = { library: string; asset: { id: string; entryId: string; imagePath: string } };
+    const lookup = (src: string) => call<Found | null>("body.imageAsset", { src });
+
+    // As desktop: a site path under the library's folder.
+    const served = await lookup("/media/portraits/person.jpg");
+    expect(served).toMatchObject({
+      library: "media",
+      asset: {
+        id: "/mock/site/media/portraits/person.yaml",
+        entryId: "portraits/person",
+        imagePath: "/mock/site/media/portraits/person.jpg",
+      },
+    });
+    // Relative to the document, as images are inserted.
+    expect(await lookup("../../media/portraits/person.jpg")).toEqual(served);
+    // Not a library image, or not an entry.
+    expect(await lookup("/images/photo.jpg")).toBeNull();
+    expect(await lookup("/media/portraits/nobody.jpg")).toBeNull();
+    expect(await lookup("https://example.com/a.png")).toBeNull();
+    // The asset editor opens it from there.
+    const asset = await call<{ entryId: string }>("media.openAsset", {
+      tab: served!.library,
+      id: served!.asset.id,
+    });
+    expect(asset.entryId).toBe("portraits/person");
+    await call("media.closeAsset");
+  });
+
+  it("inserts a component inline when the cursor is inside text", async () => {
+    const view = await call<{ tree: TreeNode[] }>("repo.view");
+    const file = allFiles(view.tree).find((candidate) =>
+      /^mdx[ -]demo\.mdx$/i.test(candidate.name),
+    )!;
+    await call("doc.open", { key: file.key });
+    const path = "/mock/site/src/components/Badge.astro";
+    await call("backend.invoke", {
+      command: "write_text_file",
+      args: {
+        path,
+        content: "---\nexport interface Props {\n  tone?: string;\n}\n---\n<span><slot /></span>\n",
+      },
+    });
+    type Done = { snippet: string; range: null };
+    await call("components.open", { name: "Badge", path });
+    expect(await call<Done>("components.finish", { inline: true })).toEqual({
+      snippet: "<Badge />",
+      range: null,
+    });
+    await call("components.open", { name: "Badge", path });
+    await call("form.edit", { form: "component", path: ["tone"], value: "new" });
+    const withChildren = await call<Done>("components.finish", {
+      inline: true,
+      slots: [{ name: null, text: "Hot" }],
+    });
+    expect(withChildren.snippet).toBe('<Badge tone="new">Hot</Badge>');
+    // A block insert leaves room for its children, as before.
+    await call("components.open", { name: "Badge", path });
+    expect((await call<Done>("components.finish")).snippet).toBe("<Badge>\n</Badge>");
+  });
+
   it("edits only components outside code from the cursor", async () => {
     const text = 'Sample:\n\n```mdx\n<Callout kind="tip" />\n```\n';
     await expect(

@@ -7,17 +7,19 @@
  */
 import type { FileEntry } from "@posto/ipc";
 import type { CdnSource } from "@posto/core/media/sources";
-import { cdnObjectForUrl } from "@posto/core/media/sources";
-import type {
-  MediaLibrary,
-  MediaLibraryMetadataExtension,
-  PagesConfig,
+import { cdnObjectForUrl, isRemoteMediaUrl } from "@posto/core/media/sources";
+import {
+  mediaOutputPath,
+  type MediaLibrary,
+  type MediaLibraryMetadataExtension,
+  type PagesConfig,
 } from "@posto/core/pagescms/config";
 import { pathEntryId } from "@posto/core/project/entryIds";
 import {
   discoverImageLibraryAssets,
   matchesImageLibraryPath,
   planMediaImport,
+  resolveImageLibraryLocation,
   serializeImageLibraryMetadata,
   usesImageDetails,
   usesPlaceholder,
@@ -52,6 +54,7 @@ import {
   isPublicMediaFile,
 } from "../../../../packages/editor/src/hooks/usePublicMediaFiles";
 import { dateControls, type DateControl } from "./dates";
+import { defaultLibraryMedia } from "./document";
 import { fieldViews, type FieldView } from "./fieldViews";
 import { errorMessage, invoke, notify } from "./host";
 import {
@@ -126,6 +129,23 @@ interface FileState {
   directories: string[];
   error: string | null;
   loaded: boolean;
+}
+
+/** A library entry as pickers and the asset editor open it. */
+function libraryAssetView(asset: ImageLibraryAsset) {
+  return {
+    id: asset.metadataPath,
+    entryId: asset.entryId,
+    name: asset.entryId.split("/").pop() ?? asset.entryId,
+    imagePath: asset.imagePath,
+    imageUrl: asset.imageUrl ?? null,
+  };
+}
+
+/** Whether `src` is served from `output` (BodyEditor's outputContains). */
+function outputContains(output: string, src: string): boolean {
+  const prefix = `/${output.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "")}`;
+  return src === prefix || src.startsWith(`${prefix}/`);
 }
 
 function dirname(path: string): string {
@@ -452,6 +472,76 @@ export class MediaSession {
         imagePath: asset.imagePath,
         imageUrl: asset.imageUrl ?? null,
       }));
+  }
+
+  /** The image-library entry a body image shows, so its sheet can open the
+   * library's editor (BodyEditor's LibraryImageEditDialog). As on desktop:
+   * the library whose served folder (the entry's media folder when that
+   * lies in a library, else the library's own) holds the source, then the
+   * entry served at that path or published at that URL. Beyond desktop,
+   * a source written relative to the document (as the body editors insert
+   * library images) or a CDN URL finds the entry whose image it is. */
+  async bodyImageAsset(
+    src: string,
+  ): Promise<{ library: string; asset: ReturnType<typeof libraryAssetView> } | null> {
+    const libraries = this.config.mediaLibraries ?? [];
+    if (!src || libraries.length === 0) return null;
+    const document = this.repo.requireDocument();
+    const configured = document.bodyConfiguredMedia();
+    const configuredLibrary = configured
+      ? resolveImageLibraryLocation(libraries, configured.input)
+      : null;
+    const served = [
+      ...(configuredLibrary && configured
+        ? [{ library: configuredLibrary.library, media: configured }]
+        : []),
+      ...libraries.map((library) => ({ library, media: defaultLibraryMedia(library) })),
+    ]
+      .sort((left, right) => right.media.output.length - left.media.output.length)
+      .find((candidate) => outputContains(candidate.media.output, src));
+    if (served) {
+      const asset = (await this.validAssets(served.library)).find(
+        (candidate) =>
+          candidate.imageUrl === src ||
+          (!!candidate.imagePath &&
+            mediaOutputPath(this.root, served.media, candidate.imagePath) === src),
+      );
+      if (asset) return { library: served.library.collection, asset: libraryAssetView(asset) };
+    }
+    const found = isRemoteMediaUrl(src)
+      ? await this.libraryAssetFor({ url: src })
+      : await this.libraryAssetFor({ path: document.bodyImagePreview(src).path });
+    return found ? { library: found.library.collection, asset: libraryAssetView(found.asset) } : null;
+  }
+
+  /** The alt text an image library keeps for an image picked into the
+   * body, which the desktop picker inserts with it. */
+  async libraryImageAlt(pick: { path?: string | null; url?: string | null }): Promise<string | null> {
+    const found = await this.libraryAssetFor(pick);
+    return (found && metadataAlt(found.asset.metadata)) ?? null;
+  }
+
+  /** The library entry whose image is the file at `path` (absolute) or is
+   * published at `url`. */
+  private async libraryAssetFor(pick: {
+    path?: string | null;
+    url?: string | null;
+  }): Promise<{ library: MediaLibrary; asset: ImageLibraryAsset } | null> {
+    const { path, url } = pick;
+    if (!path && !url) return null;
+    for (const library of this.config.mediaLibraries ?? []) {
+      if (path && !path.startsWith(`${this.root}/${defaultLibraryMedia(library).input}/`)) continue;
+      const asset = (await this.validAssets(library)).find((candidate) =>
+        path ? candidate.imagePath === path : candidate.imageUrl === url,
+      );
+      if (asset) return { library, asset };
+    }
+    return null;
+  }
+
+  private async validAssets(library: MediaLibrary): Promise<ImageLibraryAsset[]> {
+    const state = this.libraries.get(library.collection) ?? (await this.loadLibrary(library));
+    return state.assets.filter((asset) => asset.health.includes("valid"));
   }
 
   private asset(tab: string, id: string): ImageLibraryAsset {
