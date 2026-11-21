@@ -805,7 +805,6 @@ struct MarkdownTextView: UIViewRepresentable {
         private weak var boldItem: UIBarButtonItem?
         private weak var italicItem: UIBarButtonItem?
         private weak var linkItem: UIBarButtonItem?
-        private weak var undoItem: UIBarButtonItem?
         /// Whether the bar was built with the component button.
         private var barHasComponents: Bool?
 
@@ -846,26 +845,20 @@ struct MarkdownTextView: UIViewRepresentable {
             boldItem = bold
             italicItem = italic
             linkItem = link
-            var groups: [[UIBarButtonItem]] = [[format, bold, italic, link]]
-            var insert = [item("photo", "Insert Media") { $0.onRequestImage?() }]
-            // Tapping a component's card edits it, so the bar only inserts.
-            if components { insert.append(item("square.on.square", "Insert Component") { $0.onRequestComponent?() }) }
-            groups.append(insert)
-            // Last, so it's the first to fold into "•••" on a narrow phone.
-            // Redo is a long press away. iPad's shortcuts bar above the
-            // keyboard already has both.
-            if UIDevice.current.userInterfaceIdiom == .phone {
-                let undo = item("arrow.uturn.backward", "Undo") { $0.undo() }
-                undo.menu = UIMenu(children: [
-                    UIDeferredMenuElement.uncached { [weak self] completion in completion(self?.historyMenu() ?? []) },
-                ])
-                undo.preferredMenuElementOrder = .fixed
-                undoItem = undo
-                groups.append([undo])
-            }
-            var items = Array(groups.map { $0 + [.fixedSpace(8)] }.joined().dropLast())
+            var items = [format, bold, italic, link, item("photo", "Insert Media") { $0.onRequestImage?() }]
             items.append(.flexibleSpace())
-            items.append(item("keyboard.chevron.compact.down", "Hide Keyboard") { $0.textView?.resignFirstResponder() })
+            if components {
+                // Tapping a component's card edits it, so "•••" only inserts.
+                // An iPhone bar holds six items: past that the system folds
+                // the rest into its own "•••", so this takes Hide Keyboard's
+                // place (the keyboard still swipes away, interactively).
+                let insertComponent = UIAction(title: "Insert Component", image: UIImage(systemName: "square.on.square")) { [weak self] _ in
+                    self?.format { $0.onRequestComponent?() }
+                }
+                items.append(UIBarButtonItem(title: "More", image: UIImage(systemName: "ellipsis"), menu: UIMenu(children: [insertComponent])))
+            } else {
+                items.append(item("keyboard.chevron.compact.down", "Hide Keyboard") { $0.textView?.resignFirstResponder() })
+            }
             toolbar.items = items
             updateBar()
         }
@@ -904,22 +897,8 @@ struct MarkdownTextView: UIViewRepresentable {
             return [styles, headings, blocks, insert].map { UIMenu(options: .displayInline, children: $0) }
         }
 
-        private func historyMenu() -> [UIMenuElement] {
-            let manager = textView?.undoManager
-            func action(_ title: String, _ symbol: String, enabled: Bool, _ command: @escaping (MarkdownEditorController) -> Void) -> UIAction {
-                UIAction(title: title, image: UIImage(systemName: symbol), attributes: enabled ? [] : .disabled) { [weak self] _ in
-                    self?.format(command)
-                }
-            }
-            return [
-                action("Undo", "arrow.uturn.backward", enabled: manager?.canUndo == true) { $0.undo() },
-                action("Redo", "arrow.uturn.forward", enabled: manager?.canRedo == true) { $0.redo() },
-            ]
-        }
-
         /// Bold, Italic and Link show whether the caret is in one (tapping
-        /// then takes it off); Undo whether there's anything to undo or redo
-        /// (its long press redoes).
+        /// then takes it off).
         private func updateBar() {
             guard toolbar != nil, let textView else { return }
             let text = textView.text as NSString
@@ -933,16 +912,6 @@ struct MarkdownTextView: UIViewRepresentable {
             set(linkItem, inLink)
             let linkTitle = inLink ? "Remove Link" : "Link"
             if linkItem?.title != linkTitle { linkItem?.title = linkTitle }
-            updateHistoryItems()
-            // UIKit records typing after telling the delegate.
-            DispatchQueue.main.async { [weak self] in self?.updateHistoryItems() }
-        }
-
-        private func updateHistoryItems() {
-            guard let undoItem, let manager = textView?.undoManager else { return }
-            // Still enabled with only a redo left, so its long press can reach it.
-            let enabled = manager.canUndo || manager.canRedo
-            if undoItem.isEnabled != enabled { undoItem.isEnabled = enabled }
         }
 
         /// The component button follows the document (wired after the text
