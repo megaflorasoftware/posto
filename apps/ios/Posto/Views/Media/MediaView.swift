@@ -254,26 +254,8 @@ struct MediaBrowser: View {
             if media.selecting { media.toggle(folder: folder) } else { media.directory = relative(folder.path) }
         } label: {
             VStack(alignment: .leading, spacing: 6) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10).fill(.quaternary)
-                    if folder.previews.isEmpty {
-                        Image(systemName: "folder.fill").font(.largeTitle).foregroundStyle(.tint)
-                    } else if folder.previews.count == 1, let preview = folder.previews.first {
-                        Thumbnail(path: preview.hasPrefix("http") ? nil : preview, url: preview.hasPrefix("http") ? preview : nil, maxPixels: 300)
-                            .clipShape(.rect(cornerRadius: 10))
-                    } else {
-                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 2), GridItem(.flexible(), spacing: 2)], spacing: 2) {
-                            ForEach(folder.previews.prefix(4), id: \.self) { preview in
-                                Thumbnail(path: preview.hasPrefix("http") ? nil : preview, url: preview.hasPrefix("http") ? preview : nil, maxPixels: 160)
-                                    .aspectRatio(1, contentMode: .fit)
-                                    .clipShape(.rect(cornerRadius: 4))
-                            }
-                        }
-                        .padding(4)
-                    }
-                }
-                .aspectRatio(1, contentMode: .fit)
-                .overlay(alignment: .topTrailing) { selectionBadge(selected) }
+                FolderPreview(previews: folder.previews)
+                    .overlay(alignment: .topTrailing) { selectionBadge(selected) }
                 Label(folder.name, systemImage: "folder").font(.caption).lineLimit(1)
             }
         }
@@ -497,6 +479,58 @@ struct MediaBrowser: View {
         } catch {
             media.error = error.localizedDescription
         }
+    }
+}
+
+/// A folder tile's square: a folder symbol, its one image, or a 2×2 collage
+/// of its first images. The square alone sets the tile's size, with the
+/// images laid over it at sizes computed from it and clipped to it, so
+/// thumbnails loading (or a sheet still settling its width) can never grow
+/// the tile over its label or the next row.
+private struct FolderPreview: View {
+    let previews: [String]
+
+    var body: some View {
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .background(.quaternary, in: .rect(cornerRadius: 10))
+            .overlay {
+                if previews.isEmpty {
+                    Image(systemName: "folder.fill").font(.largeTitle).foregroundStyle(.tint)
+                } else if previews.count == 1, let preview = previews.first {
+                    thumbnail(preview, maxPixels: 300)
+                } else {
+                    GeometryReader { proxy in
+                        collage(in: proxy.size)
+                    }
+                }
+            }
+            .clipShape(.rect(cornerRadius: 10))
+    }
+
+    private func collage(in size: CGSize) -> some View {
+        let inset: CGFloat = 4
+        let spacing: CGFloat = 2
+        let cell = max(0, (min(size.width, size.height) - inset * 2 - spacing) / 2)
+        let shown = Array(previews.prefix(4))
+        let rows = stride(from: 0, to: shown.count, by: 2).map { Array(shown[$0..<min($0 + 2, shown.count)]) }
+        return VStack(alignment: .leading, spacing: spacing) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: spacing) {
+                    ForEach(Array(row.enumerated()), id: \.offset) { _, preview in
+                        thumbnail(preview, maxPixels: 160)
+                            .frame(width: cell, height: cell)
+                            .clipShape(.rect(cornerRadius: 4))
+                    }
+                }
+            }
+        }
+        .frame(width: size.width, height: size.height)
+    }
+
+    private func thumbnail(_ preview: String, maxPixels: Int) -> some View {
+        let remote = preview.hasPrefix("http")
+        return Thumbnail(path: remote ? nil : preview, url: remote ? preview : nil, maxPixels: maxPixels)
     }
 }
 
