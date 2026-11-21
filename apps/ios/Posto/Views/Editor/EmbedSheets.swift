@@ -120,16 +120,16 @@ struct EmbedImageView: View {
         }
         .sheet(isPresented: $replacing) {
             Group {
-                BodyMediaPicker(repo: document.repo) { path, url, pickedAlt, _ in
+                BodyMediaPicker(repo: document.repo, title: "Replace Image", imagesOnly: true) { pick in
                     Task {
-                        if let url {
+                        if let url = pick.url {
                             src = url
                             pickedPath = nil
-                        } else if let path, let value = await document.bodyMediaValue(for: path) {
+                        } else if let path = pick.path, let value = await document.bodyMediaValue(for: path) {
                             src = value
                             pickedPath = path
                         }
-                        if alt.isEmpty { alt = pickedAlt }
+                        if alt.isEmpty { alt = pick.defaultAlt }
                     }
                 }
             }
@@ -162,15 +162,21 @@ struct EmbedImageView: View {
     }
 
     /// `![alt](src "title")` with the new alt text and source, keeping the
-    /// original title.
+    /// original title, escaped as the engine writes inserted images.
     private var markdown: String {
         let source = card.source as NSString
         let pattern = try? NSRegularExpression(pattern: #"\s+("[^"\n]*"|'[^'\n]*')\s*\)$"#)
         let match = pattern?.firstMatch(in: card.source, range: NSRange(location: 0, length: source.length))
         let title = match.map { " " + source.substring(with: $0.range(at: 1)) } ?? ""
         let trimmed = src.trimmingCharacters(in: .whitespaces)
-        let target = trimmed.contains(" ") ? "<\(trimmed)>" : trimmed
-        let text = alt.replacingOccurrences(of: "]", with: "\\]").replacingOccurrences(of: "\n", with: " ")
+        let target = trimmed.rangeOfCharacter(from: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "()<>"))) != nil
+            ? "<\(trimmed.replacingOccurrences(of: "<", with: "%3C").replacingOccurrences(of: ">", with: "%3E"))>"
+            : trimmed
+        let text = alt
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "[", with: "\\[")
+            .replacingOccurrences(of: "]", with: "\\]")
+            .components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
         return "![\(text)](\(target)\(title))"
     }
 }
