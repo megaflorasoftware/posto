@@ -140,9 +140,6 @@ final class AppModel {
             if let progress = try? JSONDecoder().decode(CloneProgress.self, from: data) {
                 cloneProgress = progress
             }
-        case "fs-changed":
-            // The macOS app's watcher: files changed outside the app.
-            scheduleRefresh()
         default:
             break
         }
@@ -169,7 +166,8 @@ final class AppModel {
 
     /// Folders opened on this Mac, newest first.
     private(set) var recentRoots: [String] = []
-    private var refreshTask: Task<Void, Never>?
+    /// The latest openLocal call; an earlier one that finishes later bows out.
+    private var openingRoot = 0
 
     /// The macOS app's startup: settings and the GitHub session (without
     /// the iOS repository list), then the folder that was open last.
@@ -196,11 +194,17 @@ final class AppModel {
     }
 
     /// Opens a folder on this Mac, named for its GitHub remote when it has
-    /// one, and watches it for changes made outside the app.
-    func openLocal(root: String) async {
+    /// one. The engine watches it for changes made outside the app.
+    func openLocal(root requested: String) async {
         guard let engine else { return }
+        openingRoot += 1
+        let opening = openingRoot
+        // The watcher reports real paths (/private/tmp for /tmp), so the
+        // folder is opened by its real path too.
+        let root = Self.realPath(requested)
         await closeRepo()
         let remote = (try? await backend.call("github_remote", ["root": .string(root)], as: GitHubSlug?.self)) ?? nil
+        guard opening == openingRoot else { return }
         let folder = URL(fileURLWithPath: root).lastPathComponent
         let owner = remote?.owner ?? ""
         let name = remote?.name ?? folder
@@ -214,16 +218,12 @@ final class AppModel {
         try? await backend.run("set_last_root", ["root": .string(root)])
         await loadRecentRoots()
         await model.open()
-        try? await backend.run("watch_root", ["root": .string(root)])
     }
 
-    private func scheduleRefresh() {
-        refreshTask?.cancel()
-        refreshTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(600))
-            guard !Task.isCancelled else { return }
-            await self?.repo?.refresh()
-        }
+    private static func realPath(_ path: String) -> String {
+        guard let resolved = realpath(path, nil) else { return path }
+        defer { free(resolved) }
+        return String(cString: resolved)
     }
 
     // MARK: Sign-in

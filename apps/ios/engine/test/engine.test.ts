@@ -238,6 +238,22 @@ describe("repository session", () => {
     expect(done.snippet).toBe("<Callout   kind='tip' extra={x}/>");
   });
 
+  it("opens files one at a time and drops edits meant for a closed file", async () => {
+    const view = await call<{ tree: TreeNode[] }>("repo.view");
+    const [first, second] = allFiles(view.tree).filter((file) => /\.mdx?$/.test(file.name));
+    // Overlapping opens (arrowing through the sidebar): the last one wins.
+    const [, , last] = await Promise.all([
+      call<{ key: string }>("doc.open", { key: second.key }),
+      call<{ key: string }>("doc.open", { key: first.key }),
+      call<{ key: string }>("doc.open", { key: second.key }),
+    ]);
+    expect(last.key).toBe(second.key);
+    expect((await call<{ key: string }>("doc.view")).key).toBe(second.key);
+    await expect(
+      call("doc.setBody", { key: first.key, text: "Typed into the other file" }),
+    ).rejects.toThrow(/no longer open/);
+  });
+
   it("edits only components outside code from the cursor", async () => {
     const text = 'Sample:\n\n```mdx\n<Callout kind="tip" />\n```\n';
     await expect(

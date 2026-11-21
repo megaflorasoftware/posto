@@ -137,13 +137,24 @@ final class RepoModel {
 
     // MARK: Documents
 
+    /// Bumped by each openFile, so only the latest selection takes effect
+    /// when several opens overlap (arrowing through the sidebar).
+    private var openingFile = 0
+
     func openFile(_ key: String) async {
         if document?.key == key { return }
+        openingFile += 1
+        let opening = openingFile
+        // Debounced typing goes to the file it was typed into, before the
+        // engine switches documents.
+        await document?.flush()
         do {
             let opened: DocumentView = try await engine.call("doc.open", ["key": .string(key)])
+            guard opening == openingFile else { return }
             document = DocumentModel(repo: self, view: opened)
             selectedKey = opened.key
         } catch {
+            guard opening == openingFile else { return }
             openError = error.localizedDescription
         }
     }
@@ -151,7 +162,9 @@ final class RepoModel {
     /// Flushes the open file and refreshes the publish state, as backing out
     /// of the editor does on the Tauri app.
     func closeFile() async {
-        guard document != nil else { return }
+        guard let closing = document else { return }
+        openingFile += 1
+        await closing.flush()
         document = nil
         selectedKey = nil
         if let next: RepoView = try? await engine.call("doc.close") { view = next }
@@ -304,7 +317,7 @@ final class DocumentModel {
     private func sendBody() async {
         guard let text = pendingBody else { return }
         pendingBody = nil
-        if let result: JSONValue = try? await engine.call("doc.setBody", ["text": .string(text)]),
+        if let result: JSONValue = try? await engine.call("doc.setBody", ["key": .string(key), "text": .string(text)]),
            let state = result["saveState"]?.stringValue {
             view.saveState = state
         }
@@ -326,7 +339,7 @@ final class DocumentModel {
     private func sendRaw() async {
         guard let text = pendingRaw else { return }
         pendingRaw = nil
-        if let result: JSONValue = try? await engine.call("doc.setRaw", ["text": .string(text)]),
+        if let result: JSONValue = try? await engine.call("doc.setRaw", ["key": .string(key), "text": .string(text)]),
            let state = result["saveState"]?.stringValue {
             view.saveState = state
         }

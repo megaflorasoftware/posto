@@ -47,6 +47,7 @@ import {
   referenceDraftForm,
   startReferenceDraft,
 } from "./references";
+import type { DocumentSession } from "./document";
 import { MediaSession } from "./media";
 import { RepoSession, type RepoIdentity } from "./repo";
 
@@ -62,6 +63,17 @@ let demo = false;
 function requireRepo(): RepoSession {
   if (!repo) throw new Error("No repository is open");
   return repo;
+}
+
+/** The open document, when it's still the one an edit was typed into: a
+ * debounced edit that arrives after the user switched files must not land
+ * in the next file. */
+function requireOpen(key: unknown): DocumentSession {
+  const document = requireRepo().requireDocument();
+  if (typeof key === "string" && document.key !== key) {
+    throw new Error("That file is no longer open.");
+  }
+  return document;
 }
 
 function requireMedia(): MediaSession {
@@ -184,8 +196,9 @@ const methods: Record<string, Method> = {
   // Open document.
   "doc.open": (args) => requireRepo().openFile(args.key as string),
   "doc.close": async () => {
-    await requireRepo().closeDocument();
-    return requireRepo().view();
+    const session = requireRepo();
+    await session.inDocumentQueue(() => session.closeDocument());
+    return session.view();
   },
   "doc.view": () => requireRepo().requireDocument().view(),
   "doc.flush": async () => {
@@ -198,12 +211,12 @@ const methods: Record<string, Method> = {
     return document.view();
   },
   "doc.setBody": (args) => {
-    const document = requireRepo().requireDocument();
+    const document = requireOpen(args.key);
     document.setBody(args.text as string);
     return { saveState: document.saveState };
   },
   "doc.setRaw": (args) => {
-    const document = requireRepo().requireDocument();
+    const document = requireOpen(args.key);
     document.setRaw(args.text as string);
     return { saveState: document.saveState };
   },

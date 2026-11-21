@@ -44,7 +44,7 @@ import {
 import { DocumentSession, type DocumentHost, type DocumentView } from "./document";
 import { FileGroups } from "./files";
 import { Branches, GitSync } from "./git";
-import { errorMessage, invoke, notify } from "./host";
+import { errorMessage, invoke, notify, onBackendEvent } from "./host";
 import { Schemas } from "./schemas";
 
 const TRANSIENT_NOTICE_MS = 5_000;
@@ -153,6 +153,10 @@ export class RepoSession {
   private generation = 0;
   developerMode = false;
   closed = false;
+  /** Local folders: changed paths waiting out the watcher's burst. */
+  private externalPaths = new Set<string>();
+  private externalTimer: ReturnType<typeof setTimeout> | undefined;
+  private stopWatching: (() => void) | undefined;
 
   constructor(
     readonly repoRoot: string,
@@ -259,6 +263,53 @@ export class RepoSession {
     void this.git.refreshLocalChanges(dir);
     void this.branches.loadCurrent();
     this.git.start();
+    if (this.local) this.watch(dir);
+  }
+
+  /** Local folders: watches the project as the desktop app does (its
+   * adapter's ignore rules, and the workspace files above a subproject), so
+   * edits from other apps, git and the dev server reach the sidebar and the
+   * open document. */
+  private watch(dir: string): void {
+    this.stopWatching ??= onBackendEvent<string[]>("fs-changed", (paths) => {
+      if (this.closed) return;
+      for (const path of paths) this.externalPaths.add(path);
+      clearTimeout(this.externalTimer);
+      this.externalTimer = setTimeout(() => {
+        const changed = [...this.externalPaths];
+        this.externalPaths.clear();
+        void this.externalChanges(changed);
+      }, 300);
+    });
+    const extraPaths =
+      dir === this.repoRoot
+        ? []
+        : ["package.json", "pnpm-workspace.yaml", "lerna.json", "turbo.json"].map(
+            (path) => `${this.repoRoot}/${path}`,
+          );
+    void invoke("watch_root", {
+      root: dir,
+      ignoreRules: this.adapter.watchIgnores(),
+      extraPaths,
+      workspaceRoot: this.repoRoot,
+    }).catch(() => {});
+  }
+
+  /** Files changed outside the app: content and local changes (no fetch),
+   * and the open document when it's among them (unless an edit is pending,
+   * which then saves over it, as on desktop). Our own saves echo here too
+   * and resolve to no-ops. */
+  async externalChanges(paths: string[]): Promise<void> {
+    if (this.closed || !this.projectInfo) return;
+    await this.refreshContent(this.root);
+    void this.git.refreshLocalChanges(this.root);
+    const document = this.document;
+    if (document && paths.includes(document.path) && (await document.reloadFromDisk())) {
+      this.documentChanged();
+    }
+    if (paths.some((path) => !/\.(md|mdx|markdoc|mdoc|ya?ml|json|toml)$/i.test(path))) {
+      notify("media-changed", {});
+    }
   }
 
   async chooseWorkspace(dir: string | null): Promise<void> {
@@ -412,7 +463,21 @@ export class RepoSession {
     return null;
   }
 
-  async openFile(key: string): Promise<DocumentView> {
+  /** Opens and closes run one at a time (calls aren't serialized), so the
+   * document the engine edits is the one the last open asked for. */
+  private documentQueue: Promise<unknown> = Promise.resolve();
+
+  inDocumentQueue<T>(work: () => Promise<T>): Promise<T> {
+    const next = this.documentQueue.then(work);
+    this.documentQueue = next.catch(() => {});
+    return next;
+  }
+
+  openFile(key: string): Promise<DocumentView> {
+    return this.inDocumentQueue(() => this.openFileNow(key));
+  }
+
+  private async openFileNow(key: string): Promise<DocumentView> {
     if (this.document?.key === key) return this.document.view();
     await this.closeDocument();
     const found = this.files.find(key);
@@ -617,6 +682,8 @@ export class RepoSession {
   async close(): Promise<void> {
     this.git.stop();
     clearTimeout(this.statusTimer);
+    clearTimeout(this.externalTimer);
+    this.stopWatching?.();
     await this.document?.close();
     this.document = null;
     this.closed = true;
