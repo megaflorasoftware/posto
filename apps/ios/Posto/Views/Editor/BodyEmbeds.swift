@@ -260,15 +260,14 @@ final class EmbedThumbnails {
         guard let preview, let key = key(preview), images[key] == nil, !loading.contains(key), !failed.contains(key) else { return }
         loading.insert(key)
         Task {
-            var image: PlatformImage?
+            // The shared cache downsamples, and draws SVGs.
+            var cgImage: CGImage?
             if let path = preview.path {
-                if let cgImage = await ThumbnailCache.shared.image(path: path, maxPixels: 900) {
-                    image = PlatformImage(cgImage: cgImage, platform: ())
-                }
-            } else if let url = preview.url.flatMap(URL.init(string:)),
-                      let (data, _) = try? await URLSession.shared.data(from: url) {
-                image = PlatformImage(data: data)
+                cgImage = await ThumbnailCache.shared.image(path: path, maxPixels: 900)
+            } else if let url = preview.url {
+                cgImage = await ThumbnailCache.shared.image(url: url, maxPixels: 900)
             }
+            let image = cgImage.map { PlatformImage(cgImage: $0, platform: ()) }
             loading.remove(key)
             if let image {
                 images[key] = image
