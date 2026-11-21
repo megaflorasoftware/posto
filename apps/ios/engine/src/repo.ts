@@ -12,6 +12,8 @@ import {
 } from "@posto/core/pagescms/config";
 import {
   invalidationScopesForPaths,
+  routesEqual,
+  type FileRoute,
   type ProjectAdapter,
   type ProjectIO,
 } from "@posto/core/project/adapter";
@@ -155,6 +157,8 @@ export class RepoSession {
   constructor(
     readonly repoRoot: string,
     readonly repo: RepoIdentity | null,
+    /** A folder the user opened (the macOS app), not a managed clone. */
+    readonly local = false,
   ) {
     this.root = repoRoot;
     this.schemas = new Schemas(ipcProjectIO, this.adapter);
@@ -216,7 +220,7 @@ export class RepoSession {
     this.loading = true;
     this.changed();
     try {
-      if (this.repo) {
+      if (this.repo && !this.local) {
         try {
           await invoke<string>("doctor_repo", {
             root: this.repoRoot,
@@ -387,6 +391,25 @@ export class RepoSession {
       afterSave: (path, content) => this.afterSave(path, content),
       changed: () => this.documentChanged(),
     };
+  }
+
+  /** The site route the open document renders at: the desktop preview's
+   * forward guess, `certain` for file-based pages. */
+  previewRoute(): FileRoute | null {
+    const document = this.document;
+    return document ? this.adapter.routeForFile(this.root, document.path, document.content) : null;
+  }
+
+  /** The sidebar key of the file a route in the preview belongs to (the
+   * desktop preview's reverse sync). */
+  fileForRoute(route: string): string | null {
+    for (const group of this.files.groups) {
+      for (const file of group.files) {
+        const fileRoute = this.adapter.routeForFile(this.root, file.path, "")?.route;
+        if (fileRoute && routesEqual(fileRoute, route)) return file.key ?? file.path;
+      }
+    }
+    return null;
   }
 
   async openFile(key: string): Promise<DocumentView> {

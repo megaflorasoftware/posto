@@ -125,7 +125,11 @@ const methods: Record<string, Method> = {
   "repo.open": async (args) => {
     await repo?.close();
     media = null;
-    repo = new RepoSession(args.repoRoot as string, (args.repo as RepoIdentity | null) ?? null);
+    repo = new RepoSession(
+      args.repoRoot as string,
+      (args.repo as RepoIdentity | null) ?? null,
+      args.local === true,
+    );
     repo.developerMode = args.developerMode === true;
     await repo.open();
     return repo.view();
@@ -473,6 +477,11 @@ const methods: Record<string, Method> = {
     await saveCdnCredential(args.source as CdnSource, args.credential as MediaCredential);
     return null;
   },
+
+  // The macOS preview pane: which page shows the open file, and which file
+  // a page the user browsed to belongs to.
+  "preview.route": () => requireRepo().previewRoute(),
+  "preview.fileForRoute": (args) => requireRepo().fileForRoute(args.route as string),
 
   // Cards and pills in the body editor.
   "body.embeds": (args) =>
