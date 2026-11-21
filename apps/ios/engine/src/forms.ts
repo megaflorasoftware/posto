@@ -70,9 +70,13 @@ export class FrontmatterForm implements FormStore {
   readonly fields: Field[];
   private currentErrors: Errors;
 
+  /** `currentEntry` is the entry as the config has it now: templates saved
+   * in developer mode apply from the next edit on, as the desktop forms
+   * read them from their current props. */
   constructor(
     content: string,
     private readonly entry: ContentEntry | null,
+    private readonly currentEntry: () => ContentEntry | null = () => entry,
   ) {
     this.parsed = parseFile(content);
     this.bodyPrefix = this.parsed.body.match(/^\r?\n/)?.[0] ?? "";
@@ -121,7 +125,7 @@ export class FrontmatterForm implements FormStore {
         dateField: plainDateField(fieldAt(this.fields, path)),
       });
     }
-    applyControlledTemplates(this.parsed.doc, this.entry);
+    applyControlledTemplates(this.parsed.doc, this.currentEntry());
     return this.emit();
   }
 
@@ -169,8 +173,10 @@ export class DataEntryForm implements FormStore {
 
   constructor(
     content: string,
-    private readonly entry: ContentEntry,
+    entry: ContentEntry,
     dataEntry: { id: string; path: (string | number)[]; format: DataDocumentFormat },
+    /** As FrontmatterForm's. */
+    private readonly currentEntry: () => ContentEntry | null = () => entry,
   ) {
     this.parsed = parseDataDocument(content, dataEntry.format);
     this.locator = dataDocumentEntries(this.parsed).find((item) => item.id === dataEntry.id) ?? {
@@ -224,7 +230,7 @@ export class DataEntryForm implements FormStore {
   }
 
   private applyControlledTemplates() {
-    const schemas = this.entry.fieldSchemas;
+    const schemas = this.currentEntry()?.fieldSchemas;
     if (!schemas) return;
     const controlled = Object.entries(schemas).filter(
       ([name, schema]) =>

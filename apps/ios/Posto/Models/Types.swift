@@ -322,7 +322,11 @@ struct FieldView: Codable, Hashable, Identifiable, Sendable {
     let fields: [FieldView]
     let locked: Bool
     let template: FieldTemplate?
+    /// A select's options, unless there are too many to send with every
+    /// form view (`selectCount` says how many); those are fetched with
+    /// `form.selectOptions`.
     let selectValues: [SelectOption]
+    var selectCount: Int? = nil
     let numberMin: Double?
     let numberMax: Double?
     let dateTime: Bool
@@ -333,6 +337,8 @@ struct FieldView: Codable, Hashable, Identifiable, Sendable {
 
     var id: String { schemaPath }
     var displayLabel: String { required ? "\(label) *" : label }
+    /// The select's options weren't sent with it.
+    var fetchesSelectValues: Bool { (selectCount ?? 0) > selectValues.count }
     var controlled: Bool { template?.controlled == true && template?.template != nil }
     var disabled: Bool { locked || controlled }
 }
@@ -629,6 +635,8 @@ struct ComponentFormView: Codable, Sendable {
     let slots: [String]
     let hasDefaultSlot: Bool
     let slotTexts: [SlotText]?
+    /// The component declares its props, so the form covers every option.
+    var typed: Bool? = nil
 }
 
 struct CollectionSettings: Codable, Sendable {

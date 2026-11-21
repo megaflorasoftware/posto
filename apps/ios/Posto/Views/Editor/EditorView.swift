@@ -204,13 +204,9 @@ struct EditorView: View {
                 }
             }
             if let form = view.form {
-                if form.parseError != nil {
+                if let message = view.formUnavailableMessage {
                     Section {
-                        NoticeRow(
-                            message: "Form editing is unavailable: the frontmatter has a YAML syntax error. Fix it in the raw file view.",
-                            systemImage: "exclamationmark.triangle.fill",
-                            tint: .orange
-                        )
+                        NoticeRow(message: message, systemImage: "exclamationmark.triangle.fill", tint: .orange)
                     }
                 } else if form.missing == true {
                     Section {

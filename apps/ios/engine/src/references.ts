@@ -7,6 +7,7 @@
 import { Document } from "yaml";
 import type { FileEntry, FileGroup } from "@posto/ipc";
 import {
+  collectionExtension,
   entryFilenamePattern,
   newEntryValues,
   type ContentEntry,
@@ -17,6 +18,7 @@ import { createDataDocumentEntry } from "../../../../packages/editor/src/dataEnt
 import { fieldAt, referenceTemplate } from "../../../../packages/editor/src/formModel";
 import { buildNewFileFromValues } from "../../../../packages/editor/src/newFile";
 import { dateControls } from "./dates";
+import type { FieldScope } from "./document";
 import { fieldViews } from "./fieldViews";
 import { FrontmatterForm } from "./forms";
 import { invoke } from "./host";
@@ -47,6 +49,22 @@ export function startReferenceDraft(repo: RepoSession, path: ValuePath) {
   const content = serializeFile({ doc: seeded, body: "", hadFrontmatter: true });
   draft = { collection, path, form: new FrontmatterForm(content, collection) };
   return referenceDraftView(repo);
+}
+
+/** What the draft's image fields resolve against, as the desktop draft's
+ * context: the referenced collection (its media and templates), the draft's
+ * own values, and a provisional path for the entry-to-be (the data file, or
+ * an `untitled` file in the collection's folder). */
+export function referenceDraftScope(repo: RepoSession): FieldScope {
+  if (!draft) throw new Error("No entry is being created");
+  const { collection, form } = draft;
+  return {
+    entry: collection,
+    documentPath: collection.dataFile
+      ? `${repo.root}/${collection.dataFile.path}`
+      : `${repo.root}/${collection.path}/untitled.${collectionExtension(collection) ?? "md"}`,
+    templateValues: () => form.values(),
+  };
 }
 
 /** The schema field a document path lands on (list indices skipped). */

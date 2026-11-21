@@ -221,7 +221,8 @@ export async function saveCollectionOrder(repo: RepoSession, order: string[]): P
 
 /** Developer mode: saves (or removes) a field's template or row count in
  * the open document's collection settings, then applies a controlled
- * template right away, as the desktop dialogs do. */
+ * template right away, as the desktop dialogs do. Entries of data
+ * collections have them too, except the filename (they have none). */
 export async function saveFieldTemplate(
   repo: RepoSession,
   fieldName: string,
@@ -229,8 +230,9 @@ export async function saveFieldTemplate(
 ): Promise<string | null> {
   const document = repo.requireDocument();
   const entry = document.entry;
-  if (!entry || document.dataEntry)
-    throw new Error("Only collection entries have field templates.");
+  if (!entry) throw new Error("Only collection entries have field templates.");
+  if (document.dataEntry && fieldName === "filename")
+    throw new Error("Data collection entries have no filename template.");
   const path = `${repo.root}/${POSTO_COLLECTIONS_DIR}/${entry.name}.json`;
   const source = await invoke<string | null>("read_text_file_optional", { path });
   await invoke("write_text_file", {
@@ -314,6 +316,9 @@ let componentForm: {
    * libraries, collections) and whether entry ids exist, so a
    * `CollectionEntry<'media'>['id']` prop is an image-library picker. */
   context: { config: PagesConfig; hasEntryIds: boolean };
+  /** The component declares its props (a type definition Posto read), so
+   * the form covers every option, as the desktop card's typed indicator. */
+  typed: boolean;
   /** Set when editing a block already in the body: where it is, its
    * children, and props the form doesn't cover (kept verbatim). */
   editing?: {
@@ -386,6 +391,7 @@ export async function openComponentAt(
     hasDefaultSlot,
     slotTexts: slotTextsOf(block.children, slots, hasDefaultSlot || schema === null),
     context: fieldContext(repo),
+    typed: (schema?.fields.length ?? 0) > 0,
     editing: {
       start: blockStart,
       end: blockStart + block.raw.length,
@@ -523,6 +529,7 @@ export async function openComponentForm(repo: RepoSession, name: string, path: s
     hasDefaultSlot: schema?.hasDefaultSlot ?? true,
     slotTexts: slotTextsOf(null, schema?.slots ?? [], schema?.hasDefaultSlot ?? true),
     context: fieldContext(repo),
+    typed: (schema?.fields.length ?? 0) > 0,
   };
   return componentFormView();
 }
@@ -540,10 +547,12 @@ export function componentFormView(): {
   slots: string[];
   hasDefaultSlot: boolean;
   slotTexts: SlotText[];
+  typed: boolean;
 } {
   if (!componentForm) throw new Error("No component is being inserted");
   return {
     name: componentForm.name,
+    typed: componentForm.typed,
     fields: fieldViews(
       componentForm.form.fields,
       null,
