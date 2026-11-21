@@ -6,6 +6,7 @@ import SwiftUI
 struct RepoWorkspaceView: View {
     @Bindable var repo: RepoModel
     @State private var columns = NavigationSplitViewVisibility.all
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
         Group {
@@ -30,6 +31,20 @@ struct RepoWorkspaceView: View {
                 if let key { await repo.openFile(key) } else { await repo.closeFile() }
             }
         }
+        .focusedSceneValue(\.workspaceCommands, WorkspaceCommands(
+            toggleSidebar: {
+                columns = columns == .detailOnly ? .all : .detailOnly
+            },
+            findFile: {
+                // iPhone: back to the list, where the search field is.
+                if sizeClass == .compact {
+                    repo.selectedKey = nil
+                } else if columns == .detailOnly {
+                    columns = .all
+                }
+                repo.requestFindFile()
+            }
+        ))
         .sheet(isPresented: $repo.settingsOpen) {
             SiteSettingsView(repo: repo)
         }
@@ -138,4 +153,15 @@ struct StatusBanner: View {
         }
         .animation(.snappy, value: repo.view?.status?.id)
     }
+}
+
+/// The workspace's commands that act on its own layout, for the menu bar
+/// (PostoCommands).
+struct WorkspaceCommands {
+    let toggleSidebar: () -> Void
+    let findFile: () -> Void
+}
+
+extension FocusedValues {
+    @Entry var workspaceCommands: WorkspaceCommands?
 }

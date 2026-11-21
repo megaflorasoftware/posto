@@ -166,6 +166,21 @@ final class RepoModel {
         expandedNodes[node.id] = expanded
     }
 
+    /// Where New File goes from the menu bar: the nearest folder of the open
+    /// file that can take one, else the first section that can.
+    var newFileTarget: TreeNode? {
+        guard let view else { return nil }
+        func folders(to key: String, in nodes: [TreeNode]) -> [TreeNode]? {
+            for node in nodes {
+                if node.files.contains(where: { $0.key == key }) { return [node] }
+                if let inner = folders(to: key, in: node.children) { return [node] + inner }
+            }
+            return nil
+        }
+        if let key = document?.key, let node = folders(to: key, in: view.tree)?.last(where: \.canCreate) { return node }
+        return view.tree.first { $0.canCreate }
+    }
+
     func requestFindFile() {
         findFileRequests += 1
     }
