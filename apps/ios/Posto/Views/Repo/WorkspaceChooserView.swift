@@ -62,7 +62,7 @@ struct WorkspaceChooserView: View {
             if candidates != nil {
                 ToolbarItem(placement: .barLeading) {
                     Button {
-                        Task { await repo.app.closeRepo() }
+                        Task { await repo.app.leaveRepo() }
                     } label: {
                         Label("Repositories", systemImage: "chevron.backward")
                     }

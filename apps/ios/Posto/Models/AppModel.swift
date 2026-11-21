@@ -105,7 +105,7 @@ final class AppModel {
             )
             repos = [repo]
             managed = [ManagedRepo(owner: open.owner, name: open.name, root: open.root, url: repo.cloneURL)]
-            await self.open(repo: repo, root: open.root)
+            await self.open(repo: repo, root: open.root, remember: false)
             return
         }
         #endif
@@ -118,8 +118,16 @@ final class AppModel {
             let status = try await backend.call("auth_status", as: AuthStatus.self)
             user = status.user
             if status.signedIn {
+                // Back into the repository that was open, as the desktop
+                // app restores its last folder; the list loads behind it.
+                let last = await lastRepository()
                 stage = .repositories
-                await loadRepos()
+                if let last {
+                    Task { await loadRepos() }
+                    await open(repo: last.repo, root: last.root)
+                } else {
+                    await loadRepos()
+                }
             } else {
                 stage = .signedOut
             }
@@ -260,7 +268,7 @@ final class AppModel {
         // (only deployments do); it stays open.
         let keepsFolder = repo?.local == true
         do {
-            if !keepsFolder { await closeRepo() }
+            if !keepsFolder { await leaveRepo() }
             try await backend.run("sign_out")
             settingsOpen = false
             user = nil
@@ -344,10 +352,13 @@ final class AppModel {
         cloneState = .idle
     }
 
-    private func open(repo: GitHubRepo, root: String) async {
+    /// - Parameter remember: reopen it at the next launch (not for debug
+    ///   previews of a site outside the managed repositories).
+    private func open(repo: GitHubRepo, root: String, remember: Bool = true) async {
         guard let engine else { return }
         let model = RepoModel(app: self, engine: engine, github: repo, repoRoot: root)
         self.repo = model
+        if remember && !demo { UserDefaults.standard.set(repo.fullName, forKey: Self.lastRepositoryKey) }
         Task { try? await backend.run("set_last_root", ["root": .string(root)]) }
         await model.open()
     }
@@ -358,8 +369,42 @@ final class AppModel {
         self.repo = nil
     }
 
-    func removeRepo(root: String) async throws {
+    /// Back to the repository list: the next launch starts there too.
+    func leaveRepo() async {
+        UserDefaults.standard.removeObject(forKey: Self.lastRepositoryKey)
         await closeRepo()
+    }
+
+    // MARK: Reopening
+
+    private static let lastRepositoryKey = "posto.native.lastRepository"
+
+    /// The repository that was open when the app last quit (and wasn't left
+    /// for the list), if it's still downloaded. Matched by owner/name
+    /// against a fresh listing: a stored root goes stale when iOS moves the
+    /// app's container, as it does when a new build is installed.
+    private func lastRepository() async -> (repo: GitHubRepo, root: String)? {
+        guard !demo, let fullName = UserDefaults.standard.string(forKey: Self.lastRepositoryKey) else { return nil }
+        #if DEBUG
+        // Scripted tours walk from the repository list.
+        if ProcessInfo.processInfo.arguments.contains("-PostoTour") { return nil }
+        #endif
+        guard let downloaded = try? await backend.call("list_repos", as: [ManagedRepo].self) else { return nil }
+        managed = downloaded
+        saveCache()
+        guard let match = downloaded.first(where: { $0.fullName == fullName }) else {
+            UserDefaults.standard.removeObject(forKey: Self.lastRepositoryKey)
+            return nil
+        }
+        let repo = repos.first { $0.owner == match.owner && $0.name == match.name } ?? GitHubRepo(
+            id: 0, owner: match.owner, name: match.name, fullName: match.fullName,
+            isPrivate: true, cloneURL: match.url, defaultBranch: "main", updatedAt: ""
+        )
+        return (repo, match.root)
+    }
+
+    func removeRepo(root: String) async throws {
+        await leaveRepo()
         try await backend.run("remove_repo", ["root": .string(root)])
         managed.removeAll { $0.root == root }
         saveCache()
