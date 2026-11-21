@@ -76,7 +76,7 @@ struct MediaBrowser: View {
                 imagesOnly: media.isLibrary,
                 targeted: $dropTargeted
             ) { providers in
-                Task { await importDropped(providers) }
+                receiveDrop(providers)
             })
             .refreshable { await media.load(reload: true) }
             .toolbar { if mode.isManaging { manageToolbar } else { pickToolbar } }
@@ -464,16 +464,22 @@ struct MediaBrowser: View {
     }
 
     /// Dropped files: into a library through its import sheet (names and
-    /// metadata, as for Photos), into `public` directly.
-    private func importDropped(_ providers: [NSItemProvider]) async {
-        preparing = true
-        defer { preparing = false }
+    /// metadata, as for Photos), into `public` directly. Called while the
+    /// drop is performed, so every item's data is asked for then.
+    private func receiveDrop(_ providers: [NSItemProvider]) {
         let imagesOnly = media.isLibrary
+        let loading = PhotoImport.loadDropped(providers, imagesOnly: imagesOnly)
+        preparing = true
+        Task {
+            defer { preparing = false }
+            await importDropped(await loading.value, imagesOnly: imagesOnly)
+        }
+    }
+
+    private func importDropped(_ files: [PhotoImport.DroppedFile], imagesOnly: Bool) async {
         var paths: [String] = []
-        for (index, provider) in providers.enumerated() {
-            if let path = await PhotoImport.temporaryFile(from: provider, imagesOnly: imagesOnly, index: index, engine: media.engine) {
-                paths.append(path)
-            }
+        for file in files {
+            paths.append(await PhotoImport.importable(file, engine: media.engine))
         }
         guard !paths.isEmpty else {
             media.error = imagesOnly ? "Only images can be imported into a media library." : "Those items couldn't be imported."
@@ -670,61 +676,107 @@ enum PhotoImport {
         return CGImageDestinationFinalize(output)
     }
 
-    /// A dropped item as a temporary file: its file (from Files or Finder)
-    /// or its data (from Photos), under its own name. With `imagesOnly`,
-    /// anything that isn't an image is skipped. HEIC becomes JPEG, as for
-    /// Photos picks.
-    static func temporaryFile(from provider: NSItemProvider, imagesOnly: Bool, index: Int, engine: Engine) async -> String? {
-        let wanted: UTType = imagesOnly ? .image : .data
-        let types = provider.registeredTypeIdentifiers.compactMap { UTType($0) }
-            .filter { $0.conforms(to: wanted) && !$0.conforms(to: .fileURL) }
-        // A web-ready type when one is offered (Photos offers JPEG beside HEIC).
-        if let type = types.first(where: { !isHeif($0) }) ?? types.first {
-            guard let path = await loadFile(provider, type: type, index: index) else { return nil }
-            return await convertedIfHeif(path, type: type, engine: engine)
+    /// A dropped item copied to a temporary file, with the type it was read
+    /// as (HEIC still to convert).
+    struct DroppedFile: Sendable {
+        let path: String
+        let type: UTType?
+    }
+
+    /// Starts reading every dropped item right away, while the drop is
+    /// being performed (later, the system no longer has to hand the data
+    /// over), and finishes when all are copied out. With `imagesOnly`,
+    /// anything that isn't an image is skipped.
+    static func loadDropped(_ providers: [NSItemProvider], imagesOnly: Bool) -> Task<[DroppedFile], Never> {
+        let group = DispatchGroup()
+        let collected = DropCollector(count: providers.count)
+        for (index, provider) in providers.enumerated() {
+            group.enter()
+            loadDropped(provider, imagesOnly: imagesOnly, index: index) { file in
+                collected.set(index, file)
+                group.leave()
+            }
         }
-        guard provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier),
-              let url = await loadFileURL(provider)
-        else { return nil }
+        return Task {
+            await withCheckedContinuation { continuation in
+                group.notify(queue: .main) { continuation.resume() }
+            }
+            return collected.files
+        }
+    }
+
+    /// One item: the file itself when it's a file from Finder; otherwise its
+    /// content (Files and Photos on iPad), preferring a web-ready type (Photos
+    /// offers JPEG beside HEIC); else the file a file URL points at.
+    private static func loadDropped(_ provider: NSItemProvider, imagesOnly: Bool, index: Int, done: @escaping @Sendable (DroppedFile?) -> Void) {
+        let hasFileURL = provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
+        #if os(macOS)
+        if hasFileURL {
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                done(url.flatMap { copyDroppedFile($0, imagesOnly: imagesOnly) })
+            }
+            return
+        }
+        #endif
+        let wanted: UTType = imagesOnly ? .image : .data
+        // Real file types only: not links or private pasteboard flavors.
+        let types = provider.registeredTypeIdentifiers.compactMap { UTType($0) }
+            .filter { $0.conforms(to: wanted) && !$0.conforms(to: .url) && !$0.isDynamic && $0.preferredFilenameExtension != nil }
+        if let type = types.first(where: { !isHeif($0) }) ?? types.first {
+            let name = provider.suggestedName
+            _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, _ in
+                // The file is only there until this returns: copy it out now.
+                done(url.flatMap { copyRepresentation($0, type: type, suggestedName: name, index: index) })
+            }
+            return
+        }
+        if hasFileURL {
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                done(url.flatMap { copyDroppedFile($0, imagesOnly: imagesOnly) })
+            }
+            return
+        }
+        done(nil)
+    }
+
+    /// A file representation, named after the item with the extension of
+    /// the type it was read as ("Screenshot 10.30.45" gets ".png", and an
+    /// "IMG_1.HEIC" read as JPEG becomes "IMG_1.jpg").
+    private static func copyRepresentation(_ url: URL, type: UTType, suggestedName: String?, index: Int) -> DroppedFile? {
+        let fileExtension = url.pathExtension.isEmpty ? (type.preferredFilenameExtension ?? "dat") : url.pathExtension
+        var stem = suggestedName.flatMap { $0.isEmpty ? nil : $0 } ?? "dropped-\(Int(Date().timeIntervalSince1970))-\(index + 1)"
+        let named = (stem as NSString).pathExtension
+        if !named.isEmpty, let namedType = UTType(filenameExtension: named), !namedType.isDynamic {
+            if namedType.conforms(to: type) || type.conforms(to: namedType) {
+                stem = (stem as NSString).deletingPathExtension
+                return copy(url, to: "\(stem).\(named)", type: type)
+            }
+            stem = (stem as NSString).deletingPathExtension
+        }
+        return copy(url, to: "\(stem).\(fileExtension)", type: type)
+    }
+
+    /// A file dropped by URL (Finder), when it's one this tab takes.
+    private static func copyDroppedFile(_ url: URL, imagesOnly: Bool) -> DroppedFile? {
         let type = UTType(filenameExtension: url.pathExtension)
         if imagesOnly && type?.conforms(to: .image) != true { return nil }
-        guard let path = copyToTemporary(url) else { return nil }
-        return await convertedIfHeif(path, type: type, engine: engine)
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        return copy(url, to: url.lastPathComponent, type: type)
+    }
+
+    private static func copy(_ source: URL, to filename: String, type: UTType?) -> DroppedFile? {
+        let destination = uniqueDestination(filename.replacingOccurrences(of: "/", with: "-"))
+        do {
+            try FileManager.default.copyItem(at: source, to: destination)
+            return DroppedFile(path: destination.path, type: type)
+        } catch {
+            return nil
+        }
     }
 
     private static func isHeif(_ type: UTType) -> Bool {
         type.conforms(to: .heic) || type.conforms(to: .heif)
-    }
-
-    /// The provider's file for `type`, copied out of the temporary location
-    /// it's only valid in during the callback.
-    private static func loadFile(_ provider: NSItemProvider, type: UTType, index: Int) async -> String? {
-        let fallbackStem = "dropped-\(Int(Date().timeIntervalSince1970))-\(index + 1)"
-        let name = provider.suggestedName.flatMap { $0.isEmpty ? nil : $0 } ?? fallbackStem
-        return await withCheckedContinuation { continuation in
-            _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, _ in
-                guard let url else { return continuation.resume(returning: nil) }
-                var filename = (name as NSString).pathExtension.isEmpty
-                    ? "\(name).\(url.pathExtension.isEmpty ? type.preferredFilenameExtension ?? "dat" : url.pathExtension)"
-                    : name
-                filename = filename.replacingOccurrences(of: "/", with: "-")
-                let destination = uniqueDestination(filename)
-                do {
-                    try FileManager.default.copyItem(at: url, to: destination)
-                    continuation.resume(returning: destination.path)
-                } catch {
-                    continuation.resume(returning: nil)
-                }
-            }
-        }
-    }
-
-    private static func loadFileURL(_ provider: NSItemProvider) async -> URL? {
-        await withCheckedContinuation { continuation in
-            _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                continuation.resume(returning: url)
-            }
-        }
     }
 
     /// A path for `filename` in a folder of its own, so a dropped file keeps
@@ -736,12 +788,14 @@ enum PhotoImport {
         return folder.appendingPathComponent(filename)
     }
 
-    private static func convertedIfHeif(_ path: String, type: UTType?, engine: Engine) async -> String {
-        guard let type, isHeif(type) else { return path }
-        let original = URL(fileURLWithPath: path)
+    /// A dropped file ready to import: HEIC becomes JPEG, as for Photos
+    /// picks, with the original kept for its capture date.
+    static func importable(_ file: DroppedFile, engine: Engine) async -> String {
+        guard let type = file.type, isHeif(type) else { return file.path }
+        let original = URL(fileURLWithPath: file.path)
         let converted = original.deletingPathExtension().appendingPathExtension("jpg")
-        guard convertToJPEG(source: original, destination: converted) else { return path }
-        try? await engine.run("media.rememberConverted", ["converted": .string(converted.path), "original": .string(path)])
+        guard convertToJPEG(source: original, destination: converted) else { return file.path }
+        try? await engine.run("media.rememberConverted", ["converted": .string(converted.path), "original": .string(file.path)])
         return converted.path
     }
 
@@ -756,5 +810,28 @@ enum PhotoImport {
         } catch {
             return nil
         }
+    }
+}
+
+/// Dropped files as their loads finish, which may be on any thread.
+private final class DropCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var slots: [PhotoImport.DroppedFile?]
+
+    init(count: Int) {
+        slots = Array(repeating: nil, count: count)
+    }
+
+    func set(_ index: Int, _ file: PhotoImport.DroppedFile?) {
+        lock.lock()
+        slots[index] = file
+        lock.unlock()
+    }
+
+    /// In drop order.
+    var files: [PhotoImport.DroppedFile] {
+        lock.lock()
+        defer { lock.unlock() }
+        return slots.compactMap { $0 }
     }
 }
