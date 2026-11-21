@@ -543,6 +543,7 @@ struct ComponentFormView: Codable, Sendable {
     let dates: [String: DateControl]
     let slots: [String]
     let hasDefaultSlot: Bool
+    let slotTexts: [SlotText]?
 }
 
 struct CollectionSettings: Codable, Sendable {

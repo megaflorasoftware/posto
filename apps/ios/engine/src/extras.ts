@@ -413,9 +413,9 @@ function slotTextsOf(
 function childrenFrom(slotTexts: SlotText[], multiline: boolean): string | null {
   const wrap = (text: string) =>
     multiline && text.trim() !== "" ? `\n${text.trim()}\n` : text.trim();
-  const defaultText = slotTexts.find((slot) => slot.name === null)?.text ?? "";
+  const defaultText = slotTexts.find((slot) => slot.name == null)?.text ?? "";
   const named = slotTexts.flatMap((slot) =>
-    slot.name === null ? [] : [{ name: slot.name, text: wrap(slot.text) }],
+    slot.name == null ? [] : [{ name: slot.name, text: wrap(slot.text) }],
   );
   return assembleSlotChildren(wrap(defaultText), named);
 }
@@ -492,7 +492,7 @@ export function finishComponent(
     (slots.length !== pending.slotTexts.length ||
       slots.some(
         (slot, index) =>
-          slot.name !== pending.slotTexts[index].name ||
+          (slot.name ?? null) !== pending.slotTexts[index].name ||
           slot.text.trim() !== pending.slotTexts[index].text,
       ));
   if (pending.editing) {

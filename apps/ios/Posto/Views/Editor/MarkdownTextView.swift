@@ -6,21 +6,57 @@ import UIKit
 @MainActor
 final class MarkdownEditorController {
     weak var textView: UITextView?
+    weak var coordinator: MarkdownTextView.Coordinator?
     var onChange: ((String) -> Void)?
     var onRequestImage: (() -> Void)?
     var onRequestComponent: (() -> Void)?
-    /// Edit the component around the caret: (body text, UTF-16 offset).
+    /// Edit the component around the caret: (body source, UTF-16 offset).
     var onRequestEditComponent: ((String, Int) -> Void)?
+    /// Scans a body for its cards and pills (the engine's `body.embeds`).
+    var loadEmbeds: ((String) async -> [BodyEmbed])? {
+        didSet { coordinator?.scheduleEmbedScan(after: 0) }
+    }
+    /// A card or pill was tapped: (it, the body source, its source range).
+    var onOpenEmbed: ((EmbedAttachment, String, NSRange) -> Void)?
     var componentsEnabled = false
+
+    /// The markdown in the text view, with cards and pills read as source.
+    var sourceText: String {
+        guard let textView else { return "" }
+        return EmbedProjection.source(of: textView.textStorage)
+    }
 
     func requestEditComponent() {
         guard let textView else { return }
-        onRequestEditComponent?(textView.text, textView.selectedRange.location)
+        let storage = textView.textStorage
+        let selected = textView.selectedRange
+        // A selected component card, or one just before the caret, opens as if tapped.
+        for candidate in [selected.location, selected.location - 1] where candidate >= 0 && candidate < storage.length {
+            if let attachment = storage.attribute(.attachment, at: candidate, effectiveRange: nil) as? EmbedAttachment,
+               attachment.embed.kind == "component" {
+                open(attachment, at: NSRange(location: candidate, length: 1))
+                return
+            }
+        }
+        onRequestEditComponent?(EmbedProjection.source(of: storage), EmbedProjection.sourceOffset(in: storage, display: selected.location))
     }
 
-    /// Replaces a UTF-16 range of the body (an edited component block).
+    func open(_ attachment: EmbedAttachment, at displayRange: NSRange) {
+        guard let textView else { return }
+        let storage = textView.textStorage
+        onOpenEmbed?(attachment, EmbedProjection.source(of: storage), EmbedProjection.sourceRange(in: storage, display: displayRange))
+    }
+
+    /// Replaces a range of the markdown source (an edited, rewritten or
+    /// removed card) and shows the result with its cards.
+    func replaceSource(_ range: NSRange, with string: String) {
+        guard let textView, let coordinator else { return }
+        coordinator.replaceSource(range, with: string, in: textView)
+    }
+
+    /// Kept for callers that edit a component by its source range.
     func replace(range: NSRange, with string: String) {
-        replace(range, with: string, selecting: NSRange(location: range.location + (string as NSString).length, length: 0))
+        replaceSource(range, with: string)
     }
 
     /// Inserts at the caret; blocks get blank lines around them.
@@ -36,80 +72,169 @@ final class MarkdownEditorController {
             if !after.hasPrefix("\n\n") { insertion += after.hasPrefix("\n") ? "\n" : "\n\n" }
         }
         replace(range, with: insertion, selecting: nil)
+        // An inserted component or image becomes its card right away.
+        coordinator?.scheduleEmbedScan(after: 0)
     }
 
     func replace(_ range: NSRange, with string: String, selecting selection: NSRange?) {
+        edit(range, with: string)
+        if let selection { textView?.selectedRange = selection }
+        changed()
+    }
+
+    /// Replaces display text without notifying; callers batch, then call changed().
+    @discardableResult
+    private func edit(_ range: NSRange, with string: String) -> Bool {
         guard let textView,
               let start = textView.position(from: textView.beginningOfDocument, offset: range.location),
               let end = textView.position(from: start, offset: range.length),
               let textRange = textView.textRange(from: start, to: end)
-        else { return }
+        else { return false }
         textView.replace(textRange, withText: string)
-        if let selection { textView.selectedRange = selection }
-        changed()
+        return true
     }
 
     func changed() {
         guard let textView else { return }
-        MarkdownStyler.style(textView)
-        onChange?(textView.text)
+        if let coordinator {
+            coordinator.textChanged(textView)
+        } else {
+            MarkdownStyler.style(textView)
+            onChange?(EmbedProjection.source(of: textView.textStorage))
+        }
     }
 
     // MARK: Formatting
+    // Edits insert and remove markers around the selection instead of
+    // retyping it, so cards and pills inside it keep their source.
 
     func wrap(_ marker: String, placeholder: String) {
         guard let textView else { return }
         let range = textView.selectedRange
-        let selected = (textView.text as NSString).substring(with: range)
-        let body = selected.isEmpty ? placeholder : selected
-        let replacement = marker + body + marker
-        let selection = NSRange(location: range.location + marker.count, length: (body as NSString).length)
-        replace(range, with: replacement, selecting: selection)
+        let length = (marker as NSString).length
+        if range.length == 0 {
+            let selection = NSRange(location: range.location + length, length: (placeholder as NSString).length)
+            replace(range, with: marker + placeholder + marker, selecting: selection)
+            return
+        }
+        edit(NSRange(location: NSMaxRange(range), length: 0), with: marker)
+        edit(NSRange(location: range.location, length: 0), with: marker)
+        textView.selectedRange = NSRange(location: range.location + length, length: range.length)
+        changed()
     }
 
     /// Toggles a prefix on every selected line (`# `, `- `, `> `, `1. `).
     func prefixLines(_ prefix: String) {
         guard let textView else { return }
         let text = textView.text as NSString
-        let lines = text.lineRange(for: textView.selectedRange)
-        let block = text.substring(with: lines)
-        let hasTrailingNewline = block.hasSuffix("\n")
-        let content = hasTrailingNewline ? String(block.dropLast()) : block
-        let split = content.components(separatedBy: "\n")
-        let allPrefixed = split.allSatisfy { $0.hasPrefix(prefix) }
-        let updated = split.map { line -> String in
-            if allPrefixed { return String(line.dropFirst(prefix.count)) }
-            let stripped = line.replacingOccurrences(of: #"^(#{1,6} |[-*+] |> |\d+\. )"#, with: "", options: .regularExpression)
-            return prefix + stripped
-        }.joined(separator: "\n") + (hasTrailingNewline ? "\n" : "")
-        let caret = NSRange(location: lines.location + (updated as NSString).length - (hasTrailingNewline ? 1 : 0), length: 0)
-        replace(lines, with: updated, selecting: caret)
+        let block = text.lineRange(for: textView.selectedRange)
+        var lines: [NSRange] = []
+        text.enumerateSubstrings(in: block, options: [.byLines, .substringNotRequired]) { _, range, _, _ in
+            lines.append(range)
+        }
+        if lines.isEmpty { lines = [NSRange(location: block.location, length: 0)] }
+        let contents = lines.map { text.substring(with: $0) }
+        let allPrefixed = contents.allSatisfy { $0.hasPrefix(prefix) }
+        let existing = try! NSRegularExpression(pattern: #"^(#{1,6} |[-*+] |> |\d+\. )"#)
+        let prefixLength = (prefix as NSString).length
+        var deltas: [Int] = []
+        // Bottom-up, so the offsets of earlier lines stay valid.
+        for (line, content) in zip(lines, contents).reversed() {
+            let replaced: Int
+            let inserted: String
+            if allPrefixed {
+                replaced = prefixLength
+                inserted = ""
+            } else if let match = existing.firstMatch(in: content, range: NSRange(location: 0, length: (content as NSString).length)) {
+                replaced = match.range.length
+                inserted = prefix
+            } else {
+                replaced = 0
+                inserted = prefix
+            }
+            edit(NSRange(location: line.location, length: replaced), with: inserted)
+            deltas.insert((inserted as NSString).length - replaced, at: 0)
+        }
+        let last = lines[lines.count - 1]
+        let shift = deltas.dropLast().reduce(0, +)
+        textView.selectedRange = NSRange(location: last.location + shift + last.length + deltas[deltas.count - 1], length: 0)
+        changed()
     }
 
     func insertLink() {
         guard let textView else { return }
         let range = textView.selectedRange
-        let selected = (textView.text as NSString).substring(with: range)
-        let label = selected.isEmpty ? "link text" : selected
-        let replacement = "[\(label)](https://)"
-        let urlStart = range.location + (label as NSString).length + 3
-        replace(range, with: replacement, selecting: NSRange(location: urlStart, length: 8))
+        if range.length == 0 {
+            replace(range, with: "[link text](https://)", selecting: NSRange(location: range.location + 12, length: 8))
+            return
+        }
+        edit(NSRange(location: NSMaxRange(range), length: 0), with: "](https://)")
+        edit(NSRange(location: range.location, length: 0), with: "[")
+        textView.selectedRange = NSRange(location: NSMaxRange(range) + 3, length: 8)
+        changed()
+    }
+}
+
+/// The body's text view: notices width changes (cards are full width) and
+/// copies, cuts and pastes markdown, so a card pastes back as its source.
+final class BodyTextView: UITextView {
+    var onWidthChange: (() -> Void)?
+    private var lastWidth: CGFloat = 0
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if abs(bounds.width - lastWidth) > 0.5 {
+            lastWidth = bounds.width
+            onWidthChange?()
+        }
+    }
+
+    private func hasEmbeds(in range: NSRange) -> Bool {
+        var found = false
+        textStorage.enumerateAttribute(.attachment, in: range) { value, _, stop in
+            if value != nil { found = true; stop.pointee = true }
+        }
+        return found
+    }
+
+    override func copy(_ sender: Any?) {
+        let range = selectedRange
+        guard range.length > 0, hasEmbeds(in: range) else { return super.copy(sender) }
+        UIPasteboard.general.string = EmbedProjection.source(of: textStorage.attributedSubstring(from: range))
+    }
+
+    override func cut(_ sender: Any?) {
+        let range = selectedRange
+        guard range.length > 0, hasEmbeds(in: range), let selection = selectedTextRange else { return super.cut(sender) }
+        copy(sender)
+        replace(selection, withText: "")
+        delegate?.textViewDidChange?(self)
+    }
+
+    override func paste(_ sender: Any?) {
+        // Plain text only: a foreign attachment has no markdown behind it.
+        guard let string = UIPasteboard.general.string, let selection = selectedTextRange else { return super.paste(sender) }
+        replace(selection, withText: string)
+        delegate?.textViewDidChange?(self)
     }
 }
 
 /// The markdown body: styled as you type, with a formatting bar above the
 /// keyboard. Inside a form it grows with its content; full screen it scrolls.
+/// With `embeds`, components, images and other non-text elements show as
+/// cards and pills (see BodyEmbeds.swift) while the source stays markdown.
 struct MarkdownTextView: UIViewRepresentable {
     let text: String
     let controller: MarkdownEditorController
     var scrolls = false
     var monospaced = false
     var styled = true
+    var embeds = false
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
     func makeUIView(context: Context) -> UITextView {
-        let textView = UITextView()
+        let textView = BodyTextView()
         textView.delegate = context.coordinator
         textView.isScrollEnabled = scrolls
         // Inside the form a nearby bar's edge effect would draw over the
@@ -133,16 +258,46 @@ struct MarkdownTextView: UIViewRepresentable {
         textView.inputAccessoryView = styled ? context.coordinator.makeToolbar() : nil
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         controller.textView = textView
+        controller.coordinator = context.coordinator
+        context.coordinator.textView = textView
         if styled { MarkdownStyler.style(textView) }
+        if embeds {
+            // Dragging would carry cards out as bare attachments.
+            textView.textDragInteraction?.isEnabled = false
+            let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
+            tap.delegate = context.coordinator
+            textView.addGestureRecognizer(tap)
+            let coordinator = context.coordinator
+            textView.onWidthChange = { [weak coordinator, weak textView] in
+                guard let textView else { return }
+                coordinator?.renderAttachments(in: textView)
+            }
+            textView.registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: UITextView, _: UITraitCollection) in
+                coordinator.renderAttachments(in: view)
+            }
+            // Hidden until its cards are in, so raw JSX doesn't flash.
+            textView.alpha = 0
+            Task { @MainActor in
+                coordinator.setSource(text, in: textView)
+                try? await Task.sleep(for: .seconds(1))
+                textView.alpha = 1
+            }
+        }
         return textView
     }
 
     func updateUIView(_ textView: UITextView, context: Context) {
         context.coordinator.parent = self
         controller.textView = textView
+        controller.coordinator = context.coordinator
         // Only external changes (pull, raw edits) replace the text; typing is
         // already in the view.
-        if textView.text != text && !textView.isFirstResponder {
+        guard !textView.isFirstResponder else { return }
+        if embeds {
+            if EmbedProjection.source(of: textView.textStorage) != text {
+                context.coordinator.setSource(text, in: textView)
+            }
+        } else if textView.text != text {
             textView.text = text
             if styled { MarkdownStyler.style(textView) }
         }
@@ -150,26 +305,208 @@ struct MarkdownTextView: UIViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView textView: UITextView, context: Context) -> CGSize? {
         guard !scrolls, let width = proposal.width, width > 0 else { return nil }
+        if embeds {
+            context.coordinator.layoutWidth = width
+            context.coordinator.renderAttachments(in: textView)
+        }
         let size = textView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
         return CGSize(width: width, height: max(size.height, 160))
     }
 
     @MainActor
-    final class Coordinator: NSObject, UITextViewDelegate {
+    final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
         var parent: MarkdownTextView
+        weak var textView: UITextView?
+        /// The width SwiftUI offered the growing (form) text view.
+        var layoutWidth: CGFloat?
+        private var scanTask: Task<Void, Never>?
+        private var pendingSource: String?
 
         init(parent: MarkdownTextView) {
             self.parent = parent
         }
 
         func textViewDidChange(_ textView: UITextView) {
+            textChanged(textView)
+        }
+
+        func textChanged(_ textView: UITextView) {
             if parent.styled { MarkdownStyler.style(textView) }
-            parent.controller.onChange?(textView.text)
+            parent.controller.onChange?(parent.embeds ? EmbedProjection.source(of: textView.textStorage) : textView.text)
+            if parent.embeds { scheduleEmbedScan(after: 0.5) }
             scrollCaretIntoView(textView)
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
+            if parent.embeds { markSelectedAttachments(in: textView) }
             scrollCaretIntoView(textView)
+        }
+
+        /// Backspace next to a card selects it; a second Backspace deletes it.
+        func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            guard parent.embeds, text.isEmpty, range.length == 1, textView.selectedRange.length == 0,
+                  range.location < textView.textStorage.length,
+                  textView.textStorage.attribute(.attachment, at: range.location, effectiveRange: nil) is EmbedAttachment
+            else { return true }
+            textView.selectedRange = range
+            return false
+        }
+
+        // MARK: Embeds
+
+        /// Shows `source` (a document load or an external change) once its
+        /// cards are known, unless the user typed in the meantime.
+        func setSource(_ source: String, in textView: UITextView) {
+            guard pendingSource != source else { return }
+            pendingSource = source
+            let shown = EmbedProjection.source(of: textView.textStorage)
+            guard parent.embeds, let load = parent.controller.loadEmbeds else {
+                apply(source, embeds: [], to: textView, caret: nil)
+                pendingSource = nil
+                return
+            }
+            Task { @MainActor in
+                let embeds = await load(source)
+                if self.pendingSource == source { self.pendingSource = nil }
+                guard EmbedProjection.source(of: textView.textStorage) == shown else { return }
+                self.apply(source, embeds: embeds, to: textView, caret: nil)
+            }
+        }
+
+        func replaceSource(_ range: NSRange, with string: String, in textView: UITextView) {
+            let shown = EmbedProjection.source(of: textView.textStorage)
+            let text = shown as NSString
+            guard NSMaxRange(range) <= text.length else { return }
+            let next = text.replacingCharacters(in: range, with: string)
+            let caret = range.location + (string as NSString).length
+            let load = parent.embeds ? parent.controller.loadEmbeds : nil
+            Task { @MainActor in
+                let embeds = await load?(next) ?? []
+                guard EmbedProjection.source(of: textView.textStorage) == shown else { return }
+                self.apply(next, embeds: embeds, to: textView, caret: caret)
+                self.parent.controller.onChange?(next)
+            }
+        }
+
+        /// Turns completed elements typed (or inserted) as text into cards,
+        /// and cards whose context changed back into text or the other shape.
+        func scheduleEmbedScan(after delay: Double) {
+            guard parent.embeds else { return }
+            scanTask?.cancel()
+            scanTask = Task { @MainActor [weak self] in
+                if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+                guard !Task.isCancelled, let self, let textView = self.textView,
+                      let load = self.parent.controller.loadEmbeds else { return }
+                let storage = textView.textStorage
+                let source = EmbedProjection.source(of: storage)
+                let embeds = await load(source)
+                guard !Task.isCancelled, EmbedProjection.source(of: storage) == source else { return }
+                let fresh = embeds.map { EmbedProjection.key(start: $0.start, end: $0.end, embed: $0) }
+                guard fresh != EmbedProjection.shownKeys(in: storage) else { return }
+                let caret = EmbedProjection.sourceOffset(in: storage, display: NSMaxRange(textView.selectedRange))
+                self.apply(source, embeds: embeds, to: textView, caret: caret)
+            }
+        }
+
+        private func apply(_ source: String, embeds: [BodyEmbed], to textView: UITextView, caret: Int?) {
+            let storage = textView.textStorage
+            let previousCaret = EmbedProjection.sourceOffset(in: storage, display: textView.selectedRange.location)
+            let font = textView.font ?? .preferredFont(forTextStyle: .body)
+            let projected = EmbedProjection.project(source, embeds: parent.embeds ? embeds : [], attributes: [.font: font, .foregroundColor: UIColor.label])
+            storage.beginEditing()
+            storage.setAttributedString(projected)
+            storage.endEditing()
+            renderAttachments(in: textView)
+            if parent.styled { MarkdownStyler.style(textView) }
+            let target = min(caret ?? previousCaret, (source as NSString).length)
+            textView.selectedRange = NSRange(location: EmbedProjection.displayOffset(in: storage, source: target), length: 0)
+            // Programmatic edits leave UIKit's undo ranges stale.
+            textView.undoManager?.removeAllActions()
+            textView.invalidateIntrinsicContentSize()
+            textView.alpha = 1
+        }
+
+        private func embedWidth(_ textView: UITextView) -> CGFloat {
+            let insets = textView.textContainerInset.left + textView.textContainerInset.right + 2 * textView.textContainer.lineFragmentPadding
+            let viewWidth = parent.scrolls ? textView.bounds.width : (layoutWidth ?? textView.bounds.width)
+            let width = floor(viewWidth - insets - 1)
+            return width > 60 ? width : 320
+        }
+
+        /// Draws every card and pill for the current width and appearance.
+        func renderAttachments(in textView: UITextView) {
+            let width = embedWidth(textView)
+            let font = UIFont.preferredFont(forTextStyle: .body, compatibleWith: textView.traitCollection)
+            var changed: [NSRange] = []
+            for (attachment, range) in EmbedProjection.attachments(in: textView.textStorage) {
+                if attachment.embed.kind == "image", attachment.thumbnail == nil {
+                    if let cached = EmbedThumbnails.shared.cached(attachment.embed.image) {
+                        attachment.thumbnail = cached
+                    } else {
+                        EmbedThumbnails.shared.load(attachment.embed.image) { [weak self, weak textView] in
+                            guard let self, let textView else { return }
+                            self.renderAttachments(in: textView)
+                        }
+                    }
+                }
+                let before = attachment.image
+                attachment.render(width: width, font: font, traits: textView.traitCollection)
+                if attachment.image !== before { changed.append(range) }
+            }
+            guard !changed.isEmpty else { return }
+            let storage = textView.textStorage
+            storage.beginEditing()
+            for range in changed where NSMaxRange(range) <= storage.length {
+                storage.edited(.editedAttributes, range: range, changeInLength: 0)
+            }
+            storage.endEditing()
+            textView.invalidateIntrinsicContentSize()
+        }
+
+        private func markSelectedAttachments(in textView: UITextView) {
+            let selection = textView.selectedRange
+            var dirty = false
+            for (attachment, range) in EmbedProjection.attachments(in: textView.textStorage) {
+                let selected = selection.length > 0 && selection.location <= range.location && NSMaxRange(selection) >= NSMaxRange(range)
+                if attachment.isSelected != selected {
+                    attachment.isSelected = selected
+                    dirty = true
+                }
+            }
+            if dirty { renderAttachments(in: textView) }
+        }
+
+        // MARK: Tapping a card
+
+        @objc func tapped(_ gesture: UITapGestureRecognizer) {
+            guard let textView = gesture.view as? UITextView,
+                  let (attachment, range) = attachment(at: gesture.location(in: textView), in: textView)
+            else { return }
+            parent.controller.textView = textView
+            parent.controller.open(attachment, at: range)
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard let textView = gestureRecognizer.view as? UITextView else { return false }
+            return attachment(at: touch.location(in: textView), in: textView) != nil
+        }
+
+        private func attachment(at point: CGPoint, in textView: UITextView) -> (EmbedAttachment, NSRange)? {
+            let storage = textView.textStorage
+            guard storage.length > 0, let position = textView.closestPosition(to: point) else { return nil }
+            let offset = textView.offset(from: textView.beginningOfDocument, to: position)
+            for candidate in [offset, offset - 1] where candidate >= 0 && candidate < storage.length {
+                guard let attachment = storage.attribute(.attachment, at: candidate, effectiveRange: nil) as? EmbedAttachment,
+                      let start = textView.position(from: textView.beginningOfDocument, offset: candidate),
+                      let end = textView.position(from: start, offset: 1),
+                      let range = textView.textRange(from: start, to: end)
+                else { continue }
+                let rect = textView.firstRect(for: range)
+                if !rect.isNull, rect.insetBy(dx: -2, dy: -2).contains(point) {
+                    return (attachment, NSRange(location: candidate, length: 1))
+                }
+            }
+            return nil
         }
 
         /// A growing text view inside a form doesn't scroll itself; keep the
@@ -292,8 +629,14 @@ enum MarkdownStyler {
         let base = UIFont.preferredFont(forTextStyle: .body, compatibleWith: textView.traitCollection)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = 3
+        // Cards and pills are attachments; resetting attributes keeps them.
+        var attachments: [(Any, NSRange)] = []
+        storage.enumerateAttribute(.attachment, in: full) { value, range, _ in
+            if let value { attachments.append((value, range)) }
+        }
         storage.beginEditing()
         storage.setAttributes([.font: base, .foregroundColor: UIColor.label, .paragraphStyle: paragraph], range: full)
+        for (attachment, range) in attachments { storage.addAttribute(.attachment, value: attachment, range: range) }
         let text = storage.string
         for (expression, attributes) in rules {
             for match in expression.matches(in: text, range: full) {

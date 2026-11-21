@@ -10,6 +10,7 @@ struct EditorView: View {
     @State private var insertingMedia = false
     @State private var insertingComponent = false
     @State private var editingComponent: ComponentEdit?
+    @State private var editingEmbed: EmbedEdit?
     @State private var focusedBody = false
 
     var body: some View {
@@ -61,8 +62,18 @@ struct EditorView: View {
         }
         .sheet(item: $editingComponent) { edit in
             NavigationStack {
-                ComponentPropsView(engine: document.engine, mode: .edit(edit.text, edit.offset)) { snippet, range in
-                    if let range { controller.replace(range: range, with: snippet) }
+                ComponentPropsView(
+                    engine: document.engine,
+                    mode: .edit(edit.text, edit.offset, edit.start),
+                    source: edit.card.map { card in
+                        ComponentPropsView.SourceActions(
+                            text: card.source,
+                            save: { replaceEmbed(card, with: $0); editingComponent = nil },
+                            delete: { replaceEmbed(card, with: ""); editingComponent = nil }
+                        )
+                    }
+                ) { snippet, range in
+                    if let range { controller.replaceSource(range, with: snippet) }
                     editingComponent = nil
                 }
                 .toolbar {
@@ -70,13 +81,31 @@ struct EditorView: View {
                 }
             }
         }
+        .sheet(item: $editingEmbed) { card in
+            NavigationStack {
+                Group {
+                    if card.embed.kind == "image" {
+                        EmbedImageView(document: document, card: card) { replaceEmbed(card, with: $0); editingEmbed = nil }
+                    } else {
+                        EmbedSourceView(title: card.embed.label, text: card.source, deleteTitle: "Delete \(card.kindName)") { next in
+                            replaceEmbed(card, with: next)
+                            editingEmbed = nil
+                        }
+                    }
+                }
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { CloseButton { editingEmbed = nil } }
+                }
+            }
+            .presentationDetents(card.embed.kind == "image" ? [.large] : [.medium, .large])
+        }
         .sheet(isPresented: $insertingComponent) {
             ComponentPickerView(engine: document.engine) { snippet in
                 controller.insert(snippet, asBlock: true)
             }
         }
         .navigationDestination(isPresented: $focusedBody) {
-            MarkdownTextView(text: document.bodyText, controller: controller, scrolls: true)
+            MarkdownTextView(text: document.bodyText, controller: controller, scrolls: true, embeds: view.body?.isMarkdown == true)
                 .navigationTitle(view.name)
                 .navigationBarTitleDisplayMode(.inline)
                 .ignoresSafeArea(.container, edges: .bottom)
@@ -98,9 +127,27 @@ struct EditorView: View {
         controller.onRequestImage = { insertingMedia = true }
         controller.onRequestComponent = { insertingComponent = true }
         controller.onRequestEditComponent = { text, offset in
-            editingComponent = ComponentEdit(text: text, offset: offset)
+            editingComponent = ComponentEdit(text: text, offset: offset, start: nil, card: nil)
         }
         controller.componentsEnabled = document.view.body?.componentBlocks == true
+        controller.onOpenEmbed = { attachment, source, range in
+            let card = EmbedEdit(embed: attachment.embed, source: attachment.source, range: range)
+            if attachment.embed.kind == "component" {
+                editingComponent = ComponentEdit(text: source, offset: range.location, start: range.location, card: card)
+            } else {
+                editingEmbed = card
+            }
+        }
+        if controller.loadEmbeds == nil {
+            controller.loadEmbeds = { [document] text in
+                (try? await document.engine.call("body.embeds", ["text": .string(text)])) ?? []
+            }
+        }
+    }
+
+    /// Writes a card's new source (empty to delete it) back into the body.
+    private func replaceEmbed(_ card: EmbedEdit, with source: String) {
+        controller.replaceSource(card.range, with: source)
     }
 
     @ViewBuilder
@@ -141,7 +188,8 @@ struct EditorView: View {
                     MarkdownTextView(
                         text: document.bodyText,
                         controller: controller,
-                        styled: body.isMarkdown
+                        styled: body.isMarkdown,
+                        embeds: body.isMarkdown
                     )
                     .padding(.vertical, 6)
                 } header: {
@@ -255,4 +303,7 @@ private struct ComponentEdit: Identifiable {
     let id = UUID()
     let text: String
     let offset: Int
+    /// Exactly where the component starts, when a card or pill was tapped.
+    let start: Int?
+    let card: EmbedEdit?
 }
