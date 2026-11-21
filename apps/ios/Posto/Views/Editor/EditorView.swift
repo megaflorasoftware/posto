@@ -9,6 +9,8 @@ struct EditorView: View {
     @State private var rawController = MarkdownEditorController()
     @State private var insertingMedia = false
     @State private var insertingComponent = false
+    /// The component picker opened with the cursor inside text.
+    @State private var insertingInline = false
     @State private var editingComponent: ComponentEdit?
     @State private var editingEmbed: EmbedEdit?
     @State private var focusedBody = false
@@ -59,8 +61,8 @@ struct EditorView: View {
         // it closes, if the body was being edited (endEditing below).
         .sheet(isPresented: $insertingMedia, onDismiss: controller.resumeEditing) {
             Group {
-                BodyMediaPicker(repo: document.repo) { absolutePath, url, alt, kind in
-                    Task { await insertMedia(path: absolutePath, url: url, alt: alt, kind: kind) }
+                BodyMediaPicker(repo: document.repo) { pick in
+                    Task { await insertMedia(pick) }
                 }
             }
             .macSheetSizing()
@@ -117,8 +119,14 @@ struct EditorView: View {
         }
         .sheet(isPresented: $insertingComponent, onDismiss: controller.resumeEditing) {
             Group {
-                ComponentPickerView(engine: document.engine, document: document) { snippet in
-                    controller.insert(snippet, asBlock: true)
+                ComponentPickerView(
+                    engine: document.engine,
+                    document: document,
+                    inline: insertingInline,
+                    onInsertHtml: { controller.insertHtml() }
+                ) { snippet in
+                    // Inside text the component goes in inline, as on desktop.
+                    controller.insert(snippet, asBlock: !insertingInline)
                 }
             }
             .macSheetSizing()
@@ -161,6 +169,7 @@ struct EditorView: View {
             insertingMedia = true
         }
         controller.onRequestComponent = { [controller] in
+            insertingInline = controller.caretInsideText
             controller.endEditing()
             insertingComponent = true
         }
@@ -254,18 +263,16 @@ struct EditorView: View {
         .scrollDismissesKeyboard(.interactively)
     }
 
-    private func insertMedia(path: String?, url: String?, alt: String, kind: String) async {
-        var value = url
-        if value == nil, let path { value = await document.bodyMediaValue(for: path) }
-        guard let value else {
-            document.renameError = "That file isn't inside a folder this document can reference."
-            return
-        }
-        switch kind {
-        case "image": controller.insert("![\(alt)](\(value))", asBlock: true)
-        case "audio": controller.insert("<audio controls src=\"\(value)\"></audio>", asBlock: true)
-        case "video": controller.insert("<video controls src=\"\(value)\"></video>", asBlock: true)
-        default: controller.insert("[\(alt)](\(value))")
+    /// Inserts picked media as the desktop editor writes it (the engine's
+    /// snippet: the path, escaping, and audio and video as HTML). Images and
+    /// players stand as blocks; other files are links in the text.
+    private func insertMedia(_ pick: BodyMediaPick) async {
+        do {
+            let result: JSONValue = try await document.engine.call("doc.bodyMediaSnippet", pick.snippetArgs)
+            guard let snippet = result["snippet"]?.stringValue else { return }
+            controller.insert(snippet, asBlock: result["kind"]?.stringValue != "link")
+        } catch {
+            document.renameError = error.localizedDescription
         }
     }
 }

@@ -77,60 +77,122 @@ struct MediaPickerSheet: View {
     }
 }
 
+/// Media picked for the body: a file in the site, or a CDN image.
+struct BodyMediaPick {
+    let path: String?
+    let url: String?
+    /// The alt text of a library image just imported.
+    let alt: String?
+    let name: String
+    let kind: String
+
+    /// The alt text a picked image starts with: the import's, else the
+    /// file's name.
+    var defaultAlt: String { alt ?? (name as NSString).deletingPathExtension }
+
+    /// The engine's `doc.bodyMediaSnippet` arguments: the markdown or HTML
+    /// to insert, with the path the desktop editor would write.
+    var snippetArgs: [String: JSONValue] {
+        var args: [String: JSONValue] = ["kind": .string(kind), "label": .string(name)]
+        if let path { args["absolutePath"] = .string(path) }
+        if let url { args["url"] = .string(url) }
+        if let alt { args["alt"] = .string(alt) }
+        return args
+    }
+}
+
 /// Picks media to insert into the body (the rich-text editor's media
-/// dialog): the app media picker, with the file's name as alt text unless
-/// an import gave one.
+/// dialog), or to replace a body image with: the app media picker.
 struct BodyMediaPicker: View {
     let repo: RepoModel
-    /// (local path, remote URL, alt text, kind)
-    let onPick: (String?, String?, String, String) -> Void
+    var title = "Insert Media"
+    var imagesOnly = false
+    let onPick: (BodyMediaPick) -> Void
 
     var body: some View {
-        MediaPickerSheet(repo: repo, title: "Insert Media") { item, libraryAlt in
-            let alt = libraryAlt ?? (item.name as NSString).deletingPathExtension
-            onPick(item.imagePath, item.imagePath == nil ? item.imageUrl : nil, alt, item.kind)
+        MediaPickerSheet(repo: repo, title: title, imagesOnly: imagesOnly) { item, libraryAlt in
+            onPick(BodyMediaPick(
+                path: item.imagePath,
+                url: item.imagePath == nil ? item.imageUrl : nil,
+                alt: libraryAlt,
+                name: item.name,
+                kind: item.kind
+            ))
         }
     }
 }
 
-/// Lists the project's components, then collects props for the chosen one.
+/// Lists the project's components, then collects props for the chosen one;
+/// or, first in the list as on desktop, an HTML element.
 struct ComponentPickerView: View {
     let engine: Engine
     /// The document the component goes into: its props' media and
     /// references resolve against it.
     var document: DocumentModel? = nil
+    /// The cursor is inside text: the component goes in inline, `<Name />`.
+    var inline = false
+    /// Picked "HTML": an empty element to fill in.
+    var onInsertHtml: (() -> Void)? = nil
     let onInsert: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var list: ComponentList?
     @State private var query = ""
     @State private var error: String?
 
+    private var showsHtml: Bool {
+        onInsertHtml != nil && (query.isEmpty || "HTML".localizedCaseInsensitiveContains(query))
+    }
+
     var body: some View {
         NavigationStack {
             let shown = (list?.components ?? []).filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }
-            List(shown) { component in
-                NavigationLink {
-                    ComponentPropsView(engine: engine, mode: .insert(component), document: document) { snippet, _ in
-                        onInsert(snippet)
+            List {
+                if showsHtml, let onInsertHtml {
+                    Button {
+                        onInsertHtml()
                         dismiss()
+                    } label: {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("HTML").foregroundStyle(.primary)
+                                Text("Custom HTML element").font(.caption).foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: "chevron.left.forwardslash.chevron.right")
+                        }
                     }
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(component.name)
-                        Text(component.relativePath).font(.caption).foregroundStyle(.secondary)
+                }
+                ForEach(shown) { component in
+                    NavigationLink {
+                        ComponentPropsView(engine: engine, mode: .insert(component), document: document, inline: inline) { snippet, _ in
+                            onInsert(snippet)
+                            dismiss()
+                        }
+                    } label: {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(component.name)
+                                Text(component.relativePath).font(.caption).foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: "square.on.square")
+                        }
+                    }
+                }
+                if list?.components.isEmpty == true, query.isEmpty {
+                    Section {
+                        ContentUnavailableView(
+                            "No components found",
+                            systemImage: "square.on.square.dashed",
+                            description: Text("Components in \(list?.directories.joined(separator: " or ") ?? "the components folder") appear here.")
+                        )
                     }
                 }
             }
             .overlay {
                 if list == nil {
                     ProgressView()
-                } else if list?.components.isEmpty == true {
-                    ContentUnavailableView(
-                        "No components found",
-                        systemImage: "square.on.square.dashed",
-                        description: Text("Components in \(list?.directories.joined(separator: " or ") ?? "the components folder") appear here.")
-                    )
-                } else if shown.isEmpty {
+                } else if shown.isEmpty, !showsHtml, !query.isEmpty {
                     ContentUnavailableView.search(text: query)
                 }
             }
@@ -175,6 +237,8 @@ struct ComponentPropsView: View {
     /// the document's fields (images, image-library references), as on
     /// desktop, where a component's fields share the document's context.
     var document: DocumentModel? = nil
+    /// Inserting inside text: `<Name />` inline, rather than a block.
+    var inline = false
     /// The JSX, and the range it replaces when editing.
     let onFinish: (String, NSRange?) -> Void
     @State private var form: MetadataFormModel?
@@ -241,7 +305,8 @@ struct ComponentPropsView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     AsyncButton(isEditing ? "Save" : "Insert") {
                         do {
-                            let args: [String: JSONValue] = slots.isEmpty ? [:] : ["slots": try JSONValue(encoding: slots)]
+                            var args: [String: JSONValue] = slots.isEmpty ? [:] : ["slots": try JSONValue(encoding: slots)]
+                            if inline, !isEditing { args["inline"] = .bool(true) }
                             let result: JSONValue = try await engine.call("components.finish", args)
                             let range = result["range"]?.arrayValue.flatMap { bounds -> NSRange? in
                                 guard bounds.count == 2, let start = bounds[0].doubleValue, let end = bounds[1].doubleValue else { return nil }

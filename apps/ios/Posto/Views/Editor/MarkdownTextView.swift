@@ -11,6 +11,7 @@ final class MarkdownEditorController {
     var onRequestImage: (() -> Void)?
     var onRequestComponent: (() -> Void)?
     /// Edit the component around the caret: (body source, UTF-16 offset).
+    /// Only the Mac's bar asks; on iOS, tapping a component's card edits it.
     var onRequestEditComponent: ((String, Int) -> Void)?
     /// Scans a body for its cards and pills (the engine's `body.embeds`);
     /// nil when the scan failed, so the cards shown are left alone.
@@ -19,7 +20,9 @@ final class MarkdownEditorController {
     }
     /// A card or pill was tapped: (it, the body source, its source range).
     var onOpenEmbed: ((EmbedAttachment, String, NSRange) -> Void)?
-    var componentsEnabled = false
+    var componentsEnabled = false {
+        didSet { if componentsEnabled != oldValue { coordinator?.refreshBar() } }
+    }
 
     /// The markdown in the text view, with cards and pills read as source.
     var sourceText: String {
@@ -45,21 +48,6 @@ final class MarkdownEditorController {
         textView?.becomeFirstResponder()
     }
 
-    func requestEditComponent() {
-        guard let textView else { return }
-        let storage = textView.textStorage
-        let selected = textView.selectedRange
-        // A selected component card, or one just before the caret, opens as if tapped.
-        for candidate in [selected.location, selected.location - 1] where candidate >= 0 && candidate < storage.length {
-            if let attachment = storage.attribute(.attachment, at: candidate, effectiveRange: nil) as? EmbedAttachment,
-               attachment.embed.kind == "component" {
-                open(attachment, at: NSRange(location: candidate, length: 1))
-                return
-            }
-        }
-        onRequestEditComponent?(EmbedProjection.source(of: storage), EmbedProjection.sourceOffset(in: storage, display: selected.location))
-    }
-
     func open(_ attachment: EmbedAttachment, at displayRange: NSRange) {
         guard let textView else { return }
         let storage = textView.textStorage
@@ -77,21 +65,51 @@ final class MarkdownEditorController {
         return coordinator.replaceSource(range, with: string, expecting: original, in: textView)
     }
 
-    /// Inserts at the caret; blocks get blank lines around them.
+    /// Inserts at the caret; blocks get blank lines around them. In a body
+    /// with cards, the insert shows as its card right away and undoes in
+    /// one step, like a sheet's edit.
     func insert(_ snippet: String, asBlock: Bool = false) {
         guard let textView else { return }
-        let text = textView.text as NSString
+        let storage = textView.textStorage
         let range = textView.selectedRange
-        var insertion = snippet
-        if asBlock {
-            let before = range.location > 0 ? text.substring(with: NSRange(location: 0, length: range.location)) : ""
-            let after = text.substring(from: range.location + range.length)
-            if !before.isEmpty && !before.hasSuffix("\n\n") { insertion = (before.hasSuffix("\n") ? "\n" : "\n\n") + insertion }
-            if !after.hasPrefix("\n\n") { insertion += after.hasPrefix("\n") ? "\n" : "\n\n" }
+        if let coordinator, coordinator.parent.embeds {
+            let source = EmbedProjection.source(of: storage) as NSString
+            let sourceRange = EmbedProjection.sourceRange(in: storage, display: range)
+            let insertion = asBlock ? MarkdownEdits.block(snippet, in: source, replacing: sourceRange) : snippet
+            if coordinator.replaceSource(sourceRange, with: insertion, expecting: nil, in: textView) { return }
         }
-        replace(range, with: insertion, selecting: nil)
-        // An inserted component or image becomes its card right away.
-        coordinator?.scheduleEmbedScan(after: 0)
+        let text = textView.text as NSString
+        replace(range, with: asBlock ? MarkdownEdits.block(snippet, in: text, replacing: range) : snippet, selecting: nil)
+    }
+
+    /// Whether the caret is inside written text, where components and HTML
+    /// go inline (as on desktop) rather than as a block of their own.
+    var caretInsideText: Bool {
+        guard let textView else { return false }
+        let storage = textView.textStorage
+        return MarkdownEdits.caretInsideText(textView.text as NSString, at: textView.selectedRange.location) { index in
+            (storage.attribute(.attachment, at: index, effectiveRange: nil) as? EmbedAttachment)?.embed.isCard == true
+        }
+    }
+
+    /// An empty HTML element to fill in (the desktop toolbar's Insert HTML):
+    /// a `<span>` inside text, a `<div>` block elsewhere.
+    func insertHtml() {
+        if caretInsideText {
+            insert("<span></span>")
+        } else {
+            insert("<div>\n</div>", asBlock: true)
+        }
+    }
+
+    func undo() {
+        guard let manager = textView?.undoManager, manager.canUndo else { return }
+        manager.undo()
+    }
+
+    func redo() {
+        guard let manager = textView?.undoManager, manager.canRedo else { return }
+        manager.redo()
     }
 
     func replace(_ range: NSRange, with string: String, selecting selection: NSRange?) {
@@ -126,19 +144,45 @@ final class MarkdownEditorController {
     // Edits insert and remove markers around the selection instead of
     // retyping it, so cards and pills inside it keep their source.
 
-    func wrap(_ marker: String, placeholder: String) {
+    private func apply(_ plan: MarkdownEdits.Plan) {
         guard let textView else { return }
-        let range = textView.selectedRange
-        let length = (marker as NSString).length
-        if range.length == 0 {
-            let selection = NSRange(location: range.location + length, length: (placeholder as NSString).length)
-            replace(range, with: marker + placeholder + marker, selecting: selection)
-            return
-        }
-        edit(NSRange(location: NSMaxRange(range), length: 0), with: marker)
-        edit(NSRange(location: range.location, length: 0), with: marker)
-        textView.selectedRange = NSRange(location: range.location + length, length: range.length)
+        for step in plan.edits { edit(step.range, with: step.replacement) }
+        textView.selectedRange = plan.selection
         changed()
+    }
+
+    /// Bold, italic or strikethrough on, or off inside a run of it.
+    func toggle(_ style: MarkdownEdits.Emphasis) {
+        guard let textView else { return }
+        apply(MarkdownEdits.toggle(style, in: textView.text as NSString, selection: textView.selectedRange))
+    }
+
+    func isActive(_ style: MarkdownEdits.Emphasis) -> Bool {
+        guard let textView else { return false }
+        return MarkdownEdits.isActive(style, in: textView.text as NSString, selection: textView.selectedRange)
+    }
+
+    var isInLink: Bool {
+        guard let textView else { return false }
+        return MarkdownEdits.unlink(in: textView.text as NSString, selection: textView.selectedRange) != nil
+    }
+
+    /// Removes the link around the selection, keeping its text.
+    func unlink() {
+        guard let textView,
+              let plan = MarkdownEdits.unlink(in: textView.text as NSString, selection: textView.selectedRange)
+        else { return }
+        apply(plan)
+    }
+
+    /// The link button: removes the link the caret is in, else adds one.
+    func toggleLink() {
+        if isInLink { unlink() } else { insertLink() }
+    }
+
+    var headingLevel: Int? {
+        guard let textView else { return nil }
+        return MarkdownEdits.headingLevel(in: textView.text as NSString, selection: textView.selectedRange)
     }
 
     /// Toggles a prefix on every selected line (`# `, `- `, `> `, `1. `).
@@ -202,11 +246,58 @@ final class MarkdownEditorController {
     }
 }
 
-/// The body's text view: notices width changes (cards are full width) and
-/// copies, cuts and pastes markdown, so a card pastes back as its source.
+/// The body's text view: notices width changes (cards are full width),
+/// copies, cuts and pastes markdown, so a card pastes back as its source,
+/// and takes the formatting shortcuts of a hardware keyboard.
 final class BodyTextView: UITextView {
     var onWidthChange: (() -> Void)?
+    /// Set on a markdown body: ⌘B, ⌘I, ⇧⌘X and ⌘K format it (as on the Mac,
+    /// only while it has focus), and ⌘Z/⇧⌘Z step through its undo history.
+    weak var formatting: MarkdownTextView.Coordinator?
     private var lastWidth: CGFloat = 0
+
+    override var keyCommands: [UIKeyCommand]? {
+        guard formatting != nil else { return super.keyCommands }
+        func command(_ title: String, _ input: String, _ flags: UIKeyModifierFlags, _ action: Selector) -> UIKeyCommand {
+            let command = UIKeyCommand(title: title, action: action, input: input, modifierFlags: flags)
+            command.wantsPriorityOverSystemBehavior = true
+            return command
+        }
+        return (super.keyCommands ?? []) + [
+            command("Bold", "b", .command, #selector(boldCommand)),
+            command("Italic", "i", .command, #selector(italicCommand)),
+            command("Strikethrough", "x", [.command, .shift], #selector(strikethroughCommand)),
+            command("Link", "k", .command, #selector(linkCommand)),
+            command("Undo", "z", .command, #selector(undoCommand)),
+            command("Redo", "z", [.command, .shift], #selector(redoCommand)),
+        ]
+    }
+
+    @objc private func boldCommand() { formatting?.format { $0.toggle(.bold) } }
+    @objc private func italicCommand() { formatting?.format { $0.toggle(.italic) } }
+    @objc private func strikethroughCommand() { formatting?.format { $0.toggle(.strikethrough) } }
+    @objc private func linkCommand() { formatting?.format { $0.toggleLink() } }
+    @objc private func undoCommand() { formatting?.format { $0.undo() } }
+    @objc private func redoCommand() { formatting?.format { $0.redo() } }
+
+    // The edit menu's Bold and Italic (and the system's ⌘B, ⌘I) write
+    // markdown too, rather than attributes the source can't keep.
+    override func toggleBoldface(_ sender: Any?) {
+        guard formatting != nil else { return super.toggleBoldface(sender) }
+        boldCommand()
+    }
+
+    override func toggleItalics(_ sender: Any?) {
+        guard formatting != nil else { return super.toggleItalics(sender) }
+        italicCommand()
+    }
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if formatting != nil, action == #selector(toggleBoldface(_:)) || action == #selector(toggleItalics(_:)) {
+            return isEditable
+        }
+        return super.canPerformAction(action, withSender: sender)
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -282,11 +373,12 @@ struct MarkdownTextView: UIViewRepresentable {
         textView.keyboardDismissMode = .interactive
         textView.alwaysBounceVertical = scrolls
         textView.text = text
+        context.coordinator.textView = textView
         textView.inputAccessoryView = styled ? context.coordinator.makeToolbar() : nil
+        if styled { textView.formatting = context.coordinator }
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         controller.textView = textView
         controller.coordinator = context.coordinator
-        context.coordinator.textView = textView
         if styled { MarkdownStyler.style(textView) }
         if embeds {
             // Dragging would carry cards out as bare attachments.
@@ -362,11 +454,31 @@ struct MarkdownTextView: UIViewRepresentable {
             parent.controller.onChange?(parent.embeds ? EmbedProjection.source(of: textView.textStorage) : textView.text)
             if parent.embeds { scheduleEmbedScan(after: 0.5) }
             scrollCaretIntoView(textView)
+            updateBar()
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
             if parent.embeds { markSelectedAttachments(in: textView) }
             scrollCaretIntoView(textView)
+            updateBar()
+        }
+
+        /// The bar and shortcuts edit the body being typed in (the form's
+        /// and the full-screen editor share a controller).
+        func textViewDidBeginEditing(_ textView: UITextView) {
+            parent.controller.textView = textView
+            parent.controller.coordinator = self
+            refreshBar()
+        }
+
+        /// Runs a formatting command on this coordinator's text view.
+        func format(_ command: (MarkdownEditorController) -> Void) {
+            guard let textView else { return }
+            let controller = parent.controller
+            controller.textView = textView
+            controller.coordinator = self
+            command(controller)
+            updateBar()
         }
 
         /// Backspace next to a card selects it; a second Backspace deletes it.
@@ -388,7 +500,7 @@ struct MarkdownTextView: UIViewRepresentable {
             pendingSource = source
             let shown = EmbedProjection.source(of: textView.textStorage)
             guard parent.embeds, let load = parent.controller.loadEmbeds else {
-                apply(source, embeds: [], to: textView, caret: nil)
+                apply(source, embeds: [], to: textView, caret: nil, undo: .clear)
                 pendingSource = nil
                 return
             }
@@ -396,7 +508,7 @@ struct MarkdownTextView: UIViewRepresentable {
                 let embeds = await load(source) ?? []
                 if self.pendingSource == source { self.pendingSource = nil }
                 guard EmbedProjection.source(of: textView.textStorage) == shown else { return }
-                self.apply(source, embeds: embeds, to: textView, caret: nil)
+                self.apply(source, embeds: embeds, to: textView, caret: nil, undo: .clear)
             }
         }
 
@@ -421,9 +533,7 @@ struct MarkdownTextView: UIViewRepresentable {
                     let embeds = await load?(next) ?? []
                     let now = EmbedProjection.source(of: textView.textStorage)
                     if now == current {
-                        let before = NSAttributedString(attributedString: textView.textStorage)
-                        self.apply(next, embeds: embeds, to: textView, caret: caret)
-                        self.registerUndo(restoring: before, in: textView)
+                        self.apply(next, embeds: embeds, to: textView, caret: caret, undo: .edit)
                         self.parent.controller.onChange?(next)
                         return
                     }
@@ -434,30 +544,105 @@ struct MarkdownTextView: UIViewRepresentable {
             return true
         }
 
-        /// A sheet's edit (Delete Component, a rewritten card) undoes like
-        /// typing: back to the text and cards as they were.
-        private func registerUndo(restoring snapshot: NSAttributedString, in textView: UITextView) {
-            guard let undoManager = textView.undoManager else { return }
-            let current = NSAttributedString(attributedString: textView.textStorage)
-            undoManager.registerUndo(withTarget: self) { coordinator in
-                coordinator.restore(snapshot, in: textView, redo: current)
+        // MARK: Undo
+        // Showing new cards replaces the text view's contents, which leaves
+        // UIKit's typing steps pointing at stale ranges, so they're cleared
+        // then. What they did isn't lost: the body keeps its own steps (a
+        // sheet's edit, an insert, the typing up to a new card), registers
+        // them again after each clear, and restores whole snapshots, which
+        // stay valid.
+
+        enum UndoRecord {
+            /// A load or a change from outside: no history before it.
+            case clear
+            /// Only the cards changed (typed text became one): the typing
+            /// since the last clear becomes one step.
+            case fold
+            /// An edit of the source (a sheet, an insert): a step of its
+            /// own, after one for the typing before it.
+            case edit
+        }
+
+        private struct UndoStep {
+            let id = UUID()
+            let before: NSAttributedString
+            let after: NSAttributedString
+        }
+
+        /// The body's steps on the undo stack, oldest first.
+        private var undoSteps: [UndoStep] = []
+        /// The text when UIKit's steps were last cleared.
+        private var undoBaseline: NSAttributedString?
+
+        private func record(_ kind: UndoRecord, before: NSAttributedString, after: NSAttributedString, in textView: UITextView) {
+            func foldTyping(upTo text: NSAttributedString) {
+                guard let baseline = undoBaseline,
+                      EmbedProjection.source(of: baseline) != EmbedProjection.source(of: text) else { return }
+                undoSteps.append(UndoStep(before: baseline, after: text))
+            }
+            switch kind {
+            case .clear:
+                undoSteps.removeAll()
+            case .fold:
+                foldTyping(upTo: after)
+            case .edit:
+                foldTyping(upTo: before)
+                undoSteps.append(UndoStep(before: before, after: after))
+            }
+            if undoSteps.count > 100 { undoSteps.removeFirst(undoSteps.count - 100) }
+            undoBaseline = after
+            guard let manager = textView.undoManager else { return }
+            manager.removeAllActions()
+            // One undo group per step, rather than one for everything
+            // registered in this event.
+            let byEvent = manager.groupsByEvent
+            manager.groupsByEvent = false
+            for step in undoSteps {
+                manager.beginUndoGrouping()
+                register(step, undoing: true, in: textView)
+                manager.endUndoGrouping()
+            }
+            manager.groupsByEvent = byEvent
+        }
+
+        private func register(_ step: UndoStep, undoing: Bool, in textView: UITextView) {
+            textView.undoManager?.registerUndo(withTarget: self) { [weak textView] coordinator in
+                guard let textView else { return }
+                coordinator.perform(step, undoing: undoing, in: textView)
             }
         }
 
-        private func restore(_ snapshot: NSAttributedString, in textView: UITextView, redo: NSAttributedString) {
-            textView.undoManager?.registerUndo(withTarget: self) { coordinator in
-                coordinator.restore(redo, in: textView, redo: snapshot)
+        /// Undoes or redoes one of the body's steps.
+        private func perform(_ step: UndoStep, undoing: Bool, in textView: UITextView) {
+            register(step, undoing: !undoing, in: textView)
+            if undoing {
+                if let index = undoSteps.lastIndex(where: { $0.id == step.id }) { undoSteps.removeSubrange(index...) }
+            } else {
+                undoSteps.append(step)
             }
+            let snapshot = undoing ? step.before : step.after
             let storage = textView.textStorage
+            let previous = storage.string as NSString
             textView.inputDelegate?.textWillChange(textView)
             storage.beginEditing()
             storage.setAttributedString(snapshot)
             storage.endEditing()
             textView.inputDelegate?.textDidChange(textView)
+            undoBaseline = snapshot
             renderAttachments(in: textView)
             if parent.styled { MarkdownStyler.style(textView) }
+            // The caret goes to the end of what changed back.
+            let next = storage.string as NSString
+            var prefix = 0
+            while prefix < min(previous.length, next.length), previous.character(at: prefix) == next.character(at: prefix) { prefix += 1 }
+            var suffix = 0
+            while suffix < min(previous.length, next.length) - prefix,
+                  previous.character(at: previous.length - 1 - suffix) == next.character(at: next.length - 1 - suffix) { suffix += 1 }
+            textView.selectedRange = NSRange(location: max(prefix, next.length - suffix), length: 0)
             textView.invalidateIntrinsicContentSize()
             parent.controller.onChange?(EmbedProjection.source(of: storage))
+            scrollCaretIntoView(textView)
+            updateBar()
         }
 
         /// Turns completed elements typed (or inserted) as text into cards,
@@ -484,12 +669,13 @@ struct MarkdownTextView: UIViewRepresentable {
                 let fresh = embeds.map { EmbedProjection.key(start: $0.start, end: $0.end, embed: $0) }
                 guard fresh != EmbedProjection.shownKeys(in: storage) else { return }
                 let caret = EmbedProjection.sourceOffset(in: storage, display: NSMaxRange(textView.selectedRange))
-                self.apply(source, embeds: embeds, to: textView, caret: caret)
+                self.apply(source, embeds: embeds, to: textView, caret: caret, undo: .fold)
             }
         }
 
-        private func apply(_ source: String, embeds: [BodyEmbed], to textView: UITextView, caret: Int?) {
+        private func apply(_ source: String, embeds: [BodyEmbed], to textView: UITextView, caret: Int?, undo: UndoRecord) {
             let storage = textView.textStorage
+            let before = NSAttributedString(attributedString: storage)
             let previousCaret = EmbedProjection.sourceOffset(in: storage, display: textView.selectedRange.location)
             let font = textView.font ?? .preferredFont(forTextStyle: .body)
             let shown = EmbedProjection.attachments(in: storage).map(\.0)
@@ -505,10 +691,10 @@ struct MarkdownTextView: UIViewRepresentable {
             if parent.styled { MarkdownStyler.style(textView) }
             let target = min(caret ?? previousCaret, (source as NSString).length)
             textView.selectedRange = NSRange(location: EmbedProjection.displayOffset(in: storage, source: target), length: 0)
-            // Programmatic edits leave UIKit's undo ranges stale.
-            textView.undoManager?.removeAllActions()
+            record(undo, before: before, after: NSAttributedString(attributedString: storage), in: textView)
             textView.invalidateIntrinsicContentSize()
             textView.alpha = 1
+            updateBar()
         }
 
         private func embedWidth(_ textView: UITextView) -> CGFloat {
@@ -613,63 +799,182 @@ struct MarkdownTextView: UIViewRepresentable {
             }
         }
 
-        func makeToolbar() -> UIToolbar {
+        // MARK: The formatting bar
+
+        private weak var toolbar: UIToolbar?
+        private weak var boldItem: UIBarButtonItem?
+        private weak var italicItem: UIBarButtonItem?
+        private weak var linkItem: UIBarButtonItem?
+        private weak var undoItem: UIBarButtonItem?
+        /// Whether the bar was built with the component button.
+        private var barHasComponents: Bool?
+
+        /// The bar above the keyboard, a few points clear of it.
+        func makeToolbar() -> UIView {
             let toolbar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
-            let controller = parent.controller
-            // Each item carries a title as well as its symbol: the bar shows
-            // the symbol, and the overflow menu (iOS 26 collapses what doesn't
-            // fit into "•••") and VoiceOver use the title.
-            func item(_ symbol: String, _ label: String, _ action: @escaping () -> Void) -> UIBarButtonItem {
-                UIBarButtonItem(title: label, image: UIImage(systemName: symbol), primaryAction: UIAction { _ in action() })
-            }
-            func menuItem(_ symbol: String, _ label: String, _ menu: UIMenu) -> UIBarButtonItem {
-                let button = UIBarButtonItem(title: label, image: UIImage(systemName: symbol), menu: menu)
-                // Menus open upward from the keyboard; keep them in reading
-                // order (Heading 1 on top) rather than nearest-first.
-                button.preferredMenuElementOrder = .fixed
-                return button
-            }
-            let headings = UIMenu(title: "Heading", children: (1...4).map { level in
-                UIAction(title: "Heading \(level)", image: UIImage(systemName: "\(level).square")) { _ in
-                    controller.prefixLines(String(repeating: "#", count: level) + " ")
-                }
-            })
-            let heading = menuItem("textformat.size", "Heading", headings)
-            let lists = UIMenu(children: [
-                UIAction(title: "Bulleted List", image: UIImage(systemName: "list.bullet")) { _ in controller.prefixLines("- ") },
-                UIAction(title: "Numbered List", image: UIImage(systemName: "list.number")) { _ in controller.prefixLines("1. ") },
-                UIAction(title: "Quote", image: UIImage(systemName: "text.quote")) { _ in controller.prefixLines("> ") },
-                UIAction(title: "Code Block", image: UIImage(systemName: "curlybraces")) { _ in controller.insert("```\n\n```", asBlock: true) },
-                UIAction(title: "Divider", image: UIImage(systemName: "minus")) { _ in controller.insert("---", asBlock: true) },
-            ])
-            let block = menuItem("list.bullet", "Blocks", lists)
-            var items: [UIBarButtonItem] = [
-                heading,
-                item("bold", "Bold") { controller.wrap("**", placeholder: "bold") },
-                item("italic", "Italic") { controller.wrap("_", placeholder: "italic") },
-                block,
-                item("link", "Link") { controller.insertLink() },
-                item("photo", "Insert media") { controller.onRequestImage?() },
-            ]
-            if controller.componentsEnabled {
-                let components = UIMenu(children: [
-                    UIAction(title: "Insert Component", image: UIImage(systemName: "plus.square.on.square")) { _ in
-                        controller.onRequestComponent?()
-                    },
-                    UIAction(title: "Edit Component at Cursor", image: UIImage(systemName: "slider.horizontal.3")) { _ in
-                        controller.requestEditComponent()
-                    },
-                ])
-                let component = menuItem("square.on.square", "Components", components)
-                items.append(component)
-            }
-            items.append(.flexibleSpace())
-            items.append(item("keyboard.chevron.compact.down", "Hide keyboard") { controller.textView?.resignFirstResponder() })
-            let spaced = items.flatMap { [$0, .fixedSpace(4)] }.dropLast()
-            toolbar.items = Array(spaced)
+            self.toolbar = toolbar
+            buildBar()
             toolbar.sizeToFit()
-            return toolbar
+            return KeyboardBarHost(toolbar: toolbar, gap: 8)
         }
+
+        /// The bar's items: few enough to fit an iPhone, with the rarer
+        /// commands in the Format menu. Each item has a title as well as its
+        /// symbol: the bar shows the symbol, and VoiceOver and the overflow
+        /// menu (iOS 26 collapses what doesn't fit into "•••", from the end)
+        /// use the title.
+        private func buildBar() {
+            guard let toolbar else { return }
+            let components = parent.controller.componentsEnabled
+            guard barHasComponents != components else { return }
+            barHasComponents = components
+            func item(_ symbol: String, _ title: String, _ command: @escaping (MarkdownEditorController) -> Void) -> UIBarButtonItem {
+                UIBarButtonItem(title: title, image: UIImage(systemName: symbol), primaryAction: UIAction { [weak self] _ in
+                    self?.format(command)
+                })
+            }
+            let format = UIBarButtonItem(title: "Format", image: UIImage(systemName: "textformat"), menu: UIMenu(children: [
+                // Built as it opens, so it shows the caret's heading and styles.
+                UIDeferredMenuElement.uncached { [weak self] completion in completion(self?.formatMenu() ?? []) },
+            ]))
+            // Menus open upward from the keyboard; keep them in reading
+            // order (Heading 1 above Heading 2) rather than nearest-first.
+            format.preferredMenuElementOrder = .fixed
+            let bold = item("bold", "Bold") { $0.toggle(.bold) }
+            let italic = item("italic", "Italic") { $0.toggle(.italic) }
+            let link = item("link", "Link") { $0.toggleLink() }
+            boldItem = bold
+            italicItem = italic
+            linkItem = link
+            var groups: [[UIBarButtonItem]] = [[format, bold, italic, link]]
+            var insert = [item("photo", "Insert Media") { $0.onRequestImage?() }]
+            // Tapping a component's card edits it, so the bar only inserts.
+            if components { insert.append(item("square.on.square", "Insert Component") { $0.onRequestComponent?() }) }
+            groups.append(insert)
+            // Last, so it's the first to fold into "•••" on a narrow phone.
+            // Redo is a long press away. iPad's shortcuts bar above the
+            // keyboard already has both.
+            if UIDevice.current.userInterfaceIdiom == .phone {
+                let undo = item("arrow.uturn.backward", "Undo") { $0.undo() }
+                undo.menu = UIMenu(children: [
+                    UIDeferredMenuElement.uncached { [weak self] completion in completion(self?.historyMenu() ?? []) },
+                ])
+                undo.preferredMenuElementOrder = .fixed
+                undoItem = undo
+                groups.append([undo])
+            }
+            var items = Array(groups.map { $0 + [.fixedSpace(8)] }.joined().dropLast())
+            items.append(.flexibleSpace())
+            items.append(item("keyboard.chevron.compact.down", "Hide Keyboard") { $0.textView?.resignFirstResponder() })
+            toolbar.items = items
+            updateBar()
+        }
+
+        private func formatMenu() -> [UIMenuElement] {
+            guard let textView else { return [] }
+            let text = textView.text as NSString
+            let selection = textView.selectedRange
+            func action(_ title: String, _ symbol: String, on: Bool = false, _ command: @escaping (MarkdownEditorController) -> Void) -> UIAction {
+                UIAction(title: title, image: UIImage(systemName: symbol), state: on ? .on : .off) { [weak self] _ in
+                    self?.format(command)
+                }
+            }
+            var styles = [
+                action("Strikethrough", "strikethrough", on: MarkdownEdits.isActive(.strikethrough, in: text, selection: selection)) {
+                    $0.toggle(.strikethrough)
+                },
+            ]
+            if MarkdownEdits.unlink(in: text, selection: selection) != nil {
+                styles.append(action("Remove Link", "minus.circle") { $0.unlink() })
+            }
+            let level = MarkdownEdits.headingLevel(in: text, selection: selection)
+            let headings = (1...4).map { size in
+                action("Heading \(size)", "\(size).square", on: level == size) {
+                    $0.prefixLines(String(repeating: "#", count: size) + " ")
+                }
+            }
+            let blocks = [
+                action("Bulleted List", "list.bullet") { $0.prefixLines("- ") },
+                action("Numbered List", "list.number") { $0.prefixLines("1. ") },
+                action("Quote", "text.quote") { $0.prefixLines("> ") },
+                action("Code Block", "curlybraces") { $0.insert("```\n\n```", asBlock: true) },
+                action("Divider", "minus") { $0.insert("---", asBlock: true) },
+            ]
+            let insert = [action("Insert HTML", "chevron.left.forwardslash.chevron.right") { $0.insertHtml() }]
+            return [styles, headings, blocks, insert].map { UIMenu(options: .displayInline, children: $0) }
+        }
+
+        private func historyMenu() -> [UIMenuElement] {
+            let manager = textView?.undoManager
+            func action(_ title: String, _ symbol: String, enabled: Bool, _ command: @escaping (MarkdownEditorController) -> Void) -> UIAction {
+                UIAction(title: title, image: UIImage(systemName: symbol), attributes: enabled ? [] : .disabled) { [weak self] _ in
+                    self?.format(command)
+                }
+            }
+            return [
+                action("Undo", "arrow.uturn.backward", enabled: manager?.canUndo == true) { $0.undo() },
+                action("Redo", "arrow.uturn.forward", enabled: manager?.canRedo == true) { $0.redo() },
+            ]
+        }
+
+        /// Bold, Italic and Link show whether the caret is in one (tapping
+        /// then takes it off); Undo whether there's anything to undo or redo
+        /// (its long press redoes).
+        private func updateBar() {
+            guard toolbar != nil, let textView else { return }
+            let text = textView.text as NSString
+            let selection = textView.selectedRange
+            func set(_ item: UIBarButtonItem?, _ selected: Bool) {
+                if let item, item.isSelected != selected { item.isSelected = selected }
+            }
+            set(boldItem, MarkdownEdits.isActive(.bold, in: text, selection: selection))
+            set(italicItem, MarkdownEdits.isActive(.italic, in: text, selection: selection))
+            let inLink = MarkdownEdits.unlink(in: text, selection: selection) != nil
+            set(linkItem, inLink)
+            let linkTitle = inLink ? "Remove Link" : "Link"
+            if linkItem?.title != linkTitle { linkItem?.title = linkTitle }
+            updateHistoryItems()
+            // UIKit records typing after telling the delegate.
+            DispatchQueue.main.async { [weak self] in self?.updateHistoryItems() }
+        }
+
+        private func updateHistoryItems() {
+            guard let undoItem, let manager = textView?.undoManager else { return }
+            // Still enabled with only a redo left, so its long press can reach it.
+            let enabled = manager.canUndo || manager.canRedo
+            if undoItem.isEnabled != enabled { undoItem.isEnabled = enabled }
+        }
+
+        /// The component button follows the document (wired after the text
+        /// view is made).
+        func refreshBar() {
+            buildBar()
+            updateBar()
+        }
+    }
+}
+
+/// Holds the formatting bar a few points above the keyboard rather than on
+/// it; the gap doesn't take touches.
+private final class KeyboardBarHost: UIView {
+    private let toolbar: UIToolbar
+
+    init(toolbar: UIToolbar, gap: CGFloat) {
+        self.toolbar = toolbar
+        super.init(frame: CGRect(x: 0, y: 0, width: toolbar.frame.width, height: toolbar.frame.height + gap))
+        autoresizingMask = .flexibleWidth
+        backgroundColor = .clear
+        toolbar.frame = CGRect(x: 0, y: 0, width: bounds.width, height: toolbar.frame.height)
+        toolbar.autoresizingMask = [.flexibleWidth, .flexibleBottomMargin]
+        addSubview(toolbar)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        toolbar.frame.contains(point)
     }
 }
 
@@ -693,6 +998,7 @@ enum MarkdownStyler {
             (regex(#"(?<![*\w])\*[^*\s][^*\n]*\*(?!\*)|(?<![_\w])_[^_\s][^_\n]*_(?!\w)"#), { font in
                 [.font: font.withTraits(.traitItalic)]
             }),
+            (regex(#"~~[^~\n]+~~"#), { _ in [.strikethroughStyle: NSUnderlineStyle.single.rawValue] }),
             (regex(#"`[^`\n]+`"#), { font in
                 [.font: UIFont.monospacedSystemFont(ofSize: font.pointSize * 0.92, weight: .regular),
                  .backgroundColor: UIColor.tertiarySystemFill]

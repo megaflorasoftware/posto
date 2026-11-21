@@ -576,10 +576,13 @@ export function componentFormStore(): MetadataForm {
 
 /** The JSX to insert (or the range it replaces, when editing), and the
  * import the document now needs. `slots` carries edited children; without
- * it (or when nothing changed) the children are kept verbatim. */
+ * it (or when nothing changed) the children are kept verbatim. An `inline`
+ * insert (the cursor is inside text) is `<Name />` on one line, as the
+ * desktop editor inserts there, rather than a block with room for children. */
 export function finishComponent(
   repo: RepoSession,
   slots?: SlotText[],
+  inline = false,
 ): {
   snippet: string;
   range: [number, number] | null;
@@ -622,8 +625,8 @@ export function finishComponent(
       range: [start, end],
     };
   }
-  const empty = pending.hasDefaultSlot || pending.slots.length > 0 ? "\n" : null;
-  const children = edited ? (childrenFrom(slots!, true) ?? empty) : empty;
+  const empty = !inline && (pending.hasDefaultSlot || pending.slots.length > 0) ? "\n" : null;
+  const children = edited ? (childrenFrom(slots!, !inline) ?? empty) : empty;
   if (source && !document.hasImportFor(pending.name)) {
     document.addImport(source.importFor({ name: pending.name, path: pending.path }, document.path));
   }

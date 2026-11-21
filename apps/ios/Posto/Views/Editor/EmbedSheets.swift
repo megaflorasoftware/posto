@@ -60,18 +60,39 @@ struct EmbedSourceView: View {
     }
 }
 
+/// The image-library entry a body image shows (`body.imageAsset`).
+private struct BodyLibraryAsset: Decodable {
+    let library: String
+    let asset: LibraryAsset
+}
+
+/// A library entry open in the asset editor.
+private struct LibraryAssetEdit: Identifiable {
+    let media: MediaModel
+    let item: MediaItem
+    var id: String { item.id }
+}
+
 /// An image in the body: its preview, alt text and source, a replacement
-/// from the media libraries, or the raw markdown.
+/// from the media libraries, or the raw markdown. An image from an image
+/// library also opens the library's editor (metadata, rename, delete), as
+/// on desktop.
 struct EmbedImageView: View {
     let document: DocumentModel
     let card: EmbedEdit
     /// The image's new markdown; empty removes it.
     let onSave: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
     @State private var alt = ""
     @State private var src = ""
     @State private var pickedPath: String?
     @State private var replacing = false
     @State private var confirmingRemove = false
+    @State private var libraryAsset: BodyLibraryAsset?
+    @State private var editingLibraryAsset: LibraryAssetEdit?
+    /// Set once the library's editor has been open: its changes (a new alt
+    /// text, a rename) rewrite the body, and this card with it.
+    @State private var libraryRevision: Int?
 
     var body: some View {
         Form {
@@ -93,6 +114,17 @@ struct EmbedImageView: View {
                     .font(.system(.callout, design: .monospaced))
                     .autocorrectionDisabled()
                     .noAutocapitalization()
+            }
+            if let libraryAsset {
+                Section {
+                    Button {
+                        Task { await editInLibrary(libraryAsset) }
+                    } label: {
+                        Label("Edit Library Image…", systemImage: "photo.stack")
+                    }
+                } footer: {
+                    Text("\(libraryAsset.asset.entryId) in the \(libraryAsset.library) library: its alt text and details. Renaming it updates every document that uses it.")
+                }
             }
             Section {
                 Button {
@@ -120,27 +152,64 @@ struct EmbedImageView: View {
         }
         .sheet(isPresented: $replacing) {
             Group {
-                BodyMediaPicker(repo: document.repo) { path, url, pickedAlt, _ in
+                BodyMediaPicker(repo: document.repo, title: "Replace Image", imagesOnly: true) { pick in
                     Task {
-                        if let url {
+                        if let url = pick.url {
                             src = url
                             pickedPath = nil
-                        } else if let path, let value = await document.bodyMediaValue(for: path) {
+                        } else if let path = pick.path, let value = await document.bodyMediaValue(for: path) {
                             src = value
                             pickedPath = path
                         }
-                        if alt.isEmpty { alt = pickedAlt }
+                        if alt.isEmpty { alt = pick.defaultAlt }
                     }
                 }
+            }
+            .macSheetSizing()
+        }
+        .sheet(item: $editingLibraryAsset, onDismiss: libraryEditorClosed) { edit in
+            Group {
+                AssetEditorSheet(media: edit.media, item: edit.item)
             }
             .macSheetSizing()
         }
         .confirmationDialog("Remove this image?", isPresented: $confirmingRemove, titleVisibility: .visible) {
             Button("Remove Image", role: .destructive) { onSave("") }
         }
+        // The library's edit reached the body (it reloads as its references
+        // are rewritten): this card's source is out of date.
+        .onChange(of: document.view.revision) { _, revision in
+            if let libraryRevision, revision != libraryRevision, editingLibraryAsset == nil { dismiss() }
+        }
         .onAppear {
             alt = card.embed.alt ?? ""
             src = card.embed.src ?? ""
+        }
+        .task {
+            guard let src = card.embed.src, !src.isEmpty else { return }
+            libraryAsset = try? await document.engine.call("body.imageAsset", ["src": .string(src)])
+        }
+    }
+
+    /// Opens the library's editor for this image, as an image-library
+    /// reference field does; the body's pending text is saved first, since
+    /// a rename rewrites it on disk.
+    private func editInLibrary(_ found: BodyLibraryAsset) async {
+        await document.flush()
+        let media = MediaModel(repo: document.repo)
+        media.selectTabWithoutLoading(found.library)
+        libraryRevision = document.view.revision
+        let asset = found.asset
+        editingLibraryAsset = LibraryAssetEdit(
+            media: media,
+            item: MediaItem(id: asset.metadataPath, name: asset.name, imagePath: asset.imagePath, imageUrl: asset.imageUrl, kind: "image", problem: nil)
+        )
+    }
+
+    private func libraryEditorClosed() {
+        Task {
+            await document.reload()
+            if let libraryRevision, document.view.revision != libraryRevision { dismiss() }
         }
     }
 
@@ -162,15 +231,21 @@ struct EmbedImageView: View {
     }
 
     /// `![alt](src "title")` with the new alt text and source, keeping the
-    /// original title.
+    /// original title, escaped as the engine writes inserted images.
     private var markdown: String {
         let source = card.source as NSString
         let pattern = try? NSRegularExpression(pattern: #"\s+("[^"\n]*"|'[^'\n]*')\s*\)$"#)
         let match = pattern?.firstMatch(in: card.source, range: NSRange(location: 0, length: source.length))
         let title = match.map { " " + source.substring(with: $0.range(at: 1)) } ?? ""
         let trimmed = src.trimmingCharacters(in: .whitespaces)
-        let target = trimmed.contains(" ") ? "<\(trimmed)>" : trimmed
-        let text = alt.replacingOccurrences(of: "]", with: "\\]").replacingOccurrences(of: "\n", with: " ")
+        let target = trimmed.rangeOfCharacter(from: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "()<>"))) != nil
+            ? "<\(trimmed.replacingOccurrences(of: "<", with: "%3C").replacingOccurrences(of: ">", with: "%3E"))>"
+            : trimmed
+        let text = alt
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "[", with: "\\[")
+            .replacingOccurrences(of: "]", with: "\\]")
+            .components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
         return "![\(text)](\(target)\(title))"
     }
 }
