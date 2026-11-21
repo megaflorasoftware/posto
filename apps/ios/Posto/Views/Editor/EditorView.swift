@@ -149,13 +149,25 @@ struct EditorView: View {
     private func wireController() {
         controller.onChange = { [document] text in document.bodyChanged(text) }
         rawController.onChange = { [document] text in document.rawChanged(text) }
-        controller.onRequestImage = { insertingMedia = true }
-        controller.onRequestComponent = { insertingComponent = true }
-        controller.onRequestEditComponent = { text, offset in
+        // Each sheet ends editing first: a body that keeps focus behind a
+        // sheet takes it back as a nested sheet (Photos, an import) closes,
+        // and its keyboard bar then loops the sheet's layout. The caret is
+        // kept, so inserts still land there.
+        controller.onRequestImage = { [controller] in
+            controller.endEditing()
+            insertingMedia = true
+        }
+        controller.onRequestComponent = { [controller] in
+            controller.endEditing()
+            insertingComponent = true
+        }
+        controller.onRequestEditComponent = { [controller] text, offset in
+            controller.endEditing()
             editingComponent = ComponentEdit(text: text, offset: offset, start: nil, card: nil)
         }
         controller.componentsEnabled = document.view.body?.componentBlocks == true
-        controller.onOpenEmbed = { attachment, source, range in
+        controller.onOpenEmbed = { [controller] attachment, source, range in
+            controller.endEditing()
             let card = EmbedEdit(embed: attachment.embed, source: attachment.source, range: range)
             if attachment.embed.kind == "component" {
                 editingComponent = ComponentEdit(text: source, offset: range.location, start: range.location, card: card)

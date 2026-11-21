@@ -1,9 +1,11 @@
+import PhotosUI
 import SwiftUI
 
 /// Resolves an image value (site path, document-relative path, or CDN URL)
-/// to something displayable, through the engine's media rules.
+/// to something displayable, through the engine's media rules. Works in
+/// any form: a component's props resolve against the open document.
 struct FieldImagePreview: View {
-    let document: DocumentModel
+    let sink: any FormSink
     let path: [PathKey]
     let value: String
     @State private var preview: ImagePreview?
@@ -11,15 +13,17 @@ struct FieldImagePreview: View {
     var body: some View {
         Thumbnail(path: preview?.path, url: preview?.url, maxPixels: 300)
             .task(id: value) {
-                preview = try? await document.engine.call("doc.imagePreview", ["path": path.json, "value": .string(value)])
+                preview = try? await sink.engine.call("form.imagePreview", [
+                    "form": .string(sink.formTarget), "path": path.json, "value": .string(value),
+                ])
             }
     }
 }
 
 /// An image field: the current image with a picker over the field's media
-/// folder.
+/// folder (the desktop editor's image field and its picker).
 struct ImageFieldRow: View {
-    let document: DocumentModel
+    let sink: any FormSink
     let field: FieldView
     let path: [PathKey]
     let value: String
@@ -31,7 +35,7 @@ struct ImageFieldRow: View {
             picking = true
         } label: {
             HStack(spacing: 12) {
-                FieldImagePreview(document: document, path: path, value: value)
+                FieldImagePreview(sink: sink, path: path, value: value)
                     .frame(width: 64, height: 64)
                     .clipShape(.rect(cornerRadius: 8))
                 VStack(alignment: .leading, spacing: 2) {
@@ -49,8 +53,8 @@ struct ImageFieldRow: View {
         .disabled(field.locked)
         .sheet(isPresented: $picking) {
             Group {
-                ImageChoiceSheet(document: document, path: path, hasValue: !value.isEmpty) { picked in
-                    Task { await document.edit(path, picked.map(JSONValue.string)) }
+                ImageChoiceSheet(sink: sink, path: path, hasValue: !value.isEmpty) { picked in
+                    Task { await sink.edit(path, picked.map(JSONValue.string)) }
                 }
             }
             .macSheetSizing()
@@ -58,9 +62,10 @@ struct ImageFieldRow: View {
     }
 }
 
-/// The photo button beside text fields named like images (`src`, `image`).
+/// The photo button beside text fields named like images (`src`, `image`),
+/// the desktop editor's "Choose image".
 struct ImageChooserButton: View {
-    let document: DocumentModel
+    let sink: any FormSink
     let path: [PathKey]
     let onPick: (String?) -> Void
     @State private var picking = false
@@ -75,7 +80,7 @@ struct ImageChooserButton: View {
         .accessibilityLabel("Choose image")
         .sheet(isPresented: $picking) {
             Group {
-                ImageChoiceSheet(document: document, path: path, hasValue: true, onPick: onPick)
+                ImageChoiceSheet(sink: sink, path: path, hasValue: true, onPick: onPick)
             }
             .macSheetSizing()
         }
@@ -84,7 +89,7 @@ struct ImageChooserButton: View {
 
 /// A grid of the images in a field's media folder.
 struct ImageChoiceSheet: View {
-    let document: DocumentModel
+    let sink: any FormSink
     let path: [PathKey]
     let hasValue: Bool
     let onPick: (String?) -> Void
@@ -105,7 +110,7 @@ struct ImageChoiceSheet: View {
                     .padding()
                 }
                 if showingCdn, let source = choices?.cdnSource {
-                    CdnBrowser(engine: document.engine, source: source) { url in
+                    CdnBrowser(engine: sink.engine, source: source) { url in
                         onPick(url)
                         dismiss()
                     }
@@ -128,7 +133,7 @@ struct ImageChoiceSheet: View {
             }
             .task {
                 do {
-                    choices = try await document.engine.call("doc.imageChoices", ["path": path.json])
+                    choices = try await sink.engine.call("form.imageChoices", ["form": .string(sink.formTarget), "path": path.json])
                 } catch {
                     self.error = error.localizedDescription
                 }
@@ -339,7 +344,7 @@ struct ReferenceFieldRow: View {
             }
             .sheet(isPresented: $pickingAsset) {
                 Group {
-                    LibraryAssetPicker(engine: document.engine, library: library, allowClear: !value.isEmpty && !field.required) { entryId in
+                    LibraryAssetPicker(repo: document.repo, library: library, allowClear: !value.isEmpty && !field.required) { entryId in
                         Task { await document.edit(path, entryId.map(JSONValue.string)) }
                     }
                 }
@@ -425,13 +430,20 @@ struct LibraryAssetThumbnail: View {
 
 /// Every usable image in a library, searchable, for picking an entry id.
 struct LibraryAssetPicker: View {
-    let engine: Engine
+    let repo: RepoModel
     let library: String
     let allowClear: Bool
     let onPick: (String?) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var assets: [LibraryAsset]?
     @State private var query = ""
+    @State private var choosingPhotos = false
+    @State private var photoSelection: [PhotosPickerItem] = []
+    @State private var importMedia: MediaModel?
+    @State private var importing: ImportRequest?
+    @State private var preparing = false
+    /// Referenced once the import sheet has closed.
+    @State private var importedEntry: String?
 
     var body: some View {
         NavigationStack {
@@ -456,8 +468,14 @@ struct LibraryAssetPicker: View {
                 .padding()
             }
             .overlay {
-                if assets == nil { ProgressView() }
-                else if shown.isEmpty { ContentUnavailableView.search(text: query) }
+                if assets == nil || preparing { ProgressView() }
+                else if shown.isEmpty {
+                    if query.isEmpty {
+                        ContentUnavailableView("No images yet", systemImage: "photo", description: Text("Import one from Photos."))
+                    } else {
+                        ContentUnavailableView.search(text: query)
+                    }
+                }
             }
             .searchable(text: $query)
             .navigationTitle(library)
@@ -472,9 +490,49 @@ struct LibraryAssetPicker: View {
                         }
                     }
                 }
+                // The desktop picker's Import image: add one from Photos to
+                // the library, then reference it.
+                ToolbarItem(placement: .barTrailing) {
+                    Button {
+                        choosingPhotos = true
+                    } label: {
+                        Label("Import from Photos", systemImage: "plus")
+                    }
+                }
             }
-            .task { assets = (try? await engine.call("media.libraryAssets", ["library": .string(library)])) ?? [] }
+            .photosPicker(isPresented: $choosingPhotos, selection: $photoSelection, maxSelectionCount: 1, matching: .images, photoLibrary: .shared())
+            .onChange(of: photoSelection) { _, items in
+                guard let item = items.first else { return }
+                photoSelection = []
+                Task { await prepareImport(item) }
+            }
+            .sheet(item: $importing, onDismiss: {
+                guard let entryId = importedEntry else { return }
+                importedEntry = nil
+                onPick(entryId)
+                dismiss()
+            }) { request in
+                Group {
+                    if let importMedia {
+                        LibraryImportSheet(media: importMedia, request: request) { imported in
+                            importedEntry = imported.first?.entryId
+                        }
+                    }
+                }
+                .macSheetSizing()
+            }
+            .task { assets = (try? await repo.engine.call("media.libraryAssets", ["library": .string(library)])) ?? [] }
         }
+    }
+
+    private func prepareImport(_ item: PhotosPickerItem) async {
+        preparing = true
+        defer { preparing = false }
+        guard let path = await PhotoImport.temporaryFile(for: item, index: 0, engine: repo.engine) else { return }
+        let media = MediaModel(repo: repo)
+        media.selectTabWithoutLoading(library)
+        importMedia = media
+        importing = ImportRequest(tab: library, folder: "", sources: [path])
     }
 }
 

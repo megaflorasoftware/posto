@@ -517,12 +517,17 @@ export class DocumentSession {
     return { path: inside(resolved ?? `${this.host.root}/public${decoded}`), url: null };
   }
 
-  /** Where an image value can be previewed: a local absolute path or URL. */
-  imagePreview(path: ValuePath, value: string): { path: string | null; url: string | null } {
+  /** Where an image value can be previewed: a local absolute path or URL.
+   * `field` is the field at `path` in another form (a component's props),
+   * resolved against this document's entry as on desktop. */
+  imagePreview(
+    path: ValuePath,
+    value: string,
+    field: Field | null = this.fieldAtPath(path),
+  ): { path: string | null; url: string | null } {
     if (!value) return { path: null, url: null };
     if (isRemoteMediaUrl(value)) return { path: null, url: value };
     const config = this.host.config();
-    const field = this.fieldAtPath(path);
     const values = this.templateValues();
     const media = field ? resolveMedia(config, field, this.entry, values) : null;
     const valueMedia = field
@@ -547,14 +552,17 @@ export class DocumentSession {
     return { path: resolved, url: null };
   }
 
-  /** The images an image field can pick from its media folder. */
-  async imageChoices(path: ValuePath): Promise<{
+  /** The images an image field can pick from its media folder (`field`
+   * as for imagePreview). */
+  async imageChoices(
+    path: ValuePath,
+    field: Field | null = this.fieldAtPath(path),
+  ): Promise<{
     media: { name: string; label: string | null; input: string } | null;
     files: Array<{ name: string; path: string; value: string }>;
     /** Set when picked images belong on a CDN, which can be browsed too. */
     cdnSource: CdnSource | null;
   }> {
-    const field = this.fieldAtPath(path);
     const config = this.host.config();
     const media = field
       ? resolveMedia(config, field, this.entry, this.templateValues())

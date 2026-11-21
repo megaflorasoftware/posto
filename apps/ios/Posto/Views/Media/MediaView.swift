@@ -31,7 +31,9 @@ struct MediaView: View {
 struct MediaBrowser: View {
     enum Mode {
         case manage
-        case pick((MediaItem) -> Void)
+        /// Picks an item: one shown, or one just imported into the open tab
+        /// (with its library alt text), as the desktop picker's Import does.
+        case pick((MediaItem, String?) -> Void)
 
         var isManaging: Bool {
             if case .manage = self { return true }
@@ -53,6 +55,9 @@ struct MediaBrowser: View {
     @State private var editingAsset: MediaItem?
     @State private var editingFile: MediaItem?
     @State private var preparing = false
+    /// An import made while picking, picked once its sheet has closed (a
+    /// picker closing itself mid-transition would stay open).
+    @State private var importedPick: (item: MediaItem, alt: String?)?
 
     private let columns = [GridItem(.adaptive(minimum: 104), spacing: 10)]
 
@@ -60,7 +65,7 @@ struct MediaBrowser: View {
         withPickers(withSheets(grid
             .overlay { overlayContent }
             .refreshable { await media.load(reload: true) }
-            .toolbar { if mode.isManaging { manageToolbar } }
+            .toolbar { if mode.isManaging { manageToolbar } else { pickToolbar } }
             .toolbarGroups(.bottomControls, gap: .flexible, active: mode.isManaging && !media.readOnly && media.selecting) {
                 Button(media.everythingSelected ? "Deselect All" : "Select All") { media.toggleAll() }
             } then: {
@@ -149,9 +154,18 @@ struct MediaBrowser: View {
                 }
                 .macSheetSizing()
             }
-            .sheet(item: $importing) { request in
+            .sheet(item: $importing, onDismiss: {
+                // Picking: the image just imported is the pick.
+                guard case .pick(let pick) = mode, let picked = importedPick else { return }
+                importedPick = nil
+                pick(picked.item, picked.alt)
+            }) { request in
                 Group {
-                    LibraryImportSheet(media: media, request: request)
+                    LibraryImportSheet(media: media, request: request) { imported in
+                        guard let first = imported.first else { return }
+                        importedPick = (MediaItem(id: first.imagePath, name: first.imagePath.lastPathComponent, imagePath: first.imagePath,
+                                                  imageUrl: nil, kind: "image", problem: nil), first.alt)
+                    }
                 }
                 .macSheetSizing()
             }
@@ -191,13 +205,15 @@ struct MediaBrowser: View {
             } message: { result in
                 Text(validationSummary(result))
             }
-            .photosPicker(isPresented: $choosingPhotos, selection: $photoSelection, matching: .images, photoLibrary: .shared())
+            // Picking takes one item; managing imports any number.
+            .photosPicker(isPresented: $choosingPhotos, selection: $photoSelection, maxSelectionCount: mode.isManaging ? nil : 1,
+                          matching: .images, photoLibrary: .shared())
             .onChange(of: photoSelection) { _, items in
                 guard !items.isEmpty else { return }
                 photoSelection = []
                 Task { await importPhotos(items) }
             }
-            .fileImporter(isPresented: $choosingFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+            .fileImporter(isPresented: $choosingFiles, allowedContentTypes: [.item], allowsMultipleSelection: mode.isManaging) { result in
                 if case .success(let urls) = result { Task { await importFiles(urls) } }
             }
     }
@@ -267,7 +283,7 @@ struct MediaBrowser: View {
             if media.selecting {
                 media.toggle(item: item)
             } else if case .pick(let pick) = mode {
-                pick(item)
+                pick(item, nil)
             } else if media.isLibrary {
                 if item.problem == nil { editingAsset = item }
             } else if media.isPublic {
@@ -363,6 +379,33 @@ struct MediaBrowser: View {
         }
     }
 
+    /// Picking (Insert Media, Replace): import from Photos (and, into
+    /// `public`, from Files) and pick what was imported, as the desktop
+    /// picker's Import image and Import file do.
+    @ToolbarContentBuilder
+    private var pickToolbar: some ToolbarContent {
+        if !media.readOnly {
+            ToolbarItem(placement: .barTrailing) {
+                Menu {
+                    Button {
+                        choosingPhotos = true
+                    } label: {
+                        Label("Import from Photos", systemImage: "photo.on.rectangle")
+                    }
+                    if media.isPublic {
+                        Button {
+                            choosingFiles = true
+                        } label: {
+                            Label("Import File", systemImage: "doc.badge.plus")
+                        }
+                    }
+                } label: {
+                    Label("Import", systemImage: "plus")
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private var selectionActions: some View {
         if media.isLibrary {
@@ -414,7 +457,7 @@ struct MediaBrowser: View {
         if media.isLibrary {
             importing = ImportRequest(tab: media.tab, folder: media.directory, sources: paths)
         } else {
-            await media.importPublic(paths)
+            await importPublic(paths)
         }
     }
 
@@ -422,7 +465,29 @@ struct MediaBrowser: View {
         preparing = true
         defer { preparing = false }
         let paths = urls.compactMap(PhotoImport.copyToTemporary)
-        await media.importPublic(paths)
+        await importPublic(paths)
+    }
+
+    /// Into `public`; when picking, the imported file is the pick.
+    private func importPublic(_ paths: [String]) async {
+        guard case .pick(let pick) = mode else {
+            await media.importPublic(paths)
+            return
+        }
+        do {
+            let imported: [String] = try await media.engine.call("media.importPublic", [
+                "directory": .string(media.directory), "sources": .array(paths.map(JSONValue.string)),
+            ])
+            await media.load(reload: true)
+            // The listing's own item carries the engine's kind (image, audio,
+            // video or link).
+            if let path = imported.first,
+               let item = media.listing?.items.first(where: { $0.imagePath == path || $0.id == path }) {
+                pick(item, nil)
+            }
+        } catch {
+            media.error = error.localizedDescription
+        }
     }
 }
 

@@ -32,6 +32,12 @@ final class MarkdownEditorController {
         storage.map(EmbedProjection.source(of:)) ?? ""
     }
 
+    /// Ends editing; the selection stays for inserts.
+    func endEditing() {
+        guard let textView, textView.window?.firstResponder === textView else { return }
+        textView.window?.makeFirstResponder(nil)
+    }
+
     func requestEditComponent() {
         guard let textView, let storage else { return }
         let selected = textView.selectedRange()

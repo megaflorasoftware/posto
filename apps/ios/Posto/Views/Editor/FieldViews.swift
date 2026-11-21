@@ -198,8 +198,8 @@ struct FieldRow: View {
                 Task { await sink.edit(path, next.map(JSONValue.string)) }
             }
         case "image":
-            if let document {
-                ImageFieldRow(document: document, field: field, path: path, value: value?.stringValue ?? "", label: label)
+            if sink.picksImages {
+                ImageFieldRow(sink: sink, field: field, path: path, value: value?.stringValue ?? "", label: label)
             } else {
                 textControl(multiline: false)
             }
@@ -238,8 +238,8 @@ struct FieldRow: View {
                     .buttonStyle(.borderless)
                     .accessibilityLabel("Regenerate \(field.label) from its template")
                 }
-                if field.chooseImage, let document {
-                    ImageChooserButton(document: document, path: path) { picked in
+                if field.chooseImage, sink.picksImages {
+                    ImageChooserButton(sink: sink, path: path) { picked in
                         Task { await sink.edit(path, picked.map(JSONValue.string)) }
                     }
                 }
@@ -456,7 +456,7 @@ struct ListFieldSection: View {
                             }
                             .navigationTitle("\(field.label) \(index + 1)")
                         } label: {
-                            ObjectItemSummary(document: document, field: field, value: items[index], index: index, path: itemPath)
+                            ObjectItemSummary(sink: sink, field: field, value: items[index], index: index, path: itemPath)
                         }
                     } else {
                         FieldRow(sink: sink, state: state, field: item, path: itemPath, document: document, showLabel: false)
@@ -537,7 +537,7 @@ struct LiveFormState<Content: View>: View {
 
 /// An object-list row: a thumbnail of its first image and a summary.
 struct ObjectItemSummary: View {
-    var document: DocumentModel?
+    let sink: any FormSink
     let field: FieldView
     let value: JSONValue
     let index: Int
@@ -545,8 +545,8 @@ struct ObjectItemSummary: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            if let document, let image = firstImage(field.fields, value, path) {
-                FieldImagePreview(document: document, path: image.path, value: image.value)
+            if sink.picksImages, let image = firstImage(field.fields, value, path) {
+                FieldImagePreview(sink: sink, path: image.path, value: image.value)
                     .frame(width: 44, height: 44)
                     .clipShape(.rect(cornerRadius: 6))
             }

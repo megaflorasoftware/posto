@@ -933,8 +933,11 @@ export class MediaSession {
   }
 
   /** Imports drafts in order; drafts that land are dropped so a retry after
-   * a mid-batch failure never writes them twice. */
-  async executeImport(): Promise<number> {
+   * a mid-batch failure never writes them twice. Returns what landed, so a
+   * picker that imported can pick it. */
+  async executeImport(): Promise<
+    Array<{ entryId: string; imagePath: string; alt: string | null }>
+  > {
     const importer = this.importer;
     if (!importer || importer.drafts.length === 0) throw new Error("Choose an image to import.");
     const { library } = importer;
@@ -942,6 +945,7 @@ export class MediaSession {
     const prefix = `${libraryRoot}/`;
     const extensions = new Set(library.metadataExtensions);
     let imported = 0;
+    const landed: Array<{ entryId: string; imagePath: string; alt: string | null }> = [];
     try {
       for (const draft of importer.drafts) {
         let files: FileEntry[] = [];
@@ -978,6 +982,12 @@ export class MediaSession {
           entryId: plan.entryId,
         });
         imported += 1;
+        const alt = draft.form.values().alt;
+        landed.push({
+          entryId: plan.entryId,
+          imagePath: plan.destinationImagePath,
+          alt: typeof alt === "string" && alt !== "" ? alt : null,
+        });
       }
     } finally {
       if (imported > 0) {
@@ -989,6 +999,6 @@ export class MediaSession {
       }
     }
     this.importer = null;
-    return imported;
+    return landed;
   }
 }

@@ -47,6 +47,7 @@ import {
   referenceDraftForm,
   startReferenceDraft,
 } from "./references";
+import { fieldAt } from "../../../../packages/editor/src/formModel";
 import type { DocumentSession } from "./document";
 import { MediaSession } from "./media";
 import { RepoSession, type RepoIdentity } from "./repo";
@@ -237,6 +238,22 @@ const methods: Record<string, Method> = {
       .requireDocument()
       .imagePreview(path(args), args.value as string),
   "doc.imageChoices": (args) => requireRepo().requireDocument().imageChoices(path(args)),
+  // Image fields in any form: a component's props resolve their media
+  // against the open document, as the desktop editor's component fields do.
+  "form.imageChoices": (args) => {
+    const { store } = formFor((args.form as string | undefined) ?? "document");
+    const document = requireRepo().requireDocument();
+    return store
+      ? document.imageChoices(path(args), fieldAt(store.fields, path(args)))
+      : document.imageChoices(path(args));
+  },
+  "form.imagePreview": (args) => {
+    const { store } = formFor((args.form as string | undefined) ?? "document");
+    const document = requireRepo().requireDocument();
+    return store
+      ? document.imagePreview(path(args), args.value as string, fieldAt(store.fields, path(args)))
+      : document.imagePreview(path(args), args.value as string);
+  },
   "doc.referenceOptions": (args) => requireRepo().requireDocument().referenceOptions(path(args)),
   "doc.bodyMediaValue": (args) =>
     requireRepo()

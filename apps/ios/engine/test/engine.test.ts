@@ -254,6 +254,33 @@ describe("repository session", () => {
     ).rejects.toThrow(/no longer open/);
   });
 
+  it("picks images for a component's props from the document's media", async () => {
+    const view = await call<{ tree: TreeNode[] }>("repo.view");
+    const file = allFiles(view.tree).find((candidate) =>
+      /^mdx[ -]demo\.mdx$/i.test(candidate.name),
+    )!;
+    await call("doc.open", { key: file.key });
+    // Inserting one (an earlier test dropped the document's unused imports).
+    const form = await call<{ fields: Array<{ name: string; chooseImage: boolean }> }>(
+      "components.open",
+      { name: "CaptionedImage", path: "/mock/site/src/components/CaptionedImage.astro" },
+    );
+    expect(form.fields.find((field) => field.name === "src")?.chooseImage).toBe(true);
+    const choices = await call<{ media: { input: string } | null; files: Array<{ value: string }> }>(
+      "form.imageChoices",
+      { form: "component", path: ["src"] },
+    );
+    // The entry's media, as the desktop editor resolves a component's fields.
+    expect(choices.media).not.toBeNull();
+    expect(Array.isArray(choices.files)).toBe(true);
+    const preview = await call<{ path: string | null }>("form.imagePreview", {
+      form: "component",
+      path: ["src"],
+      value: "/images/photo.jpg",
+    });
+    expect(preview.path).toMatch(/public\/images\/photo\.jpg$/);
+  });
+
   it("edits only components outside code from the cursor", async () => {
     const text = 'Sample:\n\n```mdx\n<Callout kind="tip" />\n```\n';
     await expect(

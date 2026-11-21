@@ -27,6 +27,11 @@ final class MarkdownEditorController {
         return EmbedProjection.source(of: textView.textStorage)
     }
 
+    /// Ends editing (the keyboard goes); the selection stays for inserts.
+    func endEditing() {
+        textView?.resignFirstResponder()
+    }
+
     func requestEditComponent() {
         guard let textView else { return }
         let storage = textView.textStorage

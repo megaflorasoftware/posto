@@ -388,6 +388,11 @@ protocol FormSink: AnyObject {
 }
 
 extension FormSink {
+    /// Image fields open the media picker: the document's own fields, and a
+    /// component's props (resolved against the document, as on desktop).
+    /// Forms with no document behind them keep a text field.
+    var picksImages: Bool { formTarget == "document" || formTarget == "component" }
+
     func perform(_ method: String, _ args: [String: JSONValue]) async {
         var payload = args
         payload["form"] = .string(formTarget)

@@ -5,6 +5,8 @@ import SwiftUI
 struct LibraryImportSheet: View {
     let media: MediaModel
     let request: ImportRequest
+    /// What landed, for a picker that imported (the image to pick).
+    var onImported: (([ImportedAsset]) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var view: ImportView?
     @State private var forms: [MetadataFormModel] = []
@@ -125,9 +127,10 @@ struct LibraryImportSheet: View {
 
     private func runImport() async {
         do {
-            _ = try await media.engine.call("media.executeImport", as: JSONValue.self)
+            let imported: [ImportedAsset] = try await media.engine.call("media.executeImport")
             await media.load(reload: true)
             dismiss()
+            onImported?(imported)
         } catch {
             self.error = error.localizedDescription
             // Drafts that landed were dropped; show what's left.

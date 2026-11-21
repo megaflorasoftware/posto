@@ -13,8 +13,8 @@ struct BodyMediaPicker: View {
         NavigationStack {
             Group {
                 if let media {
-                    MediaBrowser(media: media, mode: .pick { item in
-                        let alt = (item.name as NSString).deletingPathExtension
+                    MediaBrowser(media: media, mode: .pick { item, libraryAlt in
+                        let alt = libraryAlt ?? (item.name as NSString).deletingPathExtension
                         onPick(item.imagePath, item.imagePath == nil ? item.imageUrl : nil, alt, item.kind)
                         dismiss()
                     })

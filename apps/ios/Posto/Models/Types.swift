@@ -450,6 +450,13 @@ struct MediaFolder: Codable, Hashable, Identifiable, Sendable {
     var id: String { path }
 }
 
+/// An image an import added to a library (`media.executeImport`).
+struct ImportedAsset: Codable, Sendable {
+    let entryId: String
+    let imagePath: String
+    let alt: String?
+}
+
 struct MediaItem: Codable, Hashable, Identifiable, Sendable {
     let id: String
     let name: String
