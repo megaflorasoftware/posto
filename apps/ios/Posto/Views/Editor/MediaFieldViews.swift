@@ -287,26 +287,50 @@ struct ReferenceFieldRow: View {
     @State private var pickingAsset = false
     @State private var creating = false
     @State private var editingDetails: LibraryDetails?
+    /// The library's images, once read (an image-library reference), and
+    /// the value they were read for.
+    @State private var libraryAssets: [LibraryAsset]?
+    @State private var assetsReadFor: String?
+    @State private var libraryError: String?
 
     var body: some View {
         if let library = field.imageLibrary {
-            Button {
-                pickingAsset = true
-            } label: {
-                HStack(spacing: 12) {
-                    LibraryAssetThumbnail(document: document, library: library, entryId: value)
-                        .frame(width: 64, height: 64)
-                        .clipShape(.rect(cornerRadius: 8))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(label.isEmpty ? field.label : label).foregroundStyle(.primary)
-                        Text(value.isEmpty ? "Choose image" : value).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+            let asset = libraryAssets?.first { $0.entryId == value }
+            VStack(alignment: .leading, spacing: 8) {
+                // As desktop's image-library field warns.
+                if let libraryError {
+                    NoticeRow(message: "Could not read image library: \(libraryError)", systemImage: "exclamationmark.triangle.fill", tint: .orange)
+                } else if !value.isEmpty, assetsReadFor == value, asset == nil {
+                    NoticeRow(message: "The selected image entry is missing.", systemImage: "exclamationmark.triangle.fill", tint: .orange)
                 }
-                .contentShape(.rect)
+                Button {
+                    pickingAsset = true
+                } label: {
+                    HStack(spacing: 12) {
+                        Thumbnail(path: asset?.imagePath, url: asset?.imageUrl, maxPixels: 300)
+                            .frame(width: 64, height: 64)
+                            .clipShape(.rect(cornerRadius: 8))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(label.isEmpty ? field.label : label).foregroundStyle(.primary)
+                            Text(value.isEmpty ? "Choose image" : value).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                    }
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+            .task(id: "\(library)|\(value)|\(document.repo.mediaVersion)") {
+                let readFor = value
+                do {
+                    libraryAssets = try await document.engine.call("media.libraryAssets", ["library": .string(library)])
+                    assetsReadFor = readFor
+                    libraryError = nil
+                } catch {
+                    libraryError = error.localizedDescription
+                }
+            }
             .contextMenu {
                 if !value.isEmpty {
                     Button {
@@ -409,21 +433,6 @@ extension ReferenceFieldRow {
             media: media,
             item: MediaItem(id: asset.metadataPath, name: asset.name, imagePath: asset.imagePath, imageUrl: asset.imageUrl, kind: "image", problem: nil)
         )
-    }
-}
-
-struct LibraryAssetThumbnail: View {
-    let document: DocumentModel
-    let library: String
-    let entryId: String
-    @State private var asset: LibraryAsset?
-
-    var body: some View {
-        Thumbnail(path: asset?.imagePath, url: asset?.imageUrl, maxPixels: 300)
-            .task(id: entryId) {
-                let assets: [LibraryAsset] = (try? await document.engine.call("media.libraryAssets", ["library": .string(library)])) ?? []
-                asset = assets.first { $0.entryId == entryId }
-            }
     }
 }
 
