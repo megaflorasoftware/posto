@@ -125,25 +125,34 @@ struct SettingsRow: View {
     }
 }
 
-/// Live deployment status: the ring the desktop app shows, full screen.
+/// Live deployment status: the ring the desktop app shows, full screen. The
+/// site and GitHub Actions links stay even when runs can't be listed.
 struct DeploymentsView: View {
     let repo: RepoModel
-    @State private var model: DeploymentModel?
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        let status = model?.status
-        let ring = model?.ring ?? status?.ring
+        let deployments = repo.deployments
+        let status = deployments.status
+        let ring = deployments.ring ?? status?.ring
+        let unavailable = status?.error != nil && !deployments.hasRuns
         List {
-            if let error = model?.error {
-                Section { NoticeRow(message: error, systemImage: "exclamationmark.triangle.fill", tint: .red) }
+            if let error = deployments.error ?? status?.error {
+                Section {
+                    NoticeRow(
+                        message: deployments.hasRuns ? "Couldn't refresh deployments: \(error)" : error,
+                        systemImage: "exclamationmark.triangle.fill",
+                        tint: .red
+                    )
+                }
             }
             Section {
                 VStack(spacing: 18) {
-                    DeploymentRingView(ring: ring)
+                    DeploymentRingView(ring: unavailable ? nil : ring)
                         .frame(width: 200, height: 200)
                     VStack(spacing: 4) {
-                        Text(statusText(ring?.state)).font(.title3.weight(.semibold))
+                        Text(unavailable ? "Deployments unavailable" : deploymentStateText(ring?.state))
+                            .font(.title3.weight(.semibold))
                         if let status {
                             Text("\(status.owner)/\(status.name) · \(status.branch)")
                                 .font(.subheadline)
@@ -162,7 +171,7 @@ struct DeploymentsView: View {
                         Label("Open Site", systemImage: "globe")
                     }
                 }
-                if let actions = status.flatMap({ URL(string: $0.actionsUrl) }) {
+                if let actions = actionsURL(status) {
                     Button {
                         openURL(actions)
                     } label: {
@@ -172,52 +181,115 @@ struct DeploymentsView: View {
             }
         }
         .navigationTitle("Deployments")
-        .onAppear {
-            let deployments = model ?? DeploymentModel(repo: repo)
-            model = deployments
-            deployments.start()
-        }
-        .onDisappear { model?.stop() }
+        .refreshable { await deployments.refresh() }
+        .onAppear { deployments.watch() }
+        .onDisappear { deployments.unwatch() }
     }
 
-    private func statusText(_ state: String?) -> String {
-        switch state {
-        case "running": return "Deploying…"
-        case "queued": return "Queued"
-        case "success": return "Deployed"
-        case "failure": return "Deployment failed"
-        case nil: return "Checking…"
-        default: return "No recent deployments"
-        }
+    /// From the status, or before it arrives (or when it can't), from the
+    /// repository itself.
+    private func actionsURL(_ status: DeploymentStatus?) -> URL? {
+        if let status { return URL(string: status.actionsUrl) }
+        guard repo.hasRemote, repo.view?.repo != nil else { return nil }
+        return URL(string: "https://github.com/\(repo.github.owner)/\(repo.github.name)/actions")
     }
 }
 
 struct DeploymentRingView: View {
     let ring: DeploymentRing?
+    /// The small ring by the Publish button: thinner, with no percentage.
+    var compact = false
 
     var body: some View {
         let value = (ring?.value ?? 0) / 100
-        let color: Color = switch ring?.state {
-        case "running": .blue
-        case "success": .teal
-        case "failure": .red
-        default: .gray
-        }
+        let lineWidth: CGFloat = compact ? 3 : 18
         ZStack {
-            Circle().stroke(Color.secondary.opacity(0.15), lineWidth: 18)
+            Circle().stroke(Color.secondary.opacity(compact ? 0.25 : 0.15), lineWidth: lineWidth)
             Circle()
                 .trim(from: 0, to: value)
-                .stroke(color, style: StrokeStyle(lineWidth: 18, lineCap: .round))
+                .stroke(deploymentRingColor(ring?.state), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
                 .animation(.easeInOut, value: value)
             if ring?.done == true {
                 Image(systemName: ring?.success == true ? "checkmark" : "xmark")
-                    .font(.system(size: 48, weight: .bold))
+                    .font(.system(size: compact ? 10 : 48, weight: .bold))
                     .foregroundStyle(ring?.success == true ? Color.teal : Color.red)
-            } else if ring?.state == "running" {
+            } else if ring?.state == "running" && !compact {
                 Text("\(Int((ring?.value ?? 0).rounded()))%")
                     .font(.title.bold())
                     .contentTransition(.numericText())
+            }
+        }
+        .padding(compact ? lineWidth / 2 : 0)
+    }
+}
+
+func deploymentRingColor(_ state: String?) -> Color {
+    switch state {
+    case "running": .blue
+    case "success": .teal
+    case "failure": .red
+    default: .gray
+    }
+}
+
+/// The macOS Deployments toolbar button's label: the live ring once there's
+/// a run to draw, as the desktop app's header shows it. It keeps the status
+/// polling while the window shows it, as the desktop app does.
+struct DeploymentToolbarLabel: View {
+    let repo: RepoModel
+
+    var body: some View {
+        let deployments = repo.deployments
+        let ring = deployments.ring ?? deployments.status?.ring
+        Label {
+            Text("Deployments")
+        } icon: {
+            if deployments.hasRuns {
+                DeploymentRingView(ring: ring, compact: true)
+                    .frame(width: 16, height: 16)
+            } else {
+                Image(systemName: "antenna.radiowaves.left.and.right")
+            }
+        }
+        .help(deployments.hasRuns ? deploymentStateText(ring?.state) : "Deployments")
+        .onAppear { deployments.watch() }
+        .onDisappear { deployments.unwatch() }
+    }
+}
+
+/// The repository's deployment as a small ring that opens Deployments, as
+/// the desktop app's header shows it. Shown once there's a run to draw.
+struct DeploymentBadge: View {
+    let repo: RepoModel
+    @State private var showingDeployments = false
+
+    var body: some View {
+        let deployments = repo.deployments
+        let ring = deployments.ring ?? deployments.status?.ring
+        if repo.view?.repo != nil && deployments.hasRuns {
+            Button {
+                showingDeployments = true
+            } label: {
+                DeploymentRingView(ring: ring, compact: true)
+                    .frame(width: 26, height: 26)
+                    .padding(9)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Deployment status")
+            .accessibilityValue(deploymentStateText(ring?.state))
+            .help(deploymentStateText(ring?.state))
+            .sheet(isPresented: $showingDeployments) {
+                NavigationStack {
+                    DeploymentsView(repo: repo)
+                        .toolbar {
+                            ToolbarItem(placement: .closeTrailing) {
+                                CloseButton("Done") { showingDeployments = false }
+                            }
+                        }
+                }
+                .macSheetSizing()
             }
         }
     }
