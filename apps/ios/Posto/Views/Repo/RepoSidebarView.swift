@@ -442,22 +442,6 @@ struct PublishButton: View {
     let repo: RepoModel
 
     var body: some View {
-        #if os(iOS)
-        // Beside it, the deploy a publish starts, as the desktop app keeps
-        // its ring in the header. (The macOS app has a Deployments button.)
-        // The ring brings its own padding, and takes no room without one.
-        HStack(spacing: 0) {
-            DeploymentBadge(repo: repo)
-            button
-        }
-        .onAppear { repo.deployments.watch() }
-        .onDisappear { repo.deployments.unwatch() }
-        #else
-        button
-        #endif
-    }
-
-    private var button: some View {
         let git = repo.view?.git
         let busy = git?.publishing == true || git?.checkingChanges == true
         return Button {

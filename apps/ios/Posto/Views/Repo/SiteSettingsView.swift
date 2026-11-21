@@ -272,47 +272,6 @@ struct DeploymentToolbarLabel: View {
     }
 }
 
-/// The repository's deployment as a small ring that opens Deployments, as
-/// the desktop app's header shows it. Shown once there's a run to draw.
-struct DeploymentBadge: View {
-    let repo: RepoModel
-    @State private var showingDeployments = false
-
-    var body: some View {
-        let deployments = repo.deployments
-        let ring = deployments.ring ?? deployments.status?.ring
-        // The sheet hangs off a container that's always there, so the ring
-        // going away (runs no longer listed) can't take an open sheet with it.
-        ZStack {
-            if repo.view?.repo != nil && deployments.hasRuns {
-                Button {
-                    showingDeployments = true
-                } label: {
-                    DeploymentRingView(ring: ring, compact: true)
-                        .frame(width: 26, height: 26)
-                        .padding(9)
-                        .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Deployment status")
-                .accessibilityValue(deploymentStateText(ring?.state))
-                .help(deploymentStateText(ring?.state))
-            }
-        }
-        .sheet(isPresented: $showingDeployments) {
-            NavigationStack {
-                DeploymentsView(repo: repo)
-                    .toolbar {
-                        ToolbarItem(placement: .closeTrailing) {
-                            CloseButton("Done") { showingDeployments = false }
-                        }
-                    }
-            }
-            .macSheetSizing()
-        }
-    }
-}
-
 /// Find or create a branch: search the local and remote list, or create one
 /// from the typed (slugified) name.
 struct BranchPickerView: View {

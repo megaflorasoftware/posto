@@ -3,14 +3,13 @@ import SwiftUI
 /// The sheets the editor's Site menu opens.
 enum SiteSheet: String, Identifiable {
     case seo
-    case deployments
 
     var id: String { rawValue }
 }
 
 /// The editor's Site menu: the open page on the live site, its search and
 /// social preview, and (on iOS, where an iPhone's editor covers the
-/// sidebar) Publish and the deployment it starts.
+/// sidebar) Publish. Deployments stay in Settings.
 struct SiteMenu: View {
     let document: DocumentModel
     /// Gives up the body's keyboard before anything presents over it.
@@ -61,21 +60,6 @@ struct SiteMenu: View {
                     Image(systemName: "paperplane")
                 }
                 .disabled(git?.canPublish != true || git?.publishing == true || git?.checkingChanges == true)
-                if repo.view?.repo != nil {
-                    let deployments = repo.deployments
-                    Button {
-                        endEditing()
-                        present(.deployments)
-                    } label: {
-                        Text("Deployments")
-                        if deployments.unavailable {
-                            Text("Deployments unavailable")
-                        } else if deployments.status != nil {
-                            Text(deploymentStateText((deployments.ring ?? deployments.status?.ring)?.state))
-                        }
-                        Image(systemName: "antenna.radiowaves.left.and.right")
-                    }
-                }
             }
             #endif
         } label: {
@@ -104,19 +88,11 @@ struct SiteMenu: View {
 struct SiteSheetView: View {
     let sheet: SiteSheet
     let repo: RepoModel
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         switch sheet {
         case .seo:
             SeoPreviewView(repo: repo)
-        case .deployments:
-            NavigationStack {
-                DeploymentsView(repo: repo)
-                    .toolbar {
-                        ToolbarItem(placement: .closeTrailing) { CloseButton("Done") { dismiss() } }
-                    }
-            }
         }
     }
 }
