@@ -53,7 +53,7 @@ struct PublishSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    CloseButton { dismiss() }
                         .disabled(view?.publishing == true && view?.credentialRequest == nil)
                 }
                 ToolbarItem(placement: .confirmationAction) {

@@ -32,7 +32,7 @@ struct LibraryImportSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
+                    CloseButton {
                         Task { try? await media.engine.run("media.cancelImport") }
                         dismiss()
                     }
@@ -193,7 +193,7 @@ struct AssetEditorSheet: View {
             .navigationTitle("Edit Image")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     AsyncButton {
                         do {
@@ -281,7 +281,7 @@ struct PublicFileSheet: View {
             .navigationTitle("Edit \(item.name)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     AsyncButton {
                         if let failure = await media.renamePublic(item, to: filename) {
@@ -333,7 +333,7 @@ struct MoveSheet: View {
             .navigationTitle("Move To")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
             }
             .task { targets = await media.moveTargets() }
         }

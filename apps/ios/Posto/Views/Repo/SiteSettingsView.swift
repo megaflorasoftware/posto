@@ -65,8 +65,8 @@ struct SiteSettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                ToolbarItem(placement: .closeTrailing) {
+                    CloseButton("Done") { dismiss() }
                 }
             }
             .confirmationDialog(
@@ -258,7 +258,7 @@ struct BranchPickerView: View {
             .navigationTitle("Branch")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
             }
             .task { await repo.loadBranches() }
         }

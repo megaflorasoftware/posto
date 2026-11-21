@@ -112,6 +112,9 @@ struct MarkdownTextView: UIViewRepresentable {
         let textView = UITextView()
         textView.delegate = context.coordinator
         textView.isScrollEnabled = scrolls
+        // Inside the form a nearby bar's edge effect would draw over the
+        // text; the full-screen editor keeps its soft edge under the nav bar.
+        if !scrolls { textView.hideScrollEdgeEffects() }
         textView.backgroundColor = .clear
         textView.font = monospaced
             ? .monospacedSystemFont(ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize * 0.9, weight: .regular)

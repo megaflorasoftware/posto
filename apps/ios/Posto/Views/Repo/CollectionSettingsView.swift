@@ -73,7 +73,7 @@ struct CollectionSettingsView: View {
             .navigationTitle("\(collection.label) Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     AsyncButton("Save") { await save() }
                         .disabled(settings == nil)
@@ -127,7 +127,7 @@ struct CollectionOrderView: View {
             .navigationTitle("Collection Order")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     AsyncButton("Save") {
                         do {

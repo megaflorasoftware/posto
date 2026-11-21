@@ -28,11 +28,12 @@ struct RepoSidebarView: View {
         .navigationTitle(repo.name)
         .refreshable { await repo.refresh() }
         .overlay { emptyState }
+        .softBottomScrollEdge()
         .safeAreaInset(edge: .bottom) {
             PublishButton(repo: repo)
                 .padding(.horizontal)
                 .padding(.vertical, 10)
-                .background(.bar)
+                .floatingBarBackground()
         }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -81,7 +82,7 @@ struct RepoSidebarView: View {
                         Label("Updates are available", systemImage: "icloud.and.arrow.down")
                         Spacer()
                         AsyncButton("Pull") { await repo.pull() }
-                            .buttonStyle(.bordered)
+                            .glassActionStyle()
                             .disabled(view.git.pulling)
                     }
                 } footer: {
@@ -256,7 +257,7 @@ private struct PublishButton: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.borderedProminent)
+        .prominentActionStyle()
         .controlSize(.large)
         .disabled(git?.canPublish != true || busy)
     }

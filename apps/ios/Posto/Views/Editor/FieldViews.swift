@@ -621,7 +621,7 @@ struct FieldTemplateSheet: View {
             .navigationTitle("\(label) Template")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     AsyncButton("Save") { await save(schema(template: trimmed)) }
                         .disabled(trimmed.isEmpty || missingExtension)
@@ -678,7 +678,7 @@ struct FieldRowsSheet: View {
             .navigationTitle("\(label) Rows")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     AsyncButton("Save") {
                         var schema: [String: JSONValue] = [

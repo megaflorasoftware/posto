@@ -35,7 +35,7 @@ struct RepositoriesView: View {
                             Text(app.error ?? "")
                         } actions: {
                             Button("Try Again") { Task { await app.loadRepos() } }
-                                .buttonStyle(.bordered)
+                                .glassActionStyle()
                         }
                     } else {
                         ContentUnavailableView("No repositories", systemImage: "folder", description: Text("Repositories you can access on GitHub appear here."))
@@ -231,14 +231,14 @@ private struct CloneSheet: View {
                 .foregroundStyle(.secondary)
             HStack {
                 Button("Choose Another") { app.dismissCloneError() }
-                    .buttonStyle(.bordered)
+                    .glassActionStyle()
                 Spacer()
                 Button {
                     Task { await app.download(repo) }
                 } label: {
                     Label("Try Again", systemImage: "arrow.clockwise")
                 }
-                .buttonStyle(.borderedProminent)
+                .prominentActionStyle()
             }
         }
     }

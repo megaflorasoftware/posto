@@ -28,35 +28,23 @@ struct EditorView: View {
                 contentForm(view)
             }
         }
-        .navigationTitle(view.name)
+        .editorTitle(view.name, saveState: view.saveState)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                VStack(spacing: 0) {
-                    Text(view.name).font(.headline).lineLimit(1)
-                    let state = saveStateLabel(view.saveState)
-                    Label(state.text, systemImage: state.symbol)
-                        .labelStyle(.titleAndIcon)
-                        .font(.caption2)
-                        .foregroundStyle(state.color)
-                }
+        // Delete gets a glass group of its own, apart from the view toggle.
+        .toolbarGroups(.topBarTrailing, gap: .fixed, split: view.tabs.contains("content") && view.tabs.contains("raw")) {
+            Button {
+                Task { await document.setTab(view.tab == "raw" ? "content" : "raw") }
+            } label: {
+                Label(
+                    view.tab == "raw" ? "Show Visual Editor" : "Show Raw File",
+                    systemImage: view.tab == "raw" ? "doc.richtext" : "chevron.left.forwardslash.chevron.right"
+                )
             }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                if view.tabs.contains("content") && view.tabs.contains("raw") {
-                    Button {
-                        Task { await document.setTab(view.tab == "raw" ? "content" : "raw") }
-                    } label: {
-                        Label(
-                            view.tab == "raw" ? "Show Visual Editor" : "Show Raw File",
-                            systemImage: view.tab == "raw" ? "doc.richtext" : "chevron.left.forwardslash.chevron.right"
-                        )
-                    }
-                }
-                Button(role: .destructive) {
-                    confirmingDelete = true
-                } label: {
-                    Label("Delete \(view.name)", systemImage: "trash")
-                }
+        } then: {
+            Button(role: .destructive) {
+                confirmingDelete = true
+            } label: {
+                Label("Delete \(view.name)", systemImage: "trash")
             }
         }
         .confirmationDialog("Delete \(view.name)?", isPresented: $confirmingDelete, titleVisibility: .visible) {
@@ -78,7 +66,7 @@ struct EditorView: View {
                     editingComponent = nil
                 }
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { editingComponent = nil } }
+                    ToolbarItem(placement: .cancellationAction) { CloseButton { editingComponent = nil } }
                 }
             }
         }

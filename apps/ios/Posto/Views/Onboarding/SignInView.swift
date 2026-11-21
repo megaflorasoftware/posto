@@ -32,14 +32,17 @@ struct SignInView: View {
                     Label("Continue with GitHub", systemImage: "arrow.right.circle.fill")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .prominentActionStyle()
                 .controlSize(.large)
 
-                if app.demo {
-                    Button("Leave demo mode") { switchDemo(false) }
-                } else {
-                    Button("Explore a demo site") { switchDemo(true) }
+                Group {
+                    if app.demo {
+                        Button("Leave demo mode") { switchDemo(false) }
+                    } else {
+                        Button("Explore a demo site") { switchDemo(true) }
+                    }
                 }
+                .glassActionStyle(bordered: false)
             }
         }
         .padding(24)
@@ -77,7 +80,7 @@ struct DeviceCodeView: View {
                     }
                     .padding(.horizontal, 20)
                     .padding(.vertical, 14)
-                    .background(.quaternary, in: .rect(cornerRadius: 14))
+                    .glassPanel(cornerRadius: 14, interactive: true, fallback: AnyShapeStyle(.quaternary))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Copy code \(device.userCode)")
@@ -88,7 +91,7 @@ struct DeviceCodeView: View {
                     Label("Open GitHub", systemImage: "safari")
                         .frame(maxWidth: 320)
                 }
-                .buttonStyle(.borderedProminent)
+                .prominentActionStyle()
                 .controlSize(.large)
 
                 Text("Posto will continue automatically after you approve access.")
@@ -103,7 +106,7 @@ struct DeviceCodeView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button("Cancel") { app.cancelSignIn() }
+            CloseButton { app.cancelSignIn() }
         }
         .padding(24)
     }

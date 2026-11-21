@@ -60,7 +60,12 @@ struct MediaBrowser: View {
         withPickers(withSheets(grid
             .overlay { overlayContent }
             .refreshable { await media.load(reload: true) }
-            .toolbar { if mode.isManaging { manageToolbar } }))
+            .toolbar { if mode.isManaging { manageToolbar } }
+            .toolbarGroups(.bottomBar, gap: .flexible, active: mode.isManaging && !media.readOnly && media.selecting) {
+                Button(media.everythingSelected ? "Deselect All" : "Select All") { media.toggleAll() }
+            } then: {
+                selectionActions
+            }))
     }
 
     private var grid: some View {
@@ -116,13 +121,13 @@ struct MediaBrowser: View {
                 Text("Checking \(progress.done) of \(progress.total) items…").font(.footnote)
             }
             .padding()
-            .background(.regularMaterial, in: .rect(cornerRadius: 14))
+            .glassPanel(cornerRadius: 14)
             .padding()
         }
         if preparing {
             ProgressView("Preparing images…")
                 .padding()
-                .background(.regularMaterial, in: .rect(cornerRadius: 14))
+                .glassPanel(cornerRadius: 14)
         }
     }
 
@@ -337,33 +342,32 @@ struct MediaBrowser: View {
                         Label("Add", systemImage: "plus")
                     }
                 }
-            } else {
-                ToolbarItemGroup(placement: .bottomBar) {
-                    Button(media.everythingSelected ? "Deselect All" : "Select All") { media.toggleAll() }
-                    Spacer()
-                    if media.isLibrary {
-                        Button {
-                            Task { validation = await media.validateSelection() }
-                        } label: {
-                            Label("Validate", systemImage: "checkmark.seal")
-                        }
-                        .disabled(!media.hasSelection)
-                    }
-                    Button {
-                        moving = true
-                    } label: {
-                        Label("Move", systemImage: "folder")
-                    }
-                    .disabled(!media.hasSelection)
-                    Button(role: .destructive) {
-                        confirmingDelete = true
-                    } label: {
-                        Label("Delete", systemImage: "trash")
-                    }
-                    .disabled(!media.hasSelection)
-                }
             }
         }
+    }
+
+    @ViewBuilder
+    private var selectionActions: some View {
+        if media.isLibrary {
+            Button {
+                Task { validation = await media.validateSelection() }
+            } label: {
+                Label("Validate", systemImage: "checkmark.seal")
+            }
+            .disabled(!media.hasSelection)
+        }
+        Button {
+            moving = true
+        } label: {
+            Label("Move", systemImage: "folder")
+        }
+        .disabled(!media.hasSelection)
+        Button(role: .destructive) {
+            confirmingDelete = true
+        } label: {
+            Label("Delete", systemImage: "trash")
+        }
+        .disabled(!media.hasSelection)
     }
 
     private var deleteTitle: String {

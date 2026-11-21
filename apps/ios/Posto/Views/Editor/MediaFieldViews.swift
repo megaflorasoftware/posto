@@ -110,7 +110,7 @@ struct ImageChoiceSheet: View {
             .navigationTitle(choices?.media?.label ?? "Choose Image")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
                 if hasValue {
                     ToolbarItem(placement: .destructiveAction) {
                         Button("Clear", role: .destructive) {
@@ -448,7 +448,7 @@ struct LibraryAssetPicker: View {
             .navigationTitle(library)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
                 if allowClear {
                     ToolbarItem(placement: .destructiveAction) {
                         Button("Clear", role: .destructive) {
@@ -485,7 +485,7 @@ struct ReferenceDraftSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
+                    CloseButton {
                         Task { try? await document.engine.run("reference.cancel") }
                         dismiss()
                     }

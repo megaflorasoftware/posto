@@ -50,8 +50,8 @@ struct AppSettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                ToolbarItem(placement: .closeTrailing) {
+                    CloseButton("Done") { dismiss() }
                 }
             }
         }

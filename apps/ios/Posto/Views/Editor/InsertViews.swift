@@ -25,7 +25,7 @@ struct BodyMediaPicker: View {
             .navigationTitle("Insert Media")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
             }
         }
         .task {
@@ -78,7 +78,7 @@ struct ComponentPickerView: View {
             .navigationTitle("Insert Component")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
             }
             .task {
                 do {
