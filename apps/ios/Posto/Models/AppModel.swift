@@ -415,6 +415,7 @@ final class AppModel {
         #endif
         guard let downloaded = try? await backend.call("list_repos", as: [ManagedRepo].self) else { return nil }
         managed = downloaded
+        managedListed = true
         saveCache()
         guard let match = downloaded.first(where: { $0.fullName == fullName }) else {
             UserDefaults.standard.removeObject(forKey: Self.lastRepositoryKey)
