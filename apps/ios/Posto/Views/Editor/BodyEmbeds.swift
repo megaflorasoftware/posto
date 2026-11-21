@@ -48,7 +48,8 @@ struct BodyEmbed: Codable, Sendable, Equatable {
 /// `source`, drawn as a card or pill.
 final class EmbedAttachment: NSTextAttachment {
     let source: String
-    let embed: BodyEmbed
+    /// Its offsets move when an attachment is reused after edits above it.
+    var embed: BodyEmbed
     var isSelected = false
     var thumbnail: PlatformImage?
     private var renderedKey: String?
@@ -186,16 +187,31 @@ enum EmbedProjection {
     }
 
     /// `source` with each embed replaced by an attachment character.
-    static func project(_ source: String, embeds: [BodyEmbed], attributes: [NSAttributedString.Key: Any]) -> NSMutableAttributedString {
+    /// `reusing` holds the attachments shown before: one with the same
+    /// source and embed is kept, with its drawing, rather than drawn again.
+    static func project(_ source: String, embeds: [BodyEmbed], attributes: [NSAttributedString.Key: Any], reusing previous: [EmbedAttachment] = []) -> NSMutableAttributedString {
         let text = source as NSString
         let result = NSMutableAttributedString()
+        var reusable: [String: [EmbedAttachment]] = [:]
+        for attachment in previous {
+            reusable[reuseKey(attachment.source, attachment.embed), default: []].append(attachment)
+        }
         var cursor = 0
         for embed in embeds.sorted(by: { $0.start < $1.start })
         where embed.start >= cursor && embed.end <= text.length && embed.end > embed.start {
             if embed.start > cursor {
                 result.append(NSAttributedString(string: text.substring(with: NSRange(location: cursor, length: embed.start - cursor)), attributes: attributes))
             }
-            let attachment = EmbedAttachment(source: text.substring(with: embed.sourceRange), embed: embed)
+            let attachmentSource = text.substring(with: embed.sourceRange)
+            let key = reuseKey(attachmentSource, embed)
+            let attachment: EmbedAttachment
+            if let kept = reusable[key]?.popLast() {
+                kept.embed = embed
+                kept.isSelected = false
+                attachment = kept
+            } else {
+                attachment = EmbedAttachment(source: attachmentSource, embed: embed)
+            }
             let character = NSMutableAttributedString(attachment: attachment)
             character.addAttributes(attributes, range: NSRange(location: 0, length: character.length))
             result.append(character)
@@ -205,6 +221,11 @@ enum EmbedProjection {
             result.append(NSAttributedString(string: text.substring(from: cursor), attributes: attributes))
         }
         return result
+    }
+
+    /// Same source and the same shape; offsets may differ (text typed above).
+    private static func reuseKey(_ source: String, _ embed: BodyEmbed) -> String {
+        "\(embed.kind)|\(embed.block)|\(embed.label)|\(embed.detail ?? "")|\(embed.preview ?? "")|\(embed.image?.path ?? embed.image?.url ?? "")|\(source)"
     }
 
     static func attachments(in text: NSAttributedString) -> [(EmbedAttachment, NSRange)] {
@@ -226,6 +247,9 @@ final class EmbedThumbnails {
     static let shared = EmbedThumbnails()
     private var images: [String: PlatformImage] = [:]
     private var loading: Set<String> = []
+    /// Previews that didn't load (missing, unsupported, offline): not
+    /// fetched again on every layout pass.
+    private var failed: Set<String> = []
 
     func cached(_ preview: BodyEmbed.ImagePreview?) -> PlatformImage? {
         key(preview).flatMap { images[$0] }
@@ -233,7 +257,7 @@ final class EmbedThumbnails {
 
     /// Loads the thumbnail once; `done` runs when it arrives.
     func load(_ preview: BodyEmbed.ImagePreview?, done: @escaping @MainActor () -> Void) {
-        guard let preview, let key = key(preview), images[key] == nil, !loading.contains(key) else { return }
+        guard let preview, let key = key(preview), images[key] == nil, !loading.contains(key), !failed.contains(key) else { return }
         loading.insert(key)
         Task {
             var image: PlatformImage?
@@ -249,6 +273,8 @@ final class EmbedThumbnails {
             if let image {
                 images[key] = image
                 done()
+            } else {
+                failed.insert(key)
             }
         }
     }

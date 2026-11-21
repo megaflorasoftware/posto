@@ -12,8 +12,9 @@ final class MarkdownEditorController {
     var onRequestComponent: (() -> Void)?
     /// Edit the component around the caret: (body source, UTF-16 offset).
     var onRequestEditComponent: ((String, Int) -> Void)?
-    /// Scans a body for its cards and pills (the engine's `body.embeds`).
-    var loadEmbeds: ((String) async -> [BodyEmbed])? {
+    /// Scans a body for its cards and pills (the engine's `body.embeds`);
+    /// nil when the scan failed, so the cards shown are left alone.
+    var loadEmbeds: ((String) async -> [BodyEmbed]?)? {
         didSet { coordinator?.scheduleEmbedScan(after: 0) }
     }
     /// A card or pill was tapped: (it, the body source, its source range).
@@ -48,15 +49,14 @@ final class MarkdownEditorController {
     }
 
     /// Replaces a range of the markdown source (an edited, rewritten or
-    /// removed card) and shows the result with its cards.
-    func replaceSource(_ range: NSRange, with string: String) {
-        guard let textView, let coordinator else { return }
-        coordinator.replaceSource(range, with: string, in: textView)
-    }
-
-    /// Kept for callers that edit a component by its source range.
-    func replace(range: NSRange, with string: String) {
-        replaceSource(range, with: string)
+    /// removed card) and shows the result with its cards. `original` is what
+    /// the range held when the card was opened; when the body has changed
+    /// underneath since (a reload while a sheet was up), nothing is replaced
+    /// and this returns false.
+    @discardableResult
+    func replaceSource(_ range: NSRange, with string: String, expecting original: String? = nil) -> Bool {
+        guard let textView, let coordinator else { return false }
+        return coordinator.replaceSource(range, with: string, expecting: original, in: textView)
     }
 
     /// Inserts at the caret; blocks get blank lines around them.
@@ -133,6 +133,15 @@ final class MarkdownEditorController {
             lines.append(range)
         }
         if lines.isEmpty { lines = [NSRange(location: block.location, length: 0)] }
+        // A card's line keeps its shape: `# ` before a multi-line component
+        // would leave its closing tag outside the heading and break the MDX.
+        let storage = textView.textStorage
+        lines.removeAll { line in
+            (0..<line.length).contains { offset in
+                (storage.attribute(.attachment, at: line.location + offset, effectiveRange: nil) as? EmbedAttachment)?.embed.block == true
+            }
+        }
+        guard !lines.isEmpty else { return }
         let contents = lines.map { text.substring(with: $0) }
         let allPrefixed = contents.allSatisfy { $0.hasPrefix(prefix) }
         let existing = try! NSRegularExpression(pattern: #"^(#{1,6} |[-*+] |> |\d+\. )"#)
@@ -366,26 +375,71 @@ struct MarkdownTextView: UIViewRepresentable {
                 return
             }
             Task { @MainActor in
-                let embeds = await load(source)
+                let embeds = await load(source) ?? []
                 if self.pendingSource == source { self.pendingSource = nil }
                 guard EmbedProjection.source(of: textView.textStorage) == shown else { return }
                 self.apply(source, embeds: embeds, to: textView, caret: nil)
             }
         }
 
-        func replaceSource(_ range: NSRange, with string: String, in textView: UITextView) {
+        private static func holds(_ text: String, _ range: NSRange, _ original: String?) -> Bool {
+            let text = text as NSString
+            guard NSMaxRange(range) <= text.length else { return false }
+            return original.map { text.substring(with: range) == $0 } ?? true
+        }
+
+        func replaceSource(_ range: NSRange, with string: String, expecting original: String?, in textView: UITextView) -> Bool {
             let shown = EmbedProjection.source(of: textView.textStorage)
-            let text = shown as NSString
-            guard NSMaxRange(range) <= text.length else { return }
-            let next = text.replacingCharacters(in: range, with: string)
+            guard Self.holds(shown, range, original) else { return false }
+            let expected = original ?? (shown as NSString).substring(with: range)
             let caret = range.location + (string as NSString).length
             let load = parent.embeds ? parent.controller.loadEmbeds : nil
             Task { @MainActor in
-                let embeds = await load?(next) ?? []
-                guard EmbedProjection.source(of: textView.textStorage) == shown else { return }
-                self.apply(next, embeds: embeds, to: textView, caret: caret)
-                self.parent.controller.onChange?(next)
+                // Typing during the scan: retry on the newer text while the
+                // range still holds what was edited.
+                var current = shown
+                for _ in 0..<3 {
+                    let next = (current as NSString).replacingCharacters(in: range, with: string)
+                    let embeds = await load?(next) ?? []
+                    let now = EmbedProjection.source(of: textView.textStorage)
+                    if now == current {
+                        let before = NSAttributedString(attributedString: textView.textStorage)
+                        self.apply(next, embeds: embeds, to: textView, caret: caret)
+                        self.registerUndo(restoring: before, in: textView)
+                        self.parent.controller.onChange?(next)
+                        return
+                    }
+                    guard Self.holds(now, range, expected) else { return }
+                    current = now
+                }
             }
+            return true
+        }
+
+        /// A sheet's edit (Delete Component, a rewritten card) undoes like
+        /// typing: back to the text and cards as they were.
+        private func registerUndo(restoring snapshot: NSAttributedString, in textView: UITextView) {
+            guard let undoManager = textView.undoManager else { return }
+            let current = NSAttributedString(attributedString: textView.textStorage)
+            undoManager.registerUndo(withTarget: self) { coordinator in
+                coordinator.restore(snapshot, in: textView, redo: current)
+            }
+        }
+
+        private func restore(_ snapshot: NSAttributedString, in textView: UITextView, redo: NSAttributedString) {
+            textView.undoManager?.registerUndo(withTarget: self) { coordinator in
+                coordinator.restore(redo, in: textView, redo: snapshot)
+            }
+            let storage = textView.textStorage
+            textView.inputDelegate?.textWillChange(textView)
+            storage.beginEditing()
+            storage.setAttributedString(snapshot)
+            storage.endEditing()
+            textView.inputDelegate?.textDidChange(textView)
+            renderAttachments(in: textView)
+            if parent.styled { MarkdownStyler.style(textView) }
+            textView.invalidateIntrinsicContentSize()
+            parent.controller.onChange?(EmbedProjection.source(of: storage))
         }
 
         /// Turns completed elements typed (or inserted) as text into cards,
@@ -397,10 +451,18 @@ struct MarkdownTextView: UIViewRepresentable {
                 if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
                 guard !Task.isCancelled, let self, let textView = self.textView,
                       let load = self.parent.controller.loadEmbeds else { return }
+                // Mid-composition (Japanese, Chinese…), swapping the text
+                // would break the candidate the user is choosing.
+                if textView.markedTextRange != nil {
+                    self.scheduleEmbedScan(after: 0.5)
+                    return
+                }
                 let storage = textView.textStorage
                 let source = EmbedProjection.source(of: storage)
-                let embeds = await load(source)
-                guard !Task.isCancelled, EmbedProjection.source(of: storage) == source else { return }
+                // A failed scan leaves the cards as they are.
+                guard let embeds = await load(source) else { return }
+                guard !Task.isCancelled, textView.markedTextRange == nil,
+                      EmbedProjection.source(of: storage) == source else { return }
                 let fresh = embeds.map { EmbedProjection.key(start: $0.start, end: $0.end, embed: $0) }
                 guard fresh != EmbedProjection.shownKeys(in: storage) else { return }
                 let caret = EmbedProjection.sourceOffset(in: storage, display: NSMaxRange(textView.selectedRange))
@@ -412,10 +474,15 @@ struct MarkdownTextView: UIViewRepresentable {
             let storage = textView.textStorage
             let previousCaret = EmbedProjection.sourceOffset(in: storage, display: textView.selectedRange.location)
             let font = textView.font ?? .preferredFont(forTextStyle: .body)
-            let projected = EmbedProjection.project(source, embeds: parent.embeds ? embeds : [], attributes: [.font: font, .foregroundColor: UIColor.label])
+            let shown = EmbedProjection.attachments(in: storage).map(\.0)
+            let projected = EmbedProjection.project(source, embeds: parent.embeds ? embeds : [], attributes: [.font: font, .foregroundColor: UIColor.label], reusing: shown)
+            // The keyboard learns the text changed, so autocorrect and
+            // predictions don't work from an outdated copy.
+            textView.inputDelegate?.textWillChange(textView)
             storage.beginEditing()
             storage.setAttributedString(projected)
             storage.endEditing()
+            textView.inputDelegate?.textDidChange(textView)
             renderAttachments(in: textView)
             if parent.styled { MarkdownStyler.style(textView) }
             let target = min(caret ?? previousCaret, (source as NSString).length)

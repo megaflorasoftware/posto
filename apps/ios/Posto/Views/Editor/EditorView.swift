@@ -77,7 +77,11 @@ struct EditorView: View {
                             )
                         }
                     ) { snippet, range in
-                        if let range { controller.replaceSource(range, with: snippet) }
+                        if let range {
+                            let opened = edit.text as NSString
+                            let original = NSMaxRange(range) <= opened.length ? opened.substring(with: range) : nil
+                            if !controller.replaceSource(range, with: snippet, expecting: original) { embedChangedUnderneath() }
+                        }
                         editingComponent = nil
                     }
                     .toolbar {
@@ -161,14 +165,19 @@ struct EditorView: View {
         }
         if controller.loadEmbeds == nil {
             controller.loadEmbeds = { [document] text in
-                (try? await document.engine.call("body.embeds", ["text": .string(text)])) ?? []
+                try? await document.engine.call("body.embeds", ["text": .string(text)], as: [BodyEmbed].self)
             }
         }
     }
 
-    /// Writes a card's new source (empty to delete it) back into the body.
+    /// Writes a card's new source (empty to delete it) back into the body,
+    /// unless the body changed underneath while its sheet was open.
     private func replaceEmbed(_ card: EmbedEdit, with source: String) {
-        controller.replaceSource(card.range, with: source)
+        if !controller.replaceSource(card.range, with: source, expecting: card.source) { embedChangedUnderneath() }
+    }
+
+    private func embedChangedUnderneath() {
+        document.renameError = "The body changed while this was open (it was reloaded from disk), so the edit wasn't applied. Open it again to edit the current version."
     }
 
     @ViewBuilder
