@@ -15,6 +15,7 @@ import {
   renamedFilename,
   resolveMedia,
   resolveMediaForValue,
+  relativeMediaPath,
   resolveRelativeMediaPath,
   type ContentEntry,
   type Field,
@@ -76,6 +77,8 @@ const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "i
 const MARKDOWN = /\.(md|mdx|markdown)$/i;
 
 export interface DocumentView {
+  /** This open document, across renames (the key follows the path). */
+  session: number;
   key: string;
   path: string;
   name: string;
@@ -109,7 +112,12 @@ export interface DocumentView {
   raw: string | null;
 }
 
+let nextSession = 1;
+
 export class DocumentSession {
+  /** Identifies this open document even when a filename template renames
+   * it (which changes `key`), so edits typed meanwhile still land. */
+  readonly session = nextSession++;
   path: string;
   key: string;
   readonly dataEntry: FileEntry["dataEntry"];
@@ -250,6 +258,7 @@ export class DocumentSession {
     const form = this.form;
     const markdown = MARKDOWN.test(this.path);
     return {
+      session: this.session,
       key: this.key,
       path: this.path,
       name: this.name,
@@ -557,6 +566,7 @@ export class DocumentSession {
   async imageChoices(
     path: ValuePath,
     field: Field | null = this.fieldAtPath(path),
+    current?: string,
   ): Promise<{
     media: { name: string; label: string | null; input: string } | null;
     files: Array<{ name: string; path: string; value: string }>;
@@ -565,7 +575,7 @@ export class DocumentSession {
   }> {
     const config = this.host.config();
     const media = field
-      ? resolveMedia(config, field, this.entry, this.templateValues())
+      ? this.imageFieldMedia(field, current)
       : (this.entry?.media ?? config.media[0] ?? null);
     if (!media) return { media: null, files: [], cdnSource: null };
     const sourceName =
@@ -587,27 +597,41 @@ export class DocumentSession {
     };
   }
 
+  /** The media folder an image field picks from: the one its current
+   * value lives in (as the desktop picker opens), else the field's own. */
+  private imageFieldMedia(field: Field | null, current?: string): MediaEntry | null {
+    if (!field) return null;
+    const config = this.host.config();
+    const values = this.templateValues();
+    return (
+      (current ? resolveMediaForValue(config, field, current, this.entry, values) : null) ??
+      resolveMedia(config, field, this.entry, values)
+    );
+  }
+
   /** The value an image field stores for a file picked in the media
-   * picker: through the field's media folder when the file is inside it
-   * (as the desktop field picker writes it), else through the image
-   * library holding it, else as the body would reference it. */
+   * picker, or null when the field can't reference it:
+   * - inside the field's media folder: as the desktop field picker writes it;
+   * - in `public/`: its site path, which the site serves;
+   * - elsewhere, for a field storing document-relative paths (Astro
+   *   `image()`): relative to the document, as Astro imports it. */
   imageFieldValue(
     path: ValuePath,
     absolutePath: string,
     field: Field | null = this.fieldAtPath(path),
+    current?: string,
   ): string | null {
-    const config = this.host.config();
-    const media = field ? resolveMedia(config, field, this.entry, this.templateValues()) : null;
-    const libraries: MediaEntry[] = (config.mediaLibraries ?? []).map((library) => {
-      const input = library.base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
-      return { name: `library:${library.collection}`, input, output: `/${input}` };
-    });
-    for (const candidate of [media, ...libraries]) {
-      if (!candidate || !absolutePath.startsWith(`${this.host.root}/${candidate.input}/`)) continue;
-      const value = mediaOutputPath(this.host.root, candidate, absolutePath, this.documentPath());
+    const root = this.host.root;
+    const media = this.imageFieldMedia(field, current);
+    if (media) {
+      const value = mediaOutputPath(root, media, absolutePath, this.documentPath());
       if (value) return value;
     }
-    return this.bodyMediaValue(absolutePath);
+    const publicRoot = `${root}/public/`;
+    if (absolutePath.startsWith(publicRoot)) return `/${absolutePath.slice(publicRoot.length)}`;
+    const documentPath = this.documentPath();
+    if (media?.relative && documentPath) return relativeMediaPath(documentPath, absolutePath);
+    return null;
   }
 
   /** The stored value for a file picked into the body (document-relative

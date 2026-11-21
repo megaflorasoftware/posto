@@ -55,7 +55,9 @@ struct EditorView: View {
         } message: {
             Text("This file will be permanently deleted.")
         }
-        .sheet(isPresented: $insertingMedia) {
+        // Each of the editor's sheets gives the body its keyboard back when
+        // it closes, if the body was being edited (endEditing below).
+        .sheet(isPresented: $insertingMedia, onDismiss: controller.resumeEditing) {
             Group {
                 BodyMediaPicker(repo: document.repo) { absolutePath, url, alt, kind in
                     Task { await insertMedia(path: absolutePath, url: url, alt: alt, kind: kind) }
@@ -63,7 +65,7 @@ struct EditorView: View {
             }
             .macSheetSizing()
         }
-        .sheet(item: $editingComponent) { edit in
+        .sheet(item: $editingComponent, onDismiss: controller.resumeEditing) { edit in
             Group {
                 NavigationStack {
                     ComponentPropsView(
@@ -92,7 +94,7 @@ struct EditorView: View {
             }
             .macSheetSizing()
         }
-        .sheet(item: $editingEmbed) { card in
+        .sheet(item: $editingEmbed, onDismiss: controller.resumeEditing) { card in
             Group {
                 NavigationStack {
                     Group {
@@ -113,7 +115,7 @@ struct EditorView: View {
             }
             .macSheetSizing()
         }
-        .sheet(isPresented: $insertingComponent) {
+        .sheet(isPresented: $insertingComponent, onDismiss: controller.resumeEditing) {
             Group {
                 ComponentPickerView(engine: document.engine, document: document) { snippet in
                     controller.insert(snippet, asBlock: true)

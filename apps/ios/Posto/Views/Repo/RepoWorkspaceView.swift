@@ -24,7 +24,9 @@ struct RepoWorkspaceView: View {
                         NavigationStack {
                             EditorView(document: document)
                         }
-                        .id(document.key)
+                        // The open document, not its path: a template rename
+                        // keeps the editor (keyboard, sheets) in place.
+                        .id(ObjectIdentifier(document))
                     } else {
                         ContentUnavailableView(
                             "Select a file",

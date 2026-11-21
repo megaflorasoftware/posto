@@ -43,6 +43,9 @@ struct MediaBrowser: View {
 
     @Bindable var media: MediaModel
     let mode: Mode
+    /// Picking for an image field or reference: only images can be picked
+    /// (as the desktop image pickers list only images).
+    var imagesOnly = false
     @State private var newFolderName = ""
     @State private var creatingFolder = false
     @State private var confirmingDelete = false
@@ -283,7 +286,9 @@ struct MediaBrowser: View {
             if media.selecting {
                 media.toggle(item: item)
             } else if case .pick(let pick) = mode {
-                pick(item, nil)
+                // Broken library entries and, for images, other files can't
+                // be picked.
+                if pickable(item) { pick(item, nil) }
             } else if media.isLibrary {
                 if item.problem == nil { editingAsset = item }
             } else if media.isPublic {
@@ -318,9 +323,13 @@ struct MediaBrowser: View {
                     .foregroundStyle(item.problem == nil ? Color.primary : Color.red)
                     .lineLimit(1)
             }
-            .opacity(item.problem == nil ? 1 : 0.6)
+            .opacity(item.problem == nil && (mode.isManaging || pickable(item)) ? 1 : 0.4)
         }
         .buttonStyle(.plain)
+    }
+
+    private func pickable(_ item: MediaItem) -> Bool {
+        item.problem == nil && (!imagesOnly || item.kind == "image")
     }
 
     @ViewBuilder
@@ -392,7 +401,7 @@ struct MediaBrowser: View {
                     } label: {
                         Label("Import from Photos", systemImage: "photo.on.rectangle")
                     }
-                    if media.isPublic {
+                    if media.isPublic && !imagesOnly {
                         Button {
                             choosingFiles = true
                         } label: {

@@ -29,6 +29,7 @@ struct ImageFieldRow: View {
     let value: String
     let label: String
     @State private var picking = false
+    @State private var error: String?
 
     var body: some View {
         Button {
@@ -48,17 +49,19 @@ struct ImageFieldRow: View {
                 Spacer()
                 Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
             }
+            .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .disabled(field.locked)
         .sheet(isPresented: $picking) {
             Group {
-                ImageFieldPicker(sink: sink, repo: repo, path: path, hasValue: !value.isEmpty) { picked in
+                ImageFieldPicker(sink: sink, repo: repo, path: path, value: value, onError: { error = $0 }) { picked in
                     Task { await sink.edit(path, picked.map(JSONValue.string)) }
                 }
             }
             .macSheetSizing()
         }
+        .errorAlert($error)
     }
 }
 
@@ -68,9 +71,10 @@ struct ImageChooserButton: View {
     let sink: any FormSink
     let repo: RepoModel
     let path: [PathKey]
-    let hasValue: Bool
+    let value: String
     let onPick: (String?) -> Void
     @State private var picking = false
+    @State private var error: String?
 
     var body: some View {
         Button {
@@ -82,53 +86,73 @@ struct ImageChooserButton: View {
         .accessibilityLabel("Choose image")
         .sheet(isPresented: $picking) {
             Group {
-                ImageFieldPicker(sink: sink, repo: repo, path: path, hasValue: hasValue, onPick: onPick)
+                ImageFieldPicker(sink: sink, repo: repo, path: path, value: value, onError: { error = $0 }, onPick: onPick)
             }
             .macSheetSizing()
         }
+        .errorAlert($error)
     }
 }
 
-/// An image field's picker: the app media picker, opening at the field's
-/// media folder (and offering its CDN, when its images live on one), that
-/// writes the value the field stores for the picked file.
+/// An image field's picker: the app media picker, opening at the media
+/// folder of the field's current image (else the field's own), offering its
+/// CDN when its images live on one, and writing the value the field stores.
 struct ImageFieldPicker: View {
     let sink: any FormSink
     let repo: RepoModel
     let path: [PathKey]
-    let hasValue: Bool
+    /// The field's current value: where the picker opens, and how a pick is
+    /// written (as the desktop picker resolves the value's media folder).
+    let value: String
+    let onError: (String) -> Void
     let onPick: (String?) -> Void
+    @Environment(\.dismiss) private var dismiss
     @State private var choices: ImageChoices?
     @State private var loaded = false
 
     var body: some View {
-        if loaded {
+        if !loaded {
+            ProgressView()
+                .task {
+                    choices = try? await sink.engine.call("form.imageChoices", [
+                        "form": .string(sink.formTarget), "path": path.json, "value": .string(value),
+                    ])
+                    loaded = true
+                }
+        } else if choices?.media == nil {
+            // As on desktop, where such a field's picker is disabled.
+            NavigationStack {
+                ContentUnavailableView("No media folder", systemImage: "photo",
+                                       description: Text("This field has no media folder configured, so it can't pick images."))
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } } }
+            }
+        } else {
             MediaPickerSheet(
                 repo: repo,
                 title: choices?.media?.label ?? "Choose Image",
                 folder: mediaFolder,
                 cdnSource: choices?.cdnSource,
-                onClear: hasValue ? { onPick(nil) } : nil
+                onClear: value.isEmpty ? nil : { onPick(nil) },
+                imagesOnly: true
             ) { item, _ in
                 if let file = item.imagePath {
                     Task {
-                        // The engine writes the path the field expects: through
-                        // its media folder, an image library, or public.
-                        let value: String? = (try? await sink.engine.call("form.imageValue", [
-                            "form": .string(sink.formTarget), "path": path.json, "absolutePath": .string(file),
+                        // Through the field's media folder or public, or
+                        // relative to the document for Astro image() fields.
+                        let picked: String? = (try? await sink.engine.call("form.imageValue", [
+                            "form": .string(sink.formTarget), "path": path.json,
+                            "absolutePath": .string(file), "value": .string(value),
                         ], as: String?.self)) ?? nil
-                        if let value { onPick(value) }
+                        if let picked {
+                            onPick(picked)
+                        } else {
+                            onError("This field can't use \(file.lastPathComponent). Pick an image from \(choices?.media?.input ?? "its media folder") or public.")
+                        }
                     }
                 } else if let url = item.imageUrl {
                     onPick(url)
                 }
             }
-        } else {
-            ProgressView()
-                .task {
-                    choices = try? await sink.engine.call("form.imageChoices", ["form": .string(sink.formTarget), "path": path.json])
-                    loaded = true
-                }
         }
     }
 
@@ -280,6 +304,7 @@ struct ReferenceFieldRow: View {
                     Spacer()
                     Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
                 }
+                .contentShape(.rect)
             }
             .buttonStyle(.plain)
             .contextMenu {
@@ -313,7 +338,9 @@ struct ReferenceFieldRow: View {
                         repo: document.repo,
                         title: library,
                         library: library,
-                        onClear: !value.isEmpty && !field.required ? { Task { await sink.edit(path, nil) } } : nil
+                        // As desktop: whatever is chosen can be cleared.
+                        onClear: value.isEmpty ? nil : { Task { await sink.edit(path, nil) } },
+                        imagesOnly: true
                     ) { item, _ in
                         guard let entryId = item.entryId else { return }
                         Task { await sink.edit(path, .string(entryId)) }

@@ -121,7 +121,7 @@ struct MacWorkspaceView: View {
             NavigationStack {
                 EditorView(document: document)
             }
-            .id(document.key)
+            .id(ObjectIdentifier(document))
         } else {
             ContentUnavailableView(
                 "Select a file",

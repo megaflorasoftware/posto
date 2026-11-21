@@ -32,10 +32,20 @@ final class MarkdownEditorController {
         storage.map(EmbedProjection.source(of:)) ?? ""
     }
 
+    private var resumesAfterSheet = false
+
     /// Ends editing; the selection stays for inserts.
     func endEditing() {
         guard let textView, textView.window?.firstResponder === textView else { return }
+        resumesAfterSheet = true
         textView.window?.makeFirstResponder(nil)
+    }
+
+    /// After the sheet that ended editing has closed: back to the body.
+    func resumeEditing() {
+        guard resumesAfterSheet, let textView else { return }
+        resumesAfterSheet = false
+        textView.window?.makeFirstResponder(textView)
     }
 
     func requestEditComponent() {

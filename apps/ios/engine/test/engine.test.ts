@@ -242,16 +242,18 @@ describe("repository session", () => {
     const view = await call<{ tree: TreeNode[] }>("repo.view");
     const [first, second] = allFiles(view.tree).filter((file) => /\.mdx?$/.test(file.name));
     // Overlapping opens (arrowing through the sidebar): the last one wins.
-    const [, , last] = await Promise.all([
-      call<{ key: string }>("doc.open", { key: second.key }),
-      call<{ key: string }>("doc.open", { key: first.key }),
-      call<{ key: string }>("doc.open", { key: second.key }),
+    const [, firstView, last] = await Promise.all([
+      call<{ key: string; session: number }>("doc.open", { key: second.key }),
+      call<{ key: string; session: number }>("doc.open", { key: first.key }),
+      call<{ key: string; session: number }>("doc.open", { key: second.key }),
     ]);
     expect(last.key).toBe(second.key);
     expect((await call<{ key: string }>("doc.view")).key).toBe(second.key);
     await expect(
-      call("doc.setBody", { key: first.key, text: "Typed into the other file" }),
+      call("doc.setBody", { session: firstView.session, text: "Typed into the other file" }),
     ).rejects.toThrow(/no longer open/);
+    // The open one's session is accepted (it survives template renames).
+    await call("doc.setBody", { session: last.session, text: (await call<{ body: { text: string } }>("doc.view")).body.text });
   });
 
   it("picks images for a component's props from the document's media", async () => {
@@ -317,6 +319,69 @@ describe("repository session", () => {
       absolutePath: "/mock/site/public/images/photo.jpg",
     });
     expect(value).toBe("/images/photo.jpg");
+  });
+
+  it("edits props the form can't represent as source text, as desktop raw rows", async () => {
+    const view = await call<{ tree: TreeNode[] }>("repo.view");
+    const file = allFiles(view.tree).find((candidate) =>
+      /^mdx[ -]demo\.mdx$/i.test(candidate.name),
+    )!;
+    await call("doc.open", { key: file.key });
+    // A src whose type has no control (the site's ResponsiveVideo src).
+    await call("backend.invoke", {
+      command: "write_text_file",
+      args: {
+        path: "/mock/site/src/components/Video.astro",
+        content: "---\nexport type VideoPath = `/src/media/videos/${string}.mp4`;\n---\n<video />",
+      },
+    });
+    await call("backend.invoke", {
+      command: "write_text_file",
+      args: {
+        path: "/mock/site/src/components/Timeline.astro",
+        content: [
+          "---",
+          "interface VideoPath { url: string; poster: Poster }",
+          "export type Props = {",
+          "  name: string;",
+          "  roles: { title: string }[];",
+          "  src?: VideoPath;",
+          "};",
+          "---",
+          "<li />",
+        ].join("\n"),
+      },
+    });
+    // Inserting it once adds the import the props schema is found through.
+    await call("components.open", { name: "Timeline", path: "/mock/site/src/components/Timeline.astro" });
+    await call("form.edit", { form: "component", path: ["name"], value: "Job" });
+    await call("form.edit", { form: "component", path: ["roles"], value: [{ title: "Lead" }] });
+    await call("components.finish");
+    const text = '<Timeline name="Job" roles={roles} extra="x" />\n';
+    type Field = { name: string; chooseImage: boolean; description: string | null };
+    const form = await call<{ fields: Field[]; values: Record<string, unknown> }>(
+      "components.openAt",
+      { text, offset: 1, start: 0 },
+    );
+    // `roles={roles}` and the undeclared `extra` are raw rows with their source.
+    expect(form.values.roles).toBe("roles");
+    expect(form.values.extra).toBe("x");
+    expect(form.fields.map((field) => field.name)).toEqual(["name", "roles", "src", "extra"]);
+    // A raw-typed prop named src gets no image picker (desktop: a raw row).
+    expect(form.fields.find((field) => field.name === "src")?.chooseImage).toBe(false);
+    await call("form.edit", { form: "component", path: ["roles"], value: '[{ title: "Lead" }]' });
+    const done = await call<{ snippet: string }>("components.finish");
+    expect(done.snippet).toBe('<Timeline name="Job" roles={[{ title: "Lead" }]} extra="x" />');
+  });
+
+  it("writes image field values the site can serve", async () => {
+    const view = await call<{ tree: TreeNode[] }>("repo.view");
+    const file = allFiles(view.tree).find((candidate) => candidate.key.includes("/src/blog/"))!;
+    await call("doc.open", { key: file.key });
+    // Public files: their site path, unencoded.
+    expect(
+      await call("form.imageValue", { path: ["cover"], absolutePath: "/mock/site/public/images/my photo.jpg" }),
+    ).toBe("/images/my photo.jpg");
   });
 
   it("edits only components outside code from the cursor", async () => {

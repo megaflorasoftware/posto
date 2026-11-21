@@ -110,6 +110,8 @@ final class RepoModel {
     }
 
     func chooseWorkspace(_ dir: String?) async {
+        openingFile += 1
+        await document?.flush()
         selectedKey = nil
         document = nil
         do {
@@ -137,14 +139,20 @@ final class RepoModel {
 
     // MARK: Documents
 
-    /// Bumped by each openFile, so only the latest selection takes effect
-    /// when several opens overlap (arrowing through the sidebar).
+    /// Bumped by each open, close or create, so only the latest selection
+    /// takes effect when several overlap (arrowing through the sidebar).
     private var openingFile = 0
+    /// The file an open in flight is fetching.
+    private var openingKey: String?
 
     func openFile(_ key: String) async {
-        if document?.key == key { return }
+        // Already open (or opening): nothing to do. While another open is in
+        // flight, returning here would let that one win over this choice.
+        if (openingKey ?? document?.key) == key { return }
         openingFile += 1
         let opening = openingFile
+        openingKey = key
+        defer { if opening == openingFile { openingKey = nil } }
         // Debounced typing goes to the file it was typed into, before the
         // engine switches documents.
         await document?.flush()
@@ -164,6 +172,7 @@ final class RepoModel {
     func closeFile() async {
         guard let closing = document else { return }
         openingFile += 1
+        openingKey = nil
         await closing.flush()
         document = nil
         selectedKey = nil
@@ -171,6 +180,10 @@ final class RepoModel {
     }
 
     func createFile(in node: TreeNode) async {
+        // The current file's debounced typing goes to it first, as on open.
+        openingFile += 1
+        openingKey = nil
+        await document?.flush()
         do {
             let created: DocumentView = try await engine.call("repo.createFile", [
                 "groupPath": .string(node.path),
@@ -275,7 +288,9 @@ final class DocumentModel {
     var engine: Engine { repo.engine }
 
     func apply(_ next: DocumentView) {
-        let replaced = next.revision != view.revision || next.key != view.key || next.tab != view.tab
+        // A rename (a filename template) keeps the session: the text typed
+        // since stays. Another document or new content replaces it.
+        let replaced = next.revision != view.revision || next.session != view.session || next.tab != view.tab
         view = next
         if replaced {
             bodyText = next.body?.text ?? ""
@@ -317,7 +332,7 @@ final class DocumentModel {
     private func sendBody() async {
         guard let text = pendingBody else { return }
         pendingBody = nil
-        if let result: JSONValue = try? await engine.call("doc.setBody", ["key": .string(key), "text": .string(text)]),
+        if let result: JSONValue = try? await engine.call("doc.setBody", ["session": .number(Double(view.session)), "text": .string(text)]),
            let state = result["saveState"]?.stringValue {
             view.saveState = state
         }
@@ -339,7 +354,7 @@ final class DocumentModel {
     private func sendRaw() async {
         guard let text = pendingRaw else { return }
         pendingRaw = nil
-        if let result: JSONValue = try? await engine.call("doc.setRaw", ["key": .string(key), "text": .string(text)]),
+        if let result: JSONValue = try? await engine.call("doc.setRaw", ["session": .number(Double(view.session)), "text": .string(text)]),
            let state = result["saveState"]?.stringValue {
             view.saveState = state
         }

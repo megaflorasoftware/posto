@@ -66,6 +66,17 @@ import type { RepoSession } from "./repo";
 
 export const PUBLIC_TAB = "__posto_public__";
 export const SOURCE_TAB = "__posto_src__";
+/** A media folder's tab: this prefix and the folder's path. */
+export const FOLDER_TAB = "__posto_folder__:";
+
+function isFileTab(tab: string): boolean {
+  return tab === PUBLIC_TAB || tab === SOURCE_TAB || tab.startsWith(FOLDER_TAB);
+}
+
+/** Tabs listing only images, read-only: src and media folders. */
+function isImageFolderTab(tab: string): boolean {
+  return tab === SOURCE_TAB || tab.startsWith(FOLDER_TAB);
+}
 
 export interface MediaTab {
   id: string;
@@ -213,7 +224,28 @@ export class MediaSession {
         ? [{ id: SOURCE_TAB, label: "src", kind: "source" as const }]
         : []),
       { id: PUBLIC_TAB, label: "public", kind: "public" as const },
+      ...this.folderTabs(libraries),
     ];
+  }
+
+  /** Media folders (`.pages.yml` media) no other tab covers (`assets/`,
+   * `static/`…), browsable for picking as the desktop field picker lists
+   * its media folder. Read-only, like src. */
+  private folderTabs(libraries: MediaLibrary[]): MediaTab[] {
+    const covered = [
+      ...libraries.map((library) => library.base.replace(/^\.\//, "").replace(/\/+$/, "")),
+      ...(this.repo.view().showSourceMedia ? ["src"] : []),
+      "public",
+    ];
+    const inside = (input: string) =>
+      covered.some((root) => input === root || input.startsWith(`${root}/`));
+    const seen = new Set<string>();
+    return this.config.media.flatMap((media) => {
+      const input = media.input.replace(/^\.\//, "").replace(/\/+$/, "");
+      if (!input || inside(input) || seen.has(input)) return [];
+      seen.add(input);
+      return [{ id: `${FOLDER_TAB}${input}`, label: media.label ?? input, kind: "source" as const }];
+    });
   }
 
   library(tab: string): MediaLibrary {
@@ -245,6 +277,7 @@ export class MediaSession {
   }
 
   private fileRoot(tab: string): string {
+    if (tab.startsWith(FOLDER_TAB)) return `${this.root}/${tab.slice(FOLDER_TAB.length)}`;
     return tab === SOURCE_TAB ? `${this.root}/src` : `${this.root}/public`;
   }
 
@@ -301,7 +334,7 @@ export class MediaSession {
 
   private async loadFiles(tab: string): Promise<FileState> {
     const directoryRoot = this.fileRoot(tab);
-    const source = tab === SOURCE_TAB;
+    const source = isImageFolderTab(tab);
     try {
       const listed = await invoke<FileEntry[] | null>("list_dir_files_optional", {
         dir: directoryRoot,
@@ -338,7 +371,7 @@ export class MediaSession {
   }
 
   async list(tab: string, directory: string, reload = false): Promise<MediaListing> {
-    if (tab === PUBLIC_TAB || tab === SOURCE_TAB) {
+    if (isFileTab(tab)) {
       const state = (!reload && this.files.get(tab)) || (await this.loadFiles(tab));
       const rootDirectory = this.fileRoot(tab);
       const current = directory ? `${rootDirectory}/${directory}` : rootDirectory;
@@ -373,7 +406,7 @@ export class MediaSession {
           })),
         loading: false,
         error: state.error,
-        readOnly: tab === SOURCE_TAB,
+        readOnly: isImageFolderTab(tab),
       };
     }
     const library = this.library(tab);

@@ -72,8 +72,6 @@ extension View {
         #endif
     }
 
-    /// Inset grouped on iOS; the standard inset list on macOS.
-    @ViewBuilder
     /// A text field's title is its placeholder, as on iOS. A macOS form
     /// would also show it as a label beside the field, doubling the caption
     /// or section header above it.
@@ -95,6 +93,8 @@ extension View {
         #endif
     }
 
+    /// Inset grouped on iOS; the standard inset list on macOS.
+    @ViewBuilder
     func groupedListStyle() -> some View {
         #if os(iOS)
         listStyle(.insetGrouped)

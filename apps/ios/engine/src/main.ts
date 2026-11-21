@@ -68,10 +68,10 @@ function requireRepo(): RepoSession {
 
 /** The open document, when it's still the one an edit was typed into: a
  * debounced edit that arrives after the user switched files must not land
- * in the next file. */
-function requireOpen(key: unknown): DocumentSession {
+ * in the next file. Compared by session, which a template rename keeps. */
+function requireOpen(session: unknown): DocumentSession {
   const document = requireRepo().requireDocument();
-  if (typeof key === "string" && document.key !== key) {
+  if (typeof session === "number" && document.session !== session) {
     throw new Error("That file is no longer open.");
   }
   return document;
@@ -212,12 +212,12 @@ const methods: Record<string, Method> = {
     return document.view();
   },
   "doc.setBody": (args) => {
-    const document = requireOpen(args.key);
+    const document = requireOpen(args.session);
     document.setBody(args.text as string);
     return { saveState: document.saveState };
   },
   "doc.setRaw": (args) => {
-    const document = requireOpen(args.key);
+    const document = requireOpen(args.session);
     document.setRaw(args.text as string);
     return { saveState: document.saveState };
   },
@@ -243,9 +243,10 @@ const methods: Record<string, Method> = {
   "form.imageChoices": (args) => {
     const { store } = formFor((args.form as string | undefined) ?? "document");
     const document = requireRepo().requireDocument();
+    const current = (args.value as string | undefined) || undefined;
     return store
-      ? document.imageChoices(path(args), fieldAt(store.fields, path(args)))
-      : document.imageChoices(path(args));
+      ? document.imageChoices(path(args), fieldAt(store.fields, path(args)), current)
+      : document.imageChoices(path(args), undefined, current);
   },
   "form.referenceOptions": (args) => {
     const { store } = formFor((args.form as string | undefined) ?? "document");
@@ -258,9 +259,10 @@ const methods: Record<string, Method> = {
     const { store } = formFor((args.form as string | undefined) ?? "document");
     const document = requireRepo().requireDocument();
     const absolutePath = args.absolutePath as string;
+    const current = (args.value as string | undefined) || undefined;
     return store
-      ? document.imageFieldValue(path(args), absolutePath, fieldAt(store.fields, path(args)))
-      : document.imageFieldValue(path(args), absolutePath);
+      ? document.imageFieldValue(path(args), absolutePath, fieldAt(store.fields, path(args)), current)
+      : document.imageFieldValue(path(args), absolutePath, undefined, current);
   },
   "form.imagePreview": (args) => {
     const { store } = formFor((args.form as string | undefined) ?? "document");

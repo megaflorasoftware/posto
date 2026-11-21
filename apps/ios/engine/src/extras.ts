@@ -11,6 +11,7 @@ import { listMediaObjects, saveMediaCredential } from "./ipc";
 import {
   expandFieldTemplate,
   type ContentEntry,
+  type Field,
   type FieldTemplateSchema,
   type PagesConfig,
 } from "@posto/core/pagescms/config";
@@ -307,6 +308,8 @@ let componentForm: {
   hasDefaultSlot: boolean;
   /** The children as one text per slot, as the form shows them. */
   slotTexts: SlotText[];
+  /** Props edited as their source text, as the desktop form's raw rows. */
+  rawProps: RawProp[];
   /** What the props' fields resolve against: the site's config (image
    * libraries, collections) and whether entry ids exist, so a
    * `CollectionEntry<'media'>['id']` prop is an image-library picker. */
@@ -370,15 +373,7 @@ export async function openComponentAt(
     source && path
       ? await source.componentFields({ name: block.name, path }, ipcProjectIO, repo.config)
       : null;
-  const fields = schema?.fields ?? [];
-  const values: Record<string, unknown> = {};
-  const kept: MdxProp[] = [];
-  for (const prop of props) {
-    const field = fields.find((candidate) => candidate.name === prop.name);
-    const value = field ? propJsValue(prop) : UNPARSED;
-    if (field && value !== UNPARSED && valueFits(field, value)) values[prop.name] = value;
-    else kept.push(prop);
-  }
+  const { fields, values, rawProps, kept } = propsForm(schema?.fields ?? [], props);
   const slots = schema?.slots ?? [];
   const hasDefaultSlot = schema?.hasDefaultSlot ?? true;
   const form = new MetadataForm(fields, values);
@@ -386,6 +381,7 @@ export async function openComponentAt(
     name: block.name,
     path: path ?? "",
     form,
+    rawProps,
     slots,
     hasDefaultSlot,
     slotTexts: slotTextsOf(block.children, slots, hasDefaultSlot || schema === null),
@@ -401,6 +397,81 @@ export async function openComponentAt(
     },
   };
   return componentFormView();
+}
+
+/** A prop edited as its source text (the desktop form's raw rows): one
+ * whose value the form can't represent (`roles={roles}`), whose declared
+ * type has no control (`PolaroidMediaItem[]`), or that the component
+ * doesn't declare. */
+interface RawProp {
+  name: string;
+  /** How the prop was written, or will be when added. */
+  kind: MdxProp["kind"];
+  /** Whether the tag had it, so clearing it removes it. */
+  existed: boolean;
+}
+
+function schemaKind(type: string | null): MdxProp["kind"] {
+  return (type ?? "").replace(/\s/g, "") === "string" ? "string" : "expression";
+}
+
+/** The props form, as the desktop builds it: a declared prop gets its field
+ * when its value fits; anything else becomes a raw text row holding the
+ * prop's source. Spreads stay verbatim (`kept`). */
+function propsForm(
+  declared: Field[],
+  props: MdxProp[],
+): { fields: Field[]; values: Record<string, unknown>; rawProps: RawProp[]; kept: MdxProp[] } {
+  const fields: Field[] = [];
+  const values: Record<string, unknown> = {};
+  const rawProps: RawProp[] = [];
+  const named = props.filter((prop) => prop.kind !== "spread");
+  const rawRow = (name: string, declaredType: string | null, prop: MdxProp | undefined) => {
+    rawProps.push({
+      name,
+      kind: prop ? prop.kind : schemaKind(declaredType),
+      existed: prop !== undefined,
+    });
+    const isExpression = (prop?.kind ?? schemaKind(declaredType)) !== "string";
+    fields.push({
+      name,
+      type: "string",
+      label: name,
+      description: [isExpression ? "Edited as source: {…}" : "Edited as source", declaredType]
+        .filter(Boolean)
+        .join(" · "),
+      options: { mdxRawField: true },
+    } as Field);
+    if (prop) values[name] = prop.value;
+  };
+  for (const field of declared) {
+    const rawType = typeof field.options?.mdxRawType === "string" ? field.options.mdxRawType : null;
+    const declaredType =
+      typeof field.options?.mdxDeclaredType === "string" ? field.options.mdxDeclaredType : rawType;
+    const prop = named.find((candidate) => candidate.name === field.name);
+    const value = prop ? propJsValue(prop) : undefined;
+    if (!rawType && value !== UNPARSED && valueFits(field, value)) {
+      fields.push(field);
+      if (prop) values[field.name] = value;
+    } else {
+      rawRow(field.name, declaredType, prop);
+    }
+  }
+  const declaredNames = new Set(declared.map((field) => field.name));
+  for (const prop of named) {
+    if (!declaredNames.has(prop.name)) rawRow(prop.name, null, prop);
+  }
+  return { fields, values, rawProps, kept: props.filter((prop) => prop.kind === "spread") };
+}
+
+/** A raw row's prop: its text as written, in the prop's kind (a boolean
+ * shorthand edited to anything else becomes an expression, as on desktop).
+ * Emptied, it's dropped. */
+function rawPropFrom(raw: RawProp, value: unknown): MdxProp[] {
+  const text = typeof value === "string" ? value : "";
+  if (text.trim() === "") return [];
+  const kind = raw.kind === "boolean" && text !== "true" ? "expression" : raw.kind;
+  return [{ name: raw.name, value: text, kind } as MdxProp];
 }
 
 /** A component's children as one text per slot: the default slot (when the
@@ -442,10 +513,12 @@ export async function openComponentForm(repo: RepoSession, name: string, path: s
   const source = repo.adapter.capabilities.componentBlocks;
   if (!source) throw new Error("This project doesn't support component blocks.");
   const schema = await source.componentFields({ name, path }, ipcProjectIO, repo.config);
+  const { fields, rawProps } = propsForm(schema?.fields ?? [], []);
   componentForm = {
     name,
     path,
-    form: new MetadataForm(schema?.fields ?? [], {}),
+    form: new MetadataForm(fields, {}),
+    rawProps,
     slots: schema?.slots ?? [],
     hasDefaultSlot: schema?.hasDefaultSlot ?? true,
     slotTexts: slotTextsOf(null, schema?.slots ?? [], schema?.hasDefaultSlot ?? true),
@@ -507,12 +580,11 @@ export function finishComponent(
   if (!pending.form.valid) throw new Error("Fix the highlighted fields first.");
   const document = repo.requireDocument();
   const source = repo.adapter.capabilities.componentBlocks;
-  const props = pending.form.fields.flatMap((field) => {
-    const prop = jsValueProp(
-      field.name,
-      pending.form.values()[field.name],
-      field.required === true,
-    );
+  const values = pending.form.values();
+  const props = pending.form.fields.flatMap((field): MdxProp[] => {
+    const raw = pending.rawProps.find((candidate) => candidate.name === field.name);
+    if (raw) return rawPropFrom(raw, values[field.name]);
+    const prop = jsValueProp(field.name, values[field.name], field.required === true);
     return prop ? [prop] : [];
   });
   componentForm = null;
@@ -525,10 +597,10 @@ export function finishComponent(
           slot.text.trim() !== pending.slotTexts[index].text,
       ));
   if (pending.editing) {
-    const { start, end, raw, values, children, kept, block } = pending.editing;
+    const { start, end, raw, children, kept, block } = pending.editing;
     // Saved without changes: the source stays exactly as written (prop
     // order, quotes, spacing), as on desktop.
-    if (!edited && JSON.stringify(pending.form.values()) === values) {
+    if (!edited && JSON.stringify(values) === pending.editing.values) {
       return { snippet: raw, range: [start, end] };
     }
     const multiline = children === null ? block : /^[ \t]*\n/.test(children);

@@ -97,10 +97,14 @@ export function fieldViews(
         numberMin: numberOption(field.options?.min),
         numberMax: numberOption(field.options?.max),
         dateTime: field.type === "date" && field.options?.time === true,
+        // As desktop's imagePickable; a prop edited as source text (a raw
+        // row, like a video path type) gets no picker there either.
         chooseImage:
           !field.list &&
           (field.type === "string" || field.type === "text") &&
-          /^(src|image|img|imgsrc)$/i.test(field.name),
+          /^(src|image|img|imgsrc)$/i.test(field.name) &&
+          !field.options?.mdxRawType &&
+          !field.options?.mdxRawField,
         referenceCollection,
         imageLibrary: library,
         newItem: newItemValue(field),

@@ -27,9 +27,22 @@ final class MarkdownEditorController {
         return EmbedProjection.source(of: textView.textStorage)
     }
 
+    /// Set while a sheet has the keyboard: the body was being edited.
+    private var resumesAfterSheet = false
+
     /// Ends editing (the keyboard goes); the selection stays for inserts.
     func endEditing() {
-        textView?.resignFirstResponder()
+        guard let textView, textView.isFirstResponder else { return }
+        resumesAfterSheet = true
+        textView.resignFirstResponder()
+    }
+
+    /// After the sheet that ended editing has closed (nested sheets
+    /// included): the keyboard comes back at the caret, after any insert.
+    func resumeEditing() {
+        guard resumesAfterSheet else { return }
+        resumesAfterSheet = false
+        textView?.becomeFirstResponder()
     }
 
     func requestEditComponent() {

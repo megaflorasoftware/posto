@@ -307,6 +307,8 @@ struct BodyState: Codable, Hashable, Sendable {
 }
 
 struct DocumentView: Codable, Sendable {
+    /// The open document across renames; `key` follows its path.
+    let session: Int
     let key: String
     let path: String
     let name: String

@@ -16,6 +16,8 @@ struct MediaPickerSheet: View {
     var cdnSource: JSONValue? = nil
     /// Empties the field.
     var onClear: (() -> Void)? = nil
+    /// Only images can be picked (image fields and references).
+    var imagesOnly = false
     /// The item, and the alt text of a library image just imported.
     let onPick: (MediaItem, String?) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -29,7 +31,7 @@ struct MediaPickerSheet: View {
                     MediaBrowser(media: media, mode: .pick { item, alt in
                         onPick(item, alt)
                         dismiss()
-                    })
+                    }, imagesOnly: imagesOnly)
                 } else {
                     ProgressView()
                 }

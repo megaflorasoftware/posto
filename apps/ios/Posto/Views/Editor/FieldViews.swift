@@ -242,7 +242,7 @@ struct FieldRow: View {
                     .accessibilityLabel("Regenerate \(field.label) from its template")
                 }
                 if field.chooseImage, sink.picksImages, let document {
-                    ImageChooserButton(sink: sink, repo: document.repo, path: path, hasValue: !(value?.stringValue ?? "").isEmpty) { picked in
+                    ImageChooserButton(sink: sink, repo: document.repo, path: path, value: value?.stringValue ?? "") { picked in
                         Task { await sink.edit(path, picked.map(JSONValue.string)) }
                     }
                 }
