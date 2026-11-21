@@ -24,6 +24,11 @@ final class AppModel {
     private(set) var device: DeviceAuthorization?
     private(set) var repos: [GitHubRepo] = []
     private(set) var managed: [ManagedRepo] = []
+    /// Whether `managed` was listed by this launch rather than restored from
+    /// the cache. Cached roots are absolute paths, and iOS moves the app's
+    /// container when a new build is installed, so a cached root can point
+    /// at the old container; opening it fails the clone's identity check.
+    private var managedListed = false
     private(set) var reposLoading = false
     private(set) var reposLoaded = false
     var error: String?
@@ -266,6 +271,7 @@ final class AppModel {
             user = nil
             repos = []
             managed = []
+            managedListed = false
             UserDefaults.standard.removeObject(forKey: Self.cacheKey)
             stage = keepsFolder ? .repositories : .signedOut
         } catch {
@@ -298,7 +304,23 @@ final class AppModel {
         async let available = backend.call("list_user_repos", as: [GitHubRepo].self)
         async let downloaded = backend.call("list_repos", as: [ManagedRepo].self)
         do { repos = try await available } catch { self.error = error.localizedDescription }
-        do { managed = try await downloaded } catch { self.error = self.error ?? error.localizedDescription }
+        do {
+            managed = try await downloaded
+            managedListed = true
+        } catch {
+            self.error = self.error ?? error.localizedDescription
+        }
+        saveCache()
+    }
+
+    /// The downloaded copies as they are on disk now: listing them is local
+    /// and quick, unlike the GitHub list `loadRepos` also waits for.
+    private func listManaged() async {
+        guard !managedListed, !demo,
+              let downloaded = try? await backend.call("list_repos", as: [ManagedRepo].self)
+        else { return }
+        managed = downloaded
+        managedListed = true
         saveCache()
     }
 
@@ -319,6 +341,8 @@ final class AppModel {
 
     func choose(_ repo: GitHubRepo) async {
         error = nil
+        // A cached root may be from before an update moved the container.
+        await listManaged()
         if let existing = managedRepo(for: repo) {
             await open(repo: repo, root: existing.root)
         } else {
