@@ -26,6 +26,7 @@ struct RepoSidebarView: View {
         }
         .listStyle(.sidebar)
         .navigationTitle(repo.name)
+        .navigationBarTitleDisplayMode(.inline)
         .refreshable { await repo.refresh() }
         .overlay { emptyState }
         .softBottomScrollEdge()
