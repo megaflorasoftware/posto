@@ -252,14 +252,14 @@ final class DeploymentModel {
 }
 
 /// The ring's state in words, as the Tauri apps label it.
-func deploymentStateText(_ state: String?, unavailable: Bool = false) -> String {
+func deploymentStateText(_ state: String?) -> String {
     switch state {
     case "running": return "Deploying…"
     case "queued": return "Queued"
     case "success": return "Deployed"
     case "failure": return "Deployment failed"
     case nil: return "Checking…"
-    default: return unavailable ? "Deployments unavailable" : "No recent deployments"
+    default: return "No recent deployments"
     }
 }
 

@@ -67,6 +67,22 @@ struct EngineSmoke {
 
         let deploy = try await engine.call("deploy.status", as: JSONValue.self)
         check.expect(deploy["ring"]?["state"]?.stringValue != nil, "deployment ring computed")
+        check.expect(deploy["actionsUrl"]?.stringValue != nil && deploy["error"]?.isNull == true, "deployment links and no error")
+
+        // The live site, through the native URL parser.
+        let site = try await engine.call("repo.siteUrl", as: String?.self)
+        check.expect(site == "https://example.com/", "site URL: \(site ?? "nil")")
+        let page = try await engine.call("site.page", as: JSONValue.self)
+        check.expect(page["url"]?.stringValue?.hasPrefix("https://example.com/blog/") == true,
+                     "open page on the site: \(page["url"]?.displayString ?? "nil")")
+        let seo = try await engine.call("seo.preview", [
+            "url": "https://example.org/blog/post/",
+            "html": "<title>A &amp; B</title><meta property=\"og:image\" content=\"../cover.png\"><link rel=\"icon\" href=\"/icon.svg\">",
+        ], as: JSONValue.self)
+        check.expect(seo["google"]?["title"]?.stringValue == "A & B", "SEO title decoded")
+        check.expect(seo["image"]?.stringValue == "https://example.org/blog/cover.png", "SEO image resolved: \(seo["image"]?.displayString ?? "nil")")
+        check.expect(seo["favicon"]?.stringValue == "https://example.org/icon.svg", "SEO favicon resolved: \(seo["favicon"]?.displayString ?? "nil")")
+        check.expect(seo["breadcrumb"]?.stringValue == "example.org › blog › post › ", "SEO breadcrumb: \(seo["breadcrumb"]?.displayString ?? "nil")")
 
         check.expect(events.names.contains("repo"), "engine pushed repo events")
         print(check.failures == 0 ? "engine smoke: all checks passed" : "engine smoke: \(check.failures) failed")
