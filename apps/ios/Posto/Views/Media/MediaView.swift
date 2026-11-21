@@ -61,12 +61,23 @@ struct MediaBrowser: View {
     /// An import made while picking, picked once its sheet has closed (a
     /// picker closing itself mid-transition would stay open).
     @State private var importedPick: (item: MediaItem, alt: String?)?
+    @State private var dropTargeted = false
 
     private let columns = [GridItem(.adaptive(minimum: 104), spacing: 10)]
 
     var body: some View {
         withPickers(withSheets(grid
             .overlay { overlayContent }
+            .overlay { dropHighlight }
+            // Files dragged in (from Files, Photos or Finder) import into
+            // the open library or folder, as a drop onto the desktop app does.
+            .onDrop(of: MediaDropDelegate.types, delegate: MediaDropDelegate(
+                enabled: mode.isManaging && !media.readOnly && !media.tab.isEmpty,
+                imagesOnly: media.isLibrary,
+                targeted: $dropTargeted
+            ) { providers in
+                Task { await importDropped(providers) }
+            })
             .refreshable { await media.load(reload: true) }
             .toolbar { if mode.isManaging { manageToolbar } else { pickToolbar } }
             .toolbarGroups(.bottomControls, gap: .flexible, active: mode.isManaging && !media.readOnly && media.selecting) {
@@ -435,6 +446,46 @@ struct MediaBrowser: View {
 
     // MARK: Importing
 
+    @ViewBuilder
+    private var dropHighlight: some View {
+        if dropTargeted {
+            RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [8, 6]))
+                .background(Color.accentColor.opacity(0.08), in: .rect(cornerRadius: 14))
+                .overlay {
+                    Label(media.isLibrary ? "Drop images to import" : "Drop files to import", systemImage: "square.and.arrow.down")
+                        .font(.headline)
+                        .padding()
+                        .glassPanel(cornerRadius: 14)
+                }
+                .padding(6)
+                .allowsHitTesting(false)
+        }
+    }
+
+    /// Dropped files: into a library through its import sheet (names and
+    /// metadata, as for Photos), into `public` directly.
+    private func importDropped(_ providers: [NSItemProvider]) async {
+        preparing = true
+        defer { preparing = false }
+        let imagesOnly = media.isLibrary
+        var paths: [String] = []
+        for (index, provider) in providers.enumerated() {
+            if let path = await PhotoImport.temporaryFile(from: provider, imagesOnly: imagesOnly, index: index, engine: media.engine) {
+                paths.append(path)
+            }
+        }
+        guard !paths.isEmpty else {
+            media.error = imagesOnly ? "Only images can be imported into a media library." : "Those items couldn't be imported."
+            return
+        }
+        if imagesOnly {
+            importing = ImportRequest(tab: media.tab, folder: media.directory, sources: paths)
+        } else {
+            await media.importPublic(paths)
+        }
+    }
+
     private func importPhotos(_ items: [PhotosPickerItem]) async {
         preparing = true
         defer { preparing = false }
@@ -534,6 +585,45 @@ private struct FolderPreview: View {
     }
 }
 
+/// Accepts files dragged onto the media grid: images for a library, any
+/// files for `public`, nothing for the read-only `src` tab or a picker.
+private struct MediaDropDelegate: DropDelegate {
+    /// Images (from Photos, or a file's own type) and file URLs (Finder).
+    static let types: [UTType] = [.image, .fileURL, .data]
+
+    let enabled: Bool
+    let imagesOnly: Bool
+    @Binding var targeted: Bool
+    let receive: ([NSItemProvider]) -> Void
+
+    private var accepted: [UTType] { imagesOnly ? [.image, .fileURL] : Self.types }
+
+    func validateDrop(info: DropInfo) -> Bool {
+        enabled && info.hasItemsConforming(to: accepted)
+    }
+
+    func dropEntered(info: DropInfo) {
+        targeted = validateDrop(info: info)
+    }
+
+    func dropExited(info: DropInfo) {
+        targeted = false
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: validateDrop(info: info) ? .copy : .forbidden)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        targeted = false
+        guard validateDrop(info: info) else { return false }
+        let providers = info.itemProviders(for: accepted)
+        guard !providers.isEmpty else { return false }
+        receive(providers)
+        return true
+    }
+}
+
 struct ImportRequest: Identifiable {
     let id = UUID()
     let tab: String
@@ -578,6 +668,81 @@ enum PhotoImport {
         let options: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: 0.92]
         CGImageDestinationAddImageFromSource(output, input, 0, options as CFDictionary)
         return CGImageDestinationFinalize(output)
+    }
+
+    /// A dropped item as a temporary file: its file (from Files or Finder)
+    /// or its data (from Photos), under its own name. With `imagesOnly`,
+    /// anything that isn't an image is skipped. HEIC becomes JPEG, as for
+    /// Photos picks.
+    static func temporaryFile(from provider: NSItemProvider, imagesOnly: Bool, index: Int, engine: Engine) async -> String? {
+        let wanted: UTType = imagesOnly ? .image : .data
+        let types = provider.registeredTypeIdentifiers.compactMap { UTType($0) }
+            .filter { $0.conforms(to: wanted) && !$0.conforms(to: .fileURL) }
+        // A web-ready type when one is offered (Photos offers JPEG beside HEIC).
+        if let type = types.first(where: { !isHeif($0) }) ?? types.first {
+            guard let path = await loadFile(provider, type: type, index: index) else { return nil }
+            return await convertedIfHeif(path, type: type, engine: engine)
+        }
+        guard provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier),
+              let url = await loadFileURL(provider)
+        else { return nil }
+        let type = UTType(filenameExtension: url.pathExtension)
+        if imagesOnly && type?.conforms(to: .image) != true { return nil }
+        guard let path = copyToTemporary(url) else { return nil }
+        return await convertedIfHeif(path, type: type, engine: engine)
+    }
+
+    private static func isHeif(_ type: UTType) -> Bool {
+        type.conforms(to: .heic) || type.conforms(to: .heif)
+    }
+
+    /// The provider's file for `type`, copied out of the temporary location
+    /// it's only valid in during the callback.
+    private static func loadFile(_ provider: NSItemProvider, type: UTType, index: Int) async -> String? {
+        let fallbackStem = "dropped-\(Int(Date().timeIntervalSince1970))-\(index + 1)"
+        let name = provider.suggestedName.flatMap { $0.isEmpty ? nil : $0 } ?? fallbackStem
+        return await withCheckedContinuation { continuation in
+            _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, _ in
+                guard let url else { return continuation.resume(returning: nil) }
+                var filename = (name as NSString).pathExtension.isEmpty
+                    ? "\(name).\(url.pathExtension.isEmpty ? type.preferredFilenameExtension ?? "dat" : url.pathExtension)"
+                    : name
+                filename = filename.replacingOccurrences(of: "/", with: "-")
+                let destination = uniqueDestination(filename)
+                do {
+                    try FileManager.default.copyItem(at: url, to: destination)
+                    continuation.resume(returning: destination.path)
+                } catch {
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
+    }
+
+    private static func loadFileURL(_ provider: NSItemProvider) async -> URL? {
+        await withCheckedContinuation { continuation in
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                continuation.resume(returning: url)
+            }
+        }
+    }
+
+    /// A path for `filename` in a folder of its own, so a dropped file keeps
+    /// its name (the import names the asset after it) even when another
+    /// drop had the same one.
+    private static func uniqueDestination(_ filename: String) -> URL {
+        let folder = directory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder.appendingPathComponent(filename)
+    }
+
+    private static func convertedIfHeif(_ path: String, type: UTType?, engine: Engine) async -> String {
+        guard let type, isHeif(type) else { return path }
+        let original = URL(fileURLWithPath: path)
+        let converted = original.deletingPathExtension().appendingPathExtension("jpg")
+        guard convertToJPEG(source: original, destination: converted) else { return path }
+        try? await engine.run("media.rememberConverted", ["converted": .string(converted.path), "original": .string(path)])
+        return converted.path
     }
 
     static func copyToTemporary(_ url: URL) -> String? {
