@@ -616,6 +616,8 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     case "write_text_file":
       mockFiles[args?.path as string] = args?.content as string;
       rememberMockPath(args?.path as string);
+      // Writing recreates a file that was deleted earlier.
+      mockDeleted.delete(args?.path as string);
       return null;
     case "create_text_file": {
       const path = args?.path as string;
