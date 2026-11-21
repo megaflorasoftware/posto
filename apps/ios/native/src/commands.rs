@@ -300,7 +300,20 @@ pub(crate) async fn invoke(app: AppHandle, command: String, args_json: &str) -> 
     // Its own task, so a panicking command fails this request instead of
     // taking the response down with it.
     let name = command.clone();
-    match tauri::async_runtime::spawn(dispatch(Invoke { app, command, args })).await {
+    #[cfg(desktop)]
+    let handle = app.clone();
+    let result = tauri::async_runtime::spawn(dispatch(Invoke { app, command, args })).await;
+    // src-tauri removes the dev server's pid file in its exit handler, which
+    // the bridge has no equivalent of: without this, every quit would leave
+    // a pid for the next launch's kill_stale_server to signal, by then
+    // possibly someone else's process group.
+    #[cfg(desktop)]
+    if name == "stop_dev_server" {
+        if let Some(path) = devserver::pid_file(&handle) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+    match result {
         Ok(Ok(response)) => response,
         Ok(Err(message)) => error_json(&message),
         Err(error) => error_json(&format!("command {name} failed: {error}")),

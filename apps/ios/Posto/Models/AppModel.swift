@@ -256,15 +256,18 @@ final class AppModel {
         error = nil
         signingOut = true
         defer { signingOut = false }
+        // A folder opened on the Mac doesn't depend on the GitHub session
+        // (only deployments do); it stays open.
+        let keepsFolder = repo?.local == true
         do {
-            await closeRepo()
+            if !keepsFolder { await closeRepo() }
             try await backend.run("sign_out")
             settingsOpen = false
             user = nil
             repos = []
             managed = []
             UserDefaults.standard.removeObject(forKey: Self.cacheKey)
-            stage = .signedOut
+            stage = keepsFolder ? .repositories : .signedOut
         } catch {
             self.error = error.localizedDescription
         }

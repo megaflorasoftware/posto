@@ -21,10 +21,16 @@ final class MacWindowState {
     let preview: PreviewModel
     var sidebarMode: SidebarMode = .files
     var columns: NavigationSplitViewVisibility = .all
+    /// The sidebar as it was before the full-screen editor hid it.
+    private var columnsBeforeFullscreen: NavigationSplitViewVisibility = .all
     var fullscreenEditor = false
     /// The full-screen editor's floating Files and Media panels (Cmd-\).
     var floatingSidebars = false
+    /// The editor's share of the editor and preview split; the desktop app
+    /// opens at 40/60 and doesn't keep a dragged split either.
+    var editorFraction: CGFloat = 0.4
     var quickOpen = false
+    var recentOpen = false
     var deploymentsOpen = false
 
     private init() {
@@ -50,9 +56,18 @@ final class MacWindowState {
         }
     }
 
+    /// The full-screen editor covers the window: the sidebar column closes
+    /// (and comes back as it was), the preview collapses, and Files and
+    /// Media float over the editor on hover or Cmd-\.
     func toggleFullscreenEditor() {
         guard app.repo != nil else { return }
         withAnimation(.snappy) {
+            if fullscreenEditor {
+                columns = columnsBeforeFullscreen
+            } else {
+                columnsBeforeFullscreen = columns
+                columns = .detailOnly
+            }
             fullscreenEditor.toggle()
             floatingSidebars = false
         }
@@ -71,16 +86,32 @@ final class MacWindowState {
 
     func open(_ root: String) async {
         await preview.stop()
-        fullscreenEditor = false
+        exitFullscreen()
         await app.openLocal(root: root)
-        if let repo = app.repo, repo.view?.error == nil {
-            await preview.start(root: repo.view?.root ?? root)
-        }
+        await syncPreview()
     }
 
     func close() async {
         await preview.stop()
-        fullscreenEditor = false
+        exitFullscreen()
         await app.closeRepo()
+    }
+
+    private func exitFullscreen() {
+        if fullscreenEditor { columns = columnsBeforeFullscreen }
+        fullscreenEditor = false
+        floatingSidebars = false
+    }
+
+    /// Runs the preview for the project that's open: not while the project
+    /// chooser is up (in a monorepo the repository root isn't the site), and
+    /// again when a different project is chosen.
+    func syncPreview() async {
+        guard let repo = app.repo, let view = repo.view, view.workspaceCandidates == nil,
+              view.error == nil, !view.loading
+        else { return }
+        if preview.root == view.root, preview.state != .idle { return }
+        await preview.stop()
+        await preview.start(root: view.root)
     }
 }

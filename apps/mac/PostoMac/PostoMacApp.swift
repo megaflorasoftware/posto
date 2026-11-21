@@ -19,6 +19,9 @@ struct PostoMacApp: App {
     var body: some Scene {
         Window("Posto Native", id: "main") {
             MacRootView(window: window)
+                // The shared views' forms scroll: macOS's default (columns)
+                // style doesn't, so a long body sat centered and clipped.
+                .formStyle(.grouped)
                 .frame(minWidth: 900, minHeight: 560)
         }
         .defaultSize(width: 1440, height: 900)
@@ -31,7 +34,34 @@ struct PostoMacApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Set once the open file is saved and the dev server stopped.
+    private var readyToQuit = false
+    private var preparing = false
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    /// The first quit waits for the open file's last edits to be written
+    /// and the dev server to stop, then quits again. Both need the main
+    /// actor, which a deferred quit (terminateLater) never services.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if readyToQuit { return .terminateNow }
+        guard !preparing else { return .terminateCancel }
+        preparing = true
+        let quit = { [weak self] in
+            guard let self, !self.readyToQuit else { return }
+            self.readyToQuit = true
+            sender.terminate(nil)
+        }
+        Task { @MainActor in
+            let window = MacWindowState.shared
+            await window.app.repo?.document?.flush()
+            await window.preview.stop()
+            quit()
+        }
+        // A save or a server that hangs doesn't keep the app open.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { quit() }
+        return .terminateCancel
+    }
 
     func applicationWillTerminate(_ notification: Notification) {
         // The dev server is a child process group; don't leave it running.
@@ -51,21 +81,20 @@ struct MacCommands: Commands {
     let window: MacWindowState
 
     var body: some Commands {
+        // The desktop app's File menu: Open File (Cmd-O, a palette of the
+        // site's files), Open Repository, Open Recent (Shift-Cmd-O, a
+        // palette), Open Sibling Project.
         CommandGroup(replacing: .newItem) {
-            Button("Open Folder…") { window.chooseFolder() }
+            Button("Open File…") { window.quickOpen = true }
                 .keyboardShortcut("o")
-            Menu("Open Recent") {
-                ForEach(window.app.recentRoots, id: \.self) { root in
-                    Button(root.replacingOccurrences(of: NSHomeDirectory(), with: "~")) {
-                        Task { await window.open(root) }
-                    }
-                }
-            }
-            .disabled(window.app.recentRoots.isEmpty)
-            Divider()
-            Button("Quick Open…") { window.quickOpen = true }
-                .keyboardShortcut("p")
                 .disabled(window.app.repo == nil)
+            Button("Open Folder…") { window.chooseFolder() }
+            Button("Open Recent…") { window.recentOpen = true }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
+                .disabled(window.app.recentRoots.isEmpty)
+            Button("Open Sibling Project…") { Task { await window.app.repo?.showWorkspaceChooser() } }
+                .disabled(window.app.repo?.view?.canSwitchProject != true)
+            Divider()
             Button("Close Folder") { Task { await window.close() } }
                 .keyboardShortcut("w", modifiers: [.command, .shift])
                 .disabled(window.app.repo == nil)
@@ -123,15 +152,44 @@ enum LoginShell {
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
         guard (try? process.run()) != nil else { return }
-        // An interactive shell that waits on something shouldn't hold up launch.
-        DispatchQueue.global().asyncAfter(deadline: .now() + 4) { if process.isRunning { process.terminate() } }
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+        // Read until the second marker, not to end of file: a login script
+        // that leaves a background job holding stdout would never close it.
+        // An interactive shell that waits on something doesn't hold up
+        // launch past 4 seconds either.
+        let collected = LockedData()
+        let done = DispatchSemaphore(value: 0)
+        let handle = output.fileHandleForReading
+        handle.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty || collected.append(chunk, until: marker) {
+                handle.readabilityHandler = nil
+                done.signal()
+            }
+        }
+        if done.wait(timeout: .now() + 4) == .timedOut { handle.readabilityHandler = nil }
+        if process.isRunning { process.terminate() }
+        let data = collected.data
         guard let text = String(data: data, encoding: .utf8),
               let start = text.range(of: marker),
               let end = text.range(of: marker, range: start.upperBound..<text.endIndex)
         else { return }
         let path = String(text[start.upperBound..<end.lowerBound])
         if !path.isEmpty { setenv("PATH", path, 1) }
+    }
+
+    private final class LockedData: @unchecked Sendable {
+        private let lock = NSLock()
+        private var buffer = Data()
+
+        var data: Data { lock.withLock { buffer } }
+
+        /// Appends; true once the output holds the marker twice.
+        func append(_ chunk: Data, until marker: String) -> Bool {
+            lock.withLock {
+                buffer.append(chunk)
+                let text = String(decoding: buffer, as: UTF8.self)
+                return text.components(separatedBy: marker).count >= 3
+            }
+        }
     }
 }

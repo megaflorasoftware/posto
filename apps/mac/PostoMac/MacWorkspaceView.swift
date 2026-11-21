@@ -23,7 +23,12 @@ struct MacRootView: View {
                 await window.open(path)
             }
             #endif
-            await window.startPreviewIfOpen()
+            await window.syncPreview()
+        }
+        // However the folder closes (Close Folder, the project chooser, a
+        // failed open), its dev server and route sync stop with it.
+        .onChange(of: window.app.repo == nil) { _, closed in
+            if closed { Task { await window.preview.stop() } }
         }
         #if DEBUG
         .task { await MacDebugRemote.run(window: window) }
@@ -37,49 +42,31 @@ struct MacRootView: View {
     }
 }
 
-extension MacWindowState {
-    /// The folder restored at launch gets its preview server too.
-    func startPreviewIfOpen() async {
-        if let repo = app.repo, repo.view?.error == nil, preview.state == .idle {
-            await preview.start(root: repo.view?.root ?? repo.repoRoot)
-        }
-    }
-}
-
 /// One open folder in the Tauri desktop app's layout: the files or media
 /// sidebar, the editor, and the site preview beside it. The full-screen
-/// editor hides both, with the sidebars floating over it on Cmd-\.
+/// editor covers all of it, with Files and Media floating over its edges.
 struct MacWorkspaceView: View {
     @Bindable var window: MacWindowState
     @Bindable var repo: RepoModel
 
+    /// What the preview runs for; a change starts it for the new project.
+    private struct PreviewTarget: Equatable {
+        let root: String?
+        let choosing: Bool
+        let loading: Bool
+    }
+
     var body: some View {
         NavigationSplitView(columnVisibility: $window.columns) {
             MacSidebar(window: window, repo: repo)
-                .navigationSplitViewColumnWidth(min: 220, ideal: 270, max: 420)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 420)
         } detail: {
-            Group {
-                if window.fullscreenEditor {
-                    fullscreenEditor
-                } else if let view = repo.view, view.workspaceCandidates != nil {
-                    NavigationStack {
-                        WorkspaceChooserView(repo: repo, candidates: view.workspaceCandidates ?? [], dismissible: view.fileCount > 0 || !view.tree.isEmpty)
-                    }
-                } else {
-                    HSplitView {
-                        editorPane
-                            .frame(minWidth: 380, idealWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
-                        PreviewPane(window: window, preview: window.preview)
-                            .frame(minWidth: 320, idealWidth: 700, maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            detail
         }
         .navigationTitle(repo.name)
         .navigationSubtitle(repo.view?.branch ?? "")
         .toolbar { toolbar }
+        .toolbar(removing: window.fullscreenEditor ? .sidebarToggle : nil)
         .onChange(of: repo.selectedKey) { _, key in
             Task {
                 if let key { await repo.openFile(key) } else { await repo.closeFile() }
@@ -88,14 +75,42 @@ struct MacWorkspaceView: View {
         .onChange(of: repo.document?.key) { _, _ in
             Task { await window.preview.follow(repo: repo) }
         }
-        .onChange(of: window.fullscreenEditor) { _, fullscreen in
-            // The sidebar column stays put; full screen covers it.
-            if !fullscreen { window.columns = .all }
+        .onChange(of: PreviewTarget(root: repo.view?.root, choosing: repo.view?.workspaceCandidates != nil, loading: repo.view?.loading ?? true)) {
+            Task { await window.syncPreview() }
+        }
+        .onChange(of: repo.view?.branch) { old, new in
+            // As on desktop: a checkout rewrote the working tree, so the dev
+            // server restarts on the new code.
+            guard let old, let new, old != new, window.preview.root == repo.view?.root else { return }
+            Task { await window.preview.restart() }
         }
         .modifier(WorkspaceSheets(window: window, repo: repo))
     }
 
     // MARK: Panes
+
+    @ViewBuilder
+    private var detail: some View {
+        if let view = repo.view, view.workspaceCandidates != nil {
+            NavigationStack {
+                WorkspaceChooserView(repo: repo, candidates: view.workspaceCandidates ?? [], dismissible: view.fileCount > 0 || !view.tree.isEmpty)
+            }
+        } else {
+            // One layout for both modes, so entering or leaving the
+            // full-screen editor keeps the editor (caret, undo, sheets) and
+            // the preview's page: only sizes change.
+            EditorPreviewSplit(fraction: $window.editorFraction, collapsed: window.fullscreenEditor) {
+                editorPane
+                    .frame(maxWidth: window.fullscreenEditor ? 760 : .infinity)
+                    .frame(maxWidth: .infinity)
+            } preview: {
+                PreviewPane(window: window, preview: window.preview)
+            }
+            .overlay {
+                if window.fullscreenEditor { fullscreenPanels }
+            }
+        }
+    }
 
     @ViewBuilder
     private var editorPane: some View {
@@ -108,46 +123,29 @@ struct MacWorkspaceView: View {
             ContentUnavailableView(
                 "Select a file",
                 systemImage: "doc.text",
-                description: Text("Choose a page or post from the sidebar, or press ⌘P.")
+                description: Text("Choose a page or post from the sidebar, or press ⌘O.")
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
-    private var fullscreenEditor: some View {
-        ZStack {
-            editorPane
-                .frame(maxWidth: 860)
-                .frame(maxWidth: .infinity)
-            if window.floatingSidebars {
-                HStack(alignment: .top) {
-                    floatingPanel("Files", symbol: "doc.on.doc") {
-                        RepoSidebarView(repo: repo)
-                    }
-                    Spacer()
-                    floatingPanel("Media", symbol: "photo.on.rectangle") {
-                        MediaView(repo: repo)
-                    }
+    /// The desktop app's full-screen rails: each edge reveals its panel on
+    /// hover, Cmd-\ pins both, and Files stays pinned while no file is open.
+    private var fullscreenPanels: some View {
+        GeometryReader { proxy in
+            let width = min(max((proxy.size.width - 760) / 2 - 24, 236), 320)
+            HStack(spacing: 0) {
+                FloatingRail(edge: .leading, title: "Files", symbol: "doc.on.doc", width: width,
+                             pinned: window.floatingSidebars || repo.document == nil) {
+                    RepoSidebarView(repo: repo)
                 }
-                .padding(12)
-                .transition(.opacity)
+                Spacer(minLength: 0)
+                FloatingRail(edge: .trailing, title: "Media", symbol: "photo.on.rectangle", width: width,
+                             pinned: window.floatingSidebars) {
+                    NavigationStack { MediaView(repo: repo) }
+                }
             }
         }
-    }
-
-    private func floatingPanel<Content: View>(_ title: String, symbol: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(spacing: 0) {
-            Label(title, systemImage: symbol)
-                .font(.headline)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-            Divider()
-            NavigationStack { content() }
-        }
-        .frame(width: 300)
-        .frame(maxHeight: .infinity)
-        .glassPanel(cornerRadius: 14, fallback: AnyShapeStyle(.regularMaterial))
-        .shadow(radius: 12, y: 4)
     }
 
     // MARK: Toolbar
@@ -211,7 +209,7 @@ private struct WorkspaceSheets: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .sheet(item: $repo.publish, onDismiss: { repo.publish?.close() }) { publish in
+            .sheet(item: $repo.publish) { publish in
                 PublishSheet(model: publish)
                     .frame(minWidth: 520, minHeight: 480)
             }
@@ -244,6 +242,12 @@ private struct WorkspaceSheets: ViewModifier {
                 QuickOpenView(repo: repo) { key in
                     window.quickOpen = false
                     repo.selectedKey = key
+                }
+            }
+            .sheet(isPresented: $window.recentOpen) {
+                RecentFoldersView(roots: window.app.recentRoots) { root in
+                    window.recentOpen = false
+                    Task { await window.open(root) }
                 }
             }
             .alert(
@@ -341,48 +345,95 @@ struct WelcomeView: View {
     }
 }
 
-/// Cmd-P: find a file by name and open it.
+/// Cmd-O: find a file by name and open it, as the desktop app's Open
+/// File palette lists them ("Group · path").
 struct QuickOpenView: View {
     let repo: RepoModel
+    let onOpen: (String) -> Void
+
+    var body: some View {
+        PaletteView(placeholder: "Open a file", items: items, onOpen: onOpen)
+    }
+
+    private var items: [PaletteView.Item] {
+        func collect(_ nodes: [TreeNode], group: String?) -> [PaletteView.Item] {
+            nodes.flatMap { node in
+                let name = group ?? node.label
+                return node.files.map { file in
+                    PaletteView.Item(id: file.key, title: file.label, subtitle: "\(name) · \(relative(file.path))")
+                } + collect(node.children, group: name)
+            }
+        }
+        let loose = (repo.view?.looseFiles ?? []).map { file in
+            PaletteView.Item(id: file.key, title: file.label, subtitle: relative(file.path))
+        }
+        return loose + collect(repo.view?.tree ?? [], group: nil)
+    }
+
+    private func relative(_ path: String) -> String {
+        path.replacingOccurrences(of: repo.repoRoot + "/", with: "")
+    }
+}
+
+/// Shift-Cmd-O: the folders opened before, as the desktop app's Open
+/// Recent palette.
+struct RecentFoldersView: View {
+    let roots: [String]
+    let onOpen: (String) -> Void
+
+    var body: some View {
+        PaletteView(placeholder: "Open a recent folder", items: roots.map { root in
+            PaletteView.Item(id: root, title: URL(fileURLWithPath: root).lastPathComponent,
+                             subtitle: root.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+        }, onOpen: onOpen)
+    }
+}
+
+/// A filterable list opened from the keyboard: type, arrow, Return.
+struct PaletteView: View {
+    struct Item: Identifiable {
+        let id: String
+        let title: String
+        let subtitle: String
+    }
+
+    let placeholder: String
+    let items: [Item]
     let onOpen: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @State private var highlighted = 0
     @FocusState private var focused: Bool
 
-    private var files: [TreeFile] {
-        func collect(_ nodes: [TreeNode]) -> [TreeFile] {
-            nodes.flatMap { $0.files + collect($0.children) }
-        }
-        let all = (repo.view?.looseFiles ?? []) + collect(repo.view?.tree ?? [])
+    private var shown: [Item] {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !needle.isEmpty else { return Array(all.prefix(50)) }
-        return all.filter { $0.label.lowercased().contains(needle) || $0.path.lowercased().contains(needle) }
-            .prefix(50).map { $0 }
+        guard !needle.isEmpty else { return items }
+        return items.filter { $0.title.lowercased().contains(needle) || $0.subtitle.lowercased().contains(needle) }
     }
 
     var body: some View {
+        let shown = shown
         VStack(spacing: 0) {
-            TextField("Open a file", text: $query)
+            TextField(placeholder, text: $query)
                 .textFieldStyle(.plain)
                 .font(.title3)
                 .padding(14)
                 .focused($focused)
                 .onSubmit {
-                    if files.indices.contains(highlighted) { onOpen(files[highlighted].key) }
+                    if shown.indices.contains(highlighted) { onOpen(shown[highlighted].id) }
                 }
-                .onKeyPress(.downArrow) { highlighted = min(highlighted + 1, max(files.count - 1, 0)); return .handled }
+                .onKeyPress(.downArrow) { highlighted = min(highlighted + 1, max(shown.count - 1, 0)); return .handled }
                 .onKeyPress(.upArrow) { highlighted = max(highlighted - 1, 0); return .handled }
                 .onKeyPress(.escape) { dismiss(); return .handled }
             Divider()
             ScrollViewReader { proxy in
-                List(Array(files.enumerated()), id: \.element.key) { index, file in
+                List(Array(shown.enumerated()), id: \.element.id) { index, item in
                     Button {
-                        onOpen(file.key)
+                        onOpen(item.id)
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(file.label)
-                            Text(file.path.replacingOccurrences(of: repo.repoRoot + "/", with: ""))
+                            Text(item.title)
+                            Text(item.subtitle)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -433,5 +484,119 @@ struct MacSettingsView: View {
         .formStyle(.grouped)
         .frame(width: 460)
         .padding(.vertical, 8)
+    }
+}
+
+/// The editor and the preview side by side, with a divider to drag. Each is
+/// pinned to the space it's given: an HSplitView sized itself from the
+/// editor's full height, so a long body pushed the panes past the window.
+/// `collapsed` (the full-screen editor) gives the editor everything and
+/// keeps the preview alive at zero width.
+struct EditorPreviewSplit<Editor: View, Preview: View>: View {
+    @Binding var fraction: CGFloat
+    let collapsed: Bool
+    @ViewBuilder let editor: Editor
+    @ViewBuilder let preview: Preview
+    @State private var dragStart: CGFloat?
+
+    private let minEditor: CGFloat = 380
+    private let minPreview: CGFloat = 320
+    private let handle: CGFloat = 6
+
+    var body: some View {
+        GeometryReader { proxy in
+            let total = proxy.size.width
+            let editorWidth = collapsed ? total : editorWidth(in: total)
+            HStack(spacing: 0) {
+                editor
+                    .frame(width: editorWidth, height: proxy.size.height)
+                    .clipped()
+                divider(total: total, editorWidth: editorWidth)
+                    .frame(width: collapsed ? 0 : handle, height: proxy.size.height)
+                    .opacity(collapsed ? 0 : 1)
+                preview
+                    .frame(width: max(total - editorWidth - (collapsed ? 0 : handle), 0), height: proxy.size.height)
+                    .clipped()
+                    .opacity(collapsed ? 0 : 1)
+                    .allowsHitTesting(!collapsed)
+            }
+        }
+    }
+
+    private func editorWidth(in total: CGFloat) -> CGFloat {
+        let wanted = (total - handle) * fraction
+        guard total - handle > minEditor + minPreview else { return wanted.rounded() }
+        return min(max(wanted, minEditor), total - handle - minPreview).rounded()
+    }
+
+    private func divider(total: CGFloat, editorWidth: CGFloat) -> some View {
+        ZStack {
+            Color.clear
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor))
+                .frame(width: 1)
+        }
+        .contentShape(.rect)
+        .onContinuousHover { phase in
+            switch phase {
+            case .active: NSCursor.resizeLeftRight.set()
+            case .ended: NSCursor.arrow.set()
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                .onChanged { value in
+                    let start = dragStart ?? editorWidth
+                    if dragStart == nil { dragStart = editorWidth }
+                    fraction = min(max((start + value.translation.width) / max(total - handle, 1), 0.15), 0.85)
+                }
+                .onEnded { _ in dragStart = nil }
+        )
+    }
+}
+
+/// One edge of the full-screen editor: a strip that reveals its panel on
+/// hover, as the desktop app's rails do.
+private struct FloatingRail<Content: View>: View {
+    let edge: HorizontalEdge
+    let title: String
+    let symbol: String
+    let width: CGFloat
+    let pinned: Bool
+    @ViewBuilder let content: Content
+    @State private var overRail = false
+    @State private var overPanel = false
+
+    var body: some View {
+        let shown = pinned || overRail || overPanel
+        Color.clear
+            .frame(width: 100)
+            .frame(maxHeight: .infinity)
+            .contentShape(.rect)
+            .onHover { overRail = $0 }
+            .overlay(alignment: edge == .leading ? .topLeading : .topTrailing) {
+                if shown {
+                    panel
+                        .frame(width: width)
+                        .frame(maxHeight: .infinity)
+                        .padding(12)
+                        .onHover { overPanel = $0 }
+                        .transition(.opacity.combined(with: .offset(x: edge == .leading ? -12 : 12)))
+                }
+            }
+            .animation(.easeOut(duration: 0.12), value: shown)
+    }
+
+    private var panel: some View {
+        VStack(spacing: 0) {
+            Label(title, systemImage: symbol)
+                .font(.headline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+            Divider()
+            NavigationStack { content }
+        }
+        .glassPanel(cornerRadius: 14, fallback: AnyShapeStyle(.regularMaterial))
+        .shadow(radius: 12, y: 4)
     }
 }

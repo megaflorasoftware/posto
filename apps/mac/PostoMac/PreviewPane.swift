@@ -51,10 +51,23 @@ final class PreviewModel {
     private(set) var logs: [String] = []
     /// The page the preview shows (or will, once the server is up).
     private(set) var route = "/"
-    weak var webView: WKWebView?
-    private var root: String?
+    /// One web view for the window's life: the pane can come and go (the
+    /// full-screen editor, a failed start) without reloading the page.
+    let webView: WKWebView = {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.allowsBackForwardNavigationGestures = true
+        webView.setValue(false, forKey: "drawsBackground")
+        return webView
+    }()
+    /// The project the preview serves.
+    private(set) var root: String?
     private var lastServedRoute: String?
     private var syncTask: Task<Void, Never>?
+    /// A file opened because the preview moved to its page: it doesn't move
+    /// the preview again (the two would fight), as on desktop.
+    private var openedByPreview: String?
     /// Bumped by every start and stop, so a superseded start stops changing
     /// state when its awaits return.
     private var generation = 0
@@ -68,6 +81,19 @@ final class PreviewModel {
     var url: URL? {
         guard case .running(let port) = state else { return nil }
         return URL(string: "http://localhost:\(port)\(route)")
+    }
+
+    var isRunning: Bool {
+        if case .running = state { return true }
+        return false
+    }
+
+    /// Checking, installing or starting: Restart would race the setup.
+    var isBusy: Bool {
+        switch state {
+        case .checking, .installing, .starting: return true
+        default: return false
+        }
     }
 
     // MARK: Server
@@ -104,17 +130,20 @@ final class PreviewModel {
         do {
             for index in steps.indices where !steps[index].ready {
                 state = .installing(steps[index].label)
+                let detail: String
                 switch steps[index].id {
                 case "node":
-                    steps[index].detail = try await backend.call("install_node", as: String.self)
+                    detail = try await backend.call("install_node", as: String.self)
                 case "pm":
-                    steps[index].detail = try await backend.call("install_package_manager", ["root": .string(root)], as: String.self)
+                    detail = try await backend.call("install_package_manager", ["root": .string(root)], as: String.self)
                 default:
                     try await backend.run("install_dependencies", ["root": .string(root)])
-                    steps[index].detail = "Installed"
+                    detail = "Installed"
                 }
+                // A restart meanwhile has its own checklist.
+                guard current == generation, steps.indices.contains(index) else { return }
+                steps[index].detail = detail
                 steps[index].ready = true
-                guard current == generation else { return }
             }
             await startServer(current)
         } catch {
@@ -130,9 +159,12 @@ final class PreviewModel {
             let deadline = Date().addingTimeInterval(60)
             while Date() < deadline {
                 guard current == generation else { return }
-                if (try? await backend.call("ping_dev_server", as: Bool.self)) == true {
+                // A server that exits early fails the ping with its status;
+                // show that (and its logs) now rather than at the deadline.
+                if try await backend.call("ping_dev_server", as: Bool.self) {
                     guard current == generation else { return }
                     state = .running(port: port)
+                    webView.load(URLRequest(url: url!))
                     startRouteSync()
                     if let repo = app.repo { await follow(repo: repo) }
                     return
@@ -159,8 +191,13 @@ final class PreviewModel {
         generation += 1
         syncTask?.cancel()
         syncTask = nil
-        if state != .idle { try? await backend.run("stop_dev_server") }
+        let wasRunning = state != .idle
         state = .idle
+        root = nil
+        if wasRunning {
+            webView.load(URLRequest(url: URL(string: "about:blank")!))
+            try? await backend.run("stop_dev_server")
+        }
     }
 
     func loadLogs() async {
@@ -171,21 +208,39 @@ final class PreviewModel {
 
     func navigate(to next: String) {
         route = next
-        if let url { webView?.load(URLRequest(url: url)) }
+        if let url { webView.load(URLRequest(url: url)) }
     }
 
     func reload() {
-        webView?.reload()
+        webView.reload()
+    }
+
+    /// `/blog/` and `/blog` are one page (the engine's routesEqual).
+    private static func same(_ a: String, _ b: String) -> Bool {
+        func trimmed(_ route: String) -> String {
+            var route = route
+            while route.count > 1 && route.hasSuffix("/") { route.removeLast() }
+            return route
+        }
+        return trimmed(a) == trimmed(b)
     }
 
     /// Forward: point the preview at the open file's page, but only when the
-    /// server confirms it serves (or it's a file-based page).
+    /// server confirms it serves (or it's a file-based page), and the file is
+    /// still the open one by then.
     func follow(repo: RepoModel) async {
+        let key = repo.document?.key
+        if let key, key == openedByPreview {
+            openedByPreview = nil
+            return
+        }
         guard let match = (try? await repo.engine.call("preview.route", as: FileRoute?.self)) ?? nil,
-              match.route != route
+              !Self.same(match.route, route), repo.document?.key == key
         else { return }
-        if case .running = state {
-            guard (try? await backend.call("fetch_page", ["route": .string(match.route)], as: String.self)) != nil else { return }
+        if isRunning {
+            guard (try? await backend.call("fetch_page", ["route": .string(match.route)], as: String.self)) != nil,
+                  repo.document?.key == key
+            else { return }
         } else if !match.certain {
             return
         }
@@ -204,11 +259,12 @@ final class PreviewModel {
                 let served = (try? await self.backend.call("get_last_route", as: String?.self)) ?? nil
                 guard served != self.lastServedRoute else { continue }
                 self.lastServedRoute = served
-                guard let served, served != self.route else { continue }
+                guard let served, !Self.same(served, self.route) else { continue }
                 self.route = served
                 if let repo = self.app.repo,
                    let key = (try? await repo.engine.call("preview.fileForRoute", ["route": .string(served)], as: String?.self)) ?? nil,
                    key != repo.selectedKey {
+                    self.openedByPreview = key
                     repo.selectedKey = key
                 }
             }
@@ -235,8 +291,10 @@ struct PreviewPane: View {
         HStack(spacing: 6) {
             Button { preview.navigate(to: "/") } label: { Image(systemName: "house") }
                 .help("Home")
+                .disabled(!preview.isRunning)
             Button { preview.reload() } label: { Image(systemName: "arrow.clockwise") }
                 .help("Reload")
+                .disabled(!preview.isRunning)
             Text(preview.route)
                 .font(.callout.monospaced())
                 .foregroundStyle(.secondary)
@@ -259,6 +317,7 @@ struct PreviewPane: View {
                 Image(systemName: "power")
             }
             .help("Restart the dev server")
+            .disabled(preview.isBusy || preview.root == nil)
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, 10)
@@ -338,22 +397,13 @@ struct PreviewPane: View {
     }
 }
 
-/// The site, in a WKWebView pointed at the preview proxy.
+/// The site, in the preview's one WKWebView (pointed at the preview proxy).
 struct PreviewWebView: NSViewRepresentable {
     let preview: PreviewModel
 
     func makeNSView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        let webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.allowsBackForwardNavigationGestures = true
-        webView.setValue(false, forKey: "drawsBackground")
-        preview.webView = webView
-        if let url = preview.url { webView.load(URLRequest(url: url)) }
-        return webView
+        preview.webView
     }
 
-    func updateNSView(_ webView: WKWebView, context: Context) {
-        preview.webView = webView
-    }
+    func updateNSView(_ webView: WKWebView, context: Context) {}
 }

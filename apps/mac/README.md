@@ -17,19 +17,32 @@ The panes follow the Tauri desktop app:
 
 - **Sidebar:** files or the media library (the segmented switch at its
   top, or ⌘1 and ⌘2). ⌘\ hides and shows it.
-- **Editor:** the open file's form and body, with a formatting bar
-  (⌘B, ⌘I, ⌘K).
-- **Preview:** the site's dev server, started for each folder (with a
-  checklist and one Install click when Node, the package manager or
-  dependencies are missing). It follows the open file to its page, and
-  opening a page in the preview opens its file.
-- **Full-screen editor** (⇧⌘F): just the editor; ⌘\ floats the Files and
-  Media panels over it.
+- **Editor and preview** side by side, 40/60 to start (as the desktop app
+  opens), with a divider to drag.
+  - **Editor:** the open file's form and body, with a formatting bar.
+    ⌘B, ⌘I and ⌘K work while the body has focus.
+  - **Preview:** the site's dev server, started for the project that's
+    open. If Node, the package manager or dependencies are missing, it
+    shows a checklist and installs them with one click. It follows the
+    open file to its page, opening a page in the preview opens its file,
+    and switching branches restarts it.
+- **Full-screen editor** (⇧⌘F): the editor covers the window in a centered
+  760-pt column, as on desktop. Files and Media float over its left and
+  right edges on hover, ⌘\ pins both, and Files stays pinned while no file
+  is open. The editor and the preview's page survive the switch.
 
-File: Open Folder… (⌘O), Open Recent, Quick Open (⌘P), Close Folder.
-Site: Publish… (⇧⌘P), Pull, Switch Branch… (⇧⌘B), Deployments, Site
-Settings, Restart Preview Server. Settings (⌘,): developer mode and the
-GitHub account used for deployments.
+File menu, as on desktop:
+- Open File… (⌘O), a palette of the site's files
+- Open Folder…
+- Open Recent… (⇧⌘O), a palette
+- Open Sibling Project… (monorepos)
+- Close Folder
+
+Site menu: Publish… (⇧⌘P), Pull, Switch Branch… (⇧⌘B), Deployments, Site
+Settings, Restart Preview Server.
+
+Settings (⌘,): developer mode and the GitHub account used for deployments.
+Signing out keeps the folder open.
 
 ## Building
 
@@ -55,6 +68,10 @@ mobile build.
 - **GitHub session:** it lives in the login Keychain under the same service
   as the Tauri app's, so the first launch may ask to allow access; after
   that both apps share the sign-in.
+- **Changes from other apps:** the engine watches the project with the
+  desktop app's ignore rules (Astro's `.astro/` churn included). Edits made
+  elsewhere refresh the sidebar and reload the open file, unless an edit
+  of yours is still pending.
 - **PATH:** like the Tauri app (fix-path-env), it adopts the login shell's
   PATH at launch so node and the package manager resolve.
 - **Astro 7** runs `astro dev` in the background when it detects an AI
@@ -64,3 +81,10 @@ mobile build.
   launch; `-PostoRemote <dir>` accepts JSON commands in `<dir>/cmd.json`
   (open, select, sidebar, fullscreen, publish, embed, type, state, views,
   snapshot, …; see `PostoMac/MacDebugRemote.swift`).
+
+## Not here yet (compared with the desktop app)
+
+- Dragging files in from Finder, and media into the body or fields
+- The preview's Search/Socials (SEO) tab
+- The live deployment ring in the preview header (Deployments is a sheet)
+- A delete button on each file row (only the open file can be deleted)

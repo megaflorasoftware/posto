@@ -56,6 +56,9 @@ struct WorkspaceChooserView: View {
         }
         .navigationTitle("Choose Project")
         .toolbar {
+            #if os(iOS)
+            // Back to the repository list; the macOS app has none (it opens
+            // folders), so there it would just close the folder.
             if candidates != nil {
                 ToolbarItem(placement: .barLeading) {
                     Button {
@@ -65,6 +68,7 @@ struct WorkspaceChooserView: View {
                     }
                 }
             }
+            #endif
         }
         .task {
             guard candidates == nil else { return }

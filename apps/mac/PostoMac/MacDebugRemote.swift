@@ -122,14 +122,15 @@ enum MacDebugRemote {
             return EmbedProjection.source(of: storage)
         case "click":
             // Navigates from inside the page, as a link click would.
-            guard let web = window.preview.webView else { throw Failure(description: "no preview") }
+            guard window.preview.isRunning else { throw Failure(description: "no preview") }
+            let web = window.preview.webView
             _ = try? await web.evaluateJavaScript("location.href = \(String(reflecting: command["route"] as? String ?? "/"))")
             return "clicked"
         case "navigate":
             window.preview.navigate(to: command["route"] as? String ?? "/")
             return "navigated"
         case "state":
-            return "preview: \(window.preview.state), route: \(window.preview.route), file: \(repo?.document?.view.path ?? "none"), repo error: \(repo?.view?.error ?? "none"), loading: \(repo?.view?.loading ?? false), candidates: \(repo?.view?.workspaceCandidates?.count ?? -1), root: \(repo?.view?.root ?? "nil"), app error: \(window.app.error ?? "none")"
+            return "columns: \(window.columns), fullscreen: \(window.fullscreenEditor), preview: \(window.preview.state), route: \(window.preview.route), file: \(repo?.document?.view.path ?? "none"), repo error: \(repo?.view?.error ?? "none"), loading: \(repo?.view?.loading ?? false), candidates: \(repo?.view?.workspaceCandidates?.count ?? -1), root: \(repo?.view?.root ?? "nil"), app error: \(window.app.error ?? "none")"
         case "logs":
             await window.preview.loadLogs()
             return window.preview.logs.suffix(40).joined(separator: "\n")
@@ -151,6 +152,9 @@ enum MacDebugRemote {
                 let frame = view.convert(view.bounds, to: nil)
                 var line = String(repeating: "  ", count: depth) + "\(type(of: view)) \(Int(frame.minX)),\(Int(frame.minY)) \(Int(frame.width))x\(Int(frame.height))"
                 if view.isHidden { line += " hidden" }
+                if let split = view as? NSSplitView {
+                    line += " collapsed=\(split.arrangedSubviews.map { split.isSubviewCollapsed($0) })"
+                }
                 if let text = view as? NSTextField, !text.stringValue.isEmpty { line += " '\(text.stringValue.prefix(40))'" }
                 if let text = view as? NSTextView { line += " text='\(text.string.prefix(40).replacingOccurrences(of: "\n", with: "⏎"))'" }
                 lines.append(line)
