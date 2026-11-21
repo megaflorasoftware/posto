@@ -77,20 +77,39 @@ final class MarkdownEditorController {
         return coordinator.replaceSource(range, with: string, expecting: original, in: textView)
     }
 
-    /// Inserts at the caret; blocks get blank lines around them.
+    /// Inserts at the caret; blocks get blank lines around them. In a body
+    /// with cards, the insert shows as its card right away and undoes in
+    /// one step, like a sheet's edit.
     func insert(_ snippet: String, asBlock: Bool = false) {
-        guard let textView else { return }
-        let text = textView.string as NSString
+        guard let textView, let storage else { return }
         let range = textView.selectedRange()
-        var insertion = snippet
-        if asBlock {
-            let before = range.location > 0 ? text.substring(with: NSRange(location: 0, length: range.location)) : ""
-            let after = text.substring(from: min(text.length, range.location + range.length))
-            if !before.isEmpty && !before.hasSuffix("\n\n") { insertion = (before.hasSuffix("\n") ? "\n" : "\n\n") + insertion }
-            if !after.hasPrefix("\n\n") { insertion += after.hasPrefix("\n") ? "\n" : "\n\n" }
+        if let coordinator, coordinator.parent.embeds {
+            let source = EmbedProjection.source(of: storage) as NSString
+            let sourceRange = EmbedProjection.sourceRange(in: storage, display: range)
+            let insertion = asBlock ? MarkdownEdits.block(snippet, in: source, replacing: sourceRange) : snippet
+            if coordinator.replaceSource(sourceRange, with: insertion, expecting: nil, in: textView) { return }
         }
-        replace(range, with: insertion, selecting: nil)
-        coordinator?.scheduleEmbedScan(after: 0)
+        let text = textView.string as NSString
+        replace(range, with: asBlock ? MarkdownEdits.block(snippet, in: text, replacing: range) : snippet, selecting: nil)
+    }
+
+    /// Whether the caret is inside written text, where components and HTML
+    /// go inline (as on desktop) rather than as a block of their own.
+    var caretInsideText: Bool {
+        guard let textView, let storage else { return false }
+        return MarkdownEdits.caretInsideText(textView.string as NSString, at: textView.selectedRange().location) { index in
+            (storage.attribute(.attachment, at: index, effectiveRange: nil) as? EmbedAttachment)?.embed.isCard == true
+        }
+    }
+
+    /// An empty HTML element to fill in (the desktop toolbar's Insert HTML):
+    /// a `<span>` inside text, a `<div>` block elsewhere.
+    func insertHtml() {
+        if caretInsideText {
+            insert("<span></span>")
+        } else {
+            insert("<div>\n</div>", asBlock: true)
+        }
     }
 
     func replace(_ range: NSRange, with string: String, selecting selection: NSRange?) {
@@ -116,19 +135,25 @@ final class MarkdownEditorController {
 
     // MARK: Formatting
 
-    func wrap(_ marker: String, placeholder: String) {
+    private func apply(_ plan: MarkdownEdits.Plan) {
         guard let textView else { return }
-        let range = textView.selectedRange()
-        let length = (marker as NSString).length
-        if range.length == 0 {
-            let selection = NSRange(location: range.location + length, length: (placeholder as NSString).length)
-            replace(range, with: marker + placeholder + marker, selecting: selection)
-            return
-        }
-        edit(NSRange(location: NSMaxRange(range), length: 0), with: marker)
-        edit(NSRange(location: range.location, length: 0), with: marker)
-        textView.setSelectedRange(NSRange(location: range.location + length, length: range.length))
+        for step in plan.edits { edit(step.range, with: step.replacement) }
+        textView.setSelectedRange(plan.selection)
         changed()
+    }
+
+    /// Bold, italic or strikethrough on, or off inside a run of it.
+    func toggle(_ style: MarkdownEdits.Emphasis) {
+        guard let textView else { return }
+        apply(MarkdownEdits.toggle(style, in: textView.string as NSString, selection: textView.selectedRange()))
+    }
+
+    /// Removes the link around the selection, keeping its text.
+    func unlink() {
+        guard let textView,
+              let plan = MarkdownEdits.unlink(in: textView.string as NSString, selection: textView.selectedRange())
+        else { return }
+        apply(plan)
     }
 
     /// Toggles a prefix on every selected line (`# `, `- `, `> `, `1. `).
@@ -202,14 +227,15 @@ final class BodyNSTextView: NSTextView {
     private var lastWidth: CGFloat = 0
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard let formatting, window?.firstResponder === self,
-              event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard let formatting, window?.firstResponder === self, flags == .command || flags == [.command, .shift]
         else { return super.performKeyEquivalent(with: event) }
         formatting.textView = self
-        switch event.charactersIgnoringModifiers {
-        case "b": formatting.wrap("**", placeholder: "bold")
-        case "i": formatting.wrap("_", placeholder: "italic")
-        case "k": formatting.insertLink()
+        switch (event.charactersIgnoringModifiers?.lowercased(), flags == .command) {
+        case ("b", true): formatting.toggle(.bold)
+        case ("i", true): formatting.toggle(.italic)
+        case ("k", true): formatting.insertLink()
+        case ("x", false): formatting.toggle(.strikethrough)
         default: return super.performKeyEquivalent(with: event)
         }
         return true
@@ -608,8 +634,9 @@ struct MarkdownFormatBar: View {
             }
             .menuIndicator(.hidden)
             .fixedSize()
-            button("Bold (⌘B)", "bold") { controller.wrap("**", placeholder: "bold") }
-            button("Italic (⌘I)", "italic") { controller.wrap("_", placeholder: "italic") }
+            button("Bold (⌘B)", "bold") { controller.toggle(.bold) }
+            button("Italic (⌘I)", "italic") { controller.toggle(.italic) }
+            button("Strikethrough (⇧⌘X)", "strikethrough") { controller.toggle(.strikethrough) }
             Menu {
                 Button("Bulleted List") { controller.prefixLines("- ") }
                 Button("Numbered List") { controller.prefixLines("1. ") }
@@ -622,7 +649,9 @@ struct MarkdownFormatBar: View {
             .menuIndicator(.hidden)
             .fixedSize()
             button("Link (⌘K)", "link") { controller.insertLink() }
+            button("Remove Link", "minus.circle") { controller.unlink() }
             button("Insert Media", "photo") { controller.onRequestImage?() }
+            button("Insert HTML", "chevron.left.forwardslash.chevron.right") { controller.insertHtml() }
             if controller.componentsEnabled {
                 Menu {
                     Button("Insert Component") { controller.onRequestComponent?() }
@@ -663,6 +692,7 @@ enum MarkdownStyler {
             (regex(#"(?<![*\w])\*[^*\s][^*\n]*\*(?!\*)|(?<![_\w])_[^_\s][^_\n]*_(?!\w)"#), { font in
                 [.font: NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)]
             }),
+            (regex(#"~~[^~\n]+~~"#), { _ in [.strikethroughStyle: NSUnderlineStyle.single.rawValue] }),
             (regex(#"`[^`\n]+`"#), { font in
                 [.font: NSFont.monospacedSystemFont(ofSize: font.pointSize * 0.92, weight: .regular),
                  .backgroundColor: NSColor.quaternaryLabelColor.withAlphaComponent(0.3)]
