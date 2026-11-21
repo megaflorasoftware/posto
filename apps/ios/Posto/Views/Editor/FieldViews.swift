@@ -281,13 +281,16 @@ struct BufferedTextField: View {
 
     var body: some View {
         Group {
+            // The prompt keeps the placeholder on macOS, where the hidden
+            // label would otherwise take it along.
             if multiline {
-                TextField(placeholder, text: $draft, axis: .vertical)
+                TextField(placeholder, text: $draft, prompt: Text(placeholder), axis: .vertical)
                     .lineLimit(3...12)
             } else {
-                TextField(placeholder, text: $draft)
+                TextField(placeholder, text: $draft, prompt: Text(placeholder))
             }
         }
+        .placeholderOnly()
         .focused($focused)
         .disabled(disabled)
         .foregroundStyle(disabled ? .secondary : .primary)
@@ -596,6 +599,7 @@ struct FieldTemplateSheet: View {
             Form {
                 Section {
                     TextField("{fields.title|slug}", text: $template, axis: .vertical)
+                        .placeholderOnly()
                         .font(.body.monospaced())
                         .noAutocapitalization()
                         .autocorrectionDisabled()

@@ -277,6 +277,7 @@ private struct FilenameRow: View {
                         .textSelection(.enabled)
                 } else {
                     TextField("Filename", text: $draft)
+                        .placeholderOnly()
                         .noAutocapitalization()
                         .autocorrectionDisabled()
                         .focused($focused)

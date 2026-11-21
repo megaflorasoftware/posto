@@ -78,6 +78,7 @@ struct LibraryImportSheet: View {
                             Task { _ = try? await media.engine.call("media.updateDraft", ["index": .number(Double(index)), "filename": .string(next)], as: JSONValue.self) }
                         }
                     ))
+                    .placeholderOnly()
                     .noAutocapitalization()
                     .autocorrectionDisabled()
                     Text(".\(draft.extension)").foregroundStyle(.secondary)
@@ -167,6 +168,7 @@ struct AssetEditorSheet: View {
                     Section {
                         if asset.filename != nil {
                             TextField("Filename", text: $filename)
+                                .placeholderOnly()
                                 .noAutocapitalization()
                                 .autocorrectionDisabled()
                         } else if let url = asset.imageUrl {
@@ -269,6 +271,7 @@ struct PublicFileSheet: View {
                 }
                 Section {
                     TextField("Filename", text: $filename)
+                        .placeholderOnly()
                         .noAutocapitalization()
                         .autocorrectionDisabled()
                 } footer: {

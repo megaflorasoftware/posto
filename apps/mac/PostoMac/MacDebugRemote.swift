@@ -94,6 +94,18 @@ enum MacDebugRemote {
             repo?.settingsOpen = false
             window.deploymentsOpen = false
             window.quickOpen = false
+            window.recentOpen = false
+            // Sheets the remote can't reach (the editor's own): Escape, as
+            // their Close buttons answer it.
+            for sheet in NSApp.windows.compactMap(\.attachedSheet) {
+                if let escape = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                 windowNumber: sheet.windowNumber, context: nil, characters: "\u{1b}",
+                                                 charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53) {
+                    sheet.makeKey()
+                    sheet.sendEvent(escape)
+                }
+            }
+            try? await Task.sleep(for: .milliseconds(600))
             for sheet in NSApp.windows.compactMap(\.attachedSheet) { sheet.sheetParent?.endSheet(sheet) }
             return "dismissed"
         case "appearance":
@@ -111,6 +123,15 @@ enum MacDebugRemote {
             coordinator.parent.controller.textView = textView
             coordinator.parent.controller.open(matches[index].0, at: matches[index].1)
             return "opened \(matches[index].0.embed.label)"
+        case "reveal":
+            // Scrolls the body to the nth card or pill of a kind.
+            let kind = command["kind"] as? String
+            let index = command["index"] as? Int ?? 0
+            guard let textView = bodyTextView(), let storage = textView.textStorage else { throw Failure(description: "no body editor") }
+            let matches = EmbedProjection.attachments(in: storage).filter { kind == nil || $0.0.embed.kind == kind }
+            guard matches.indices.contains(index) else { throw Failure(description: "no embed \(kind ?? "any") #\(index)") }
+            textView.scrollRangeToVisible(matches[index].1)
+            return "revealed \(matches[index].0.embed.label)"
         case "type":
             guard let textView = bodyTextView() else { throw Failure(description: "no body editor") }
             textView.window?.makeFirstResponder(textView)
@@ -186,10 +207,26 @@ enum MacDebugRemote {
         return nil
     }
 
+    /// The window server's image of one of this app's own windows, which
+    /// needs no screen-recording access. CGWindowListCreateImage is gone
+    /// from the SDK but still in CoreGraphics, so it's looked up at run
+    /// time; nil when the screen is locked or the call is unavailable.
+    private static func windowServerImage(_ window: NSWindow) -> CGImage? {
+        typealias CreateImage = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+        guard let handle = dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", RTLD_NOW),
+              let symbol = dlsym(handle, "CGWindowListCreateImage")
+        else { return nil }
+        let create = unsafeBitCast(symbol, to: CreateImage.self)
+        // kCGWindowListOptionIncludingWindow; boundsIgnoreFraming | bestResolution.
+        let image = create(.null, 1 << 3, UInt32(window.windowNumber), (1 << 0) | (1 << 3))?.takeRetainedValue()
+        guard let image, image.width > 1, image.height > 1 else { return nil }
+        return image
+    }
+
     /// Writes every visible window (sheets separately) as `<name>-<n>.png`:
-    /// the window's layer tree, with the preview's web content (a remote
-    /// layer) drawn in from a WebKit snapshot. No screen-recording access
-    /// needed.
+    /// the window server's image when it gives one, otherwise the window's
+    /// layer tree with the preview's web content (a remote layer) drawn in
+    /// from a WebKit snapshot. No screen-recording access needed.
     private static func snapshot(name: String, directory: URL) async throws -> String {
         // An occluded window stops drawing; bring it forward first.
         NSApp.activate(ignoringOtherApps: true)
@@ -198,6 +235,13 @@ enum MacDebugRemote {
         var written: [String] = []
         let windows = NSApp.windows.filter { $0.isVisible && $0.frame.width > 50 && $0.contentView != nil }
         for (index, window) in windows.enumerated() {
+            if let image = windowServerImage(window),
+               let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
+                let file = directory.appendingPathComponent("\(name)-\(index).png")
+                try png.write(to: file)
+                written.append(file.lastPathComponent + (window.sheetParent != nil ? " (sheet)" : ""))
+                continue
+            }
             guard let frameView = window.contentView?.superview ?? window.contentView, let layer = frameView.layer else { continue }
             let scale = window.backingScaleFactor
             let size = frameView.bounds.size

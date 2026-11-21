@@ -146,6 +146,7 @@ struct ComponentPropsView: View {
                 Section(slots[index].name.map { "Slot: \($0)" } ?? "Children") {
                     TextField("Markdown", text: $slots[index].text, axis: .vertical)
                         .lineLimit(2...12)
+                        .placeholderOnly()
                         .autocorrectionDisabled(false)
                 }
             }

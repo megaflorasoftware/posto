@@ -221,6 +221,8 @@ struct MediaBrowser: View {
                 }
             }
             .pickerStyle(.segmented)
+            // On macOS a segmented picker also shows its title beside it.
+            .labelsHidden()
             .padding(.horizontal)
         }
     }

@@ -31,6 +31,7 @@ struct PublishSheet: View {
                 } else {
                     Section {
                         TextField("Commit message", text: $model.message)
+                            .placeholderOnly()
                             .disabled(view?.publishing == true)
                     } header: {
                         Text("Commit message")

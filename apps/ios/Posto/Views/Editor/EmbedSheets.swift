@@ -85,9 +85,11 @@ struct EmbedImageView: View {
             Section("Alt text") {
                 TextField("Describe the image", text: $alt, axis: .vertical)
                     .lineLimit(1...4)
+                    .placeholderOnly()
             }
             Section("Source") {
                 TextField("Path or URL", text: $src)
+                    .placeholderOnly()
                     .font(.system(.callout, design: .monospaced))
                     .autocorrectionDisabled()
                     .noAutocapitalization()

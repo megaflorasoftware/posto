@@ -74,6 +74,27 @@ extension View {
 
     /// Inset grouped on iOS; the standard inset list on macOS.
     @ViewBuilder
+    /// A text field's title is its placeholder, as on iOS. A macOS form
+    /// would also show it as a label beside the field, doubling the caption
+    /// or section header above it.
+    func placeholderOnly() -> some View {
+        #if os(macOS)
+        labelsHidden()
+        #else
+        self
+        #endif
+    }
+
+    /// A button that is a whole list row, as on iOS; macOS would draw it as
+    /// a bordered button inside the row.
+    func rowButtonStyle() -> some View {
+        #if os(macOS)
+        buttonStyle(.plain)
+        #else
+        self
+        #endif
+    }
+
     func groupedListStyle() -> some View {
         #if os(iOS)
         listStyle(.insetGrouped)
@@ -118,11 +139,15 @@ extension View {
     @ViewBuilder
     func macSheetSizing() -> some View {
         #if os(macOS)
+        // Sheets don't inherit the window's form style; grouped forms
+        // scroll and read like the iOS ones.
         if #available(macOS 15.0, *) {
             frame(minWidth: 500, idealWidth: 560, minHeight: 440, idealHeight: 600)
+                .formStyle(.grouped)
                 .presentationSizing(.form)
         } else {
             frame(minWidth: 500, idealWidth: 560, minHeight: 440, idealHeight: 600)
+                .formStyle(.grouped)
         }
         #else
         self

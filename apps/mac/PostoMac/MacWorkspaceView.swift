@@ -60,13 +60,16 @@ struct MacWorkspaceView: View {
         NavigationSplitView(columnVisibility: $window.columns) {
             MacSidebar(window: window, repo: repo)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 420)
+                // Full screen has its own panels (Cmd-\); the system toggle
+                // would bring the sidebar column back beside them. It's
+                // removed from the sidebar column, where it's declared.
+                .toolbar(removing: window.fullscreenEditor ? .sidebarToggle : nil)
         } detail: {
             detail
         }
         .navigationTitle(repo.name)
         .navigationSubtitle(repo.view?.branch ?? "")
         .toolbar { toolbar }
-        .toolbar(removing: window.fullscreenEditor ? .sidebarToggle : nil)
         .onChange(of: repo.selectedKey) { _, key in
             Task {
                 if let key { await repo.openFile(key) } else { await repo.closeFile() }
@@ -212,22 +215,27 @@ private struct WorkspaceSheets: ViewModifier {
             .sheet(item: $repo.publish) { publish in
                 PublishSheet(model: publish)
                     .frame(minWidth: 520, minHeight: 480)
+                    .formStyle(.grouped)
             }
             .sheet(isPresented: $repo.branchesOpen) {
                 BranchPickerView(repo: repo)
                     .frame(minWidth: 420, minHeight: 420)
+                    .formStyle(.grouped)
             }
             .sheet(isPresented: $repo.settingsOpen) {
                 SiteSettingsView(repo: repo)
                     .frame(minWidth: 480, minHeight: 440)
+                    .formStyle(.grouped)
             }
             .sheet(item: $repo.collectionSettings) { collection in
                 CollectionSettingsView(repo: repo, collection: collection)
                     .frame(minWidth: 480, minHeight: 440)
+                    .formStyle(.grouped)
             }
             .sheet(isPresented: $repo.collectionOrderOpen) {
                 CollectionOrderView(repo: repo)
                     .frame(minWidth: 380, minHeight: 420)
+                    .formStyle(.grouped)
             }
             .sheet(isPresented: $window.deploymentsOpen) {
                 NavigationStack {
@@ -237,6 +245,7 @@ private struct WorkspaceSheets: ViewModifier {
                         }
                 }
                 .frame(minWidth: 420, minHeight: 460)
+                .formStyle(.grouped)
             }
             .sheet(isPresented: $window.quickOpen) {
                 QuickOpenView(repo: repo) { key in

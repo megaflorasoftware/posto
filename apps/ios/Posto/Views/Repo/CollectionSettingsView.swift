@@ -14,6 +14,7 @@ struct CollectionSettingsView: View {
                 if let binding = Binding($settings) {
                     Section {
                         TextField(binding.wrappedValue.name, text: binding.displayName)
+                            .placeholderOnly()
                     } header: {
                         Text("Display name")
                     } footer: {
@@ -21,6 +22,7 @@ struct CollectionSettingsView: View {
                     }
                     Section {
                         TextField("{fields.title}", text: binding.entryName)
+                            .placeholderOnly()
                             .noAutocapitalization()
                             .autocorrectionDisabled()
                             .font(.body.monospaced())

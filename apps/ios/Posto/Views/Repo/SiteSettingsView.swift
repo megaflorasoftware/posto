@@ -29,6 +29,7 @@ struct SiteSettingsView: View {
                             } label: {
                                 SettingsRow(title: "Branch", subtitle: branch, symbol: "arrow.triangle.branch")
                             }
+                            .rowButtonStyle()
                             .foregroundStyle(.primary)
                         }
                         NavigationLink {
