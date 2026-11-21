@@ -2,7 +2,8 @@
 # Builds the Rust engine in apps/ios/native.
 #
 #   build-native.sh          release static libraries for iOS devices and the
-#                            simulator (Apple Silicon and Intel), packaged as
+#                            simulator (Apple Silicon and Intel), and the macOS
+#                            app's desktop build (Apple Silicon), packaged as
 #                            apps/ios/native/build/PostoNative.xcframework
 #   build-native.sh --host   a release static library for this Mac only, for
 #                            trying the C ABI without Xcode
@@ -17,7 +18,10 @@
 #
 # IPHONEOS_DEPLOYMENT_TARGET (default 15.0, as for the Tauri app) sets the
 # minimum iOS version the C dependencies are compiled for. Keep it at or
-# below the app's deployment target.
+# below the app's deployment target. MACOSX_DEPLOYMENT_TARGET (default 14.0)
+# does the same for the macOS slice, which is built with the `desktop`
+# feature: src-tauri's desktop modules (dev server, preview proxy, file
+# watching, the user's own git credentials).
 set -euo pipefail
 
 script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
@@ -85,10 +89,12 @@ for sdk in iphoneos iphonesimulator; do
 done
 
 export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-15.0}"
+export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
 
 device_target=aarch64-apple-ios
 simulator_targets=(aarch64-apple-ios-sim x86_64-apple-ios)
-targets=("$device_target" "${simulator_targets[@]}")
+mac_target=aarch64-apple-darwin
+targets=("$device_target" "${simulator_targets[@]}" "$mac_target")
 
 # rust-toolchain.toml in $native_dir pins the toolchain these apply to.
 installed="$(rustup target list --installed)"
@@ -100,7 +106,13 @@ done
 
 for target in "${targets[@]}"; do
   echo "Building for $target"
-  cargo build --release --locked --lib --target "$target"
+  if [ "$target" = "$mac_target" ]; then
+    # aws-lc-sys's C build reads IPHONEOS_DEPLOYMENT_TARGET even for macOS.
+    env -u IPHONEOS_DEPLOYMENT_TARGET \
+      cargo build --release --locked --lib --features desktop --target "$target"
+  else
+    cargo build --release --locked --lib --target "$target"
+  fi
 done
 
 library=libposto_native.a
@@ -124,6 +136,7 @@ lipo -create "${simulator_inputs[@]}" -output "$simulator_library"
 xcodebuild -create-xcframework \
   -library "target/$device_target/release/$library" -headers "$headers" \
   -library "$simulator_library" -headers "$headers" \
+  -library "target/$mac_target/release/$library" -headers "$headers" \
   -output "$xcframework"
 
 echo

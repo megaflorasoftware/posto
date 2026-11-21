@@ -7,19 +7,32 @@ use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppDirs, AppHandle, Manager};
 
-use crate::{auth, fs, git, media, repos, settings, workspace};
+#[cfg(mobile)]
+use crate::repos;
+use crate::{auth, fs, git, media, settings, workspace};
+#[cfg(desktop)]
+use crate::{devserver, env, proxy, watch};
 
 /// The app every command runs against, managing the same state as
-/// src-tauri's mobile builder.
+/// src-tauri's mobile (or, with `desktop`, desktop) builder.
 pub(crate) fn build_app(
     dirs: AppDirs,
     on_event: impl Fn(&str, &str) + Send + Sync + 'static,
 ) -> AppHandle {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .dirs(dirs)
         .on_event(on_event)
-        .manage(auth::AuthState::default())
-        .build()
+        .manage(auth::AuthState::default());
+    #[cfg(desktop)]
+    let builder = builder
+        .manage(devserver::DevServerState::default())
+        .manage(proxy::ProxyState::default())
+        .manage(watch::WatchState::default());
+    let app = builder.build();
+    // As src-tauri's desktop setup: a dev server left by a crashed run.
+    #[cfg(desktop)]
+    devserver::kill_stale_server(&app);
+    app
 }
 
 /// A command `posto_invoke` accepts, as declared in src-tauri.
@@ -58,9 +71,16 @@ macro_rules! commands {
     };
     (@is_async async) => { true };
     (@is_async sync) => { false };
+    (@is_async inline) => { false };
     (@call async $invoke:ident $module:ident::$name:ident($($param:ident),*)) => {{
         $(let $param = param!($invoke, $param);)*
         Output($module::$name($($param),*).await).into_response()
+    }};
+    // Sync commands that borrow managed state can't move to the blocking
+    // pool; they are quick, so they run in place.
+    (@call inline $invoke:ident $module:ident::$name:ident($($param:ident),*)) => {{
+        $(let $param = param!($invoke, $param);)*
+        Output($module::$name($($param),*)).into_response()
     }};
     (@call sync $invoke:ident $module:ident::$name:ident($($param:ident),*)) => {{
         $(let $param = param!($invoke, $param);)*
@@ -79,11 +99,15 @@ macro_rules! param {
     ($invoke:ident, state) => {
         $invoke.state("state")?
     };
+    ($invoke:ident, proxy) => {
+        $invoke.state("proxy")?
+    };
     ($invoke:ident, $name:ident) => {
         $invoke.arg(stringify!($name))?
     };
 }
 
+#[cfg(mobile)]
 commands! {
     async auth::auth_status();
     async auth::retry_auth_status();
@@ -166,6 +190,100 @@ commands! {
     async repos::doctor_repo(app, root, expected_url);
     sync repos::list_repos(app);
     async repos::remove_repo(app, root);
+}
+
+// src-tauri's desktop handler, minus its native menu commands.
+#[cfg(desktop)]
+commands! {
+    async auth::auth_status();
+    async auth::retry_auth_status();
+    async auth::sign_in(app, state);
+    async auth::sign_out();
+    async auth::github_pages_url(owner, name);
+    async auth::list_workflow_runs(owner, name, branch);
+    async git::github_remote(root);
+    sync fs::list_files(root);
+    sync fs::list_dir_files(dir, extensions);
+    sync fs::list_dir_files_optional(dir, extensions);
+    sync fs::path_exists(path, kind);
+    async fs::image_thumbnail(app, path, max_width, max_height);
+    sync fs::list_directories(dir);
+    sync fs::list_child_directories(dir);
+    sync fs::read_text_file(path);
+    sync fs::read_text_file_optional(path);
+    sync fs::write_text_file(path, content);
+    sync fs::create_text_file(path, content);
+    sync fs::rename_file(from, to);
+    sync fs::delete_file(path);
+    sync fs::delete_media_file(media_root, file_path);
+    sync fs::rename_media_file(media_root, file_path, target_file_path);
+    sync fs::move_media_file(media_root, file_path, destination_directory);
+    sync fs::delete_media_directory(media_root, directory_path);
+    sync fs::move_media_directory(media_root, directory_path, destination_directory);
+    sync fs::create_image_library_directory(library_root, directory_path);
+    sync fs::create_file_media_directory(repository_root, media_root, directory);
+    sync fs::create_public_media_directory(repository_root, directory);
+    sync fs::delete_image_library_asset(library_root, image_path, metadata_path);
+    sync fs::move_image_library_asset(library_root, image_path, metadata_path, destination_directory);
+    sync fs::rename_image_library_asset(
+        library_root,
+        image_path,
+        metadata_path,
+        target_image_path,
+        target_metadata_path,
+        serialized_metadata
+    );
+    sync fs::delete_image_library_directory(library_root, directory_path);
+    sync fs::move_image_library_directory(library_root, directory_path, destination_directory);
+    sync fs::import_image_library_asset(app, plan);
+    sync fs::import_file_media_item(app, request);
+    sync fs::import_public_media_file(app, request);
+    sync fs::write_temp_image(app, bytes, extension);
+    sync fs::read_image_bytes(path);
+    sync fs::probe_image_is_heif(path);
+    async media::media_credential_exists(source);
+    async media::media_credential_save(source, credential, prefix);
+    async media::media_credential_delete(source);
+    async media::media_list_objects(source, prefix);
+    async media::media_inspect_file(path);
+    async media::media_placeholder(path);
+    async media::media_derive_remote(request);
+    async media::media_image_details(path);
+    async media::media_remote_image_details(url, needs_date);
+    async media::media_publish(request, on_progress);
+    async media::media_publish_recover(root);
+    async media::media_record_delete(root, intent);
+    async media::media_pending_deletes(root);
+    async devserver::start_dev_server(app, state, proxy, root);
+    inline devserver::stop_dev_server(state);
+    inline devserver::ping_dev_server(state);
+    inline devserver::get_dev_server_logs(state);
+    async devserver::fetch_page(state, route);
+    inline proxy::get_last_route(state);
+    sync env::needs_install(root);
+    async env::install_dependencies(app, root);
+    async env::check_environment(app, root);
+    async env::install_node(app);
+    async env::install_package_manager(app, root);
+    sync settings::get_last_root(app);
+    sync settings::get_last_selection(app);
+    sync settings::get_work_dir(app, root);
+    sync settings::get_recent_roots(app);
+    sync settings::get_developer_mode(app);
+    sync settings::set_developer_mode(app, enabled);
+    sync settings::set_last_root(app, root, work_dir);
+    async git::changed_files(root);
+    async git::changed_files_preview(root, writes, removals);
+    async git::ignored_paths(root, paths);
+    async git::revert_file(root, path, status);
+    async git::fetch_upstream(root);
+    async git::pull_upstream(app, root);
+    async git::publish(root, message);
+    async git::current_branch(root);
+    async git::list_branches(root);
+    async git::checkout_branch(app, root, name, create, force);
+    sync workspace::scan_projects(root);
+    inline watch::watch_root(app, state, root, ignore_rules, extra_paths, workspace_root);
 }
 
 /// Runs `command` and returns the response JSON for the host:

@@ -1,6 +1,7 @@
 //! Checks the bridge's command table against src-tauri's sources, so a
-//! command added to the mobile handler, or a parameter renamed or reordered,
-//! fails here instead of silently reading the wrong JSON key.
+//! command added to the mobile (or, with `desktop`, desktop) handler, or a
+//! parameter renamed or reordered, fails here instead of silently reading
+//! the wrong JSON key.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -21,19 +22,23 @@ fn read(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
 }
 
-/// `module::name` entries of src-tauri's `#[cfg(mobile)]` invoke handler.
-fn mobile_handler() -> Vec<String> {
+/// `module::name` entries of src-tauri's invoke handler for this build:
+/// the `#[cfg(mobile)]` one, or with the `desktop` feature the desktop one
+/// (minus its native menu commands, which live in lib.rs itself).
+fn platform_handler() -> Vec<String> {
     let lib = read(&tauri_src().join("lib.rs"));
-    let mobile = lib
-        .find("#[cfg(mobile)]\n    let builder")
-        .expect("mobile builder in lib.rs");
+    #[cfg(mobile)]
+    let marker = "#[cfg(mobile)]\n    let builder";
+    #[cfg(desktop)]
+    let marker = "#[cfg(desktop)]\n    let builder = builder.invoke_handler";
+    let builder = lib.find(marker).expect("platform builder in lib.rs");
     let start =
-        mobile + lib[mobile..].find("generate_handler![").unwrap() + "generate_handler![".len();
+        builder + lib[builder..].find("generate_handler![").unwrap() + "generate_handler![".len();
     let end = start + lib[start..].find(']').unwrap();
     lib[start..end]
         .split(',')
         .map(str::trim)
-        .filter(|entry| !entry.is_empty())
+        .filter(|entry| entry.contains("::"))
         .map(str::to_string)
         .collect()
 }
@@ -118,8 +123,8 @@ fn declared_commands(module: &str) -> HashMap<String, Declared> {
 }
 
 #[test]
-fn command_table_matches_the_mobile_handler() {
-    let expected: Vec<String> = mobile_handler()
+fn command_table_matches_the_platform_handler() {
+    let expected: Vec<String> = platform_handler()
         .into_iter()
         .filter(|entry| !NATIVE_IN_SWIFT.contains(&entry.as_str()))
         .collect();
@@ -151,7 +156,7 @@ fn command_parameters_match_their_declarations() {
         for (name, ty) in &declared.params {
             let injected = match name.as_str() {
                 "app" => ty.ends_with("AppHandle"),
-                "state" => ty.contains("State<"),
+                "state" | "proxy" => ty.contains("State<"),
                 _ => !ty.ends_with("AppHandle") && !ty.contains("State<"),
             };
             assert!(

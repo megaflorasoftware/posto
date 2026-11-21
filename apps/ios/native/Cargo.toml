@@ -48,6 +48,15 @@ apple-native-keyring-store = { version = "1.0.1", features = ["protected"] }
 
 [target.'cfg(not(target_os = "ios"))'.dependencies]
 keyring = { version = "4", features = ["apple-native-keyring-store"] }
+# File watching, for the desktop build (src-tauri's watch.rs).
+notify = { version = "8", optional = true }
+notify-debouncer-mini = { version = "0.6", optional = true }
+
+[features]
+# The macOS app's engine: src-tauri's desktop build (local folders with the
+# user's own git identity and credentials, the dev server and preview proxy,
+# file watching) instead of its mobile one.
+desktop = ["dep:notify", "dep:notify-debouncer-mini"]
 
 [dev-dependencies]
 tempfile = "3.27.0"
