@@ -587,6 +587,29 @@ export class DocumentSession {
     };
   }
 
+  /** The value an image field stores for a file picked in the media
+   * picker: through the field's media folder when the file is inside it
+   * (as the desktop field picker writes it), else through the image
+   * library holding it, else as the body would reference it. */
+  imageFieldValue(
+    path: ValuePath,
+    absolutePath: string,
+    field: Field | null = this.fieldAtPath(path),
+  ): string | null {
+    const config = this.host.config();
+    const media = field ? resolveMedia(config, field, this.entry, this.templateValues()) : null;
+    const libraries: MediaEntry[] = (config.mediaLibraries ?? []).map((library) => {
+      const input = library.base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
+      return { name: `library:${library.collection}`, input, output: `/${input}` };
+    });
+    for (const candidate of [media, ...libraries]) {
+      if (!candidate || !absolutePath.startsWith(`${this.host.root}/${candidate.input}/`)) continue;
+      const value = mediaOutputPath(this.host.root, candidate, absolutePath, this.documentPath());
+      if (value) return value;
+    }
+    return this.bodyMediaValue(absolutePath);
+  }
+
   /** The stored value for a file picked into the body (document-relative
    * outside `public/`, a site path inside it). */
   bodyMediaValue(absolutePath: string): string | null {
@@ -606,11 +629,13 @@ export class DocumentSession {
     return mediaOutputPath(this.host.root, media, absolutePath, this.documentPath());
   }
 
-  async referenceOptions(path: ValuePath): Promise<{
+  async referenceOptions(
+    path: ValuePath,
+    field: Field | null = this.fieldAtPath(path),
+  ): Promise<{
     options: SelectValue[];
     collection: { name: string; label: string } | null;
   }> {
-    const field = this.fieldAtPath(path);
     const config = this.host.config();
     const collection =
       config.content.find(

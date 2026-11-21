@@ -182,13 +182,24 @@ final class MediaModel {
     var readOnly: Bool { currentTab?.kind == "source" }
     var hasSelection: Bool { !selectedItems.isEmpty || !selectedFolders.isEmpty }
 
-    func start() async {
-        tabs = (try? await engine.call("media.tabs")) ?? []
-        if tab.isEmpty || !tabs.contains(where: { $0.id == tab }) {
-            tab = tabs.first?.id ?? ""
-        } else {
-            await load()
+    /// Lists the tabs and the first folder. A picker can keep to one image
+    /// library (`only`, for an image-library reference) and open at a folder
+    /// on disk (`folder`, an image field's media folder).
+    func start(only library: String? = nil, at folder: String? = nil) async {
+        var listed: [MediaTab] = (try? await engine.call("media.tabs")) ?? []
+        if let library { listed = listed.filter { $0.id == library } }
+        tabs = listed
+        var located: MediaLocation?
+        if let folder {
+            located = (try? await engine.call("media.locate", ["folder": .string(folder)], as: MediaLocation?.self)) ?? nil
+            if let found = located, !tabs.contains(where: { $0.id == found.tab }) { located = nil }
         }
+        let first = located?.tab ?? (tabs.contains(where: { $0.id == tab }) ? tab : tabs.first?.id ?? "")
+        withoutLoading {
+            tab = first
+            directory = located?.directory ?? ""
+        }
+        await load()
     }
 
     func load(reload: Bool = false) async {

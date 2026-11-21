@@ -104,7 +104,7 @@ struct FieldRow: View {
     /// Developer mode: top-level fields of collection entries can carry
     /// `.posto` templates and row counts.
     private var templatable: Bool {
-        guard let document, showLabel, document.repo.app.developerMode, !document.view.isData,
+        guard let document, sink.formTarget == "document", showLabel, document.repo.app.developerMode, !document.view.isData,
               document.view.collectionLabel != nil
         else { return false }
         return !path.contains { if case .index = $0 { return true } else { return false } }
@@ -198,14 +198,17 @@ struct FieldRow: View {
                 Task { await sink.edit(path, next.map(JSONValue.string)) }
             }
         case "image":
-            if sink.picksImages {
-                ImageFieldRow(sink: sink, field: field, path: path, value: value?.stringValue ?? "", label: label)
+            if sink.picksImages, let document {
+                ImageFieldRow(sink: sink, repo: document.repo, field: field, path: path, value: value?.stringValue ?? "", label: label)
             } else {
                 textControl(multiline: false)
             }
         case "reference":
-            if let document {
-                ReferenceFieldRow(document: document, field: field, path: path, value: value?.stringValue ?? "", label: label)
+            // In the document's fields and a component's props (whose
+            // `CollectionEntry<'media'>['id']` props are image-library
+            // references), as on desktop.
+            if sink.picksImages, let document {
+                ReferenceFieldRow(sink: sink, document: document, field: field, path: path, value: value?.stringValue ?? "", label: label)
             } else {
                 textControl(multiline: false)
             }
@@ -229,7 +232,7 @@ struct FieldRow: View {
                 } commit: { next in
                     await sink.edit(path, next)
                 }
-                if let template = field.template, template.template != nil, !template.controlled, document != nil {
+                if let template = field.template, template.template != nil, !template.controlled, sink.formTarget == "document" {
                     Button {
                         Task { await sink.regenerate(path) }
                     } label: {
@@ -238,8 +241,8 @@ struct FieldRow: View {
                     .buttonStyle(.borderless)
                     .accessibilityLabel("Regenerate \(field.label) from its template")
                 }
-                if field.chooseImage, sink.picksImages {
-                    ImageChooserButton(sink: sink, path: path) { picked in
+                if field.chooseImage, sink.picksImages, let document {
+                    ImageChooserButton(sink: sink, repo: document.repo, path: path, hasValue: !(value?.stringValue ?? "").isEmpty) { picked in
                         Task { await sink.edit(path, picked.map(JSONValue.string)) }
                     }
                 }
@@ -498,7 +501,7 @@ struct ListFieldSection: View {
                 Label("Add Item", systemImage: "plus")
             }
             .disabled(!canAdd)
-            if field.type == "reference", field.imageLibrary == nil, let document {
+            if field.type == "reference", field.imageLibrary == nil, sink.formTarget == "document", let document {
                 Button {
                     creatingReference = true
                 } label: {

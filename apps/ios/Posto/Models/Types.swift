@@ -464,6 +464,14 @@ struct MediaItem: Codable, Hashable, Identifiable, Sendable {
     let imageUrl: String?
     let kind: String
     let problem: String?
+    /// Library entries: the id an image-library reference stores.
+    var entryId: String? = nil
+}
+
+/// Where the media picker opens: a tab and a folder in it (`media.locate`).
+struct MediaLocation: Codable, Sendable {
+    let tab: String
+    let directory: String
 }
 
 struct MediaListing: Codable, Sendable {

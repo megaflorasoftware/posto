@@ -1,37 +1,92 @@
 import SwiftUI
 
-/// Picks media to insert into the body: library images, `src` images, or
-/// `public` files — the rich-text editor's media dialog.
-struct BodyMediaPicker: View {
+/// The app's media picker, wherever media is chosen: inserting into the
+/// body, replacing a body image, image fields and image-library references.
+/// It is the Media screen's browser (image libraries, `src`, `public`, with
+/// folders and Import) picking one item, as the desktop app's library
+/// picker dialogs are.
+struct MediaPickerSheet: View {
     let repo: RepoModel
-    /// (local path, remote URL, alt text, kind)
-    let onPick: (String?, String?, String, String) -> Void
+    var title = "Choose Media"
+    /// Keeps to this image library (an image-library reference).
+    var library: String? = nil
+    /// Opens at this folder on disk (an image field's media folder).
+    var folder: String? = nil
+    /// A CDN the image may come from instead (image fields stored there).
+    var cdnSource: JSONValue? = nil
+    /// Empties the field.
+    var onClear: (() -> Void)? = nil
+    /// The item, and the alt text of a library image just imported.
+    let onPick: (MediaItem, String?) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var media: MediaModel?
+    @State private var browsingCdn = false
 
     var body: some View {
         NavigationStack {
             Group {
                 if let media {
-                    MediaBrowser(media: media, mode: .pick { item, libraryAlt in
-                        let alt = libraryAlt ?? (item.name as NSString).deletingPathExtension
-                        onPick(item.imagePath, item.imagePath == nil ? item.imageUrl : nil, alt, item.kind)
+                    MediaBrowser(media: media, mode: .pick { item, alt in
+                        onPick(item, alt)
                         dismiss()
                     })
                 } else {
                     ProgressView()
                 }
             }
-            .navigationTitle("Insert Media")
+            .navigationTitle(title)
             .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
+                if let onClear {
+                    ToolbarItem(placement: .destructiveAction) {
+                        Button("Clear", role: .destructive) {
+                            onClear()
+                            dismiss()
+                        }
+                    }
+                }
+                if let cdnSource {
+                    ToolbarItem(placement: .bottomControls) {
+                        Button {
+                            browsingCdn = true
+                        } label: {
+                            Label("Browse \(cdnSource["label"]?.stringValue ?? cdnSource["name"]?.stringValue ?? "CDN")", systemImage: "icloud")
+                        }
+                    }
+                }
+            }
+            .navigationDestination(isPresented: $browsingCdn) {
+                if let cdnSource {
+                    CdnBrowser(engine: repo.engine, source: cdnSource) { url in
+                        onPick(MediaItem(id: url, name: url.lastPathComponent, imagePath: nil, imageUrl: url, kind: "image", problem: nil), nil)
+                        dismiss()
+                    }
+                    .navigationTitle(cdnSource["label"]?.stringValue ?? cdnSource["name"]?.stringValue ?? "CDN")
+                    .inlineNavigationTitle()
+                }
             }
         }
         .task {
             let model = MediaModel(repo: repo)
+            await model.start(only: library, at: folder)
             media = model
-            await model.start()
+        }
+    }
+}
+
+/// Picks media to insert into the body (the rich-text editor's media
+/// dialog): the app media picker, with the file's name as alt text unless
+/// an import gave one.
+struct BodyMediaPicker: View {
+    let repo: RepoModel
+    /// (local path, remote URL, alt text, kind)
+    let onPick: (String?, String?, String, String) -> Void
+
+    var body: some View {
+        MediaPickerSheet(repo: repo, title: "Insert Media") { item, libraryAlt in
+            let alt = libraryAlt ?? (item.name as NSString).deletingPathExtension
+            onPick(item.imagePath, item.imagePath == nil ? item.imageUrl : nil, alt, item.kind)
         }
     }
 }
@@ -39,6 +94,9 @@ struct BodyMediaPicker: View {
 /// Lists the project's components, then collects props for the chosen one.
 struct ComponentPickerView: View {
     let engine: Engine
+    /// The document the component goes into: its props' media and
+    /// references resolve against it.
+    var document: DocumentModel? = nil
     let onInsert: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var list: ComponentList?
@@ -50,7 +108,7 @@ struct ComponentPickerView: View {
             let shown = (list?.components ?? []).filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }
             List(shown) { component in
                 NavigationLink {
-                    ComponentPropsView(engine: engine, mode: .insert(component)) { snippet, _ in
+                    ComponentPropsView(engine: engine, mode: .insert(component), document: document) { snippet, _ in
                         onInsert(snippet)
                         dismiss()
                     }
@@ -111,6 +169,10 @@ struct ComponentPropsView: View {
     let engine: Engine
     let mode: Mode
     var source: SourceActions?
+    /// The document the component is in. Its props open the same pickers as
+    /// the document's fields (images, image-library references), as on
+    /// desktop, where a component's fields share the document's context.
+    var document: DocumentModel? = nil
     /// The JSX, and the range it replaces when editing.
     let onFinish: (String, NSRange?) -> Void
     @State private var form: MetadataFormModel?
@@ -138,7 +200,7 @@ struct ComponentPropsView: View {
                         Text("\(name) takes no props Posto can edit.").foregroundStyle(.secondary)
                     }
                 } else if let state = form.formState() {
-                    FieldSections(sink: form, state: state, fields: form.fields)
+                    FieldSections(sink: form, state: state, fields: form.fields, document: document)
                 }
             }
             // Children, one text per slot, as the desktop children fields.

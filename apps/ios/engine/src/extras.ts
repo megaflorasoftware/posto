@@ -12,6 +12,7 @@ import {
   expandFieldTemplate,
   type ContentEntry,
   type FieldTemplateSchema,
+  type PagesConfig,
 } from "@posto/core/pagescms/config";
 import {
   assembleSlotChildren,
@@ -306,6 +307,10 @@ let componentForm: {
   hasDefaultSlot: boolean;
   /** The children as one text per slot, as the form shows them. */
   slotTexts: SlotText[];
+  /** What the props' fields resolve against: the site's config (image
+   * libraries, collections) and whether entry ids exist, so a
+   * `CollectionEntry<'media'>['id']` prop is an image-library picker. */
+  context: { config: PagesConfig; hasEntryIds: boolean };
   /** Set when editing a block already in the body: where it is, its
    * children, and props the form doesn't cover (kept verbatim). */
   editing?: {
@@ -384,6 +389,7 @@ export async function openComponentAt(
     slots,
     hasDefaultSlot,
     slotTexts: slotTextsOf(block.children, slots, hasDefaultSlot || schema === null),
+    context: fieldContext(repo),
     editing: {
       start: blockStart,
       end: blockStart + block.raw.length,
@@ -443,8 +449,13 @@ export async function openComponentForm(repo: RepoSession, name: string, path: s
     slots: schema?.slots ?? [],
     hasDefaultSlot: schema?.hasDefaultSlot ?? true,
     slotTexts: slotTextsOf(null, schema?.slots ?? [], schema?.hasDefaultSlot ?? true),
+    context: fieldContext(repo),
   };
   return componentFormView();
+}
+
+function fieldContext(repo: RepoSession) {
+  return { config: repo.config, hasEntryIds: repo.adapter.capabilities.entryIds !== null };
 }
 
 export function componentFormView(): {
@@ -460,7 +471,13 @@ export function componentFormView(): {
   if (!componentForm) throw new Error("No component is being inserted");
   return {
     name: componentForm.name,
-    fields: fieldViews(componentForm.form.fields, null, { media: [], content: [] }, false, []),
+    fields: fieldViews(
+      componentForm.form.fields,
+      null,
+      componentForm.context.config,
+      componentForm.context.hasEntryIds,
+      [],
+    ),
     values: componentForm.form.values(),
     errors: Object.fromEntries(componentForm.form.errors()),
     dates: dateControls(componentForm.form.fields, componentForm.form.values()),

@@ -164,7 +164,7 @@ struct MediaBrowser: View {
                     LibraryImportSheet(media: media, request: request) { imported in
                         guard let first = imported.first else { return }
                         importedPick = (MediaItem(id: first.imagePath, name: first.imagePath.lastPathComponent, imagePath: first.imagePath,
-                                                  imageUrl: nil, kind: "image", problem: nil), first.alt)
+                                                  imageUrl: nil, kind: "image", problem: nil, entryId: first.entryId), first.alt)
                     }
                 }
                 .macSheetSizing()

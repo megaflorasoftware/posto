@@ -281,6 +281,44 @@ describe("repository session", () => {
     expect(preview.path).toMatch(/public\/images\/photo\.jpg$/);
   });
 
+  it("gives a component's image-library props the library picker", async () => {
+    const view = await call<{ tree: TreeNode[] }>("repo.view");
+    const file = allFiles(view.tree).find((candidate) =>
+      /^mdx[ -]demo\.mdx$/i.test(candidate.name),
+    )!;
+    await call("doc.open", { key: file.key });
+    await call("backend.invoke", {
+      command: "write_text_file",
+      args: {
+        path: "/mock/site/src/components/Pictured.astro",
+        content: [
+          "---",
+          "import type { CollectionEntry } from 'astro:content';",
+          "export interface Props {",
+          "  media: CollectionEntry<'media'>['id'];",
+          "  caption?: string;",
+          "}",
+          "---",
+          "<figure />",
+        ].join("\n"),
+      },
+    });
+    const form = await call<{
+      fields: Array<{ name: string; type: string; imageLibrary: string | null }>;
+    }>("components.open", { name: "Pictured", path: "/mock/site/src/components/Pictured.astro" });
+    expect(form.fields.find((field) => field.name === "media")).toMatchObject({
+      type: "reference",
+      imageLibrary: "media",
+    });
+    // An image field's value for a file picked in the media picker.
+    const value = await call<string | null>("form.imageValue", {
+      form: "component",
+      path: ["media"],
+      absolutePath: "/mock/site/public/images/photo.jpg",
+    });
+    expect(value).toBe("/images/photo.jpg");
+  });
+
   it("edits only components outside code from the cursor", async () => {
     const text = 'Sample:\n\n```mdx\n<Callout kind="tip" />\n```\n';
     await expect(
@@ -476,6 +514,22 @@ describe("media", () => {
       });
       expect(listing.folders.length + listing.items.length).toBeGreaterThan(0);
     }
+  });
+
+  it("opens the picker at a folder and gives library items their entry ids", async () => {
+    expect(await call("media.locate", { folder: "/mock/site/public/images/nested" })).toEqual({
+      tab: "__posto_public__",
+      directory: "images/nested",
+    });
+    const library = await call<{ tab: string; directory: string } | null>("media.locate", {
+      folder: "/mock/site/media/portraits",
+    });
+    expect(library).toEqual({ tab: "media", directory: "portraits" });
+    const listing = await call<{ items: Array<{ entryId?: string }> }>("media.list", {
+      tab: "media",
+      directory: "portraits",
+    });
+    expect(listing.items.map((item) => item.entryId)).toContain("portraits/person");
   });
 });
 

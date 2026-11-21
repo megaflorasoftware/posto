@@ -75,7 +75,8 @@ struct EditorView: View {
                                 save: { replaceEmbed(card, with: $0); editingComponent = nil },
                                 delete: { replaceEmbed(card, with: ""); editingComponent = nil }
                             )
-                        }
+                        },
+                        document: document
                     ) { snippet, range in
                         if let range {
                             let opened = edit.text as NSString
@@ -114,7 +115,7 @@ struct EditorView: View {
         }
         .sheet(isPresented: $insertingComponent) {
             Group {
-                ComponentPickerView(engine: document.engine) { snippet in
+                ComponentPickerView(engine: document.engine, document: document) { snippet in
                     controller.insert(snippet, asBlock: true)
                 }
             }

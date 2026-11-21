@@ -82,6 +82,8 @@ export interface MediaFolderView {
 export interface MediaItemView {
   /** Library entries: the metadata path; files: the file path. */
   id: string;
+  /** Library entries: the id references store. */
+  entryId?: string;
   name: string;
   imagePath: string | null;
   imageUrl: string | null;
@@ -222,6 +224,24 @@ export class MediaSession {
 
   private libraryRoot(library: MediaLibrary): string {
     return `${this.root}/${library.base}`;
+  }
+
+  /** The tab and folder that show `folder` (absolute), so a picker opens at
+   * a field's media folder: the most specific root holding it wins. */
+  locate(folder: string): { tab: string; directory: string } | null {
+    const clean = (path: string) => path.replace(/\/\.\//g, "/").replace(/\/+$/, "");
+    const target = clean(folder);
+    const roots = this.tabs()
+      .map((tab) => ({
+        tab: tab.id,
+        root: clean(tab.kind === "library" ? this.libraryRoot(this.library(tab.id)) : this.fileRoot(tab.id)),
+      }))
+      .sort((a, b) => b.root.length - a.root.length);
+    for (const { tab, root } of roots) {
+      if (target === root) return { tab, directory: "" };
+      if (target.startsWith(`${root}/`)) return { tab, directory: target.slice(root.length + 1) };
+    }
+    return null;
   }
 
   private fileRoot(tab: string): string {
@@ -373,6 +393,7 @@ export class MediaSession {
       })),
       items: visible.assets.map((asset) => ({
         id: asset.metadataPath,
+        entryId: asset.entryId,
         name: asset.entryId.split("/").pop() ?? asset.entryId,
         imagePath: asset.imagePath,
         imageUrl: asset.imageUrl ?? null,

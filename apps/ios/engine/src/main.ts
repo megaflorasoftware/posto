@@ -247,6 +247,21 @@ const methods: Record<string, Method> = {
       ? document.imageChoices(path(args), fieldAt(store.fields, path(args)))
       : document.imageChoices(path(args));
   },
+  "form.referenceOptions": (args) => {
+    const { store } = formFor((args.form as string | undefined) ?? "document");
+    const document = requireRepo().requireDocument();
+    return store
+      ? document.referenceOptions(path(args), fieldAt(store.fields, path(args)))
+      : document.referenceOptions(path(args));
+  },
+  "form.imageValue": (args) => {
+    const { store } = formFor((args.form as string | undefined) ?? "document");
+    const document = requireRepo().requireDocument();
+    const absolutePath = args.absolutePath as string;
+    return store
+      ? document.imageFieldValue(path(args), absolutePath, fieldAt(store.fields, path(args)))
+      : document.imageFieldValue(path(args), absolutePath);
+  },
   "form.imagePreview": (args) => {
     const { store } = formFor((args.form as string | undefined) ?? "document");
     const document = requireRepo().requireDocument();
@@ -393,6 +408,7 @@ const methods: Record<string, Method> = {
   // Media.
   "media.tabs": () => requireMedia().tabs(),
   "media.libraryAssets": (args) => requireMedia().libraryAssets(args.library as string),
+  "media.locate": (args) => requireMedia().locate(args.folder as string),
   "media.list": (args) =>
     requireMedia().list(args.tab as string, (args.directory as string) ?? "", args.reload === true),
   "media.createFolder": async (args) => {

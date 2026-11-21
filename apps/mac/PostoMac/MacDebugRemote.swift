@@ -160,6 +160,12 @@ enum MacDebugRemote {
             let args = command["args"] as? [String: Any] ?? [:]
             let json = String(data: try JSONSerialization.data(withJSONObject: args), encoding: .utf8) ?? "{}"
             return await window.app.backend.invoke(command["command"] as? String ?? "", argsJSON: json)
+        case "engine":
+            // A raw engine call, for checking what the engine hands the views.
+            guard let engine = window.app.engine else { throw Failure(description: "no engine") }
+            let data = try JSONSerialization.data(withJSONObject: command["args"] as? [String: Any] ?? [:])
+            let args = try JSONDecoder().decode([String: JSONValue].self, from: data)
+            return await engine.callRaw(command["method"] as? String ?? "", args)
         case "sleep":
             try? await Task.sleep(for: .seconds(command["seconds"] as? Double ?? 1))
             return "slept"
