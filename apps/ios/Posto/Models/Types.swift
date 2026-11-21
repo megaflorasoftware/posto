@@ -212,6 +212,8 @@ struct RepoView: Codable, Sendable {
     let projectDirectory: String
     let canSwitchProject: Bool
     let workspaceCandidates: [WorkspaceCandidate]?
+    /// The chooser was opened over a project it can go back to.
+    let canCancelWorkspaceChooser: Bool
     let projectDiagnostic: String?
     let projectType: String
     let error: String?
@@ -233,19 +235,62 @@ struct RepoView: Codable, Sendable {
 }
 
 extension RepoView {
-    /// The project's README (`README.md`, `readme.mdx`, …) among the
-    /// top-level files. iOS opens it from Settings rather than the file list.
+    /// The project's README among the top-level files: a name that is
+    /// `readme` without its extension (so not `README.de.md`), preferring
+    /// Markdown, then MDX, then plain text, then the name, whatever order
+    /// the list sorted them in. iOS opens it from Settings rather than the
+    /// file list.
     var readme: TreeFile? {
-        looseFiles.first { file in
-            let name = file.name.lowercased()
-            return name == "readme" || name.hasPrefix("readme.")
+        let preference = ["md", "mdx", "markdown", "txt"]
+        func rank(_ file: TreeFile) -> Int {
+            preference.firstIndex(of: (file.name as NSString).pathExtension.lowercased()) ?? preference.count
         }
+        return looseFiles
+            .filter { ($0.name as NSString).deletingPathExtension.lowercased() == "readme" }
+            .min { left, right in
+                let l = rank(left), r = rank(right)
+                return l != r ? l < r : left.name < right.name
+            }
     }
 
     /// The top-level files without the README.
     var looseFilesWithoutReadme: [TreeFile] {
         guard let readme else { return looseFiles }
         return looseFiles.filter { $0.key != readme.key }
+    }
+
+    /// Every file in the sidebar, in its order, for finding one by name:
+    /// the title, and "Group · path" (relative to the project) as the
+    /// desktop app's Open File palette shows them.
+    var searchableFiles: [SearchableFile] {
+        func relative(_ path: String) -> String {
+            path.hasPrefix(root + "/") ? String(path.dropFirst(root.count + 1)) : path
+        }
+        func collect(_ nodes: [TreeNode], group: String?) -> [SearchableFile] {
+            nodes.flatMap { node in
+                let name = group ?? node.label
+                return node.files.map { SearchableFile(file: $0, group: name, path: relative($0.path)) }
+                    + collect(node.children, group: name)
+            }
+        }
+        return looseFiles.map { SearchableFile(file: $0, group: "Project", path: relative($0.path)) }
+            + collect(tree, group: nil)
+    }
+}
+
+/// A sidebar file with where it sits, for search.
+struct SearchableFile: Hashable, Identifiable, Sendable {
+    let file: TreeFile
+    let group: String
+    let path: String
+    var id: String { file.key }
+    var subtitle: String { "\(group) · \(path)" }
+
+    /// Every word of the query appears in the title or the path.
+    func matches(_ query: String) -> Bool {
+        let words = query.lowercased().split(whereSeparator: \.isWhitespace)
+        let haystack = "\(file.label)\n\(path)".lowercased()
+        return words.allSatisfy { haystack.contains($0) }
     }
 }
 

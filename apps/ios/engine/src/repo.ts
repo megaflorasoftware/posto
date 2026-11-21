@@ -84,6 +84,12 @@ export interface TreeNodeView {
   children: TreeNodeView[];
 }
 
+export interface WorkspaceCandidateView {
+  dir: string;
+  label: string;
+  type: string;
+}
+
 export interface RepoView {
   repoRoot: string;
   root: string;
@@ -91,7 +97,10 @@ export interface RepoView {
   loading: boolean;
   projectDirectory: string;
   canSwitchProject: boolean;
-  workspaceCandidates: Array<{ dir: string; label: string; type: string }> | null;
+  workspaceCandidates: WorkspaceCandidateView[] | null;
+  /** The chooser can go back to the open project (it was opened over one,
+   * rather than because none is selected yet). */
+  canCancelWorkspaceChooser: boolean;
   projectDiagnostic: string | null;
   projectType: string;
   error: string | null;
@@ -195,13 +204,25 @@ export class RepoSession {
     if (!this.closed && this.document) notify("document", this.document.view());
   }
 
+  /** Progress and success notices clear themselves; errors stay until
+   * dismissed or replaced, as the Tauri app's error toasts do. */
   setStatus(message: string, severity: "progress" | "success" | "error" = "success"): void {
     clearTimeout(this.statusTimer);
     this.status = { id: this.nextStatusId++, message, severity };
-    this.statusTimer = setTimeout(() => {
-      this.status = null;
-      this.changed();
-    }, TRANSIENT_NOTICE_MS);
+    if (severity !== "error") {
+      this.statusTimer = setTimeout(() => {
+        this.status = null;
+        this.changed();
+      }, TRANSIENT_NOTICE_MS);
+    }
+    this.changed();
+  }
+
+  /** Clears the notice with this id (a newer one stays). */
+  dismissStatus(id: number): void {
+    if (this.status?.id !== id) return;
+    clearTimeout(this.statusTimer);
+    this.status = null;
     this.changed();
   }
 
@@ -330,6 +351,21 @@ export class RepoSession {
     const scan = await this.scanRepository();
     this.workspaceCandidates = workspaceProjects(this.repoRoot, scan);
     this.changed();
+  }
+
+  /** The repository's projects, for a chooser that leaves the open project
+   * in place until one is picked (iOS opens it from Settings). */
+  async listWorkspaceCandidates(): Promise<WorkspaceCandidateView[]> {
+    const scan = await this.scanRepository();
+    return workspaceProjects(this.repoRoot, scan).map((candidate) => this.candidateView(candidate));
+  }
+
+  private candidateView(candidate: ProjectCandidate): WorkspaceCandidateView {
+    return {
+      dir: candidate.dir,
+      label: relativeLabel(this.repoRoot, candidate.dir),
+      type: candidate.type,
+    };
   }
 
   cancelWorkspaceChooser(): void {
@@ -535,20 +571,46 @@ export class RepoSession {
     return this.openFile(path);
   }
 
-  async deleteOpenFile(): Promise<void> {
-    const document = this.requireDocument();
-    document.clearPendingSave();
-    const selected = this.files.find(document.key)?.file;
-    try {
-      if (selected?.dataEntry) await deleteDataDocumentEntry(selected);
-      else await invoke("delete_file", { path: document.path });
-    } catch (error) {
-      this.setStatus(`Delete failed: ${errorMessage(error)}`, "error");
-      throw error;
+  deleteOpenFile(): Promise<void> {
+    return this.deleteFile(this.requireDocument().key);
+  }
+
+  /** Deletes a sidebar file or data-document entry: closes it when it's the
+   * open one, and reloads the open entry when it shares the deleted entry's
+   * data file (as the desktop app's deleteFile does). */
+  deleteFile(key: string): Promise<void> {
+    return this.inDocumentQueue(() => this.deleteFileNow(key));
+  }
+
+  private async deleteFileNow(key: string): Promise<void> {
+    const document = this.document;
+    const isOpen = document?.key === key;
+    const file: FileEntry | undefined =
+      this.files.find(key)?.file ??
+      (document && isOpen
+        ? { name: document.name, path: document.path, key, dataEntry: document.dataEntry }
+        : undefined);
+    if (!file) throw new Error("That file no longer exists.");
+    const sharesOpenDocument =
+      !isOpen && Boolean(file.dataEntry) && document?.path === file.path;
+    if (document && isOpen) {
+      // A pending autosave would write the file back; one already running
+      // finishes first.
+      document.clearPendingSave();
+      await document.flushPendingSave();
+    } else if (document && sharesOpenDocument) {
+      // The open entry saves its whole data file, deleted entry included.
+      await document.flushPendingSave();
     }
-    document.closed = true;
-    this.document = null;
-    if (document.path === `${this.root}/.pages.yml`) await this.schemas.reloadPages(this.root);
+    if (file.dataEntry) await deleteDataDocumentEntry(file);
+    else await invoke("delete_file", { path: file.path });
+    if (document && isOpen) {
+      document.closed = true;
+      if (this.document === document) this.document = null;
+    } else if (document && sharesOpenDocument && (await document.reloadFromDisk())) {
+      this.documentChanged();
+    }
+    if (file.path === `${this.root}/.pages.yml`) await this.schemas.reloadPages(this.root);
     await this.files.refresh(this.root).catch(() => {});
     await this.files.refreshData(this.root, this.config, this.adapter.capabilities.dataDocuments);
     void this.git.refreshLocalChanges(this.root);
@@ -635,11 +697,8 @@ export class RepoSession {
       projectDirectory: relativeLabel(this.repoRoot, this.root),
       canSwitchProject: this.projectCount > 1,
       workspaceCandidates:
-        this.workspaceCandidates?.map((candidate) => ({
-          dir: candidate.dir,
-          label: relativeLabel(this.repoRoot, candidate.dir),
-          type: candidate.type,
-        })) ?? null,
+        this.workspaceCandidates?.map((candidate) => this.candidateView(candidate)) ?? null,
+      canCancelWorkspaceChooser: this.workspaceCandidates !== null && this.projectInfo !== null,
       projectDiagnostic: this.projectInfo?.diagnostic ?? null,
       projectType: this.projectInfo?.type ?? "generic",
       error: this.error,

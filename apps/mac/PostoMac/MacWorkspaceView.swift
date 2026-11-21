@@ -96,7 +96,7 @@ struct MacWorkspaceView: View {
     private var detail: some View {
         if let view = repo.view, view.workspaceCandidates != nil {
             NavigationStack {
-                WorkspaceChooserView(repo: repo, candidates: view.workspaceCandidates ?? [], dismissible: view.fileCount > 0 || !view.tree.isEmpty)
+                WorkspaceChooserView(repo: repo, candidates: view.workspaceCandidates ?? [], dismissible: view.canCancelWorkspaceChooser)
             }
         } else {
             // One layout for both modes, so entering or leaving the
@@ -365,22 +365,9 @@ struct QuickOpenView: View {
     }
 
     private var items: [PaletteView.Item] {
-        func collect(_ nodes: [TreeNode], group: String?) -> [PaletteView.Item] {
-            nodes.flatMap { node in
-                let name = group ?? node.label
-                return node.files.map { file in
-                    PaletteView.Item(id: file.key, title: file.label, subtitle: "\(name) · \(relative(file.path))")
-                } + collect(node.children, group: name)
-            }
+        (repo.view?.searchableFiles ?? []).map { item in
+            PaletteView.Item(id: item.id, title: item.file.label, subtitle: item.subtitle)
         }
-        let loose = (repo.view?.looseFiles ?? []).map { file in
-            PaletteView.Item(id: file.key, title: file.label, subtitle: relative(file.path))
-        }
-        return loose + collect(repo.view?.tree ?? [], group: nil)
-    }
-
-    private func relative(_ path: String) -> String {
-        path.replacingOccurrences(of: repo.repoRoot + "/", with: "")
     }
 }
 

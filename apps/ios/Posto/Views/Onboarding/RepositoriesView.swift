@@ -12,7 +12,19 @@ struct RepositoriesView: View {
             List {
                 if let error = app.error, !app.repos.isEmpty {
                     Section {
-                        NoticeRow(message: error, systemImage: "exclamationmark.triangle.fill", tint: .red)
+                        HStack(alignment: .firstTextBaseline) {
+                            NoticeRow(message: error, systemImage: "exclamationmark.triangle.fill", tint: .red)
+                            Spacer(minLength: 0)
+                            Button {
+                                app.error = nil
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Dismiss")
+                        }
                     }
                 }
                 let repos = app.sortedRepos(matching: query)
@@ -22,6 +34,7 @@ struct RepositoriesView: View {
             }
             .groupedListStyle()
             .navigationTitle("Repositories")
+            .inlineNavigationTitle()
             .searchable(text: $query, prompt: "Search repositories")
             .refreshable { await app.loadRepos() }
             .overlay {
@@ -112,7 +125,13 @@ private struct RepositoryRow: View {
         .swipeActions(edge: .trailing) {
             if let managed {
                 Button(role: .destructive) {
-                    Task { try? await app.removeRepo(root: managed.root) }
+                    Task {
+                        do {
+                            try await app.removeRepo(root: managed.root)
+                        } catch {
+                            app.error = "Could not delete \(repo.name) from this device: \(error.localizedDescription)"
+                        }
+                    }
                 } label: {
                     Label("Delete from device", systemImage: "trash")
                 }

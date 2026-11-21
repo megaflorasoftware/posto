@@ -64,6 +64,18 @@ struct SiteSettingsView: View {
                             }
                         }
                     }
+                    #if os(iOS)
+                    // Also on the repository list's Settings; the macOS app
+                    // has it in its Settings window.
+                    Section {
+                        Toggle("Developer mode", isOn: Binding(
+                            get: { repo.app.developerMode },
+                            set: { repo.app.setDeveloperMode($0) }
+                        ))
+                    } footer: {
+                        Text("Shows raw files, collection settings, and schema notices.")
+                    }
+                    #endif
                     // A folder opened on the Mac is the user's own; only
                     // managed clones can be removed.
                     if !repo.local {
@@ -93,11 +105,13 @@ struct SiteSettingsView: View {
                 titleVisibility: .visible
             ) {
                 Button("Delete from Device", role: .destructive) {
+                    let app = repo.app
                     Task {
                         do {
-                            try await repo.app.removeRepo(root: repo.repoRoot)
+                            try await app.removeRepo(root: repo.repoRoot)
                         } catch {
-                            repo.openError = "Could not remove the repository: \(error.localizedDescription)"
+                            // The repository has closed: the list shows it.
+                            app.error = "Could not delete \(repo.name) from this device: \(error.localizedDescription)"
                         }
                     }
                 }
@@ -229,6 +243,7 @@ struct BranchPickerView: View {
     let repo: RepoModel
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
+    @State private var loading = true
 
     var body: some View {
         NavigationStack {
@@ -266,10 +281,24 @@ struct BranchPickerView: View {
                 }
             }
             .overlay {
-                if filtered.isEmpty && createName == nil && !repo.branches.isEmpty {
-                    ContentUnavailableView.search(text: query)
-                } else if repo.branches.isEmpty {
+                if let error = repo.branchesError, createName == nil {
+                    // Typing a name still offers to create the branch.
+                    ContentUnavailableView {
+                        Label("Couldn't load branches", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(error)
+                    } actions: {
+                        Button("Try Again") { Task { await load() } }
+                            .glassActionStyle()
+                    }
+                } else if repo.branches.isEmpty && loading {
                     ProgressView()
+                } else if filtered.isEmpty && createName == nil {
+                    if needle.isEmpty {
+                        ContentUnavailableView("No branches", systemImage: "arrow.triangle.branch", description: Text("Type a name to create one."))
+                    } else {
+                        ContentUnavailableView.search(text: query)
+                    }
                 }
             }
             .searchable(text: $query, placement: .alwaysVisible, prompt: "Find or create a branch")
@@ -278,9 +307,15 @@ struct BranchPickerView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
             }
-            .task { await repo.loadBranches() }
+            .task { await load() }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    private func load() async {
+        loading = true
+        await repo.loadBranches()
+        loading = false
     }
 }
 

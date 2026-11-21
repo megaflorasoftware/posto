@@ -3,11 +3,13 @@ import SwiftUI
 /// Picks which project directory of a multi-site repository to edit.
 struct WorkspaceChooserView: View {
     let repo: RepoModel
-    /// Nil loads the candidates (opened from Settings).
+    /// Nil loads the candidates (opened from Settings), leaving the open
+    /// project in place until one is picked: backing out returns to it.
     let candidates: [WorkspaceCandidate]?
+    /// The chooser was opened over a project it can go back to.
     let dismissible: Bool
     @State private var loaded: [WorkspaceCandidate]?
-    @Environment(\.dismiss) private var dismiss
+    @State private var loadError: String?
 
     var body: some View {
         let shown = candidates ?? loaded
@@ -48,7 +50,16 @@ struct WorkspaceChooserView: View {
             }
         }
         .overlay {
-            if shown == nil {
+            if let loadError, shown == nil {
+                ContentUnavailableView {
+                    Label("Couldn't look for projects", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(loadError)
+                } actions: {
+                    Button("Try Again") { Task { await load() } }
+                        .glassActionStyle()
+                }
+            } else if shown == nil {
                 ProgressView()
             } else if shown?.isEmpty == true {
                 ContentUnavailableView("No projects found", systemImage: "questionmark.folder", description: Text("No supported project markers were found in the workspace."))
@@ -56,13 +67,22 @@ struct WorkspaceChooserView: View {
         }
         .navigationTitle("Choose Project")
         .toolbar {
+            if candidates != nil && dismissible {
+                // Opened over a project (the Mac's Open Sibling Project):
+                // back to it.
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        Task { await repo.cancelWorkspaceChooser() }
+                    }
+                }
+            }
             #if os(iOS)
             // Back to the repository list; the macOS app has none (it opens
             // folders), so there it would just close the folder.
-            if candidates != nil {
+            if candidates != nil && !dismissible {
                 ToolbarItem(placement: .barLeading) {
                     Button {
-                        Task { await repo.app.closeRepo() }
+                        Task { await repo.app.leaveRepo() }
                     } label: {
                         Label("Repositories", systemImage: "chevron.backward")
                     }
@@ -71,9 +91,17 @@ struct WorkspaceChooserView: View {
             #endif
         }
         .task {
-            guard candidates == nil else { return }
-            await repo.showWorkspaceChooser()
-            loaded = repo.view?.workspaceCandidates ?? []
+            guard candidates == nil, loaded == nil else { return }
+            await load()
+        }
+    }
+
+    private func load() async {
+        loadError = nil
+        do {
+            loaded = try await repo.workspaceCandidates()
+        } catch {
+            loadError = error.localizedDescription
         }
     }
 }
@@ -84,6 +112,7 @@ struct DirectoryBrowserView: View {
     let repo: RepoModel
     let directory: String
     @State private var children: [String]?
+    @State private var loadError: String?
 
     var body: some View {
         List {
@@ -100,6 +129,14 @@ struct DirectoryBrowserView: View {
                 Text(directory == repo.repoRoot ? "Repository root" : String(directory.dropFirst(repo.repoRoot.count + 1)))
             }
             Section("Folders") {
+                if let loadError {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Couldn't list the folders here", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                        Text(loadError).font(.footnote)
+                        AsyncButton("Try Again") { await load() }
+                    }
+                }
                 ForEach(children ?? [], id: \.self) { child in
                     NavigationLink {
                         DirectoryBrowserView(repo: repo, directory: child)
@@ -110,9 +147,21 @@ struct DirectoryBrowserView: View {
             }
         }
         .overlay {
-            if children == nil { ProgressView() }
+            if children == nil && loadError == nil { ProgressView() }
         }
         .navigationTitle(directory == repo.repoRoot ? "Repository root" : directory.lastPathComponent)
-        .task { children = await repo.childDirectories(of: directory) }
+        .task {
+            guard children == nil else { return }
+            await load()
+        }
+    }
+
+    private func load() async {
+        loadError = nil
+        do {
+            children = try await repo.childDirectories(of: directory)
+        } catch {
+            loadError = error.localizedDescription
+        }
     }
 }
