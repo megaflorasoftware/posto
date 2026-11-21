@@ -46,7 +46,7 @@ struct RepoWorkspaceView: View {
         .sheet(isPresented: $repo.settingsOpen) {
             SiteSettingsView(repo: repo)
         }
-        .sheet(item: $repo.publish, onDismiss: { repo.publish?.close() }) { publish in
+        .sheet(item: $repo.publish) { publish in
             PublishSheet(model: publish)
         }
         .sheet(isPresented: $repo.branchesOpen) {

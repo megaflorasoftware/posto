@@ -66,6 +66,10 @@ struct PublishSheet: View {
                 }
             }
             .interactiveDismissDisabled(view?.publishing == true)
+            // However the sheet goes away (Done, a swipe, a publish), the
+            // engine's change list stops tracking it. A sheet's onDismiss
+            // runs after its item is already nil, so it can't do this.
+            .onDisappear { model.close() }
             .confirmationDialog(
                 "Delete \(confirmingDelete?.path.lastPathComponent ?? "file")?",
                 isPresented: Binding(get: { confirmingDelete != nil }, set: { if !$0 { confirmingDelete = nil } }),

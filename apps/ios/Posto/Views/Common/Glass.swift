@@ -129,35 +129,41 @@ private struct ToolbarGroups<First: View, Second: View>: ViewModifier {
     let first: First
     let second: Second
 
+    // `content` sits in one place whatever `active` and `split` are: in
+    // separate branches, flipping either would rebuild the whole screen
+    // (scroll position, text views, state). Only the availability branch
+    // differs, and it can't change while the app runs.
     @ViewBuilder
     func body(content: Content) -> some View {
-        if !active {
-            content
-        } else if !split {
-            content.toolbar { ToolbarItemGroup(placement: placement) { second } }
-        } else {
-            #if compiler(>=6.2)
-            if #available(iOS 26.0, macOS 26.0, *) {
-                content.toolbar {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, macOS 26.0, *) {
+            content.toolbar {
+                if active && split {
                     ToolbarItemGroup(placement: placement) { first }
                     ToolbarSpacer(gap == .flexible ? .flexible : .fixed, placement: placement)
+                }
+                if active {
                     ToolbarItemGroup(placement: placement) { second }
                 }
-            } else {
-                oneGroup(content)
             }
-            #else
+        } else {
             oneGroup(content)
-            #endif
         }
+        #else
+        oneGroup(content)
+        #endif
     }
 
     private func oneGroup(_ content: Content) -> some View {
         content.toolbar {
-            ToolbarItemGroup(placement: placement) {
-                first
-                if gap == .flexible { Spacer() }
-                second
+            if active {
+                ToolbarItemGroup(placement: placement) {
+                    if split {
+                        first
+                        if gap == .flexible { Spacer() }
+                    }
+                    second
+                }
             }
         }
     }
