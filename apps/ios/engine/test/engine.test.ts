@@ -1,6 +1,7 @@
 // End-to-end engine flows against the in-memory demo backend: the same
 // methods Swift calls, with the same JSON envelopes.
 import { beforeAll, describe, expect, it } from "vitest";
+import { scanBodyEmbeds } from "../src/bodyEmbeds";
 
 const scope = globalThis as unknown as Record<string, unknown>;
 scope.window = globalThis;
@@ -157,6 +158,67 @@ describe("repository session", () => {
     expect(done.snippet).toContain("Body");
   });
 
+  it("edits an inline component and a block component's children", async () => {
+    const view = await call<{ tree: TreeNode[] }>("repo.view");
+    // An earlier test renames it from its title.
+    const file = allFiles(view.tree).find((candidate) =>
+      /^mdx[ -]demo\.mdx$/i.test(candidate.name),
+    )!;
+    await call("doc.open", { key: file.key });
+    type Form = { slotTexts: Array<{ name: string | null; text: string }> };
+    type Done = { snippet: string; range: [number, number] };
+    const text =
+      'A <Callout kind="tip" /> chip.\n\n<Callout kind="warning">\n  Old text\n</Callout>\n';
+
+    const inlineStart = text.indexOf("<Callout");
+    const inline = await call<Form>("components.openAt", {
+      text,
+      offset: inlineStart,
+      start: inlineStart,
+    });
+    expect(inline.slotTexts).toEqual([{ name: null, text: "" }]);
+    const inlineDone = await call<Done>("components.finish", {
+      slots: [{ name: null, text: "Hi" }],
+    });
+    expect(inlineDone.snippet).toBe('<Callout kind="tip">Hi</Callout>');
+    expect(inlineDone.range).toEqual([inlineStart, inlineStart + '<Callout kind="tip" />'.length]);
+
+    const blockStart = text.lastIndexOf("<Callout");
+    const block = await call<Form>("components.openAt", {
+      text,
+      offset: blockStart,
+      start: blockStart,
+    });
+    expect(block.slotTexts).toEqual([{ name: null, text: "Old text" }]);
+    const unchanged = await call<Done>("components.finish", { slots: block.slotTexts });
+    expect(unchanged.snippet).toBe('<Callout kind="warning">\n  Old text\n</Callout>');
+    await call("components.openAt", { text, offset: blockStart, start: blockStart });
+    const edited = await call<Done>("components.finish", {
+      slots: [{ name: null, text: "New text" }],
+    });
+    expect(edited.snippet).toBe('<Callout kind="warning">\nNew text\n</Callout>');
+  });
+
+  it("lists the body's cards and pills with image previews", async () => {
+    const view = await call<{ tree: TreeNode[] }>("repo.view");
+    const file = allFiles(view.tree).find((candidate) =>
+      /^mdx[ -]demo\.mdx$/i.test(candidate.name),
+    )!;
+    await call("doc.open", { key: file.key });
+    const embeds = await call<
+      Array<{ kind: string; label: string; image?: { path: string | null; url: string | null } }>
+    >("body.embeds", {
+      text: 'A <Callout kind="tip" /> pill.\n\n![A photo](/images/photo.jpg)\n\n![Remote](https://example.com/a.png)\n',
+    });
+    expect(embeds.map((embed) => [embed.kind, embed.label])).toEqual([
+      ["component", "Callout"],
+      ["image", "A photo"],
+      ["image", "Remote"],
+    ]);
+    expect(embeds[1].image?.path).toMatch(/\/images\/photo\.jpg$/);
+    expect(embeds[2].image).toEqual({ path: null, url: "https://example.com/a.png" });
+  });
+
   it("applies a controlled field template saved in developer mode", async () => {
     const view = await call<{ tree: TreeNode[] }>("repo.view");
     const file = allFiles(view.tree).find((candidate) => candidate.label === "Y")!;
@@ -222,6 +284,66 @@ describe("repository session", () => {
     });
     expect(result.error).toBeNull();
     expect(result.view.branch).toBe("drafts");
+  });
+});
+
+describe("body embeds", () => {
+  const text = [
+    "# Title",
+    "",
+    'Inline <Callout kind="tip" /> and <kbd>K</kbd> here.',
+    "",
+    '<CaptionedImage src="/a.jpg" width={640}>',
+    "  A caption with *emphasis*.",
+    "</CaptionedImage>",
+    "",
+    "export const updated = '2026';",
+    "",
+    "![A photo](/images/photo.jpg)",
+    "",
+    "Text with ![inline](x.png) image and `<Code />` in a span.",
+    "",
+    "```",
+    "<NotAComponent />",
+    "```",
+    "",
+    "<div>",
+    "block html",
+    "</div>",
+    "",
+    "{1 + 1}",
+  ].join("\n");
+
+  it("finds the elements the desktop editor renders as nodes", () => {
+    const embeds = scanBodyEmbeds(text, true);
+    expect(embeds.map((embed) => [embed.kind, embed.block, embed.label])).toEqual([
+      ["component", false, "Callout"],
+      ["html", false, "kbd"],
+      ["component", true, "CaptionedImage"],
+      ["raw", true, "Export"],
+      ["image", true, "A photo"],
+      ["image", false, "inline"],
+      ["html", true, "div"],
+      ["raw", true, "Expression"],
+    ]);
+    const card = embeds[2];
+    expect(text.slice(card.start, card.end)).toMatch(/^<CaptionedImage[\s\S]*<\/CaptionedImage>$/);
+    expect(card.detail).toBe("src: /a.jpg · width: {640}");
+    expect(card.preview).toBe("A caption with emphasis.");
+    expect(text.slice(embeds[4].start, embeds[4].end)).toBe("![A photo](/images/photo.jpg)");
+    expect(embeds[4].src).toBe("/images/photo.jpg");
+  });
+
+  it("treats capitalized tags as HTML outside MDX", () => {
+    const embeds = scanBodyEmbeds("A <Kbd>x</Kbd> chip and an\nimport line.", false);
+    expect(embeds.map((embed) => [embed.kind, embed.label])).toEqual([["html", "Kbd"]]);
+  });
+
+  it("counts offsets in UTF-16 units", () => {
+    const body = "Emoji 🎉 then <Callout />";
+    const [embed] = scanBodyEmbeds(body, true);
+    expect(body.slice(embed.start, embed.end)).toBe("<Callout />");
+    expect(embed.start).toBe(14);
   });
 });
 

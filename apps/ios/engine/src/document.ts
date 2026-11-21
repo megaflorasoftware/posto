@@ -8,12 +8,14 @@ import type { FileEntry, FileGroup } from "@posto/ipc";
 import { isRemoteMediaUrl, type CdnSource } from "@posto/core/media/sources";
 import {
   collectionExtension,
+  expandMediaEntry,
   matchEntry,
   mediaInputPath,
   mediaOutputPath,
   renamedFilename,
   resolveMedia,
   resolveMediaForValue,
+  resolveRelativeMediaPath,
   type ContentEntry,
   type Field,
   type FieldTemplateSchema,
@@ -36,6 +38,7 @@ import {
   type SelectValue,
 } from "../../../../packages/editor/src/formModel";
 import { DataEntryForm, FrontmatterForm, type FormEmit, type FormStore } from "./forms";
+import { scanBodyEmbeds, type BodyEmbed } from "./bodyEmbeds";
 import { dateControls, type DateControl } from "./dates";
 import { fieldViews, type FieldView } from "./fieldViews";
 import { errorMessage, invoke } from "./host";
@@ -460,6 +463,49 @@ export class DocumentSession {
 
   private documentPath(): string | undefined {
     return this.dataEntry ? undefined : this.path;
+  }
+
+  /** The body's cards and pills (see bodyEmbeds.ts), with where each image
+   * can be previewed. */
+  bodyEmbeds(
+    text: string,
+  ): Array<BodyEmbed & { image?: { path: string | null; url: string | null } }> {
+    return scanBodyEmbeds(text, this.isMdx).map((embed) =>
+      embed.kind === "image" && embed.src !== undefined
+        ? { ...embed, image: this.bodyImagePreview(embed.src) }
+        : embed,
+    );
+  }
+
+  /** Where a body image can be previewed, resolved as the desktop body
+   * editor does: document-relative paths, then the entry's media folder and
+   * the image libraries, then `public/` for other site paths. */
+  bodyImagePreview(src: string): { path: string | null; url: string | null } {
+    if (!src) return { path: null, url: null };
+    if (isRemoteMediaUrl(src)) return { path: null, url: src };
+    if (!src.startsWith("/")) {
+      const documentPath = this.documentPath();
+      return { path: documentPath ? resolveRelativeMediaPath(documentPath, src) : null, url: null };
+    }
+    let decoded = src;
+    try {
+      decoded = decodeURIComponent(src);
+    } catch {
+      // Keep malformed escapes resolvable as their literal filename.
+    }
+    const config = this.host.config();
+    const configured = this.entry?.media
+      ? expandMediaEntry(this.entry.media, this.templateValues())
+      : null;
+    const libraryMedia: MediaEntry[] = (config.mediaLibraries ?? []).map((library) => {
+      const input = library.base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
+      return { name: `library:${library.collection}`, input, output: `/${input}` };
+    });
+    const resolved = [configured, ...libraryMedia]
+      .filter((candidate): candidate is MediaEntry => candidate !== null)
+      .map((candidate) => mediaInputPath(this.host.root, candidate, decoded))
+      .find((candidate): candidate is string => candidate !== null);
+    return { path: resolved ?? `${this.host.root}/public${decoded}`, url: null };
   }
 
   /** Where an image value can be previewed: a local absolute path or URL. */

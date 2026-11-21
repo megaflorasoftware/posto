@@ -24,6 +24,7 @@ import {
   saveCdnCredential,
   saveCollectionSettings,
   saveFieldTemplate,
+  type SlotText,
 } from "./extras";
 import type { FieldTemplateSchema } from "@posto/core/pagescms/config";
 import type { CdnSource } from "@posto/core/media/sources";
@@ -473,14 +474,26 @@ const methods: Record<string, Method> = {
     return null;
   },
 
+  // Cards and pills in the body editor.
+  "body.embeds": (args) =>
+    requireRepo()
+      .requireDocument()
+      .bodyEmbeds(args.text as string),
+
   // MDX components.
   "components.list": () => listComponents(requireRepo()),
   "components.openAt": (args) =>
-    openComponentAt(requireRepo(), args.text as string, args.offset as number),
+    openComponentAt(
+      requireRepo(),
+      args.text as string,
+      args.offset as number,
+      typeof args.start === "number" ? args.start : undefined,
+    ),
   "components.open": (args) =>
     openComponentForm(requireRepo(), args.name as string, args.path as string),
   "components.view": () => componentFormView(),
-  "components.finish": () => finishComponent(requireRepo()),
+  "components.finish": (args) =>
+    finishComponent(requireRepo(), (args.slots as SlotText[] | undefined) ?? undefined),
 };
 
 function scopeLabel(current: RepoSession): string | null {

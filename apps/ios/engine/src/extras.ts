@@ -13,7 +13,15 @@ import {
   type ContentEntry,
   type FieldTemplateSchema,
 } from "@posto/core/pagescms/config";
-import { parseProps, scanJsxBlock, serializeJsx, type MdxProp } from "@posto/core/mdx/mdx";
+import {
+  assembleSlotChildren,
+  dedent,
+  parseProps,
+  scanJsxBlock,
+  serializeJsx,
+  splitSlots,
+  type MdxProp,
+} from "@posto/core/mdx/mdx";
 import { jsValueProp, propJsValue, UNPARSED, valueFits } from "@posto/core/mdx/propFields";
 import type { ProjectAdapter } from "@posto/core/project/adapter";
 import {
@@ -283,30 +291,58 @@ export async function listComponents(repo: RepoSession) {
   };
 }
 
+/** A slot's text in the component form: `name` null for the default slot. */
+export interface SlotText {
+  name: string | null;
+  text: string;
+}
+
 let componentForm: {
   name: string;
   path: string;
   form: MetadataForm;
   slots: string[];
   hasDefaultSlot: boolean;
+  /** The children as one text per slot, as the form shows them. */
+  slotTexts: SlotText[];
   /** Set when editing a block already in the body: where it is, its
    * children, and props the form doesn't cover (kept verbatim). */
-  editing?: { start: number; end: number; children: string | null; kept: MdxProp[] };
+  editing?: {
+    start: number;
+    end: number;
+    children: string | null;
+    kept: MdxProp[];
+    /** Opens a line, rather than sitting inside a paragraph. */
+    block: boolean;
+  };
 } | null = null;
 
-/** Opens the props form for the component block around `offset` in the
- * body `text` (offsets in UTF-16 units, as UITextView counts them). */
-export async function openComponentAt(repo: RepoSession, text: string, offset: number) {
+/** Opens the props form for the component around `offset` in the body
+ * `text` (offsets in UTF-16 units, as UITextView counts them): the
+ * innermost block opening a line, or exactly the component at `start` when
+ * given (an inline one, say). */
+export async function openComponentAt(
+  repo: RepoSession,
+  text: string,
+  offset: number,
+  start?: number,
+) {
   let found: { start: number; block: NonNullable<ReturnType<typeof scanJsxBlock>> } | null = null;
-  for (const match of text.matchAll(/(^|\n)[ \t]*<[A-Z]/g)) {
-    const start = (match.index ?? 0) + match[0].length - 2;
-    if (start > offset) break;
+  if (start !== undefined) {
     const block = scanJsxBlock(text.slice(start));
-    // Later starts are nested inside earlier ones, so the innermost wins.
-    if (block && offset <= start + block.raw.length) found = { start, block };
+    if (block) found = { start, block };
+  } else {
+    for (const match of text.matchAll(/(^|\n)[ \t]*<[A-Z]/g)) {
+      const blockStart = (match.index ?? 0) + match[0].length - 2;
+      if (blockStart > offset) break;
+      const block = scanJsxBlock(text.slice(blockStart));
+      // Later starts are nested inside earlier ones, so the innermost wins.
+      if (block && offset <= blockStart + block.raw.length) found = { start: blockStart, block };
+    }
   }
   if (!found) throw new Error("Put the cursor inside a component to edit it.");
-  const { start, block } = found;
+  const { block } = found;
+  const blockStart = found.start;
   const props = parseProps(block.propsSource);
   if (!props) {
     throw new Error(
@@ -329,15 +365,59 @@ export async function openComponentAt(repo: RepoSession, text: string, offset: n
     if (field && value !== UNPARSED && valueFits(field, value)) values[prop.name] = value;
     else kept.push(prop);
   }
+  const slots = schema?.slots ?? [];
+  const hasDefaultSlot = schema?.hasDefaultSlot ?? true;
   componentForm = {
     name: block.name,
     path: path ?? "",
     form: new MetadataForm(fields, values),
-    slots: schema?.slots ?? [],
-    hasDefaultSlot: schema?.hasDefaultSlot ?? true,
-    editing: { start, end: start + block.raw.length, children: block.children, kept },
+    slots,
+    hasDefaultSlot,
+    slotTexts: slotTextsOf(block.children, slots, hasDefaultSlot || schema === null),
+    editing: {
+      start: blockStart,
+      end: blockStart + block.raw.length,
+      children: block.children,
+      kept,
+      block: blockStart === 0 || text[blockStart - 1] === "\n",
+    },
   };
   return componentFormView();
+}
+
+/** A component's children as one text per slot: the default slot (when the
+ * component has one, or content is already there), then each named slot it
+ * uses or declares, as the desktop editor's children fields show them. */
+function slotTextsOf(
+  children: string | null,
+  declared: string[],
+  showDefault: boolean,
+): SlotText[] {
+  const buckets = splitSlots(children);
+  const tidy = (text: string) => dedent(text).trim();
+  const texts: SlotText[] = [];
+  if (showDefault || buckets.defaultContent.trim() !== "") {
+    texts.push({ name: null, text: tidy(buckets.defaultContent) });
+  }
+  const names = buckets.named.map((bucket) => bucket.name);
+  for (const name of declared) if (!names.includes(name)) names.push(name);
+  for (const name of names) {
+    const pieces = buckets.named.find((bucket) => bucket.name === name)?.pieces ?? [];
+    texts.push({ name, text: tidy(pieces.map((piece) => piece.text).join("")) });
+  }
+  return texts;
+}
+
+/** Children rebuilt from edited slot texts. Content on its own lines stays
+ * on its own lines, so block components keep their shape. */
+function childrenFrom(slotTexts: SlotText[], multiline: boolean): string | null {
+  const wrap = (text: string) =>
+    multiline && text.trim() !== "" ? `\n${text.trim()}\n` : text.trim();
+  const defaultText = slotTexts.find((slot) => slot.name === null)?.text ?? "";
+  const named = slotTexts.flatMap((slot) =>
+    slot.name === null ? [] : [{ name: slot.name, text: wrap(slot.text) }],
+  );
+  return assembleSlotChildren(wrap(defaultText), named);
 }
 
 export async function openComponentForm(repo: RepoSession, name: string, path: string) {
@@ -350,6 +430,7 @@ export async function openComponentForm(repo: RepoSession, name: string, path: s
     form: new MetadataForm(schema?.fields ?? [], {}),
     slots: schema?.slots ?? [],
     hasDefaultSlot: schema?.hasDefaultSlot ?? true,
+    slotTexts: slotTextsOf(null, schema?.slots ?? [], schema?.hasDefaultSlot ?? true),
   };
   return componentFormView();
 }
@@ -362,6 +443,7 @@ export function componentFormView(): {
   dates: Record<string, DateControl>;
   slots: string[];
   hasDefaultSlot: boolean;
+  slotTexts: SlotText[];
 } {
   if (!componentForm) throw new Error("No component is being inserted");
   return {
@@ -372,6 +454,7 @@ export function componentFormView(): {
     dates: dateControls(componentForm.form.fields, componentForm.form.values()),
     slots: componentForm.slots,
     hasDefaultSlot: componentForm.hasDefaultSlot,
+    slotTexts: componentForm.slotTexts,
   };
 }
 
@@ -381,8 +464,12 @@ export function componentFormStore(): MetadataForm {
 }
 
 /** The JSX to insert (or the range it replaces, when editing), and the
- * import the document now needs. */
-export function finishComponent(repo: RepoSession): {
+ * import the document now needs. `slots` carries edited children; without
+ * it (or when nothing changed) the children are kept verbatim. */
+export function finishComponent(
+  repo: RepoSession,
+  slots?: SlotText[],
+): {
   snippet: string;
   range: [number, number] | null;
 } {
@@ -400,14 +487,28 @@ export function finishComponent(repo: RepoSession): {
     return prop ? [prop] : [];
   });
   componentForm = null;
+  const edited =
+    slots !== undefined &&
+    (slots.length !== pending.slotTexts.length ||
+      slots.some(
+        (slot, index) =>
+          slot.name !== pending.slotTexts[index].name ||
+          slot.text.trim() !== pending.slotTexts[index].text,
+      ));
   if (pending.editing) {
-    const { start, end, children, kept } = pending.editing;
+    const { start, end, children, kept, block } = pending.editing;
+    const multiline = children === null ? block : /^[ \t]*\n/.test(children);
     return {
-      snippet: serializeJsx(pending.name, [...props, ...kept], children),
+      snippet: serializeJsx(
+        pending.name,
+        [...props, ...kept],
+        edited ? childrenFrom(slots!, multiline) : children,
+      ),
       range: [start, end],
     };
   }
-  const children = pending.hasDefaultSlot || pending.slots.length > 0 ? "\n" : null;
+  const empty = pending.hasDefaultSlot || pending.slots.length > 0 ? "\n" : null;
+  const children = edited ? (childrenFrom(slots!, true) ?? empty) : empty;
   if (source && !document.hasImportFor(pending.name)) {
     document.addImport(source.importFor({ name: pending.name, path: pending.path }, document.path));
   }
