@@ -54,8 +54,11 @@ apps/ios/scripts/catalyst-demo.sh  # run the demo on this Mac (--tour snapshots 
 ## Differences from the Tauri app
 
 - The body is a markdown editor with live styling and a formatting bar,
-  not the TipTap rich-text editor. MDX components insert and edit through
-  a props form, and the rest of the JSX stays editable as text.
+  not the TipTap rich-text editor. The elements the desktop editor renders
+  as nodes show as cards and pills instead: MDX components (a card on their
+  own lines, a pill inside text), imports, raw MDX blocks, HTML and images.
+  Tapping one opens its editor; a component's children are edited in its
+  sheet, one field per slot, rather than inline in the card.
 - An image-library reference's metadata opens in the asset editor (long-press
   or swipe the field) rather than inline under the field.
 - iPad gets the file tree and the editor side by side.
