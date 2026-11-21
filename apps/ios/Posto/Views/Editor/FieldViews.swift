@@ -181,7 +181,8 @@ struct FieldRow: View {
                 BufferedTextField(
                     placeholder: field.label,
                     source: value?.stringValue ?? "",
-                    disabled: field.locked
+                    disabled: field.locked,
+                    finalize: clampNumber
                 ) { text in
                     let trimmed = text.trimmingCharacters(in: .whitespaces)
                     if trimmed.isEmpty { return nil }
@@ -199,7 +200,7 @@ struct FieldRow: View {
             if sink.picksImages, let document {
                 ImageFieldRow(sink: sink, repo: document.repo, field: field, path: path, value: value?.stringValue ?? "", label: label)
             } else {
-                textControl(multiline: false)
+                textControl(lines: nil)
             }
         case "reference":
             // In the document's fields, a component's props (whose
@@ -208,22 +209,38 @@ struct FieldRow: View {
             if sink.picksImages, let document {
                 ReferenceFieldRow(sink: sink, document: document, field: field, path: path, value: value?.stringValue ?? "", label: label)
             } else {
-                textControl(multiline: false)
+                textControl(lines: nil)
             }
         case "string":
-            textControl(multiline: (field.template?.rows ?? 1) > 1)
+            // The row count from developer settings, as the desktop textarea
+            // shows it; longer text grows the field up to a dozen lines.
+            let rows = field.template?.rows ?? 1
+            textControl(lines: rows > 1 ? rows...max(rows, 12) : nil)
         default:
-            textControl(multiline: true)
+            textControl(lines: 3...12)
         }
     }
 
-    private func textControl(multiline: Bool) -> some View {
+    /// A number outside the field's min/max is brought into range when
+    /// editing ends, as the desktop number input clamps on blur.
+    private func clampNumber(_ text: String) -> String? {
+        guard field.numberMin != nil || field.numberMax != nil,
+              let number = Double(text.trimmingCharacters(in: .whitespaces))
+        else { return nil }
+        var clamped = number
+        if let lower = field.numberMin { clamped = max(clamped, lower) }
+        if let upper = field.numberMax { clamped = min(clamped, upper) }
+        return clamped == number ? nil : JSONValue.number(clamped).stringValue
+    }
+
+    /// Single-line without `lines`; else a field showing that many lines.
+    private func textControl(lines: ClosedRange<Int>?) -> some View {
         LabeledField(label: label) {
             HStack(alignment: .top) {
                 BufferedTextField(
                     placeholder: field.label,
                     source: value?.stringValue ?? "",
-                    multiline: multiline,
+                    lines: lines,
                     disabled: field.disabled
                 ) { text in
                     text.isEmpty ? nil : .string(text)
@@ -271,8 +288,13 @@ struct LabeledField<Content: View>: View {
 struct BufferedTextField: View {
     let placeholder: String
     let source: String
-    var multiline = false
+    /// Multi-line, showing at least the lower bound of lines and growing to
+    /// the upper; single-line when nil.
+    var lines: ClosedRange<Int>? = nil
     var disabled = false
+    /// Rewrites the text when editing ends (nil keeps it), committing the
+    /// result: a number brought into its field's range.
+    var finalize: ((String) -> String?)? = nil
     let parse: (String) -> JSONValue?
     let commit: (JSONValue?) async -> Void
 
@@ -284,9 +306,9 @@ struct BufferedTextField: View {
         Group {
             // The prompt keeps the placeholder on macOS, where the hidden
             // label would otherwise take it along.
-            if multiline {
+            if let lines {
                 TextField(placeholder, text: $draft, prompt: Text(placeholder), axis: .vertical)
-                    .lineLimit(3...12)
+                    .lineLimit(lines)
             } else {
                 TextField(placeholder, text: $draft, prompt: Text(placeholder))
             }
@@ -310,7 +332,17 @@ struct BufferedTextField: View {
             }
         }
         .onChange(of: focused) { _, isFocused in
-            if !isFocused, pending == nil { draft = source }
+            guard !isFocused else { return }
+            if let next = finalize?(draft), next != draft {
+                draft = next
+                pending?.cancel()
+                pending = Task {
+                    await commit(parse(next))
+                    pending = nil
+                }
+            } else if pending == nil {
+                draft = source
+            }
         }
     }
 }
