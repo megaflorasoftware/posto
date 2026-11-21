@@ -3,8 +3,8 @@
 This branch (`explore-native-ios-app`) holds an exploratory SwiftUI version of
 the Posto mobile app. All of it was written on a Mac that couldn't run Xcode:
 an Intel Mac on macOS 15 with only the Command Line Tools. Everything that
-works without Xcode has been run. Nothing has been built for iOS yet. This
-file lists what's left, in order, for a Mac with Xcode 26 or later.
+works without Xcode was run there; the steps below were then finished on a
+Mac with Xcode 27 (see "Where things stand").
 
 Read [README.md](README.md) first: it covers the architecture and the scripts.
 
@@ -22,7 +22,7 @@ Read [README.md](README.md) first: it covers the architecture and the scripts.
 - **Real stack on macOS:** `scripts/native-smoke.sh` runs Swift → Rust host
   build → engine against a git copy of `apps/docs`: open, edit, autosave, git
   status, revert.
-- **Swift typecheck:** `scripts/typecheck.sh` typechecks all 32 Swift files as
+- **Swift typecheck:** `scripts/typecheck.sh` typechecked all 32 Swift files as
   Mac Catalyst (Swift 6.1, macOS 15.5 SDK).
 - **UI previews:** `scripts/catalyst-demo.sh --tour` and
   `scripts/live-preview.sh <repo> <owner/name> --tour` ran the app as Mac
@@ -31,14 +31,27 @@ Read [README.md](README.md) first: it covers the architecture and the scripts.
 - **Xcode project:** `xcodegen generate` produces a project that lints, with
   both schemes and the iOS 27 scene manifest.
 
-**Never run:**
+**Done on an Apple Silicon Mac with Xcode 27.2 (steps 0–6 below):**
 
-- the Rust build for iOS targets (`scripts/build-native.sh` without `--host`)
-- any Xcode build
-- the app on a simulator or device
-- GitHub sign-in, cloning, and Keychain storage on iOS
-- Liquid Glass. It needs the iOS 26 SDK, so none of it has been adopted yet;
-  see step 6.
+- **Rust iOS build:** `scripts/build-native.sh` built all three slices on the
+  first try, with no cmake or SDK changes.
+- **Xcode builds:** both schemes build with no errors or warnings, for the
+  iOS 18 and iOS 27.2 simulators and for an iPhone 15 Pro on iOS 27 (team
+  `K56D2LK4DS`, wildcard profile). Xcode 27 replaced Simulator.app with
+  Device Hub; `run-simulator.sh` opens either.
+- **Simulator and device:** the tour and the hand checks in step 3 pass on
+  iPhone and iPad.
+- **Real backend:** GitHub sign-in, Keychain storage (no entitlement change
+  needed), download, edit, publish to a test branch, pull, the branch
+  conflict prompt, deployments, Photos import and validation all work.
+- **Liquid Glass:** adopted as step 6 describes, through
+  `Views/Common/Glass.swift`, except the optional search behavior (item 8).
+- **Bugs found and fixed along the way:** bold styling spreading through the
+  body, Settings → Branch doing nothing, the Publish sheet stuck on
+  "Checking images…" after a revert, and media thumbnails taking taps meant
+  for the tab picker.
+
+Steps 0–6 are kept below for reference. Step 7 is still open.
 
 ## 0. Prerequisites
 
