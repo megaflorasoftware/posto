@@ -12,6 +12,7 @@ struct EditorView: View {
     @State private var editingComponent: ComponentEdit?
     @State private var editingEmbed: EmbedEdit?
     @State private var focusedBody = false
+    @State private var siteSheet: SiteSheet?
 
     var body: some View {
         let view = document.view
@@ -31,6 +32,13 @@ struct EditorView: View {
         }
         .editorTitle(view.name, saveState: view.saveState)
         .inlineNavigationTitle()
+        // The page on the live site, its social preview, and (on iOS)
+        // Publish, which an iPhone's editor otherwise can't reach.
+        .toolbar {
+            ToolbarItem(placement: .barTrailing) {
+                SiteMenu(document: document, endEditing: controller.endEditing) { siteSheet = $0 }
+            }
+        }
         // Delete gets a glass group of its own, apart from the view toggle.
         .toolbarGroups(.barTrailing, gap: .fixed, split: view.tabs.contains("content") && view.tabs.contains("raw")) {
             Button {
@@ -112,6 +120,12 @@ struct EditorView: View {
                     }
                 }
                 .presentationDetents(card.embed.kind == "image" ? [.large] : [.medium, .large])
+            }
+            .macSheetSizing()
+        }
+        .sheet(item: $siteSheet, onDismiss: controller.resumeEditing) { sheet in
+            Group {
+                SiteSheetView(sheet: sheet, repo: document.repo)
             }
             .macSheetSizing()
         }
