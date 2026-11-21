@@ -29,7 +29,11 @@ export interface FieldView {
   locked: boolean;
   /** Field templates from `.posto` (developer settings). */
   template: { template: string | null; controlled: boolean; rows: number | null } | null;
+  /** A select's options, when there are at most INLINE_SELECT_OPTIONS of
+   * them; longer lists are fetched with `form.selectOptions`. */
   selectValues: SelectValue[];
+  /** How many options the select has in all. */
+  selectCount: number;
   numberMin: number | null;
   numberMax: number | null;
   /** Date fields that store a time of day. */
@@ -44,8 +48,20 @@ export interface FieldView {
   newItem: unknown;
 }
 
+/** Selects with more options than this (an icon-name enum can have
+ * thousands) leave them out of the field view, which travels with every
+ * form edit; the control fetches them once (`form.selectOptions`). */
+export const INLINE_SELECT_OPTIONS = 50;
+
 function numberOption(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** As many as selectValues returns, without building them. */
+function selectCount(field: Field): number {
+  return field.type === "select" && Array.isArray(field.options?.values)
+    ? field.options.values.length
+    : 0;
 }
 
 export function fieldViews(
@@ -66,6 +82,7 @@ export function fieldViews(
         field.type === "reference" && typeof field.options?.collection === "string"
           ? field.options.collection
           : null;
+      const options = selectCount(field);
       const library =
         referenceCollection && field.options?.idScheme === "framework" && hasEntryIds
           ? (config.mediaLibraries?.find(
@@ -93,7 +110,8 @@ export function fieldViews(
               rows: schema.rows ?? null,
             }
           : null,
-        selectValues: field.type === "select" ? selectValues(field) : [],
+        selectValues: options > 0 && options <= INLINE_SELECT_OPTIONS ? selectValues(field) : [],
+        selectCount: options,
         numberMin: numberOption(field.options?.min),
         numberMax: numberOption(field.options?.max),
         dateTime: field.type === "date" && field.options?.time === true,

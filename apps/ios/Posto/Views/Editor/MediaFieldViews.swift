@@ -349,21 +349,17 @@ struct ReferenceFieldRow: View {
                 .macSheetSizing()
             }
         } else {
-            let known = options?.options.contains { $0.value == value } ?? true
             HStack {
-                Picker(selection: Binding(
-                    get: { value },
-                    set: { next in Task { await sink.edit(path, next.isEmpty ? nil : .string(next)) } }
-                )) {
-                    if !field.required || value.isEmpty { Text("None").tag("") }
-                    if !value.isEmpty && !known { Text("\(value) (missing)").tag(value) }
-                    ForEach(options?.options ?? []) { option in
-                        Text(option.label).tag(option.value)
-                    }
-                } label: {
-                    Text(label.isEmpty ? field.label : label)
+                ChoiceField(
+                    title: label.isEmpty ? field.label : label,
+                    options: options?.options ?? [],
+                    loading: options == nil,
+                    value: value,
+                    clearable: !field.required,
+                    unknownLabel: { "\($0) (missing)" }
+                ) { next in
+                    Task { await sink.edit(path, next.map(JSONValue.string)) }
                 }
-                .navigationLinkPickerStyle()
                 // Creating the referenced entry belongs to the document's
                 // own fields.
                 if options?.collection != nil, sink.formTarget == "document" {
@@ -389,7 +385,8 @@ struct ReferenceFieldRow: View {
     }
 
     private func loadOptions() async {
-        options = try? await sink.engine.call("form.referenceOptions", ["form": .string(sink.formTarget), "path": path.json])
+        options = (try? await sink.engine.call("form.referenceOptions", ["form": .string(sink.formTarget), "path": path.json]))
+            ?? ReferenceOptions(options: [], collection: nil)
     }
 }
 

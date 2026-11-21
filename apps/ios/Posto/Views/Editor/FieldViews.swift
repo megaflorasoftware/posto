@@ -194,9 +194,7 @@ struct FieldRow: View {
         case "date":
             DateFieldRow(sink: sink, field: field, path: path, value: value, control: state.dates[path.dotted], label: label)
         case "select":
-            SelectFieldRow(field: field, value: value?.stringValue ?? "", label: label) { next in
-                Task { await sink.edit(path, next.map(JSONValue.string)) }
-            }
+            SelectFieldRow(sink: sink, field: field, path: path, value: value?.stringValue ?? "", title: label.isEmpty ? field.label : label)
         case "image":
             if sink.picksImages, let document {
                 ImageFieldRow(sink: sink, repo: document.repo, field: field, path: path, value: value?.stringValue ?? "", label: label)
@@ -317,31 +315,6 @@ struct BufferedTextField: View {
     }
 }
 
-struct SelectFieldRow: View {
-    let field: FieldView
-    let value: String
-    let label: String
-    let onChange: (String?) -> Void
-
-    var body: some View {
-        let known = field.selectValues.contains { $0.value == value }
-        Picker(selection: Binding(get: { value }, set: { onChange($0.isEmpty ? nil : $0) })) {
-            if !field.required || value.isEmpty {
-                Text("None").tag("")
-            }
-            if !value.isEmpty && !known {
-                Text(value).tag(value)
-            }
-            ForEach(field.selectValues) { option in
-                Text(option.label).tag(option.value)
-            }
-        } label: {
-            Text(label.isEmpty ? field.label : label)
-        }
-        .pickerStyle(.menu)
-    }
-}
-
 /// Date fields edit through a native picker; the engine writes the picked
 /// date back in the document's own spelling. Values Posto can't read as a
 /// date stay editable as text.
@@ -442,7 +415,8 @@ struct ListFieldSection: View {
             name: field.name, type: field.type, label: field.label, showLabel: false,
             description: nil, required: false, hidden: false, list: false, listMin: nil, listMax: nil,
             schemaPath: field.schemaPath, fields: field.fields, locked: field.locked, template: nil,
-            selectValues: field.selectValues, numberMin: field.numberMin, numberMax: field.numberMax,
+            selectValues: field.selectValues, selectCount: field.selectCount,
+            numberMin: field.numberMin, numberMax: field.numberMax,
             dateTime: field.dateTime, chooseImage: false, referenceCollection: field.referenceCollection,
             imageLibrary: field.imageLibrary, newItem: nil
         )

@@ -48,7 +48,7 @@ import {
   referenceDraftScope,
   startReferenceDraft,
 } from "./references";
-import { fieldAt } from "../../../../packages/editor/src/formModel";
+import { fieldAt, selectValues } from "../../../../packages/editor/src/formModel";
 import type { Field } from "@posto/core/pagescms/config";
 import type { DocumentSession, FieldScope } from "./document";
 import { MediaSession } from "./media";
@@ -276,6 +276,14 @@ const methods: Record<string, Method> = {
   "form.imagePreview": (args) => {
     const { document, field, scope } = fieldTarget(args);
     return document.imagePreview(path(args), args.value as string, field, scope);
+  },
+  // A select's options when there are too many to send with the form view
+  // (see INLINE_SELECT_OPTIONS). Any form; no document needed.
+  "form.selectOptions": (args) => {
+    const { store } = formFor((args.form as string | undefined) ?? "document");
+    const fields = store ? store.fields : requireRepo().requireDocument().formFields;
+    const field = fieldAt(fields, path(args));
+    return field?.type === "select" ? selectValues(field) : [];
   },
   "doc.referenceOptions": (args) => requireRepo().requireDocument().referenceOptions(path(args)),
   "doc.bodyMediaValue": (args) =>

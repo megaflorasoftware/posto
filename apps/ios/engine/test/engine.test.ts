@@ -679,7 +679,45 @@ describe("form fields", () => {
       "/mock/site/src/data/team.json",
       JSON.stringify([{ id: "ada", name: "Ada", role: "Engineer" }], null, 2),
     );
+    // An enum as long as an icon set's names (the Lucide one has ~2,400).
+    const posts = JSON.parse(await read("/mock/site/.astro/collections/posts.schema.json")) as {
+      definitions: { posts: { properties: Record<string, unknown> } };
+    };
+    posts.definitions.posts.properties.icon = {
+      type: "string",
+      enum: Array.from({ length: 3000 }, (_, n) => `icon-${n}`),
+    };
+    await write("/mock/site/.astro/collections/posts.schema.json", JSON.stringify(posts));
     await call("repo.open", { repoRoot: "/mock/site", repo: null, developerMode: true });
+  });
+
+  it("keeps a long select's options out of the form view", async () => {
+    const view = await call<{ tree: TreeNode[] }>("repo.view");
+    const posts = view.tree.find((node) => node.label === "Posts")!;
+    type Field = { name: string; type: string; selectValues: unknown[]; selectCount: number };
+    const opened = await call<{ form: { fields: Field[] } }>("doc.open", {
+      key: posts.files[0].key,
+    });
+    const icon = opened.form.fields.find((field) => field.name === "icon")!;
+    expect(icon).toMatchObject({ type: "select", selectValues: [], selectCount: 3000 });
+    // Short lists still travel with the field.
+    const status = opened.form.fields.find((field) => field.name === "status")!;
+    expect(status.selectValues).toHaveLength(3);
+    expect(status.selectCount).toBe(3);
+
+    const options = await call<Array<{ value: string; label: string }>>("form.selectOptions", {
+      path: ["icon"],
+    });
+    expect(options).toHaveLength(3000);
+    expect(options[2999]).toEqual({ value: "icon-2999", label: "icon-2999" });
+
+    // Every edit's reply stays small.
+    const edited = await call<{ form: { values: Record<string, unknown> } }>("form.edit", {
+      path: ["icon"],
+      value: "icon-2999",
+    });
+    expect(edited.form.values.icon).toBe("icon-2999");
+    expect(JSON.stringify(edited)).not.toContain("icon-2998");
   });
 
   async function openBlogPost() {

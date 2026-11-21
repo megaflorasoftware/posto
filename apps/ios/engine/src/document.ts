@@ -473,6 +473,11 @@ export class DocumentSession {
 
   // --- Field helpers -----------------------------------------------------
 
+  /** The schema fields the form edits (none without a form). */
+  get formFields(): Field[] {
+    return this.form?.fields ?? [];
+  }
+
   private fieldAtPath(path: ValuePath): Field | null {
     return this.form ? fieldAt(this.form.fields, path) : null;
   }
