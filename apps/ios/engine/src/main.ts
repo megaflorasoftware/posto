@@ -45,10 +45,12 @@ import {
   cancelReferenceDraft,
   finishReferenceDraft,
   referenceDraftForm,
+  referenceDraftScope,
   startReferenceDraft,
 } from "./references";
 import { fieldAt } from "../../../../packages/editor/src/formModel";
-import type { DocumentSession } from "./document";
+import type { Field } from "@posto/core/pagescms/config";
+import type { DocumentSession, FieldScope } from "./document";
 import { MediaSession } from "./media";
 import { RepoSession, type RepoIdentity } from "./repo";
 
@@ -100,6 +102,22 @@ function formFor(target: string): { store: FormStore | null; document: boolean }
     return { store: requireMedia().importDraft(Number(target.slice(7))).form, document: false };
   }
   throw new Error(`Unknown form ${target}`);
+}
+
+/** The field a form path lands on and the scope it resolves against. The
+ * document's own fields leave both to the document (undefined). */
+function fieldTarget(args: Args): {
+  document: DocumentSession;
+  field: Field | null | undefined;
+  scope: FieldScope | undefined;
+} {
+  const target = (args.form as string | undefined) ?? "document";
+  const { store } = formFor(target);
+  return {
+    document: requireRepo().requireDocument(),
+    field: store ? fieldAt(store.fields, path(args)) : undefined,
+    scope: target === "reference" ? referenceDraftScope(requireRepo()) : undefined,
+  };
 }
 
 function formResult(target: string, store: FormStore | null) {
@@ -238,38 +256,26 @@ const methods: Record<string, Method> = {
       .requireDocument()
       .imagePreview(path(args), args.value as string),
   "doc.imageChoices": (args) => requireRepo().requireDocument().imageChoices(path(args)),
-  // Image fields in any form: a component's props resolve their media
-  // against the open document, as the desktop editor's component fields do.
+  // Image and reference fields in any form. A component's props resolve
+  // against the open document, as the desktop editor's component fields do;
+  // a referenced entry being created resolves against its own collection.
   "form.imageChoices": (args) => {
-    const { store } = formFor((args.form as string | undefined) ?? "document");
-    const document = requireRepo().requireDocument();
+    const { document, field, scope } = fieldTarget(args);
     const current = (args.value as string | undefined) || undefined;
-    return store
-      ? document.imageChoices(path(args), fieldAt(store.fields, path(args)), current)
-      : document.imageChoices(path(args), undefined, current);
+    return document.imageChoices(path(args), field, current, scope);
   },
   "form.referenceOptions": (args) => {
-    const { store } = formFor((args.form as string | undefined) ?? "document");
-    const document = requireRepo().requireDocument();
-    return store
-      ? document.referenceOptions(path(args), fieldAt(store.fields, path(args)))
-      : document.referenceOptions(path(args));
+    const { document, field } = fieldTarget(args);
+    return document.referenceOptions(path(args), field);
   },
   "form.imageValue": (args) => {
-    const { store } = formFor((args.form as string | undefined) ?? "document");
-    const document = requireRepo().requireDocument();
-    const absolutePath = args.absolutePath as string;
+    const { document, field, scope } = fieldTarget(args);
     const current = (args.value as string | undefined) || undefined;
-    return store
-      ? document.imageFieldValue(path(args), absolutePath, fieldAt(store.fields, path(args)), current)
-      : document.imageFieldValue(path(args), absolutePath, undefined, current);
+    return document.imageFieldValue(path(args), args.absolutePath as string, field, current, scope);
   },
   "form.imagePreview": (args) => {
-    const { store } = formFor((args.form as string | undefined) ?? "document");
-    const document = requireRepo().requireDocument();
-    return store
-      ? document.imagePreview(path(args), args.value as string, fieldAt(store.fields, path(args)))
-      : document.imagePreview(path(args), args.value as string);
+    const { document, field, scope } = fieldTarget(args);
+    return document.imagePreview(path(args), args.value as string, field, scope);
   },
   "doc.referenceOptions": (args) => requireRepo().requireDocument().referenceOptions(path(args)),
   "doc.bodyMediaValue": (args) =>

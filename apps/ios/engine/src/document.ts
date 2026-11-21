@@ -46,6 +46,17 @@ import { errorMessage, invoke } from "./host";
 
 export type SaveState = "saved" | "saving" | "error" | "invalid";
 
+/** What image fields resolve against, as FieldEditor's context: the
+ * collection entry (its media and templates), the document relative image
+ * values are relative to, and the values templated media folders expand
+ * from. The open document is one; a referenced entry being created is
+ * another (its collection, at a provisional path). */
+export interface FieldScope {
+  readonly entry: ContentEntry | null;
+  readonly documentPath: string | undefined;
+  templateValues(): Record<string, unknown>;
+}
+
 /** What the document needs from the repository it belongs to. */
 export interface DocumentHost {
   readonly root: string;
@@ -183,7 +194,7 @@ export class DocumentSession {
     this.revision += 1;
     const entry = this.entry;
     if (this.dataEntry && entry) {
-      this.form = new DataEntryForm(this.content, entry, this.dataEntry);
+      this.form = new DataEntryForm(this.content, entry, this.dataEntry, () => this.entry);
       this.bodyText = "";
       return;
     }
@@ -191,7 +202,7 @@ export class DocumentSession {
       this.form = null;
       return;
     }
-    const form = new FrontmatterForm(this.content, entry);
+    const form = new FrontmatterForm(this.content, entry, () => this.entry);
     this.form = form;
     const body = form.body();
     if (this.isMdx) {
@@ -474,6 +485,16 @@ export class DocumentSession {
     return this.dataEntry ? undefined : this.path;
   }
 
+  /** This document as the scope its own fields (and a component's props)
+   * resolve against. */
+  private ownScope(): FieldScope {
+    return {
+      entry: this.entry,
+      documentPath: this.documentPath(),
+      templateValues: () => this.templateValues(),
+    };
+  }
+
   /** The body's cards and pills (see bodyEmbeds.ts), with where each image
    * can be previewed. */
   bodyEmbeds(
@@ -533,14 +554,15 @@ export class DocumentSession {
     path: ValuePath,
     value: string,
     field: Field | null = this.fieldAtPath(path),
+    scope: FieldScope = this.ownScope(),
   ): { path: string | null; url: string | null } {
     if (!value) return { path: null, url: null };
     if (isRemoteMediaUrl(value)) return { path: null, url: value };
     const config = this.host.config();
-    const values = this.templateValues();
-    const media = field ? resolveMedia(config, field, this.entry, values) : null;
+    const values = scope.templateValues();
+    const media = field ? resolveMedia(config, field, scope.entry, values) : null;
     const valueMedia = field
-      ? resolveMediaForValue(config, field, value, this.entry, values)
+      ? resolveMediaForValue(config, field, value, scope.entry, values)
       : null;
     const libraryMedia: MediaEntry[] = (config.mediaLibraries ?? []).map((library) => {
       const input = library.base.replace(/^\.\//, "").replace(/^\/+|\/+$/g, "");
@@ -555,7 +577,7 @@ export class DocumentSession {
     const resolved =
       [valueMedia, media, ...config.media, ...libraryMedia]
         .filter((candidate): candidate is MediaEntry => candidate !== null)
-        .map((candidate) => mediaInputPath(this.host.root, candidate, value, this.documentPath()))
+        .map((candidate) => mediaInputPath(this.host.root, candidate, value, scope.documentPath))
         .find((candidate): candidate is string => candidate !== null) ??
       (value.startsWith("/") ? `${this.host.root}/public${decoded}` : null);
     return { path: resolved, url: null };
@@ -567,6 +589,7 @@ export class DocumentSession {
     path: ValuePath,
     field: Field | null = this.fieldAtPath(path),
     current?: string,
+    scope: FieldScope = this.ownScope(),
   ): Promise<{
     media: { name: string; label: string | null; input: string } | null;
     files: Array<{ name: string; path: string; value: string }>;
@@ -575,8 +598,8 @@ export class DocumentSession {
   }> {
     const config = this.host.config();
     const media = field
-      ? this.imageFieldMedia(field, current)
-      : (this.entry?.media ?? config.media[0] ?? null);
+      ? this.imageFieldMedia(field, current, scope)
+      : (scope.entry?.media ?? config.media[0] ?? null);
     if (!media) return { media: null, files: [], cdnSource: null };
     const sourceName =
       typeof field?.options?.mediaSource === "string" ? field.options.mediaSource : media.name;
@@ -590,7 +613,7 @@ export class DocumentSession {
     return {
       media: { name: media.name, label: media.label ?? null, input: media.input },
       files: listed.flatMap((file) => {
-        const value = mediaOutputPath(this.host.root, media, file.path, this.documentPath());
+        const value = mediaOutputPath(this.host.root, media, file.path, scope.documentPath);
         return value ? [{ name: file.name, path: file.path, value }] : [];
       }),
       cdnSource,
@@ -599,13 +622,17 @@ export class DocumentSession {
 
   /** The media folder an image field picks from: the one its current
    * value lives in (as the desktop picker opens), else the field's own. */
-  private imageFieldMedia(field: Field | null, current?: string): MediaEntry | null {
+  private imageFieldMedia(
+    field: Field | null,
+    current: string | undefined,
+    scope: FieldScope,
+  ): MediaEntry | null {
     if (!field) return null;
     const config = this.host.config();
-    const values = this.templateValues();
+    const values = scope.templateValues();
     return (
-      (current ? resolveMediaForValue(config, field, current, this.entry, values) : null) ??
-      resolveMedia(config, field, this.entry, values)
+      (current ? resolveMediaForValue(config, field, current, scope.entry, values) : null) ??
+      resolveMedia(config, field, scope.entry, values)
     );
   }
 
@@ -620,16 +647,17 @@ export class DocumentSession {
     absolutePath: string,
     field: Field | null = this.fieldAtPath(path),
     current?: string,
+    scope: FieldScope = this.ownScope(),
   ): string | null {
     const root = this.host.root;
-    const media = this.imageFieldMedia(field, current);
+    const media = this.imageFieldMedia(field, current, scope);
     if (media) {
-      const value = mediaOutputPath(root, media, absolutePath, this.documentPath());
+      const value = mediaOutputPath(root, media, absolutePath, scope.documentPath);
       if (value) return value;
     }
     const publicRoot = `${root}/public/`;
     if (absolutePath.startsWith(publicRoot)) return `/${absolutePath.slice(publicRoot.length)}`;
-    const documentPath = this.documentPath();
+    const documentPath = scope.documentPath;
     if (media?.relative && documentPath) return relativeMediaPath(documentPath, absolutePath);
     return null;
   }

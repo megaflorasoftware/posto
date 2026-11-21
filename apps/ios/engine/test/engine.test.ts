@@ -604,3 +604,210 @@ describe("deployments", () => {
     expect(["running", "queued", "success", "failure", "idle"]).toContain(status.ring.state);
   });
 });
+
+// Rewrites the fixture's config, so it runs last: an `authors` collection
+// whose photos live in a media folder templated by the entry's slug, a blog
+// reference to it, and an Astro `file()` data collection.
+describe("form fields", () => {
+  const write = (path: string, content: string) =>
+    call("backend.invoke", { command: "write_text_file", args: { path, content } });
+  const read = (path: string) =>
+    call<string>("backend.invoke", { command: "read_text_file", args: { path } });
+
+  beforeAll(async () => {
+    const pages = await read("/mock/site/.pages.yml");
+    await write(
+      "/mock/site/.pages.yml",
+      pages
+        .replace(
+          "media: public/images",
+          [
+            "media:",
+            "  - { name: images, input: public/images, output: /images }",
+            "  - { name: people, input: 'public/people/{fields.slug}', output: '/people/{fields.slug}' }",
+          ].join("\n"),
+        )
+        .replace(
+          "      - { name: body, label: Body, type: rich-text }",
+          [
+            "      - { name: author, label: Author, type: reference, options: { collection: authors } }",
+            "      - { name: body, label: Body, type: rich-text }",
+          ].join("\n"),
+        ) +
+        [
+          "  - name: authors",
+          "    label: Authors",
+          "    type: collection",
+          "    path: src/authors",
+          "    fields:",
+          "      - { name: name, label: Name, type: string, required: true }",
+          "      - { name: slug, label: Slug, type: string }",
+          "      - { name: photo, label: Photo, type: image, options: { media: people } }",
+          "      - { name: mentor, label: Mentor, type: reference, options: { collection: blog } }",
+          "",
+        ].join("\n"),
+    );
+    const astro = await read("/mock/site/src/content.config.ts");
+    await write(
+      "/mock/site/src/content.config.ts",
+      astro
+        .replace(
+          'import { glob } from "astro/loaders";',
+          'import { file, glob } from "astro/loaders";',
+        )
+        .replace(
+          "export const collections = { posts, media };",
+          [
+            "const team = defineCollection({",
+            '  loader: file("src/data/team.json"),',
+            "  schema: z.object({ name: z.string(), role: z.string() }),",
+            "});",
+            "",
+            "export const collections = { posts, media, team };",
+          ].join("\n"),
+        ),
+    );
+    await write(
+      "/mock/site/.astro/collections/team.schema.json",
+      JSON.stringify({
+        type: "object",
+        properties: { id: { type: "string" }, name: { type: "string" }, role: { type: "string" } },
+        required: ["id", "name", "role"],
+      }),
+    );
+    await write(
+      "/mock/site/src/data/team.json",
+      JSON.stringify([{ id: "ada", name: "Ada", role: "Engineer" }], null, 2),
+    );
+    await call("repo.open", { repoRoot: "/mock/site", repo: null, developerMode: true });
+  });
+
+  async function openBlogPost() {
+    const view = await call<{ tree: TreeNode[] }>("repo.view");
+    const blog = view.tree.find((node) => node.label === "Writing")!;
+    await call("doc.open", { key: blog.files[0].key });
+  }
+
+  it("resolves a new referenced entry's fields against its own collection", async () => {
+    await openBlogPost();
+    const draft = await call<{
+      collection: { name: string };
+      fields: Array<{ name: string; type: string; referenceCollection: string | null }>;
+    }>("reference.start", { path: ["author"] });
+    expect(draft.collection.name).toBe("authors");
+    expect(draft.fields.find((field) => field.name === "photo")?.type).toBe("image");
+    await call("form.edit", { form: "reference", path: ["slug"], value: "ada" });
+
+    // The photo's media folder expands from the draft's slug, not the
+    // open post's.
+    const choices = await call<{ media: { input: string } | null }>("form.imageChoices", {
+      form: "reference",
+      path: ["photo"],
+    });
+    expect(choices.media?.input).toBe("public/people/ada");
+    expect(
+      await call("form.imageValue", {
+        form: "reference",
+        path: ["photo"],
+        absolutePath: "/mock/site/public/people/ada/portrait.jpg",
+      }),
+    ).toBe("/people/ada/portrait.jpg");
+    const preview = await call<{ path: string | null }>("form.imagePreview", {
+      form: "reference",
+      path: ["photo"],
+      value: "/people/ada/portrait.jpg",
+    });
+    expect(preview.path).toBe("/mock/site/public/people/ada/portrait.jpg");
+
+    // The draft's own references list their collection's entries.
+    const options = await call<{
+      collection: { name: string } | null;
+      options: Array<{ value: string; label: string }>;
+    }>("form.referenceOptions", { form: "reference", path: ["mentor"] });
+    expect(options.collection?.name).toBe("blog");
+    expect(options.options.length).toBeGreaterThan(0);
+    expect(options.options.every((option) => option.value.startsWith("src/blog/"))).toBe(true);
+    await call("reference.cancel");
+  });
+
+  it("saves field templates and row counts on data collection entries", async () => {
+    const view = await call<{ tree: TreeNode[] }>("repo.view");
+    const team = view.tree.find((node) => node.label === "Team")!;
+    const opened = await call<{ isData: boolean }>("doc.open", { key: team.files[0].key });
+    expect(opened.isData).toBe(true);
+    type Saved = {
+      error: string | null;
+      view: {
+        form: {
+          values: Record<string, unknown>;
+          fields: Array<{
+            name: string;
+            template: { controlled: boolean; rows: number | null } | null;
+          }>;
+        };
+      };
+    };
+    const templated = await call<Saved>("collections.saveFieldTemplate", {
+      fieldName: "role",
+      schema: { template: "{fields.name|slug}-role", editBehavior: "controlled" },
+    });
+    expect(templated.error).toBeNull();
+    expect(templated.view.form.values.role).toBe("ada-role");
+    expect(
+      templated.view.form.fields.find((field) => field.name === "role")?.template,
+    ).toMatchObject({ controlled: true });
+    // Later edits keep the new template applied.
+    const edited = await call<{ form: { values: Record<string, unknown> } }>("form.edit", {
+      path: ["name"],
+      value: "Grace Hopper",
+    });
+    expect(edited.form.values.role).toBe("grace-hopper-role");
+    await call("doc.flush");
+    expect(await read("/mock/site/src/data/team.json")).toContain('"role": "grace-hopper-role"');
+
+    const rows = await call<Saved>("collections.saveFieldTemplate", {
+      fieldName: "name",
+      schema: { editBehavior: "manual", rows: 4 },
+    });
+    expect(rows.view.form.fields.find((field) => field.name === "name")?.template?.rows).toBe(4);
+    // Data entries have no filename of their own.
+    await expect(
+      call("collections.saveFieldTemplate", {
+        fieldName: "filename",
+        schema: { template: "{fields.name}.json", editBehavior: "controlled" },
+      }),
+    ).rejects.toThrow(/no filename template/);
+  });
+
+  it("reports a data file's own parse error", async () => {
+    const view = await call<{ tree: TreeNode[] }>("repo.view");
+    const team = view.tree.find((node) => node.label === "Team")!;
+    await call("doc.open", { key: team.files[0].key });
+    const original = await read("/mock/site/src/data/team.json");
+    await call("doc.setTab", { tab: "raw" });
+    await call("doc.setRaw", { text: "[{ broken" });
+    const broken = await call<{ form: { parseError: string | null } }>("doc.setTab", {
+      tab: "content",
+    });
+    // The JSON parser's message, not the frontmatter's YAML notice.
+    expect(broken.form.parseError).toMatch(/JSON|property|token/i);
+    await call("doc.setTab", { tab: "raw" });
+    await call("doc.setRaw", { text: original });
+    await call("doc.flush");
+  });
+
+  it("tells whether a component's props are typed", async () => {
+    await openBlogPost();
+    const typed = await call<{ typed: boolean }>("components.open", {
+      name: "CaptionedImage",
+      path: "/mock/site/src/components/CaptionedImage.astro",
+    });
+    expect(typed.typed).toBe(true);
+    await write("/mock/site/src/components/Plain.astro", "<div><slot /></div>");
+    const untyped = await call<{ typed: boolean }>("components.open", {
+      name: "Plain",
+      path: "/mock/site/src/components/Plain.astro",
+    });
+    expect(untyped.typed).toBe(false);
+  });
+});
