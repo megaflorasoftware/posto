@@ -68,7 +68,9 @@ struct SiteMenu: View {
                         present(.deployments)
                     } label: {
                         Text("Deployments")
-                        if deployments.status != nil {
+                        if deployments.unavailable {
+                            Text("Deployments unavailable")
+                        } else if deployments.status != nil {
                             Text(deploymentStateText((deployments.ring ?? deployments.status?.ring)?.state))
                         }
                         Image(systemName: "antenna.radiowaves.left.and.right")

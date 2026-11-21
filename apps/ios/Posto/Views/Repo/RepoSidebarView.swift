@@ -264,7 +264,8 @@ struct PublishButton: View {
         #if os(iOS)
         // Beside it, the deploy a publish starts, as the desktop app keeps
         // its ring in the header. (The macOS app has a Deployments button.)
-        HStack(spacing: 4) {
+        // The ring brings its own padding, and takes no room without one.
+        HStack(spacing: 0) {
             DeploymentBadge(repo: repo)
             button
         }

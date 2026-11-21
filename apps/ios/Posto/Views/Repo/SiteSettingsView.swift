@@ -135,7 +135,7 @@ struct DeploymentsView: View {
         let deployments = repo.deployments
         let status = deployments.status
         let ring = deployments.ring ?? status?.ring
-        let unavailable = status?.error != nil && !deployments.hasRuns
+        let unavailable = deployments.unavailable
         List {
             if let error = deployments.error ?? status?.error {
                 Section {
@@ -267,30 +267,34 @@ struct DeploymentBadge: View {
     var body: some View {
         let deployments = repo.deployments
         let ring = deployments.ring ?? deployments.status?.ring
-        if repo.view?.repo != nil && deployments.hasRuns {
-            Button {
-                showingDeployments = true
-            } label: {
-                DeploymentRingView(ring: ring, compact: true)
-                    .frame(width: 26, height: 26)
-                    .padding(9)
-                    .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Deployment status")
-            .accessibilityValue(deploymentStateText(ring?.state))
-            .help(deploymentStateText(ring?.state))
-            .sheet(isPresented: $showingDeployments) {
-                NavigationStack {
-                    DeploymentsView(repo: repo)
-                        .toolbar {
-                            ToolbarItem(placement: .closeTrailing) {
-                                CloseButton("Done") { showingDeployments = false }
-                            }
-                        }
+        // The sheet hangs off a container that's always there, so the ring
+        // going away (runs no longer listed) can't take an open sheet with it.
+        ZStack {
+            if repo.view?.repo != nil && deployments.hasRuns {
+                Button {
+                    showingDeployments = true
+                } label: {
+                    DeploymentRingView(ring: ring, compact: true)
+                        .frame(width: 26, height: 26)
+                        .padding(9)
+                        .contentShape(.rect)
                 }
-                .macSheetSizing()
+                .buttonStyle(.plain)
+                .accessibilityLabel("Deployment status")
+                .accessibilityValue(deploymentStateText(ring?.state))
+                .help(deploymentStateText(ring?.state))
             }
+        }
+        .sheet(isPresented: $showingDeployments) {
+            NavigationStack {
+                DeploymentsView(repo: repo)
+                    .toolbar {
+                        ToolbarItem(placement: .closeTrailing) {
+                            CloseButton("Done") { showingDeployments = false }
+                        }
+                    }
+            }
+            .macSheetSizing()
         }
     }
 }
