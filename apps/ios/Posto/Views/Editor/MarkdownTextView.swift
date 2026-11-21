@@ -188,9 +188,17 @@ struct MarkdownTextView: UIViewRepresentable {
         func makeToolbar() -> UIToolbar {
             let toolbar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
             let controller = parent.controller
+            // Each item carries a title as well as its symbol: the bar shows
+            // the symbol, and the overflow menu (iOS 26 collapses what doesn't
+            // fit into "•••") and VoiceOver use the title.
             func item(_ symbol: String, _ label: String, _ action: @escaping () -> Void) -> UIBarButtonItem {
-                let button = UIBarButtonItem(image: UIImage(systemName: symbol), primaryAction: UIAction { _ in action() })
-                button.accessibilityLabel = label
+                UIBarButtonItem(title: label, image: UIImage(systemName: symbol), primaryAction: UIAction { _ in action() })
+            }
+            func menuItem(_ symbol: String, _ label: String, _ menu: UIMenu) -> UIBarButtonItem {
+                let button = UIBarButtonItem(title: label, image: UIImage(systemName: symbol), menu: menu)
+                // Menus open upward from the keyboard; keep them in reading
+                // order (Heading 1 on top) rather than nearest-first.
+                button.preferredMenuElementOrder = .fixed
                 return button
             }
             let headings = UIMenu(title: "Heading", children: (1...4).map { level in
@@ -198,8 +206,7 @@ struct MarkdownTextView: UIViewRepresentable {
                     controller.prefixLines(String(repeating: "#", count: level) + " ")
                 }
             })
-            let heading = UIBarButtonItem(image: UIImage(systemName: "textformat.size"), menu: headings)
-            heading.accessibilityLabel = "Heading"
+            let heading = menuItem("textformat.size", "Heading", headings)
             let lists = UIMenu(children: [
                 UIAction(title: "Bulleted List", image: UIImage(systemName: "list.bullet")) { _ in controller.prefixLines("- ") },
                 UIAction(title: "Numbered List", image: UIImage(systemName: "list.number")) { _ in controller.prefixLines("1. ") },
@@ -207,8 +214,7 @@ struct MarkdownTextView: UIViewRepresentable {
                 UIAction(title: "Code Block", image: UIImage(systemName: "curlybraces")) { _ in controller.insert("```\n\n```", asBlock: true) },
                 UIAction(title: "Divider", image: UIImage(systemName: "minus")) { _ in controller.insert("---", asBlock: true) },
             ])
-            let block = UIBarButtonItem(image: UIImage(systemName: "list.bullet"), menu: lists)
-            block.accessibilityLabel = "Blocks"
+            let block = menuItem("list.bullet", "Blocks", lists)
             var items: [UIBarButtonItem] = [
                 heading,
                 item("bold", "Bold") { controller.wrap("**", placeholder: "bold") },
@@ -226,8 +232,7 @@ struct MarkdownTextView: UIViewRepresentable {
                         controller.requestEditComponent()
                     },
                 ])
-                let component = UIBarButtonItem(image: UIImage(systemName: "square.on.square"), menu: components)
-                component.accessibilityLabel = "Components"
+                let component = menuItem("square.on.square", "Components", components)
                 items.append(component)
             }
             items.append(.flexibleSpace())
