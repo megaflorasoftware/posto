@@ -101,10 +101,10 @@ struct FieldRow: View {
     @State private var editingTemplate = false
     @State private var editingRows = false
 
-    /// Developer mode: top-level fields of collection entries can carry
-    /// `.posto` templates and row counts.
+    /// Developer mode: fields of collection entries (data collections' too,
+    /// as on desktop) can carry `.posto` templates and row counts.
     private var templatable: Bool {
-        guard let document, sink.formTarget == "document", showLabel, document.repo.app.developerMode, !document.view.isData,
+        guard let document, sink.formTarget == "document", showLabel, document.repo.app.developerMode,
               document.view.collectionLabel != nil
         else { return false }
         return !path.contains { if case .index = $0 { return true } else { return false } }
