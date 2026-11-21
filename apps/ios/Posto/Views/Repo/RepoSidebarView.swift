@@ -9,9 +9,10 @@ struct RepoSidebarView: View {
         List(selection: $repo.selectedKey) {
             notices
             if let view = repo.view {
-                if !view.looseFiles.isEmpty {
+                let looseFiles = listedLooseFiles(view)
+                if !looseFiles.isEmpty {
                     Section {
-                        ForEach(view.looseFiles) { file in
+                        ForEach(looseFiles) { file in
                             FileRow(file: file)
                         }
                     }
@@ -54,6 +55,16 @@ struct RepoSidebarView: View {
                 }
             }
         }
+        #endif
+    }
+
+    /// iOS opens the README from Settings, so the list leaves it out; the
+    /// macOS app keeps it with the other files.
+    private func listedLooseFiles(_ view: RepoView) -> [TreeFile] {
+        #if os(iOS)
+        view.looseFilesWithoutReadme
+        #else
+        view.looseFiles
         #endif
     }
 

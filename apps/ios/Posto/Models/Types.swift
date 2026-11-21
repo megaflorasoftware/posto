@@ -232,6 +232,23 @@ struct RepoView: Codable, Sendable {
     let documentKey: String?
 }
 
+extension RepoView {
+    /// The project's README (`README.md`, `readme.mdx`, …) among the
+    /// top-level files. iOS opens it from Settings rather than the file list.
+    var readme: TreeFile? {
+        looseFiles.first { file in
+            let name = file.name.lowercased()
+            return name == "readme" || name.hasPrefix("readme.")
+        }
+    }
+
+    /// The top-level files without the README.
+    var looseFilesWithoutReadme: [TreeFile] {
+        guard let readme else { return looseFiles }
+        return looseFiles.filter { $0.key != readme.key }
+    }
+}
+
 struct SelectOption: Codable, Hashable, Identifiable, Sendable {
     let value: String
     let label: String

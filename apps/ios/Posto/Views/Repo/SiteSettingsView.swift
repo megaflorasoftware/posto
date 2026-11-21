@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Site settings: Deployments, Branch, Media, Switch project, and removing
-/// the local copy — the same rows as the Tauri app's settings page.
+/// the local copy — the same rows as the Tauri app's settings page. iOS
+/// also opens the project's README from here.
 struct SiteSettingsView: View {
     @Bindable var repo: RepoModel
     @Environment(\.dismiss) private var dismiss
@@ -12,6 +13,18 @@ struct SiteSettingsView: View {
             List {
                 if let view = repo.view {
                     Section {
+                        #if os(iOS)
+                        // The file list leaves the README out on iOS.
+                        if let readme = view.readme {
+                            Button {
+                                repo.settingsOpen = false
+                                repo.selectedKey = readme.key
+                            } label: {
+                                SettingsRow(title: "README", subtitle: readme.name, symbol: "book")
+                            }
+                            .foregroundStyle(.primary)
+                        }
+                        #endif
                         if view.repo != nil {
                             NavigationLink {
                                 DeploymentsView(repo: repo)
