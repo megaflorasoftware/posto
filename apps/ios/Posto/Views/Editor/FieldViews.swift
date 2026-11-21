@@ -202,9 +202,9 @@ struct FieldRow: View {
                 textControl(multiline: false)
             }
         case "reference":
-            // In the document's fields and a component's props (whose
+            // In the document's fields, a component's props (whose
             // `CollectionEntry<'media'>['id']` props are image-library
-            // references), as on desktop.
+            // references) and a new referenced entry, as on desktop.
             if sink.picksImages, let document {
                 ReferenceFieldRow(sink: sink, document: document, field: field, path: path, value: value?.stringValue ?? "", label: label)
             } else {

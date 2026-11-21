@@ -271,10 +271,10 @@ struct CdnBrowser: View {
     }
 }
 
-/// A reference to another entry: a menu of the collection's entries, or
-/// the app media picker (kept to that library) when the reference targets
-/// an image library. Works in the document's form and in a component's
-/// props, as on desktop.
+/// A reference to another entry: a searchable list of the collection's
+/// entries, or the app media picker (kept to that library) when the
+/// reference targets an image library. Works in the document's form, a
+/// component's props and a new referenced entry, as on desktop.
 struct ReferenceFieldRow: View {
     let sink: any FormSink
     /// The document being edited (the context: its repo and media).
@@ -441,7 +441,10 @@ struct ReferenceDraftSheet: View {
         NavigationStack {
             Form {
                 if let form, let state = form.formState() {
-                    FieldSections(sink: form, state: state, fields: form.fields)
+                    // The document is the pickers' context (repo, engine);
+                    // the engine resolves the draft's fields against the
+                    // referenced collection.
+                    FieldSections(sink: form, state: state, fields: form.fields, document: document)
                 }
             }
             .overlay { if form == nil && error == nil { ProgressView() } }
