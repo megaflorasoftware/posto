@@ -344,16 +344,28 @@ final class MediaModel {
         await load()
     }
 
+    /// Counts loads: only the latest one's result is shown.
+    @ObservationIgnored private var loads = 0
+
     func load(reload: Bool = false) async {
         guard !tab.isEmpty else { return }
+        loads += 1
+        let load = loads
+        let (tab, directory) = (tab, directory)
         loading = true
-        defer { loading = false }
+        defer { if load == loads { loading = false } }
+        // A slow listing of a tab or folder left since (switching tabs
+        // fast) must not replace the one now showing.
+        func isCurrent() -> Bool { load == loads && tab == self.tab && directory == self.directory }
         do {
-            listing = try await engine.call("media.list", [
+            let next: MediaListing = try await engine.call("media.list", [
                 "tab": .string(tab), "directory": .string(directory), "reload": .bool(reload),
             ])
-            error = listing?.error
+            guard isCurrent(), next.tab == tab, next.directory == directory else { return }
+            listing = next
+            error = next.error
         } catch {
+            guard isCurrent() else { return }
             self.error = error.localizedDescription
         }
     }
