@@ -447,10 +447,20 @@ final class AppModel {
         return (repo, match.root)
     }
 
+    /// Deletes a downloaded copy. `root` can be a cached one from before an
+    /// update moved the app's container, which the backend would refuse as
+    /// outside its repositories: the copy is found again by owner and name
+    /// in a listing of the disk as it is now.
     func removeRepo(root: String) async throws {
+        let identity = managed.first { $0.root == root }.map { (owner: $0.owner, name: $0.name) }
+            ?? repo.flatMap { $0.repoRoot == root ? (owner: $0.github.owner, name: $0.github.name) : nil }
         await leaveRepo()
-        try await backend.run("remove_repo", ["root": .string(root)])
-        managed.removeAll { $0.root == root }
+        await listManaged()
+        let current = identity.flatMap { identity in
+            managed.first { $0.owner == identity.owner && $0.name == identity.name }?.root
+        } ?? root
+        try await backend.run("remove_repo", ["root": .string(current)])
+        managed.removeAll { $0.root == current }
         saveCache()
     }
 
