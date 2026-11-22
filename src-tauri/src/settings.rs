@@ -96,29 +96,6 @@ pub fn set_developer_mode(app: tauri::AppHandle, enabled: bool) -> Result<(), St
     std::fs::write(path, settings.to_string()).map_err(|error| error.to_string())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::saved_work_dir;
-
-    #[test]
-    fn missing_saved_work_dir_does_not_fall_back_to_repository_root() {
-        let repository = tempfile::tempdir().unwrap();
-        let work_dir = repository.path().join("apps/docs");
-        std::fs::create_dir_all(&work_dir).unwrap();
-        let root = repository.path().to_string_lossy().to_string();
-        let settings = serde_json::json!({
-            "work_dirs": { root.clone(): work_dir.to_string_lossy() }
-        });
-
-        assert_eq!(
-            saved_work_dir(&settings, &root),
-            Some(work_dir.to_string_lossy().to_string())
-        );
-        std::fs::remove_dir_all(&work_dir).unwrap();
-        assert_eq!(saved_work_dir(&settings, &root), None);
-    }
-}
-
 #[tauri::command]
 pub fn set_last_root(app: tauri::AppHandle, root: String, work_dir: Option<String>) {
     let Some(path) = settings_path(&app) else {
@@ -159,4 +136,27 @@ pub fn set_last_root(app: tauri::AppHandle, root: String, work_dir: Option<Strin
     }
     settings["recent_roots"] = serde_json::json!(recents);
     let _ = std::fs::write(path, settings.to_string());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::saved_work_dir;
+
+    #[test]
+    fn missing_saved_work_dir_does_not_fall_back_to_repository_root() {
+        let repository = tempfile::tempdir().unwrap();
+        let work_dir = repository.path().join("apps/docs");
+        std::fs::create_dir_all(&work_dir).unwrap();
+        let root = repository.path().to_string_lossy().to_string();
+        let settings = serde_json::json!({
+            "work_dirs": { root.clone(): work_dir.to_string_lossy() }
+        });
+
+        assert_eq!(
+            saved_work_dir(&settings, &root),
+            Some(work_dir.to_string_lossy().to_string())
+        );
+        std::fs::remove_dir_all(&work_dir).unwrap();
+        assert_eq!(saved_work_dir(&settings, &root), None);
+    }
 }
