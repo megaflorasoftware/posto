@@ -333,7 +333,6 @@ struct FieldView: Codable, Hashable, Identifiable, Sendable {
     let chooseImage: Bool
     let referenceCollection: String?
     let imageLibrary: String?
-    let newItem: JSONValue?
 
     var id: String { schemaPath }
     var displayLabel: String { required ? "\(label) *" : label }

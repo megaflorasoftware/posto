@@ -5,11 +5,7 @@
  */
 import type { ContentEntry, Field, PagesConfig } from "@posto/core/pagescms/config";
 import { isLockedField } from "@posto/core/posto/annotations";
-import {
-  newItemValue,
-  selectValues,
-  type SelectValue,
-} from "../../../../packages/editor/src/formModel";
+import { selectValues, type SelectValue } from "../../../../packages/editor/src/formModel";
 
 export interface FieldView {
   name: string;
@@ -44,8 +40,6 @@ export interface FieldView {
   referenceCollection: string | null;
   /** Set when the reference points at an image library (framework ids). */
   imageLibrary: string | null;
-  /** The field's default for a new list item, built from nested defaults. */
-  newItem: unknown;
 }
 
 /** Selects with more options than this (an icon-name enum can have
@@ -125,7 +119,6 @@ export function fieldViews(
           !field.options?.mdxRawField,
         referenceCollection,
         imageLibrary: library,
-        newItem: newItemValue(field),
       };
     });
 }

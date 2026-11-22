@@ -522,7 +522,7 @@ struct ListFieldSection: View {
             selectValues: field.selectValues, selectCount: field.selectCount,
             numberMin: field.numberMin, numberMax: field.numberMax,
             dateTime: field.dateTime, chooseImage: false, referenceCollection: field.referenceCollection,
-            imageLibrary: field.imageLibrary, newItem: nil
+            imageLibrary: field.imageLibrary
         )
         Section {
             ForEach(Array(items.indices), id: \.self) { index in
