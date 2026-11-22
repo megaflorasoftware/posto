@@ -836,6 +836,8 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       await new Promise((resolve) => window.setTimeout(resolve, 1_000));
       mockSignedIn = true;
       return { ...mockUser };
+    case "cancel_sign_in":
+      return null;
     case "sign_out":
       mockSignedIn = false;
       return null;
