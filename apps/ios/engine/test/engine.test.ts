@@ -1302,3 +1302,86 @@ describe("form fields", () => {
     expect(untyped.typed).toBe(false);
   });
 });
+
+describe("closing a repository", () => {
+  /** Counts the demo backend's upstream fetches: the poll a running
+   * session keeps up every 30 seconds. */
+  function countFetches() {
+    let count = 0;
+    Object.defineProperty(globalThis, "__mockBehindUpstream", {
+      configurable: true,
+      get: () => {
+        count += 1;
+        return false;
+      },
+      set: () => {},
+    });
+    return {
+      get count() {
+        return count;
+      },
+      restore: () => delete (globalThis as { __mockBehindUpstream?: unknown }).__mockBehindUpstream,
+    };
+  }
+
+  /** Lets every pending backend reply and timer of the open play out, then
+   * a few fetch intervals pass. */
+  async function settle() {
+    for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    vi.advanceTimersByTime(120_000);
+    for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  const site = {
+    repoRoot: "/mock/site",
+    repo: {
+      owner: "example-org",
+      name: "posto",
+      cloneUrl: "https://github.com/example-org/posto.git",
+      defaultBranch: "main",
+    },
+  };
+
+  it("stops a repository closed partway through opening", async () => {
+    const host = await import("../src/host");
+    const fetches = countFetches();
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    let closing: Promise<Envelope> | undefined;
+    // The user backs out once the open is underway (its first view).
+    host.setNotifier((name, payload) => {
+      if (name === "repo" && (payload as { loading: boolean }).loading && !closing) {
+        closing = run("repo.close", {});
+      }
+    });
+    try {
+      const opened = await run("repo.open", site);
+      expect(closing).toBeDefined();
+      expect((await closing)?.error).toBeUndefined();
+      expect(opened.error).toMatch(/closed while it opened/);
+      await settle();
+      expect(fetches.count).toBe(0);
+      await expect(call("repo.view")).rejects.toThrow(/No repository is open/);
+    } finally {
+      host.setNotifier(() => {});
+      vi.useRealTimers();
+      fetches.restore();
+    }
+  });
+
+  it("stops the repository being opened, not the one it replaces, when closed at once", async () => {
+    await call("repo.open", site);
+    const fetches = countFetches();
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const opening = run("repo.open", { ...site, repo: null });
+      await call("repo.close");
+      expect((await opening).error).toMatch(/closed while it opened/);
+      await settle();
+      expect(fetches.count).toBe(0);
+      await expect(call("repo.view")).rejects.toThrow(/No repository is open/);
+    } finally {
+      vi.useRealTimers();
+      fetches.restore();
+    }
+  });
+});

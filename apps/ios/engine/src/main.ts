@@ -155,16 +155,21 @@ const methods: Record<string, Method> = {
 
   // Repository.
   "repo.open": async (args) => {
-    await repo?.close();
-    media = null;
-    repo = new RepoSession(
+    const previous = repo;
+    const opening = new RepoSession(
       args.repoRoot as string,
       (args.repo as RepoIdentity | null) ?? null,
       args.local === true,
     );
-    repo.developerMode = args.developerMode === true;
-    await repo.open();
-    return repo.view();
+    opening.developerMode = args.developerMode === true;
+    // The current session from the start, so a close that arrives while it
+    // opens (the user backed out) stops this one, not the one it replaces.
+    repo = opening;
+    media = null;
+    await previous?.close();
+    await opening.open();
+    if (opening.closed) throw new Error("The repository was closed while it opened.");
+    return opening.view();
   },
   "repo.close": async () => {
     await repo?.close();
