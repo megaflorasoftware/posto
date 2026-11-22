@@ -113,7 +113,8 @@ describe("repository session", () => {
     const before = await call<{
       form: { values: Record<string, unknown>; dates: Record<string, { date: string }> };
     }>("doc.open", { key: file.key });
-    const original = String(before.form.values.publish_date ?? "");
+    const originalValue = before.form.values.publish_date;
+    const original = typeof originalValue === "string" ? originalValue : "";
     const edited = await call<{
       form: { values: Record<string, unknown>; dates: Record<string, { date: string }> };
     }>("form.editDate", { path: ["publish_date"], control: "2024-03-09", time: false });
