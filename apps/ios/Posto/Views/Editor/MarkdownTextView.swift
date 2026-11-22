@@ -583,16 +583,17 @@ struct MarkdownTextView: UIViewRepresentable {
         // then. What they did isn't lost: the body keeps its own steps (a
         // sheet's edit, an insert, the typing up to a new card), registers
         // them again after each clear, and restores whole snapshots, which
-        // stay valid.
+        // stay valid. Typing becomes a step per pause, as UIKit's own steps
+        // are about that size: each idle scan keeps a snapshot of the text.
 
         enum UndoRecord {
             /// A load or a change from outside: no history before it.
             case clear
             /// Only the cards changed (typed text became one): the typing
-            /// since the last clear becomes one step.
+            /// since the last clear becomes steps, one per pause.
             case fold
             /// An edit of the source (a sheet, an insert): a step of its
-            /// own, after one for the typing before it.
+            /// own, after the steps for the typing before it.
             case edit
         }
 
@@ -602,17 +603,32 @@ struct MarkdownTextView: UIViewRepresentable {
             let after: NSAttributedString
         }
 
+        /// The text at a moment of the history, with its markdown.
+        private struct Snapshot {
+            let text: NSAttributedString
+            let source: String
+
+            @MainActor
+            init(_ text: NSAttributedString) {
+                self.text = text
+                source = EmbedProjection.source(of: text)
+            }
+        }
+
+        /// How many snapshots the history keeps: a hundred, fewer for a long
+        /// body (each is a copy of all of it), and never under ten.
+        private static func historyLimit(_ length: Int) -> Int {
+            max(10, min(100, 2_000_000 / max(length, 1)))
+        }
+
         /// The body's steps on the undo stack, oldest first.
         private var undoSteps: [UndoStep] = []
         /// The text when UIKit's steps were last cleared.
-        private var undoBaseline: NSAttributedString?
+        private var undoBaseline: Snapshot?
+        /// The text at each pause in typing since the baseline, oldest first.
+        private var pauses: [Snapshot] = []
 
         private func record(_ kind: UndoRecord, before: NSAttributedString, after: NSAttributedString, in textView: UITextView) {
-            func foldTyping(upTo text: NSAttributedString) {
-                guard let baseline = undoBaseline,
-                      EmbedProjection.source(of: baseline) != EmbedProjection.source(of: text) else { return }
-                undoSteps.append(UndoStep(before: baseline, after: text))
-            }
             switch kind {
             case .clear:
                 undoSteps.removeAll()
@@ -622,8 +638,10 @@ struct MarkdownTextView: UIViewRepresentable {
                 foldTyping(upTo: before)
                 undoSteps.append(UndoStep(before: before, after: after))
             }
-            if undoSteps.count > 100 { undoSteps.removeFirst(undoSteps.count - 100) }
-            undoBaseline = after
+            let limit = Self.historyLimit(after.length)
+            if undoSteps.count > limit { undoSteps.removeFirst(undoSteps.count - limit) }
+            undoBaseline = Snapshot(after)
+            pauses.removeAll()
             guard let manager = textView.undoManager else { return }
             manager.removeAllActions()
             // One undo group per step, rather than one for everything
@@ -636,6 +654,41 @@ struct MarkdownTextView: UIViewRepresentable {
                 manager.endUndoGrouping()
             }
             manager.groupsByEvent = byEvent
+        }
+
+        /// The typing since the baseline as steps: one from each pause to
+        /// the next, the last ending at `end`.
+        private func foldTyping(upTo end: NSAttributedString) {
+            guard let baseline = undoBaseline else { return }
+            let last = Snapshot(end)
+            var states = [baseline] + pauses
+            // A pause at `end`'s own text: its step ends at `end` itself,
+            // with the cards it shows, so redo comes back to them.
+            while states.count > 1, states.last?.source == last.source { states.removeLast() }
+            states.append(last)
+            for (from, to) in zip(states, states.dropFirst()) where from.source != to.source {
+                undoSteps.append(UndoStep(before: from.text, after: to.text))
+            }
+        }
+
+        /// A pause in typing (an idle scan): a fold or an edit later undoes
+        /// the typing back to here, then to the pause before.
+        private func notePause(in textView: UITextView) {
+            guard let baseline = undoBaseline else { return }
+            let storage = textView.textStorage
+            let source = EmbedProjection.source(of: storage)
+            // Back at an earlier point (UIKit's undo, or retyped): the
+            // pauses after it are no longer in the history.
+            if source == baseline.source {
+                pauses.removeAll()
+            } else if let index = pauses.lastIndex(where: { $0.source == source }) {
+                pauses.removeSubrange((index + 1)...)
+            } else {
+                pauses.append(Snapshot(NSAttributedString(attributedString: storage)))
+                // The oldest pause goes first: its typing joins the next step.
+                let limit = Self.historyLimit(storage.length)
+                if pauses.count > limit { pauses.removeFirst(pauses.count - limit) }
+            }
         }
 
         private func register(_ step: UndoStep, undoing: Bool, in textView: UITextView) {
@@ -661,7 +714,8 @@ struct MarkdownTextView: UIViewRepresentable {
             storage.setAttributedString(snapshot)
             storage.endEditing()
             textView.inputDelegate?.textDidChange(textView)
-            undoBaseline = snapshot
+            undoBaseline = Snapshot(snapshot)
+            pauses.removeAll()
             renderAttachments(in: textView)
             restyle(textView, all: true)
             // The caret goes to the end of what changed back.
@@ -693,6 +747,7 @@ struct MarkdownTextView: UIViewRepresentable {
                     self.scheduleEmbedScan(after: 0.5)
                     return
                 }
+                self.notePause(in: textView)
                 let storage = textView.textStorage
                 let source = EmbedProjection.source(of: storage)
                 // A failed scan leaves the cards as they are.
