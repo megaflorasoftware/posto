@@ -244,12 +244,17 @@ final class RepoModel {
     /// Flushes the open file and refreshes the publish state, as backing out
     /// of the editor does on the Tauri app.
     func closeFile() async {
-        guard let closing = document else { return }
+        // Backing out beats an open still in flight, a file's first open
+        // included, which would otherwise bring the editor back.
+        let wasOpening = openingKey != nil
         openingFile += 1
         openingKey = nil
-        await closing.flush()
+        let closing = document
+        guard closing != nil || wasOpening else { return }
+        await closing?.flush()
         document = nil
         selectedKey = nil
+        // Queued behind that open in the engine, so it closes what it opened.
         if let next: RepoView = try? await engine.call("doc.close") { view = next }
     }
 
