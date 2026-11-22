@@ -591,8 +591,7 @@ export class RepoSession {
         ? { name: document.name, path: document.path, key, dataEntry: document.dataEntry }
         : undefined);
     if (!file) throw new Error("That file no longer exists.");
-    const sharesOpenDocument =
-      !isOpen && Boolean(file.dataEntry) && document?.path === file.path;
+    const sharesOpenDocument = !isOpen && Boolean(file.dataEntry) && document?.path === file.path;
     if (document && isOpen) {
       // A pending autosave would write the file back; one already running
       // finishes first.

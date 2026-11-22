@@ -32,6 +32,7 @@ The panes follow the Tauri desktop app:
   is open. The editor and the preview's page survive the switch.
 
 File menu, as on desktop:
+
 - Open File… (⌘O), a palette of the site's files
 - Open Folder…
 - Open Recent… (⇧⌘O), a palette

@@ -86,7 +86,9 @@ export async function deploymentStatus(repo: RepoSession) {
     ring: computeDeploymentRing(runs, Date.now()),
     runs,
     /** What a publish compares against to spot the run it started. */
-    latestRun: latest ? { id: latest.id, createdAt: latest.created_at, url: latest.html_url } : null,
+    latestRun: latest
+      ? { id: latest.id, createdAt: latest.created_at, url: latest.html_url }
+      : null,
     error: listed.error,
     siteUrl: site,
     actionsUrl: `https://github.com/${identity.owner}/${identity.name}/actions`,

@@ -119,10 +119,7 @@ export async function pageOnSite(repo: RepoSession) {
   };
 }
 
-async function publishState(
-  repo: RepoSession,
-  path: string,
-): Promise<"new" | "modified" | null> {
+async function publishState(repo: RepoSession, path: string): Promise<"new" | "modified" | null> {
   if (!path.startsWith(`${repo.repoRoot}/`)) return null;
   const relative = path.slice(repo.repoRoot.length + 1);
   try {

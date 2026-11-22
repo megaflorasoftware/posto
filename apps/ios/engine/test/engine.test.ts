@@ -233,7 +233,11 @@ describe("repository session", () => {
     await call("doc.open", { key: file.key });
     const text = "Intro\n\n<Callout   kind='tip' extra={x}/>\n";
     const start = text.indexOf("<Callout");
-    const form = await call<{ slotTexts: unknown }>("components.openAt", { text, offset: start, start });
+    const form = await call<{ slotTexts: unknown }>("components.openAt", {
+      text,
+      offset: start,
+      start,
+    });
     const done = await call<{ snippet: string }>("components.finish", { slots: form.slotTexts });
     expect(done.snippet).toBe("<Callout   kind='tip' extra={x}/>");
   });
@@ -253,7 +257,10 @@ describe("repository session", () => {
       call("doc.setBody", { session: firstView.session, text: "Typed into the other file" }),
     ).rejects.toThrow(/no longer open/);
     // The open one's session is accepted (it survives template renames).
-    await call("doc.setBody", { session: last.session, text: (await call<{ body: { text: string } }>("doc.view")).body.text });
+    await call("doc.setBody", {
+      session: last.session,
+      text: (await call<{ body: { text: string } }>("doc.view")).body.text,
+    });
   });
 
   it("picks images for a component's props from the document's media", async () => {
@@ -268,10 +275,10 @@ describe("repository session", () => {
       { name: "CaptionedImage", path: "/mock/site/src/components/CaptionedImage.astro" },
     );
     expect(form.fields.find((field) => field.name === "src")?.chooseImage).toBe(true);
-    const choices = await call<{ media: { input: string } | null; files: Array<{ value: string }> }>(
-      "form.imageChoices",
-      { form: "component", path: ["src"] },
-    );
+    const choices = await call<{
+      media: { input: string } | null;
+      files: Array<{ value: string }>;
+    }>("form.imageChoices", { form: "component", path: ["src"] });
     // The entry's media, as the desktop editor resolves a component's fields.
     expect(choices.media).not.toBeNull();
     expect(Array.isArray(choices.files)).toBe(true);
@@ -353,7 +360,10 @@ describe("repository session", () => {
       },
     });
     // Inserting it once adds the import the props schema is found through.
-    await call("components.open", { name: "Timeline", path: "/mock/site/src/components/Timeline.astro" });
+    await call("components.open", {
+      name: "Timeline",
+      path: "/mock/site/src/components/Timeline.astro",
+    });
     await call("form.edit", { form: "component", path: ["name"], value: "Job" });
     await call("form.edit", { form: "component", path: ["roles"], value: [{ title: "Lead" }] });
     await call("components.finish");
@@ -380,7 +390,10 @@ describe("repository session", () => {
     await call("doc.open", { key: file.key });
     // Public files: their site path, unencoded.
     expect(
-      await call("form.imageValue", { path: ["cover"], absolutePath: "/mock/site/public/images/my photo.jpg" }),
+      await call("form.imageValue", {
+        path: ["cover"],
+        absolutePath: "/mock/site/public/images/my photo.jpg",
+      }),
     ).toBe("/images/my photo.jpg");
   });
 
@@ -424,8 +437,12 @@ describe("repository session", () => {
     // Without alt text: a library image's own (as desktop), else the file's
     // name without its extension.
     expect(
-      (await snippet({ absolutePath: "/mock/site/media/portraits/person.jpg", label: "person.jpg" }))
-        .snippet,
+      (
+        await snippet({
+          absolutePath: "/mock/site/media/portraits/person.jpg",
+          label: "person.jpg",
+        })
+      ).snippet,
     ).toBe("![Portrait](../../media/portraits/person.jpg)");
     expect(
       (await snippet({ absolutePath: "/mock/site/public/images/photo.jpg", label: "photo.jpg" }))
@@ -440,7 +457,8 @@ describe("repository session", () => {
     expect(
       await snippet({ url: 'https://cdn.example.com/clip.mp4?a=1&b="2"', kind: "video" }),
     ).toEqual({
-      snippet: '<video controls src="https://cdn.example.com/clip.mp4?a=1&amp;b=&quot;2&quot;"></video>',
+      snippet:
+        '<video controls src="https://cdn.example.com/clip.mp4?a=1&amp;b=&quot;2&quot;"></video>',
       kind: "video",
     });
     expect(
@@ -522,9 +540,9 @@ describe("repository session", () => {
 
   it("edits only components outside code from the cursor", async () => {
     const text = 'Sample:\n\n```mdx\n<Callout kind="tip" />\n```\n';
-    await expect(
-      call("components.openAt", { text, offset: text.indexOf("kind") }),
-    ).rejects.toThrow(/cursor inside a component/);
+    await expect(call("components.openAt", { text, offset: text.indexOf("kind") })).rejects.toThrow(
+      /cursor inside a component/,
+    );
   });
 
   it("applies a controlled field template saved in developer mode", async () => {
@@ -666,7 +684,10 @@ describe("repository home", () => {
     });
     const readData = async () =>
       JSON.parse(
-        await call<string>("backend.invoke", { command: "read_text_file", args: { path: dataPath } }),
+        await call<string>("backend.invoke", {
+          command: "read_text_file",
+          args: { path: dataPath },
+        }),
       ) as Record<string, { name: string }>;
     try {
       await writeFile(
@@ -712,9 +733,9 @@ describe("repository home", () => {
         ["ada"],
       );
       expect(await readData()).toEqual({ ada: { name: "Ada L." } });
-      expect((await call<{ form: { values: { name: string } } }>("doc.view")).form.values.name).toBe(
-        "Ada L.",
-      );
+      expect(
+        (await call<{ form: { values: { name: string } } }>("doc.view")).form.values.name,
+      ).toBe("Ada L.");
 
       const afterAda = await call<HomeView>("repo.deleteFile", { key: ada.key });
       expect(afterAda.documentKey).toBeNull();
@@ -847,7 +868,9 @@ describe("body embeds", () => {
   });
 
   it("scans unclosed elements in linear time", () => {
-    const body = Array.from({ length: 3000 }, (_, n) => `<p>Paragraph ${n} with words`).join("\n\n");
+    const body = Array.from({ length: 3000 }, (_, n) => `<p>Paragraph ${n} with words`).join(
+      "\n\n",
+    );
     const started = performance.now();
     expect(scanBodyEmbeds(body, false)).toEqual([]);
     expect(performance.now() - started).toBeLessThan(300);

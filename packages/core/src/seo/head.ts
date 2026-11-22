@@ -77,7 +77,12 @@ function* elements(html: string): Generator<Element> {
     }
     // Tag name.
     let cursor = open + 1;
-    while (cursor < length && !isSpace(html[cursor]) && html[cursor] !== "/" && html[cursor] !== ">") {
+    while (
+      cursor < length &&
+      !isSpace(html[cursor]) &&
+      html[cursor] !== "/" &&
+      html[cursor] !== ">"
+    ) {
       cursor++;
     }
     const name = html.slice(open + 1, cursor).toLowerCase();
@@ -126,7 +131,9 @@ function* elements(html: string): Generator<Element> {
     if (RAW_TEXT.has(name)) {
       const closing = findEndTag(html, name, tagEnd);
       const raw = html.slice(tagEnd, closing.start);
-      yield name === "title" ? { name, attributes, text: decodeEntities(raw) } : { name, attributes };
+      yield name === "title"
+        ? { name, attributes, text: decodeEntities(raw) }
+        : { name, attributes };
       index = closing.end;
     } else {
       yield { name, attributes };

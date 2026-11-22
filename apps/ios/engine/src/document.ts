@@ -706,7 +706,8 @@ export class DocumentSession {
     const html = markdownMediaHtml({ outputPath, label, kind });
     if (html) return { snippet: html, kind };
     if (kind === "image") {
-      const alt = pick.alt ?? (label.includes(".") ? label.slice(0, label.lastIndexOf(".")) : label);
+      const alt =
+        pick.alt ?? (label.includes(".") ? label.slice(0, label.lastIndexOf(".")) : label);
       return { snippet: markdownImage(alt, outputPath), kind };
     }
     return { snippet: `[${markdownLabel(label)}](${markdownDestination(outputPath)})`, kind };

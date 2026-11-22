@@ -264,7 +264,9 @@ export class MediaSession {
       const input = media.input.replace(/^\.\//, "").replace(/\/+$/, "");
       if (!input || inside(input) || seen.has(input)) return [];
       seen.add(input);
-      return [{ id: `${FOLDER_TAB}${input}`, label: media.label ?? input, kind: "source" as const }];
+      return [
+        { id: `${FOLDER_TAB}${input}`, label: media.label ?? input, kind: "source" as const },
+      ];
     });
   }
 
@@ -286,7 +288,9 @@ export class MediaSession {
     const roots = this.tabs()
       .map((tab) => ({
         tab: tab.id,
-        root: clean(tab.kind === "library" ? this.libraryRoot(this.library(tab.id)) : this.fileRoot(tab.id)),
+        root: clean(
+          tab.kind === "library" ? this.libraryRoot(this.library(tab.id)) : this.fileRoot(tab.id),
+        ),
       }))
       .sort((a, b) => b.root.length - a.root.length);
     for (const { tab, root } of roots) {
@@ -511,12 +515,17 @@ export class MediaSession {
     const found = isRemoteMediaUrl(src)
       ? await this.libraryAssetFor({ url: src })
       : await this.libraryAssetFor({ path: document.bodyImagePreview(src).path });
-    return found ? { library: found.library.collection, asset: libraryAssetView(found.asset) } : null;
+    return found
+      ? { library: found.library.collection, asset: libraryAssetView(found.asset) }
+      : null;
   }
 
   /** The alt text an image library keeps for an image picked into the
    * body, which the desktop picker inserts with it. */
-  async libraryImageAlt(pick: { path?: string | null; url?: string | null }): Promise<string | null> {
+  async libraryImageAlt(pick: {
+    path?: string | null;
+    url?: string | null;
+  }): Promise<string | null> {
     const found = await this.libraryAssetFor(pick);
     return (found && metadataAlt(found.asset.metadata)) ?? null;
   }
