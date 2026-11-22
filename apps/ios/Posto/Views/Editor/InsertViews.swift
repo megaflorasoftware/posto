@@ -202,7 +202,8 @@ struct ComponentPickerView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
             }
-            .task {
+            // Not again as a component's page pops back to the list.
+            .taskOnce {
                 do {
                     list = try await engine.call("components.list")
                 } catch {
@@ -324,7 +325,9 @@ struct ComponentPropsView: View {
         .confirmationDialog("Delete \(name)?", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("Delete Component", role: .destructive) { source?.delete() }
         }
-        .task {
+        // Once: a long select's options and Edit Source push over this
+        // page, and opening the component again would reset its props.
+        .taskOnce {
             do {
                 let view: ComponentFormView
                 switch mode {

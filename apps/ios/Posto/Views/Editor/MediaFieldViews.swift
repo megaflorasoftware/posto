@@ -481,7 +481,9 @@ struct ReferenceDraftSheet: View {
                     .disabled(form?.valid != true)
                 }
             }
-            .task {
+            // Once: a long select's options push over the form, and
+            // starting the draft again would reset it.
+            .taskOnce {
                 do {
                     let draft: JSONValue = try await document.engine.call("reference.start", ["path": path.json])
                     let fields = try draft["fields"]?.decode(as: [FieldView].self) ?? []

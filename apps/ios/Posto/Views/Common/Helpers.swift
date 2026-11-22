@@ -91,4 +91,26 @@ extension View {
     func errorAlert(_ message: Binding<String?>) -> some View {
         modifier(ErrorAlert(message: message))
     }
+
+    /// `.task`, run once while the view is shown. In a NavigationStack a
+    /// page disappears under each page pushed over it (a long select's
+    /// options, Edit Source) and appears again as that one pops, which runs
+    /// `.task` and `.onAppear` again: a sheet's form started there would
+    /// start over and drop what was typed.
+    func taskOnce(_ action: @escaping @MainActor () async -> Void) -> some View {
+        modifier(TaskOnce(action: action))
+    }
+}
+
+private struct TaskOnce: ViewModifier {
+    let action: @MainActor () async -> Void
+    @State private var started = false
+
+    func body(content: Content) -> some View {
+        content.task {
+            guard !started else { return }
+            started = true
+            await action()
+        }
+    }
 }
