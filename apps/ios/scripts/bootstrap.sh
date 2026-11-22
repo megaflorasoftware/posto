@@ -43,6 +43,8 @@ fi
 
 echo "==> Generating Posto.xcodeproj"
 xcodegen generate --quiet
+# scripts/build-ios.sh carries on with the build itself.
+[ -z "${POSTO_BOOTSTRAP_QUIET:-}" ] || exit 0
 echo
 echo "Done. Open $here/Posto.xcodeproj and run the Posto (or Posto Demo) scheme,"
 echo "or run scripts/run-simulator.sh [--demo | --tour]."

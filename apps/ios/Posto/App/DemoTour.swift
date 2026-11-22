@@ -91,7 +91,7 @@ final class DemoTour {
 
         if live, let document = model.document, document.view.body != nil {
             // One edit, so Publish has a change to show.
-            document.bodyChanged(document.bodyText + "\n\nA new paragraph, written in Posto Native.\n")
+            document.bodyChanged(document.bodyText + "\n\nA new paragraph, written in Posto.\n")
             await document.flush()
         } else if !live {
             model.selectedKey = nil

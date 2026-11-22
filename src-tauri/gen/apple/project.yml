@@ -11,7 +11,7 @@ settingGroups:
   app:
     base:
       PRODUCT_NAME: Posto
-      PRODUCT_BUNDLE_IDENTIFIER: net.megaflora.posto
+      PRODUCT_BUNDLE_IDENTIFIER: net.megaflora.posto.tauri
 targetTemplates:
   app:
     type: application

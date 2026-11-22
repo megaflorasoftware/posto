@@ -1,6 +1,6 @@
-# XcodeGen spec for the native iOS prototype. Generate the project with
+# XcodeGen spec for the iOS app. Generate the project with
 # scripts/bootstrap.sh (or `xcodegen generate` once the Rust xcframework
-# exists).
+# exists); `pnpm build:ios` at the repository root builds it for a device.
 name: Posto
 options:
   bundleIdPrefix: net.megaflora
@@ -39,7 +39,7 @@ targets:
     info:
       path: Posto/Info.plist
       properties:
-        CFBundleDisplayName: Posto Native
+        CFBundleDisplayName: Posto
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
@@ -60,7 +60,11 @@ targets:
           - UIInterfaceOrientationLandscapeRight
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: net.megaflora.posto.native
+        # The Tauri app's identifier: this app replaces it on iOS, and keeps
+        # its sign-in (the Keychain item) and downloaded repositories (both
+        # read the same Application Support folder). The Tauri iOS build
+        # moved to net.megaflora.posto.tauri (src-tauri/tauri.ios.conf.json).
+        PRODUCT_BUNDLE_IDENTIFIER: net.megaflora.posto
         PRODUCT_NAME: Posto
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

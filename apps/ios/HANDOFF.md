@@ -165,9 +165,12 @@ regenerate.
 ## 5. Device build
 
 The project signs with team `K56D2LK4DS`, from `src-tauri/tauri.conf.json`,
-and bundle ID `net.megaflora.posto.native`. The app installs as "Posto
-Native", alongside the Tauri app. Pick the device in Xcode and run the
-**Posto** scheme.
+and bundle ID `net.megaflora.posto`: the app is "Posto" and replaces the Tauri
+iOS app, keeping its sign-in and downloaded repositories. (It was
+`net.megaflora.posto.native`, "Posto Native", until 2026-11-21; an install
+under that identifier is a separate app and can be deleted.) The Tauri iOS
+build moved to `net.megaflora.posto.tauri`. Run `pnpm build:ios` from the
+repository root, or pick the device in Xcode and run the **Posto** scheme.
 
 ## 6. Liquid Glass
 

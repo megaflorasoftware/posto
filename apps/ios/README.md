@@ -1,9 +1,10 @@
-# Posto for iOS (native prototype)
+# Posto for iOS
 
 > Picking this up on a Mac with Xcode? Start with [HANDOFF.md](HANDOFF.md).
 
-An exploratory SwiftUI version of the mobile app. Every screen is native;
-the logic underneath is the same code the Tauri apps run:
+The iOS app, in SwiftUI. It replaced the Tauri mobile app on iOS (that app,
+`apps/mobile`, stays for Android). Every screen is native; the logic
+underneath is the same code the Tauri apps run:
 
 ```
 SwiftUI views ──► Swift models ──► engine.js in JavaScriptCore ──► Rust bridge
@@ -28,16 +29,28 @@ You need Xcode 26 or later with an iOS simulator runtime, Rust (via rustup),
 Node 24 with pnpm, and XcodeGen (`brew install xcodegen`).
 
 ```sh
+pnpm build:ios                         # Release build, installed on a paired iPhone or iPad
+pnpm build:ios --debug                 # Debug build; --no-install only builds
+pnpm ios:simulator                     # build, install, and launch on an iPhone simulator
 apps/ios/scripts/bootstrap.sh          # JS deps, engine.js, the Rust xcframework, Posto.xcodeproj
-apps/ios/scripts/run-simulator.sh      # build, install, and launch on an iPhone simulator
 apps/ios/scripts/run-simulator.sh --demo
 apps/ios/scripts/run-simulator.sh --tour   # demo walkthrough, a snapshot per screen
 ```
 
+`pnpm build:ios` runs the bootstrap itself; `DEVICE=<name or identifier>`
+picks the device when several are paired. It never launches the app.
+
 Or open `apps/ios/Posto.xcodeproj` and run the **Posto** scheme to sign in
 with GitHub, or **Posto Demo** for fixture content with no network. On the
-sign-in screen, "Explore a demo site" switches modes too. Device builds sign
-with the Tauri app's team; change it under Signing & Capabilities if needed.
+sign-in screen, "Explore a demo site" switches modes too.
+
+The app is `net.megaflora.posto`, the identifier the Tauri iOS app had, and
+signs with the same team (`K56D2LK4DS`; change it under Signing &
+Capabilities if needed). Installed over the Tauri app, it keeps that app's
+GitHub sign-in (the same Keychain item) and downloaded repositories (the same
+`Application Support/net.megaflora.posto/repos`). The Tauri iOS build
+(`pnpm build:ios:tauri`) now installs separately, as "Posto (Tauri)",
+`net.megaflora.posto.tauri`.
 
 The first Rust build takes several minutes. After editing Rust, rerun
 `scripts/build-native.sh`; the engine is rebundled on every Xcode build.

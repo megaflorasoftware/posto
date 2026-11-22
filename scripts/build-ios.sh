@@ -1,50 +1,49 @@
 #!/usr/bin/env bash
+# Builds the iOS app (apps/ios, SwiftUI) and installs it on a paired iPhone or
+# iPad without launching it.
+#
+#   scripts/build-ios.sh            Release build
+#   scripts/build-ios.sh --debug    Debug build
+#   scripts/build-ios.sh --no-install
+#
+# DEVICE picks the device by name or identifier (see
+# scripts/install-ios-device.mjs). The Rust bridge is rebuilt every time;
+# cargo only recompiles what changed, so after the first build (several
+# minutes) that takes seconds. The Tauri iOS build is scripts/build-ios-tauri.sh.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-# the client id is compiled in via option_env!; the Xcode-driven build doesn't
-# reliably pick up .cargo/config.toml, so export it explicitly (env wins if set)
-if [[ -z "${POSTO_GITHUB_CLIENT_ID:-}" ]]; then
-  POSTO_GITHUB_CLIENT_ID=$(sed -n 's/^POSTO_GITHUB_CLIENT_ID = { value = "\([^"]*\)".*/\1/p' .cargo/config.toml)
+configuration=Release
+install=1
+for argument in "$@"; do
+  case "$argument" in
+    --debug) configuration=Debug ;;
+    --no-install) install=0 ;;
+    -h | --help)
+      awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"
+      exit 0
+      ;;
+    *)
+      echo "error: unknown option '$argument'" >&2
+      exit 64
+      ;;
+  esac
+done
+
+# JS dependencies, engine.js, the Rust xcframework, and Posto.xcodeproj.
+POSTO_BOOTSTRAP_QUIET=1 apps/ios/scripts/bootstrap.sh
+
+derived=apps/ios/build/DerivedData-device
+echo "==> Building Posto ($configuration)"
+xcodebuild -project apps/ios/Posto.xcodeproj -scheme Posto -configuration "$configuration" \
+  -destination generic/platform=iOS -derivedDataPath "$derived" \
+  -allowProvisioningUpdates -quiet build
+
+app="$derived/Build/Products/$configuration-iphoneos/Posto.app"
+if [[ "$install" == 1 ]]; then
+  node scripts/install-ios-device.mjs "$app"
+  echo "Done: installed $app"
+else
+  echo "Built $app"
 fi
-if [[ -z "$POSTO_GITHUB_CLIENT_ID" ]]; then
-  echo "error: POSTO_GITHUB_CLIENT_ID is not set and no default found in .cargo/config.toml" >&2
-  exit 1
-fi
-export POSTO_GITHUB_CLIENT_ID
-
-# build a debug-signed ipa and install it on the first connected device
-pnpm tauri ios build --export-method debugging
-
-IPA=$(find src-tauri/gen/apple/build -name '*.ipa' -newer src-tauri/gen/apple/project.yml -print -quit)
-if [[ -z "$IPA" ]]; then
-  IPA=$(find src-tauri/gen/apple/build -name '*.ipa' -print -quit)
-fi
-if [[ -z "$IPA" ]]; then
-  echo "error: no .ipa found under src-tauri/gen/apple/build" >&2
-  exit 1
-fi
-
-DEVICES_JSON="$(mktemp)"
-trap 'rm -f "$DEVICES_JSON"' EXIT
-xcrun devicectl list devices --json-output "$DEVICES_JSON" >/dev/null
-
-UDID=$(node -e '
-  const j = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-  const devices = (j.result && j.result.devices) || [];
-  const d = devices.find(d => d.connectionProperties &&
-    d.connectionProperties.tunnelState !== "unavailable");
-  if (d) {
-    console.error("Installing on: " + d.deviceProperties.name);
-    console.log(d.identifier);
-  }
-' "$DEVICES_JSON")
-
-if [[ -z "$UDID" ]]; then
-  echo "error: no connected iOS device found (plug one in and trust this Mac)" >&2
-  exit 1
-fi
-
-xcrun devicectl device install app --device "$UDID" "$IPA"
-echo "Done — installed $IPA"

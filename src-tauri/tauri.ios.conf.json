@@ -1,5 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "net.megaflora.posto.tauri",
   "build": {
     "beforeDevCommand": "pnpm --filter mobile dev",
     "devUrl": "http://localhost:1422",

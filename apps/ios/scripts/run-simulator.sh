@@ -13,7 +13,7 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$here"
-bundle_id=net.megaflora.posto.native
+bundle_id=net.megaflora.posto
 mode="${1:-}"
 
 if [ ! -d Posto.xcodeproj ] || [ ! -d native/build/PostoNative.xcframework ]; then

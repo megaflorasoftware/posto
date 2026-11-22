@@ -31,6 +31,7 @@ node -e '
   for (const f of [
     "package.json",
     "apps/desktop/package.json",
+    "apps/ios/package.json",
     "packages/core/package.json",
     "packages/editor/package.json",
     "packages/ipc/package.json",
@@ -43,6 +44,8 @@ node -e '
 ' "$VERSION"
 
 sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
+# the native apps' versions (XcodeGen specs; the Info.plists read them)
+sed -i '' "s/^    MARKETING_VERSION: \".*\"/    MARKETING_VERSION: \"$VERSION\"/" apps/ios/project.yml apps/mac/project.yml
 
 # refresh Cargo.lock so it picks up the new package version
 cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 >/dev/null
@@ -51,7 +54,8 @@ cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 >/dev/nul
 echo "Formatting release files..."
 pnpm format
 
-git add package.json apps/desktop/package.json packages/*/package.json \
+git add package.json apps/desktop/package.json apps/ios/package.json packages/*/package.json \
+  apps/ios/project.yml apps/mac/project.yml \
   src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
 git commit -m "release v$VERSION"
 git tag "v$VERSION"
