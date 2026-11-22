@@ -141,12 +141,14 @@ struct FieldRow: View {
         .contextMenu {
             if templatable {
                 Button {
+                    endEditingBeforeSheet()
                     editingTemplate = true
                 } label: {
                     Label("Template…", systemImage: "wand.and.stars")
                 }
                 if field.type == "string" {
                     Button {
+                        endEditingBeforeSheet()
                         editingRows = true
                     } label: {
                         Label("Rows…", systemImage: "text.alignleft")
@@ -539,6 +541,7 @@ struct ListFieldSection: View {
             }
             if field.type == "reference", field.imageLibrary == nil, sink.formTarget == "document", let document {
                 Button {
+                    endEditingBeforeSheet()
                     creatingReference = true
                 } label: {
                     Label("Create New Entry", systemImage: "plus.square.on.square")

@@ -215,6 +215,18 @@ extension SearchFieldPlacement {
     }
 }
 
+/// Takes the keyboard from whatever has it (the body, a field) before a
+/// form's sheet opens. A body that keeps focus behind a sheet takes it back
+/// as a nested sheet (Photos, an import) closes, and its keyboard bar then
+/// loops the sheet's layout; EditorView's own sheets end editing through
+/// the body's controller, which also brings the keyboard back after.
+@MainActor
+func endEditingBeforeSheet() {
+    #if os(iOS)
+    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    #endif
+}
+
 /// Puts plain text on the system pasteboard.
 @MainActor
 func copyToPasteboard(_ string: String) {

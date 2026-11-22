@@ -341,6 +341,7 @@ private struct FilenameRow: View {
         .contextMenu {
             if document.repo.app.developerMode, !document.view.isData, document.view.collectionLabel != nil {
                 Button {
+                    endEditingBeforeSheet()
                     editingTemplate = true
                 } label: {
                     Label("Filename Template…", systemImage: "wand.and.stars")

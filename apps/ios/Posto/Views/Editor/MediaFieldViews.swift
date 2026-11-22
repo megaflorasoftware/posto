@@ -33,6 +33,7 @@ struct ImageFieldRow: View {
 
     var body: some View {
         Button {
+            endEditingBeforeSheet()
             picking = true
         } label: {
             HStack(spacing: 12) {
@@ -78,6 +79,7 @@ struct ImageChooserButton: View {
 
     var body: some View {
         Button {
+            endEditingBeforeSheet()
             picking = true
         } label: {
             Image(systemName: "photo.badge.plus")
@@ -304,6 +306,7 @@ struct ReferenceFieldRow: View {
                     NoticeRow(message: "The selected image entry is missing.", systemImage: "exclamationmark.triangle.fill", tint: .orange)
                 }
                 Button {
+                    endEditingBeforeSheet()
                     pickingAsset = true
                 } label: {
                     HStack(spacing: 12) {
@@ -388,6 +391,7 @@ struct ReferenceFieldRow: View {
                 // own fields.
                 if options?.collection != nil, sink.formTarget == "document" {
                     Button {
+                        endEditingBeforeSheet()
                         creating = true
                     } label: {
                         Image(systemName: "plus.circle")
@@ -429,6 +433,7 @@ extension ReferenceFieldRow {
         guard let asset = assets.first(where: { $0.entryId == value }) else { return }
         let media = MediaModel(repo: document.repo)
         media.selectTabWithoutLoading(library)
+        endEditingBeforeSheet()
         editingDetails = LibraryDetails(
             media: media,
             item: MediaItem(id: asset.metadataPath, name: asset.name, imagePath: asset.imagePath, imageUrl: asset.imageUrl, kind: "image", problem: nil)
