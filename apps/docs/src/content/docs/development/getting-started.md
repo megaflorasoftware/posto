@@ -3,12 +3,14 @@ title: Getting started
 description: Set up the Posto monorepo and run the app, tests, linting, and formatting locally.
 ---
 
-Posto is a [pnpm](https://pnpm.io) workspace with a [Tauri](https://tauri.app) backend written in Rust. Frontend apps and shared TypeScript packages live under `apps/` and `packages/`; native code lives in `src-tauri/`.
+Posto is a [pnpm](https://pnpm.io) workspace with a [Tauri](https://tauri.app) backend written in Rust. Frontend apps and shared TypeScript packages live under `apps/` and `packages/`; native code lives in `src-tauri/`. The iOS app is native SwiftUI (`apps/ios`); it runs the shared TypeScript packages in JavaScriptCore and compiles `src-tauri/src` into a Swift-callable library.
 
 ```
 apps/
   desktop/   Tauri desktop app (React + Mantine)
-  mobile/    Tauri mobile app
+  ios/       iOS app (SwiftUI), with its engine (engine/) and Rust bridge (native/)
+  mac/       Native macOS prototype (SwiftUI), sharing the iOS app's code
+  mobile/    Tauri mobile app (no longer the iOS app)
   docs/      This documentation site (Astro Starlight)
 packages/
   core/      Framework adapters, parsing, and configuration logic
@@ -42,6 +44,14 @@ Run these from the repo root:
 | `pnpm check`     | Run formatting, lint, and type-aware Vite+ checks           |
 | `pnpm format`    | Format supported files with Vite+                           |
 | `pnpm lint`      | Run Vite+ lint checks                                       |
+
+The iOS app needs Xcode, XcodeGen (`brew install xcodegen`) and Rust; see `apps/ios/README.md`.
+
+| Command                | What it does                                                     |
+| ---------------------- | ---------------------------------------------------------------- |
+| `pnpm build:ios`       | Build the iOS app and install it on a paired iPhone or iPad      |
+| `pnpm ios:simulator`   | Build the iOS app and run it on a simulator                      |
+| `pnpm build:ios:tauri` | Build the Tauri iOS app, installed separately as "Posto (Tauri)" |
 
 Rust checks run from `src-tauri/`:
 
@@ -83,7 +93,8 @@ The root `vite.config.ts` defines repository-wide formatting, ignore patterns, a
 
 - **TypeScript** — install with the lockfile, type-check, test, verify formatting, and lint with warnings denied
 - **Rust** — `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo test`
+- **Rust (native apps)** — the same checks for the iOS and macOS apps' bridge (`apps/ios/native`) on macOS, plus a check build for iOS devices, since it compiles `src-tauri/src` too
 
-The Rust job always reports a result, but its expensive steps run only when `src-tauri/` or the workflow changes. A documentation-only or frontend-only pull request therefore skips the Rust compile. The Rust version and components are pinned in `src-tauri/rust-toolchain.toml` for both CI and local commands.
+The Rust jobs always report a result, but their expensive steps run only when the Rust sources they build or the workflow change. A documentation-only or frontend-only pull request therefore skips the Rust compile. The Rust version and components are pinned in `src-tauri/rust-toolchain.toml` for both CI and local commands.
 
 A separate `release.yml` builds and publishes the app on tagged releases.

@@ -9,8 +9,8 @@
 #                            trying the C ABI without Xcode
 #
 # The iOS mode needs Xcode (not just the Command Line Tools) for the iOS SDKs
-# and `xcodebuild -create-xcframework`. It has not been run yet: the machine
-# it was written on had only the Command Line Tools.
+# and `xcodebuild -create-xcframework`. `pnpm build:ios` runs it (through
+# scripts/bootstrap.sh) before every device build.
 #
 # The xcframework's headers carry a module map, so Swift can `import
 # PostoNative`; the module map also autolinks the SDK libraries the engine
