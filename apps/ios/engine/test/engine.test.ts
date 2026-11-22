@@ -1213,6 +1213,30 @@ describe("form fields", () => {
     await call("doc.open", { key: blog.files[0].key });
   }
 
+  it("builds a new list item in its schema's key order", async () => {
+    await openBlogPost();
+    type Values = { form: { values: { images?: Array<Record<string, unknown>> } } };
+    const before = (await call<Values>("doc.view")).form.values.images?.length ?? 0;
+    // Swift sends no item: its dictionaries would reorder the keys.
+    const appended = await call<Values>("form.listAppend", { path: ["images"] });
+    const images = appended.form.values.images!;
+    expect(images).toHaveLength(before + 1);
+    expect(Object.keys(images[before])).toEqual(["src", "alt"]);
+    const raw = await read(await settledPath());
+    expect(raw.indexOf("src:", raw.lastIndexOf("images:"))).toBeLessThan(
+      raw.indexOf("alt:", raw.lastIndexOf("images:")),
+    );
+    // A given item is used as it is.
+    const given = await call<Values>("form.listAppend", {
+      path: ["images"],
+      value: { alt: "Given", src: "/images/given.jpg" },
+    });
+    expect(given.form.values.images![before + 1]).toEqual({
+      alt: "Given",
+      src: "/images/given.jpg",
+    });
+  });
+
   it("resolves a new referenced entry's fields against its own collection", async () => {
     await openBlogPost();
     const draft = await call<{

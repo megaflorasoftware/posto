@@ -530,8 +530,12 @@ extension FormSink {
         await perform("form.editDate", ["path": path.json, "control": JSONValue(control), "time": .bool(time)])
     }
 
-    func listAppend(_ path: [PathKey], _ value: JSONValue) async {
-        await perform("form.listAppend", ["path": path.json, "value": value])
+    /// Without a value, the engine builds the list's new item from the
+    /// schema, keeping its key order (a Swift dictionary has none).
+    func listAppend(_ path: [PathKey], _ value: JSONValue? = nil) async {
+        var args: [String: JSONValue] = ["path": path.json]
+        if let value { args["value"] = value }
+        await perform("form.listAppend", args)
     }
 
     func regenerate(_ path: [PathKey]) async {

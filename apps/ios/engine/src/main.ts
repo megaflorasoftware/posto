@@ -48,7 +48,7 @@ import {
   referenceDraftScope,
   startReferenceDraft,
 } from "./references";
-import { fieldAt, selectValues } from "../../../../packages/editor/src/formModel";
+import { fieldAt, newItemValue, selectValues } from "../../../../packages/editor/src/formModel";
 import type { Field } from "@posto/core/pagescms/config";
 import type { DocumentSession, FieldScope } from "./document";
 import { MediaSession } from "./media";
@@ -144,6 +144,15 @@ function formEdit(
   if (store) apply(store);
   else document(requireOpen(args.session));
   return formResult(target, store);
+}
+
+/** The item a list append adds: the one given, else the list field's new
+ * item built here, so an object's keys keep the schema's order (Swift's
+ * dictionaries don't keep any). */
+function newListItem(args: Args, fields: Field[]): unknown {
+  if (args.value !== undefined) return args.value;
+  const field = fieldAt(fields, path(args));
+  return field ? newItemValue(field) : "";
 }
 
 const methods: Record<string, Method> = {
@@ -336,8 +345,8 @@ const methods: Record<string, Method> = {
   "form.listAppend": (args) =>
     formEdit(
       args,
-      (store) => store.listAppend(path(args), args.value),
-      (document) => document.listAppend(path(args), args.value),
+      (store) => store.listAppend(path(args), newListItem(args, store.fields)),
+      (document) => document.listAppend(path(args), newListItem(args, document.formFields)),
     ),
   "form.listRemove": (args) =>
     formEdit(

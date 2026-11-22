@@ -523,7 +523,7 @@ struct ListFieldSection: View {
                 Task { await sink.listMove(path, from: source, to: destination) }
             }
             Button {
-                Task { await sink.listAppend(path, field.newItem ?? .string("")) }
+                Task { await sink.listAppend(path) }
             } label: {
                 Label("Add Item", systemImage: "plus")
             }
