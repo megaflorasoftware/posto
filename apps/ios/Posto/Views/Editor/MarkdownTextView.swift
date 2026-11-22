@@ -354,6 +354,7 @@ struct MarkdownTextView: UIViewRepresentable {
     func makeUIView(context: Context) -> UITextView {
         let textView = BodyTextView()
         textView.delegate = context.coordinator
+        textView.textStorage.delegate = context.coordinator.edits
         textView.isScrollEnabled = scrolls
         // Inside the form a nearby bar's edge effect would draw over the
         // text; the full-screen editor keeps its soft edge under the nav bar.
@@ -379,7 +380,7 @@ struct MarkdownTextView: UIViewRepresentable {
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         controller.textView = textView
         controller.coordinator = context.coordinator
-        if styled { MarkdownStyler.style(textView) }
+        context.coordinator.restyle(textView, all: true)
         if embeds {
             // Dragging would carry cards out as bare attachments.
             textView.textDragInteraction?.isEnabled = false
@@ -418,7 +419,7 @@ struct MarkdownTextView: UIViewRepresentable {
             }
         } else if textView.text != text {
             textView.text = text
-            if styled { MarkdownStyler.style(textView) }
+            context.coordinator.restyle(textView, all: true)
         }
     }
 
@@ -440,6 +441,14 @@ struct MarkdownTextView: UIViewRepresentable {
         var layoutWidth: CGFloat?
         private var scanTask: Task<Void, Never>?
         private var pendingSource: String?
+        /// What was edited since the last styling (the text storage's delegate).
+        let edits = EditedRange()
+        /// The code fences at the last styling (see MarkdownRestyle).
+        private var fences: Int?
+        /// The next styling covers all of the text.
+        private var restylesAll = true
+        /// A styling waits for the text being composed to be committed.
+        private var restyleAfterComposition = false
 
         init(parent: MarkdownTextView) {
             self.parent = parent
@@ -450,7 +459,7 @@ struct MarkdownTextView: UIViewRepresentable {
         }
 
         func textChanged(_ textView: UITextView) {
-            if parent.styled { MarkdownStyler.style(textView) }
+            restyle(textView)
             parent.controller.onChange?(parent.embeds ? EmbedProjection.source(of: textView.textStorage) : textView.text)
             if parent.embeds { scheduleEmbedScan(after: 0.5) }
             scrollCaretIntoView(textView)
@@ -458,9 +467,33 @@ struct MarkdownTextView: UIViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
+            // A composition can end without changing the text.
+            if restyleAfterComposition, textView.markedTextRange == nil { restyle(textView) }
             if parent.embeds { markSelectedAttachments(in: textView) }
             scrollCaretIntoView(textView)
             updateBar()
+        }
+
+        /// Styles what changed since the last styling: all of it after a
+        /// load, an undo or new cards, else the blocks around the edits. Not
+        /// while text is being composed (Japanese, Korean, Chinese):
+        /// changing the attributes under the marked text breaks the
+        /// candidate being chosen, so it waits for the composition to end.
+        func restyle(_ textView: UITextView, all: Bool = false) {
+            if all { restylesAll = true }
+            guard parent.styled else {
+                edits.reset()
+                return
+            }
+            guard textView.markedTextRange == nil else {
+                restyleAfterComposition = true
+                return
+            }
+            restyleAfterComposition = false
+            guard restylesAll || edits.range != nil else { return }
+            MarkdownStyler.style(textView, edited: restylesAll ? nil : edits.range, fences: &fences)
+            restylesAll = false
+            edits.reset()
         }
 
         /// The bar and shortcuts edit the body being typed in (the form's
@@ -630,7 +663,7 @@ struct MarkdownTextView: UIViewRepresentable {
             textView.inputDelegate?.textDidChange(textView)
             undoBaseline = snapshot
             renderAttachments(in: textView)
-            if parent.styled { MarkdownStyler.style(textView) }
+            restyle(textView, all: true)
             // The caret goes to the end of what changed back.
             let next = storage.string as NSString
             var prefix = 0
@@ -688,7 +721,7 @@ struct MarkdownTextView: UIViewRepresentable {
             storage.endEditing()
             textView.inputDelegate?.textDidChange(textView)
             renderAttachments(in: textView)
-            if parent.styled { MarkdownStyler.style(textView) }
+            restyle(textView, all: true)
             let target = min(caret ?? previousCaret, (source as NSString).length)
             textView.selectedRange = NSRange(location: EmbedProjection.displayOffset(in: storage, source: target), length: 0)
             record(undo, before: before, after: NSAttributedString(attributedString: storage), in: textView)
@@ -974,21 +1007,31 @@ enum MarkdownStyler {
             }),
             (regex(#"^```[\s\S]*?^```"#, [.anchorsMatchLines]), { font in
                 [.font: UIFont.monospacedSystemFont(ofSize: font.pointSize * 0.88, weight: .regular),
-                 .foregroundColor: UIColor.secondaryLabel]
+                 .foregroundColor: UIColor.secondaryLabel, MarkdownRestyle.spansLines: true]
             }),
             (regex(#"!?\[[^\]\n]*\]\([^)\n]*\)"#), { _ in [.foregroundColor: UIColor.tintColor] }),
             (regex(#"^> .*$"#), { _ in secondary }),
-            (regex(#"^\s*([-*+]|\d+\.) "#), { _ in [.foregroundColor: UIColor.tintColor] }),
+            (regex(#"^[ \t]*([-*+]|\d+\.) "#), { _ in [.foregroundColor: UIColor.tintColor] }),
             (regex(#"</?[A-Za-z][\w.:-]*(?:\s[^<>]*)?/?>"#), { font in
                 [.foregroundColor: UIColor.systemPurple,
-                 .font: UIFont.monospacedSystemFont(ofSize: font.pointSize * 0.9, weight: .regular)]
+                 .font: UIFont.monospacedSystemFont(ofSize: font.pointSize * 0.9, weight: .regular),
+                 MarkdownRestyle.spansLines: true]
             }),
         ]
     }()
 
+    /// Styles the whole text.
     static func style(_ textView: UITextView) {
+        var fences: Int?
+        style(textView, edited: nil, fences: &fences)
+    }
+
+    /// Styles the text around an edit (see MarkdownRestyle), or all of it
+    /// when `edited` is nil. `fences` carries the fence count between calls.
+    static func style(_ textView: UITextView, edited: NSRange?, fences: inout Int?) {
         let storage = textView.textStorage
-        let full = NSRange(location: 0, length: storage.length)
+        let text = storage.string
+        let scope = MarkdownRestyle.scope(of: edited, in: text as NSString, styled: storage, fences: &fences)
         // Not textView.font: with mixed attributes it reports the font near
         // the caret, so a restyle inside bold text would make everything bold
         // (and inside a heading, grow with every keystroke).
@@ -997,15 +1040,14 @@ enum MarkdownStyler {
         paragraph.lineSpacing = 3
         // Cards and pills are attachments; resetting attributes keeps them.
         var attachments: [(Any, NSRange)] = []
-        storage.enumerateAttribute(.attachment, in: full) { value, range, _ in
+        storage.enumerateAttribute(.attachment, in: scope) { value, range, _ in
             if let value { attachments.append((value, range)) }
         }
         storage.beginEditing()
-        storage.setAttributes([.font: base, .foregroundColor: UIColor.label, .paragraphStyle: paragraph], range: full)
+        storage.setAttributes([.font: base, .foregroundColor: UIColor.label, .paragraphStyle: paragraph], range: scope)
         for (attachment, range) in attachments { storage.addAttribute(.attachment, value: attachment, range: range) }
-        let text = storage.string
         for (expression, attributes) in rules {
-            for match in expression.matches(in: text, range: full) {
+            for match in expression.matches(in: text, range: scope) {
                 storage.addAttributes(attributes(base), range: match.range)
             }
         }
