@@ -348,6 +348,12 @@ struct MarkdownTextView: UIViewRepresentable {
     var monospaced = false
     var styled = true
     var embeds = false
+    /// Whether this is the editor on screen. The form's body stays in the
+    /// navigation stack under the full-screen editor, which shares its
+    /// controller: while covered it neither follows the text (a scan,
+    /// re-projection and restyle on every keystroke, for nothing) nor takes
+    /// the controller's commands (an insert, the keyboard coming back).
+    var active = true
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
@@ -378,8 +384,10 @@ struct MarkdownTextView: UIViewRepresentable {
         textView.inputAccessoryView = styled ? context.coordinator.makeToolbar() : nil
         if styled { textView.formatting = context.coordinator }
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        controller.textView = textView
-        controller.coordinator = context.coordinator
+        if active {
+            controller.textView = textView
+            controller.coordinator = context.coordinator
+        }
         context.coordinator.restyle(textView, all: true)
         if embeds {
             // Dragging would carry cards out as bare attachments.
@@ -408,10 +416,15 @@ struct MarkdownTextView: UIViewRepresentable {
 
     func updateUIView(_ textView: UITextView, context: Context) {
         context.coordinator.parent = self
-        controller.textView = textView
-        controller.coordinator = context.coordinator
-        // Only external changes (pull, raw edits) replace the text; typing is
-        // already in the view.
+        // Covered (see `active`): it catches up when it's back on screen.
+        guard active else { return }
+        if controller.textView !== textView {
+            controller.textView = textView
+            controller.coordinator = context.coordinator
+            context.coordinator.refreshBar()
+        }
+        // Only external changes (pull, raw edits, the full-screen editor's
+        // typing) replace the text; typing is already in the view.
         guard !textView.isFirstResponder else { return }
         if embeds {
             if EmbedProjection.source(of: textView.textStorage) != text {
