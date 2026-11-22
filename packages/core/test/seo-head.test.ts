@@ -81,6 +81,30 @@ describe("parseSeoHead", () => {
     expect(seo.description).toBe("real");
   });
 
+  test("parses empty and bang-closed comments as HTML does", () => {
+    const seo = parseSeoHead(
+      `<!--><title>A</title><meta name="description" content="d"><!-- x -->`,
+    );
+    expect(seo.title).toBe("A");
+    expect(seo.description).toBe("d");
+    expect(parseSeoHead(`<!---><title>B</title>`).title).toBe("B");
+    expect(parseSeoHead(`<!-- a --!><title>C</title>`).title).toBe("C");
+  });
+
+  test("decodes attributes without breaking query strings", () => {
+    const seo = parseSeoHead(
+      `<title>&frac12; price&excl;</title><link rel="canonical" href="/?a=1&copy=2&amp;b=&frac12;">`,
+    );
+    expect(seo.title).toBe("½ price!");
+    expect(seo.canonical).toBe("/?a=1&copy=2&b=½");
+  });
+
+  test("skips many scripts and styles", () => {
+    const filler = "<script>let a = '<title>no</title>';</script><STYLE>p{}</STYLE>".repeat(2000);
+    const seo = parseSeoHead(`<head>${filler}<title>After</title></head>`);
+    expect(seo.title).toBe("After");
+  });
+
   test("keeps the first of repeated attributes", () => {
     expect(parseSeoHead(`<meta name="description" content="one" content="two">`).description).toBe(
       "one",
@@ -91,7 +115,9 @@ describe("parseSeoHead", () => {
 describe("decodeEntities", () => {
   test("decodes numeric, named and legacy references", () => {
     expect(decodeEntities("&#x27;&#39;&#150;&eacute;&nbsp;&amp")).toBe("''–é &");
-    expect(decodeEntities("&unknown; &copy=1 &ampx")).toBe("&unknown; &copy=1 &ampx");
+    expect(decodeEntities("&frac12;&Scaron;&oelig; &eacute")).toBe("½Šœ é");
+    // In text, unlike attributes, legacy names decode before `=` and letters.
+    expect(decodeEntities("&unknown; &copy=1 &ampx")).toBe("&unknown; ©=1 &x");
     expect(decodeEntities("&#0;&#x110000;")).toBe("��");
   });
 });

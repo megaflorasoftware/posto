@@ -5,6 +5,8 @@
 // contents of scripts, styles and templates are not markup, and the values
 // are the decoded attribute and title text.
 
+import { decodeHTML, decodeHTMLAttribute } from "entities";
+
 export interface SeoData {
   title: string | null;
   description: string | null;
@@ -55,13 +57,15 @@ function isSpace(char: string): boolean {
 /** Every start tag in document order, with its attributes. */
 function* elements(html: string): Generator<Element> {
   const length = html.length;
+  // For finding raw-text end tags case-insensitively. Lowercasing keeps
+  // every index in place for the ASCII tag names searched for.
+  const lower = html.toLowerCase();
   let index = 0;
   while (index < length) {
     const open = html.indexOf("<", index);
     if (open === -1) return;
     if (html.startsWith("<!--", open)) {
-      const close = html.indexOf("-->", open + 4);
-      index = close === -1 ? length : close + 3;
+      index = commentEnd(html, open + 4);
       continue;
     }
     const next = html[open + 1];
@@ -125,15 +129,13 @@ function* elements(html: string): Generator<Element> {
         }
       }
       // A repeated attribute is dropped; the first one counts.
-      if (!(attributeName in attributes)) attributes[attributeName] = decodeEntities(value);
+      if (!(attributeName in attributes)) attributes[attributeName] = decodeHTMLAttribute(value);
     }
     const tagEnd = Math.min(cursor + 1, length);
     if (RAW_TEXT.has(name)) {
-      const closing = findEndTag(html, name, tagEnd);
+      const closing = findEndTag(html, lower, name, tagEnd);
       const raw = html.slice(tagEnd, closing.start);
-      yield name === "title"
-        ? { name, attributes, text: decodeEntities(raw) }
-        : { name, attributes };
+      yield name === "title" ? { name, attributes, text: decodeHTML(raw) } : { name, attributes };
       index = closing.end;
     } else {
       yield { name, attributes };
@@ -142,9 +144,26 @@ function* elements(html: string): Generator<Element> {
   }
 }
 
-/** Where a raw-text element's end tag starts and ends (case-insensitive). */
-function findEndTag(html: string, name: string, from: number): { start: number; end: number } {
-  const lower = html.toLowerCase();
+/** Where the comment whose text starts at `from` ends: after `-->` or
+ * `--!>`, or right away for the empty `<!-->` and `<!--->`, as HTML parses
+ * them. */
+function commentEnd(html: string, from: number): number {
+  if (html[from] === ">") return from + 1;
+  if (html.startsWith("->", from)) return from + 2;
+  const closes = [html.indexOf("-->", from), html.indexOf("--!>", from)].filter((at) => at !== -1);
+  if (closes.length === 0) return html.length;
+  const close = Math.min(...closes);
+  return close + (html.startsWith("-->", close) ? 3 : 4);
+}
+
+/** Where a raw-text element's end tag starts and ends (case-insensitive;
+ * `lower` is `html` lowercased). */
+function findEndTag(
+  html: string,
+  lower: string,
+  name: string,
+  from: number,
+): { start: number; end: number } {
   let search = from;
   for (;;) {
     const start = lower.indexOf(`</${name}`, search);
@@ -158,179 +177,11 @@ function findEndTag(html: string, name: string, from: number): { start: number; 
   }
 }
 
-const NAMED_ENTITIES: Record<string, string> = {
-  amp: "&",
-  lt: "<",
-  gt: ">",
-  quot: '"',
-  apos: "'",
-  nbsp: "\u00a0",
-  ndash: "–",
-  mdash: "—",
-  hellip: "…",
-  lsquo: "‘",
-  rsquo: "’",
-  sbquo: "‚",
-  ldquo: "“",
-  rdquo: "”",
-  bdquo: "„",
-  laquo: "«",
-  raquo: "»",
-  lsaquo: "‹",
-  rsaquo: "›",
-  middot: "·",
-  bull: "•",
-  copy: "©",
-  reg: "®",
-  trade: "™",
-  times: "×",
-  divide: "÷",
-  deg: "°",
-  euro: "€",
-  pound: "£",
-  yen: "¥",
-  cent: "¢",
-  sect: "§",
-  para: "¶",
-  iexcl: "¡",
-  iquest: "¿",
-  shy: "\u00ad",
-  zwj: "\u200d",
-  zwnj: "\u200c",
-  thinsp: "\u2009",
-  ensp: "\u2002",
-  emsp: "\u2003",
-  larr: "←",
-  rarr: "→",
-  uarr: "↑",
-  darr: "↓",
-  hearts: "♥",
-  agrave: "à",
-  aacute: "á",
-  acirc: "â",
-  atilde: "ã",
-  auml: "ä",
-  aring: "å",
-  aelig: "æ",
-  ccedil: "ç",
-  egrave: "è",
-  eacute: "é",
-  ecirc: "ê",
-  euml: "ë",
-  igrave: "ì",
-  iacute: "í",
-  icirc: "î",
-  iuml: "ï",
-  ntilde: "ñ",
-  ograve: "ò",
-  oacute: "ó",
-  ocirc: "ô",
-  otilde: "õ",
-  ouml: "ö",
-  oslash: "ø",
-  ugrave: "ù",
-  uacute: "ú",
-  ucirc: "û",
-  uuml: "ü",
-  yacute: "ý",
-  yuml: "ÿ",
-  szlig: "ß",
-  Agrave: "À",
-  Aacute: "Á",
-  Acirc: "Â",
-  Atilde: "Ã",
-  Auml: "Ä",
-  Aring: "Å",
-  AElig: "Æ",
-  Ccedil: "Ç",
-  Egrave: "È",
-  Eacute: "É",
-  Ecirc: "Ê",
-  Euml: "Ë",
-  Igrave: "Ì",
-  Iacute: "Í",
-  Icirc: "Î",
-  Iuml: "Ï",
-  Ntilde: "Ñ",
-  Ograve: "Ò",
-  Oacute: "Ó",
-  Ocirc: "Ô",
-  Otilde: "Õ",
-  Ouml: "Ö",
-  Oslash: "Ø",
-  Ugrave: "Ù",
-  Uacute: "Ú",
-  Ucirc: "Û",
-  Uuml: "Ü",
-  Yacute: "Ý",
-};
-
-/** References HTML still recognizes without their semicolon. */
-const LEGACY_ENTITIES = new Set(["amp", "lt", "gt", "quot", "nbsp", "copy", "reg"]);
-
-/** What `&#128;`–`&#159;` mean in HTML (windows-1252), as browsers decode them. */
-const WINDOWS_1252: Record<number, number> = {
-  0x80: 0x20ac,
-  0x82: 0x201a,
-  0x83: 0x0192,
-  0x84: 0x201e,
-  0x85: 0x2026,
-  0x86: 0x2020,
-  0x87: 0x2021,
-  0x88: 0x02c6,
-  0x89: 0x2030,
-  0x8a: 0x0160,
-  0x8b: 0x2039,
-  0x8c: 0x0152,
-  0x8e: 0x017d,
-  0x91: 0x2018,
-  0x92: 0x2019,
-  0x93: 0x201c,
-  0x94: 0x201d,
-  0x95: 0x2022,
-  0x96: 0x2013,
-  0x97: 0x2014,
-  0x98: 0x02dc,
-  0x99: 0x2122,
-  0x9a: 0x0161,
-  0x9b: 0x203a,
-  0x9c: 0x0153,
-  0x9e: 0x017e,
-  0x9f: 0x0178,
-};
-
-function codePoint(value: number): string {
-  if (value === 0 || value > 0x10ffff || (value >= 0xd800 && value <= 0xdfff)) return "�";
-  return String.fromCodePoint(WINDOWS_1252[value] ?? value);
-}
-
-/** Decodes numeric references and the common named ones (the HTML a site
- * generator escapes: `&amp;`, `&quot;`, `&#39;`, typographic punctuation,
- * Latin-1 letters). Unknown names stay as written. */
+/** Decodes character references the way HTML does in text (for example a
+ * title): every named reference, numeric ones, and the legacy names that
+ * work without a semicolon. */
 export function decodeEntities(text: string): string {
-  if (!text.includes("&")) return text;
-  return text.replace(
-    /&(?:#(\d+)|#[xX]([0-9a-fA-F]+)|([A-Za-z][A-Za-z0-9]*))(;?)/g,
-    (
-      match,
-      decimal: string | undefined,
-      hex: string | undefined,
-      name: string | undefined,
-      semicolon: string,
-      offset: number,
-    ) => {
-      if (decimal !== undefined) return codePoint(Number.parseInt(decimal, 10));
-      if (hex !== undefined) return codePoint(Number.parseInt(hex, 16));
-      const decoded = name !== undefined ? NAMED_ENTITIES[name] : undefined;
-      if (decoded === undefined) return match;
-      if (!semicolon) {
-        // Without a semicolon only the legacy names count, and not before
-        // `=` (a query string's `&copy=1`).
-        if (!LEGACY_ENTITIES.has(name!) || text[offset + match.length] === "=") return match;
-      }
-      return decoded;
-    },
-  );
+  return text.includes("&") ? decodeHTML(text) : text;
 }
 
 /** `rel` values compare ASCII case-insensitively in HTML, as in selectors. */
