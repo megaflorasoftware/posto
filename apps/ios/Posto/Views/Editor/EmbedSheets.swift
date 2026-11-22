@@ -8,15 +8,7 @@ struct EmbedEdit: Identifiable {
     let source: String
     let range: NSRange
 
-    var kindName: String {
-        switch embed.kind {
-        case "component": return "Component"
-        case "import": return "Import"
-        case "raw": return embed.label
-        case "html": return "HTML"
-        default: return "Image"
-        }
-    }
+    var kindName: String { embed.kindName }
 }
 
 /// A card's markdown, edited as text: HTML, imports and raw MDX (as the

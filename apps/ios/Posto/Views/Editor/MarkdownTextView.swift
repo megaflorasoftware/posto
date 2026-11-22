@@ -299,6 +299,13 @@ final class BodyTextView: UITextView {
         return super.canPerformAction(action, withSender: sender)
     }
 
+    /// VoiceOver can't tap a card or pill where it's drawn; it opens the
+    /// one at the caret from the text view's actions instead.
+    override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
+        get { (super.accessibilityCustomActions ?? []) + (formatting?.embedActions(in: self) ?? []) }
+        set { super.accessibilityCustomActions = newValue }
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         if abs(bounds.width - lastWidth) > 0.5 {
@@ -860,8 +867,43 @@ struct MarkdownTextView: UIViewRepresentable {
             guard let textView = gesture.view as? UITextView,
                   let (attachment, range) = attachment(at: gesture.location(in: textView), in: textView)
             else { return }
+            open(attachment, at: range, in: textView)
+        }
+
+        private func open(_ attachment: EmbedAttachment, at range: NSRange, in textView: UITextView) {
             parent.controller.textView = textView
+            parent.controller.coordinator = self
             parent.controller.open(attachment, at: range)
+        }
+
+        /// The card or pill the caret is on (just before or after it), or
+        /// the one selected: what VoiceOver's action and the Format menu's
+        /// Edit item open.
+        private func attachmentAtCaret(in textView: UITextView) -> (EmbedAttachment, NSRange)? {
+            guard parent.embeds else { return nil }
+            let storage = textView.textStorage
+            let selection = textView.selectedRange
+            let candidates = switch selection.length {
+            case 0: [selection.location, selection.location - 1]
+            case 1: [selection.location]
+            default: [Int]()
+            }
+            for candidate in candidates where candidate >= 0 && candidate < storage.length {
+                if let attachment = storage.attribute(.attachment, at: candidate, effectiveRange: nil) as? EmbedAttachment {
+                    return (attachment, NSRange(location: candidate, length: 1))
+                }
+            }
+            return nil
+        }
+
+        /// "Edit Component Hero", while the caret is on that card.
+        func embedActions(in textView: UITextView) -> [UIAccessibilityCustomAction] {
+            guard let (attachment, _) = attachmentAtCaret(in: textView) else { return [] }
+            return [UIAccessibilityCustomAction(name: "Edit \(attachment.embed.accessibilityName)") { [weak self, weak textView] _ in
+                guard let self, let textView, let (attachment, range) = self.attachmentAtCaret(in: textView) else { return false }
+                self.open(attachment, at: range, in: textView)
+                return true
+            }]
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
@@ -995,7 +1037,17 @@ struct MarkdownTextView: UIViewRepresentable {
                 action("Divider", "minus") { $0.insert("---", asBlock: true) },
             ]
             let insert = [action("Insert HTML", "chevron.left.forwardslash.chevron.right") { $0.insertHtml() }]
-            return [styles, headings, blocks, insert].map { UIMenu(options: .displayInline, children: $0) }
+            var sections = [styles, headings, blocks, insert]
+            // The card at the caret opens as tapping it does (for VoiceOver
+            // and keyboards, which can't tap it). Last, so it sits nearest
+            // the bar in the menu that opens upward.
+            if let (attachment, range) = attachmentAtCaret(in: textView) {
+                sections.append([UIAction(title: "Edit \(attachment.embed.kindName)", image: UIImage(systemName: attachment.embed.symbol)) { [weak self, weak textView] _ in
+                    guard let self, let textView else { return }
+                    self.open(attachment, at: range, in: textView)
+                }])
+            }
+            return sections.map { UIMenu(options: .displayInline, children: $0) }
         }
 
         /// Bold, Italic and Link show whether the caret is in one (tapping
