@@ -154,7 +154,13 @@ struct EditorView: View {
                     .padding(.vertical, 6)
                 Divider()
                 #endif
-                MarkdownTextView(text: document.bodyText, controller: controller, scrolls: true, embeds: view.body?.isMarkdown == true)
+                MarkdownTextView(
+                    text: document.bodyText,
+                    controller: controller,
+                    scrolls: true,
+                    embeds: view.body?.isMarkdown == true,
+                    active: focusedBody
+                )
             }
             .navigationTitle(view.name)
             .inlineNavigationTitle()
@@ -252,11 +258,13 @@ struct EditorView: View {
                     #if os(macOS)
                     if body.isMarkdown { MarkdownFormatBar(controller: controller) }
                     #endif
+                    // Under the full-screen editor while it's open.
                     MarkdownTextView(
                         text: document.bodyText,
                         controller: controller,
                         styled: body.isMarkdown,
-                        embeds: body.isMarkdown
+                        embeds: body.isMarkdown,
+                        active: !focusedBody
                     )
                     .padding(.vertical, 6)
                 } header: {
@@ -333,6 +341,7 @@ private struct FilenameRow: View {
         .contextMenu {
             if document.repo.app.developerMode, !document.view.isData, document.view.collectionLabel != nil {
                 Button {
+                    endEditingBeforeSheet()
                     editingTemplate = true
                 } label: {
                     Label("Filename Template…", systemImage: "wand.and.stars")

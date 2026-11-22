@@ -141,12 +141,14 @@ struct FieldRow: View {
         .contextMenu {
             if templatable {
                 Button {
+                    endEditingBeforeSheet()
                     editingTemplate = true
                 } label: {
                     Label("Template…", systemImage: "wand.and.stars")
                 }
                 if field.type == "string" {
                     Button {
+                        endEditingBeforeSheet()
                         editingRows = true
                     } label: {
                         Label("Rows…", systemImage: "text.alignleft")
@@ -194,6 +196,7 @@ struct FieldRow: View {
                 BufferedTextField(
                     placeholder: field.label,
                     source: value?.stringValue ?? "",
+                    target: FieldTarget(sink, path),
                     disabled: field.locked,
                     finalize: clampNumber
                 ) { text in
@@ -253,6 +256,7 @@ struct FieldRow: View {
                 BufferedTextField(
                     placeholder: field.label,
                     source: value?.stringValue ?? "",
+                    target: FieldTarget(sink, path),
                     lines: lines,
                     disabled: field.disabled
                 ) { text in
@@ -296,11 +300,26 @@ struct LabeledField<Content: View>: View {
     }
 }
 
+/// The form and field a text field edits (BufferedTextField's `target`).
+struct FieldTarget: Hashable {
+    let form: ObjectIdentifier
+    let path: String
+
+    init(_ sink: any FormSink, _ path: [PathKey]) {
+        form = ObjectIdentifier(sink)
+        self.path = path.dotted
+    }
+}
+
 /// A text field that keeps the user's draft while focused and only follows
 /// the engine's value when not editing, so round trips never fight typing.
 struct BufferedTextField: View {
     let placeholder: String
     let source: String
+    /// What the text edits. When the field starts editing another value (a
+    /// list item removed above it), typing still waiting to be committed
+    /// goes to the one it was typed for first.
+    var target: FieldTarget? = nil
     /// Multi-line, showing at least the lower bound of lines and growing to
     /// the upper; single-line when nil.
     var lines: ClosedRange<Int>? = nil
@@ -313,7 +332,13 @@ struct BufferedTextField: View {
 
     @State private var draft = ""
     @FocusState private var focused: Bool
+    /// A commit waiting out the pause in typing, or sent and not yet back.
     @State private var pending: Task<Void, Never>?
+    /// The commit `pending` is waiting to send, bound to the field it was
+    /// typed in, so it can go at once.
+    @State private var unsent: (() async -> Void)?
+    /// Tells `pending` apart from a commit scheduled after it.
+    @State private var commits = 0
 
     var body: some View {
         Group {
@@ -330,33 +355,64 @@ struct BufferedTextField: View {
         .focused($focused)
         .disabled(disabled)
         .foregroundStyle(disabled ? .secondary : .primary)
-        .onAppear { draft = source }
+        // Not over a draft still on its way to the engine (a page pushed
+        // over the form and popped).
+        .onAppear { if pending == nil { draft = source } }
         .onChange(of: source) { _, next in
             if !focused && pending == nil { draft = next }
         }
         .onChange(of: draft) { _, text in
             guard focused, text != source else { return }
-            pending?.cancel()
-            pending = Task {
-                try? await Task.sleep(for: .milliseconds(150))
-                guard !Task.isCancelled else { return }
-                await commit(parse(text))
-                pending = nil
-            }
+            schedule(text, after: .milliseconds(150))
         }
         .onChange(of: focused) { _, isFocused in
             guard !isFocused else { return }
             if let next = finalize?(draft), next != draft {
                 draft = next
-                pending?.cancel()
-                pending = Task {
-                    await commit(parse(next))
-                    pending = nil
-                }
+                schedule(next, after: nil)
+            } else if unsent != nil {
+                commitNow()
             } else if pending == nil {
                 draft = source
             }
         }
+        // Another field now, or gone (another file, a page pushed over the
+        // form): the typing goes now, to the field it was typed in, rather
+        // than after the pause, when the form may be another one.
+        .onChange(of: target) {
+            commitNow()
+            draft = source
+        }
+        .onDisappear { commitNow() }
+    }
+
+    /// Commits `text` to this field after `delay`, or at once.
+    private func schedule(_ text: String, after delay: Duration?) {
+        let commit = commit
+        let value = parse(text)
+        send(after: delay) { await commit(value) }
+    }
+
+    private func send(after delay: Duration?, _ action: @escaping () async -> Void) {
+        pending?.cancel()
+        unsent = action
+        commits += 1
+        let number = commits
+        pending = Task {
+            if let delay {
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled else { return }
+            }
+            unsent = nil
+            await action()
+            if commits == number { pending = nil }
+        }
+    }
+
+    /// Sends a commit that is still waiting out the pause.
+    private func commitNow() {
+        guard let unsent else { return }
+        send(after: nil, unsent)
     }
 }
 
@@ -378,7 +434,7 @@ struct DateFieldRow: View {
         let controlValue = showsTime ? control?.dateTime : control?.date
         if !raw.isEmpty, controlValue?.isEmpty != false {
             LabeledField(label: label) {
-                BufferedTextField(placeholder: field.label, source: raw, disabled: field.locked) { text in
+                BufferedTextField(placeholder: field.label, source: raw, target: FieldTarget(sink, path), disabled: field.locked) { text in
                     text.isEmpty ? nil : .string(text)
                 } commit: { next in
                     await sink.edit(path, next)
@@ -539,6 +595,7 @@ struct ListFieldSection: View {
             }
             if field.type == "reference", field.imageLibrary == nil, sink.formTarget == "document", let document {
                 Button {
+                    endEditingBeforeSheet()
                     creatingReference = true
                 } label: {
                     Label("Create New Entry", systemImage: "plus.square.on.square")

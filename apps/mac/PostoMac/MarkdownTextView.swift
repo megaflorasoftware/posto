@@ -289,6 +289,11 @@ struct MarkdownTextView: NSViewRepresentable {
     var monospaced = false
     var styled = true
     var embeds = false
+    /// Whether this is the editor on screen. The form's body stays in the
+    /// navigation stack under the full-screen editor, which shares its
+    /// controller: while covered it neither follows the text nor takes the
+    /// controller's commands.
+    var active = true
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
@@ -318,11 +323,14 @@ struct MarkdownTextView: NSViewRepresentable {
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
         textView.string = text
+        textView.textStorage?.delegate = context.coordinator.edits
         if styled { textView.formatting = controller }
-        controller.textView = textView
-        controller.coordinator = context.coordinator
+        if active {
+            controller.textView = textView
+            controller.coordinator = context.coordinator
+        }
         context.coordinator.textView = textView
-        if styled { MarkdownStyler.style(textView) }
+        context.coordinator.restyle(textView, all: true)
         if embeds {
             let coordinator = context.coordinator
             textView.onWidthChange = { [weak coordinator, weak textView] in
@@ -349,15 +357,15 @@ struct MarkdownTextView: NSViewRepresentable {
 
     func updateNSView(_ view: NSView, context: Context) {
         context.coordinator.parent = self
-        guard let textView = context.coordinator.textView else { return }
-        // The bar edits the body being typed in (set as editing begins);
-        // otherwise whichever body is on screen.
-        if controller.textView?.window == nil {
+        // Covered (see `active`): it catches up when it's back on screen.
+        guard active, let textView = context.coordinator.textView else { return }
+        // The bar and sheets edit the body on screen.
+        if controller.textView !== textView {
             controller.textView = textView
             controller.coordinator = context.coordinator
         }
-        // Only external changes (pull, raw edits) replace the text; typing is
-        // already in the view.
+        // Only external changes (pull, raw edits, the full-screen editor's
+        // typing) replace the text; typing is already in the view.
         guard textView.window?.firstResponder !== textView else { return }
         if embeds {
             if let storage = textView.textStorage, EmbedProjection.source(of: storage) != text {
@@ -365,7 +373,7 @@ struct MarkdownTextView: NSViewRepresentable {
             }
         } else if textView.string != text {
             textView.string = text
-            if styled { MarkdownStyler.style(textView) }
+            context.coordinator.restyle(textView, all: true)
         }
     }
 
@@ -393,9 +401,38 @@ struct MarkdownTextView: NSViewRepresentable {
         var suppressNotifications = false
         private var scanTask: Task<Void, Never>?
         private var pendingSource: String?
+        /// What was edited since the last styling (the text storage's delegate).
+        let edits = EditedRange()
+        /// The code fences at the last styling (see MarkdownRestyle).
+        private var fences: Int?
+        /// The next styling covers all of the text.
+        private var restylesAll = true
+        /// A styling waits for the text being composed to be committed.
+        private var restyleAfterComposition = false
 
         init(parent: MarkdownTextView) {
             self.parent = parent
+        }
+
+        /// Styles what changed since the last styling: all of it after a
+        /// load, an undo or new cards, else the blocks around the edits. Not
+        /// while text is being composed, which changing the attributes under
+        /// the marked text would break: it waits for the composition to end.
+        func restyle(_ textView: NSTextView, all: Bool = false) {
+            if all { restylesAll = true }
+            guard parent.styled else {
+                edits.reset()
+                return
+            }
+            guard !textView.hasMarkedText() else {
+                restyleAfterComposition = true
+                return
+            }
+            restyleAfterComposition = false
+            guard restylesAll || edits.range != nil else { return }
+            MarkdownStyler.style(textView, edited: restylesAll ? nil : edits.range, fences: &fences)
+            restylesAll = false
+            edits.reset()
         }
 
         func textDidBeginEditing(_ notification: Notification) {
@@ -410,15 +447,17 @@ struct MarkdownTextView: NSViewRepresentable {
         }
 
         func textChanged(_ textView: NSTextView) {
-            if parent.styled { MarkdownStyler.style(textView) }
+            restyle(textView)
             let source = parent.embeds ? textView.textStorage.map(EmbedProjection.source(of:)) ?? "" : textView.string
             parent.controller.onChange?(source)
             if parent.embeds { scheduleEmbedScan(after: 0.5) }
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
-            guard parent.embeds, let textView = notification.object as? NSTextView else { return }
-            markSelectedAttachments(in: textView)
+            guard let textView = notification.object as? NSTextView else { return }
+            // A composition can end without changing the text.
+            if restyleAfterComposition, !textView.hasMarkedText() { restyle(textView) }
+            if parent.embeds { markSelectedAttachments(in: textView) }
         }
 
         /// Delete next to a card selects it; a second Delete removes it.
@@ -515,7 +554,7 @@ struct MarkdownTextView: NSViewRepresentable {
             storage.endEditing()
             suppressNotifications = false
             renderAttachments(in: textView)
-            if parent.styled { MarkdownStyler.style(textView) }
+            restyle(textView, all: true)
             textView.invalidateIntrinsicContentSize()
             parent.controller.onChange?(EmbedProjection.source(of: storage))
         }
@@ -556,7 +595,7 @@ struct MarkdownTextView: NSViewRepresentable {
             storage.endEditing()
             suppressNotifications = false
             renderAttachments(in: textView)
-            if parent.styled { MarkdownStyler.style(textView) }
+            restyle(textView, all: true)
             let target = min(caret ?? previousCaret, (source as NSString).length)
             textView.setSelectedRange(NSRange(location: EmbedProjection.displayOffset(in: storage, source: target), length: 0))
             textView.undoManager?.removeAllActions()
@@ -699,34 +738,37 @@ enum MarkdownStyler {
             }),
             (regex(#"^```[\s\S]*?^```"#, [.anchorsMatchLines]), { font in
                 [.font: NSFont.monospacedSystemFont(ofSize: font.pointSize * 0.88, weight: .regular),
-                 .foregroundColor: NSColor.secondaryLabelColor]
+                 .foregroundColor: NSColor.secondaryLabelColor, MarkdownRestyle.spansLines: true]
             }),
             (regex(#"!?\[[^\]\n]*\]\([^)\n]*\)"#), { _ in [.foregroundColor: NSColor.controlAccentColor] }),
             (regex(#"^> .*$"#), { _ in secondary }),
-            (regex(#"^\s*([-*+]|\d+\.) "#), { _ in [.foregroundColor: NSColor.controlAccentColor] }),
+            (regex(#"^[ \t]*([-*+]|\d+\.) "#), { _ in [.foregroundColor: NSColor.controlAccentColor] }),
             (regex(#"</?[A-Za-z][\w.:-]*(?:\s[^<>]*)?/?>"#), { font in
                 [.foregroundColor: NSColor.systemPurple,
-                 .font: NSFont.monospacedSystemFont(ofSize: font.pointSize * 0.9, weight: .regular)]
+                 .font: NSFont.monospacedSystemFont(ofSize: font.pointSize * 0.9, weight: .regular),
+                 MarkdownRestyle.spansLines: true]
             }),
         ]
     }()
 
-    static func style(_ textView: NSTextView) {
+    /// Styles the text around an edit (see MarkdownRestyle), or all of it
+    /// when `edited` is nil. `fences` carries the fence count between calls.
+    static func style(_ textView: NSTextView, edited: NSRange?, fences: inout Int?) {
         guard let storage = textView.textStorage else { return }
-        let full = NSRange(location: 0, length: storage.length)
+        let text = storage.string
+        let scope = MarkdownRestyle.scope(of: edited, in: text as NSString, styled: storage, fences: &fences)
         let base = NSFont.systemFont(ofSize: NSFont.systemFontSize + 2)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = 4
         var attachments: [(Any, NSRange)] = []
-        storage.enumerateAttribute(.attachment, in: full) { value, range, _ in
+        storage.enumerateAttribute(.attachment, in: scope) { value, range, _ in
             if let value { attachments.append((value, range)) }
         }
         storage.beginEditing()
-        storage.setAttributes([.font: base, .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph], range: full)
+        storage.setAttributes([.font: base, .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph], range: scope)
         for (attachment, range) in attachments { storage.addAttribute(.attachment, value: attachment, range: range) }
-        let text = storage.string
         for (expression, attributes) in rules {
-            for match in expression.matches(in: text, range: full) {
+            for match in expression.matches(in: text, range: scope) {
                 storage.addAttributes(attributes(base), range: match.range)
             }
         }

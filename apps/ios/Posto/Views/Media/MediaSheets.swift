@@ -48,7 +48,9 @@ struct LibraryImportSheet: View {
                     .disabled(!canImport)
                 }
             }
-            .task { await start() }
+            // Once: a long select's options push over the form, and
+            // starting the import again would reset the drafts.
+            .taskOnce { await start() }
             .errorAlert($error)
         }
     }
@@ -229,7 +231,9 @@ struct AssetEditorSheet: View {
             } message: {
                 Text("This cannot be undone in Posto.")
             }
-            .task {
+            // Once: a long select's options push over the form, and opening
+            // the asset again would reset its fields.
+            .taskOnce {
                 do {
                     let opened: AssetEditorView = try await media.engine.call("media.openAsset", ["tab": .string(media.tab), "id": .string(item.id)])
                     asset = opened
@@ -239,9 +243,11 @@ struct AssetEditorSheet: View {
                     self.error = error.localizedDescription
                 }
             }
-            .onDisappear { Task { try? await media.engine.run("media.closeAsset") } }
             .errorAlert($error)
         }
+        // On the stack, not its page, which also disappears under a pushed
+        // page: the asset closes when the sheet does.
+        .onDisappear { Task { try? await media.engine.run("media.closeAsset") } }
     }
 }
 

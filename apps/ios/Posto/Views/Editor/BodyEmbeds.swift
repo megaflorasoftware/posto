@@ -42,6 +42,23 @@ struct BodyEmbed: Codable, Sendable, Equatable {
         default: return "photo"
         }
     }
+
+    /// What it is, as its sheet and the Edit commands name it.
+    var kindName: String {
+        switch kind {
+        case "component": return "Component"
+        case "import": return "Import"
+        case "raw": return label
+        case "html": return "HTML"
+        default: return "Image"
+        }
+    }
+
+    /// How VoiceOver reads it: "Component Hero", "Image Sunset".
+    var accessibilityName: String {
+        let name = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty || name == kindName ? kindName : "\(kindName) \(name)"
+    }
 }
 
 /// One embed in the text view: a single attachment character standing for
@@ -49,7 +66,9 @@ struct BodyEmbed: Codable, Sendable, Equatable {
 final class EmbedAttachment: NSTextAttachment {
     let source: String
     /// Its offsets move when an attachment is reused after edits above it.
-    var embed: BodyEmbed
+    var embed: BodyEmbed {
+        didSet { labelForAccessibility() }
+    }
     var isSelected = false
     var thumbnail: PlatformImage?
     private var renderedKey: String?
@@ -58,6 +77,19 @@ final class EmbedAttachment: NSTextAttachment {
         self.source = source
         self.embed = embed
         super.init(data: nil, ofType: nil)
+        labelForAccessibility()
+    }
+
+    /// VoiceOver reads the card by name as it moves through the text, and
+    /// opens it from the text view's actions (see BodyTextView).
+    private func labelForAccessibility() {
+        #if canImport(UIKit)
+        accessibilityLabel = embed.accessibilityName
+        accessibilityTraits = .button
+        image?.accessibilityLabel = embed.accessibilityName
+        #else
+        image?.accessibilityDescription = embed.accessibilityName
+        #endif
     }
 
     required init?(coder: NSCoder) {
@@ -83,6 +115,7 @@ final class EmbedAttachment: NSTextAttachment {
         #endif
         renderedKey = key
         image = rendered
+        labelForAccessibility()
         let size = rendered.size
         if embed.isCard {
             bounds = CGRect(origin: .zero, size: size)

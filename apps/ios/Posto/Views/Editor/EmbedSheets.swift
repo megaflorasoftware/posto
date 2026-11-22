@@ -8,15 +8,7 @@ struct EmbedEdit: Identifiable {
     let source: String
     let range: NSRange
 
-    var kindName: String {
-        switch embed.kind {
-        case "component": return "Component"
-        case "import": return "Import"
-        case "raw": return embed.label
-        case "html": return "HTML"
-        default: return "Image"
-        }
-    }
+    var kindName: String { embed.kindName }
 }
 
 /// A card's markdown, edited as text: HTML, imports and raw MDX (as the
@@ -27,8 +19,18 @@ struct EmbedSourceView: View {
     var deleteTitle = "Delete"
     /// The new source; empty deletes the card.
     let onSave: (String) -> Void
-    @State private var draft = ""
+    @State private var draft: String
     @State private var confirmingDelete = false
+
+    init(title: String, text: String, deleteTitle: String = "Delete", onSave: @escaping (String) -> Void) {
+        self.title = title
+        self.text = text
+        self.deleteTitle = deleteTitle
+        self.onSave = onSave
+        // Once, rather than on each appearance, which a page pushed over
+        // this one and popped would also be.
+        _draft = State(initialValue: text)
+    }
 
     var body: some View {
         Form {
@@ -56,7 +58,6 @@ struct EmbedSourceView: View {
         .confirmationDialog("\(deleteTitle)?", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button(deleteTitle, role: .destructive) { onSave("") }
         }
-        .onAppear { draft = text }
     }
 }
 
@@ -83,8 +84,8 @@ struct EmbedImageView: View {
     /// The image's new markdown; empty removes it.
     let onSave: (String) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var alt = ""
-    @State private var src = ""
+    @State private var alt: String
+    @State private var src: String
     @State private var pickedPath: String?
     @State private var replacing = false
     @State private var confirmingRemove = false
@@ -93,6 +94,16 @@ struct EmbedImageView: View {
     /// Set once the library's editor has been open: its changes (a new alt
     /// text, a rename) rewrite the body, and this card with it.
     @State private var libraryRevision: Int?
+
+    init(document: DocumentModel, card: EmbedEdit, onSave: @escaping (String) -> Void) {
+        self.document = document
+        self.card = card
+        self.onSave = onSave
+        // Once, rather than on each appearance: Edit Markdown pushes a page,
+        // and coming back from it would reset the alt text and source.
+        _alt = State(initialValue: card.embed.alt ?? "")
+        _src = State(initialValue: card.embed.src ?? "")
+    }
 
     var body: some View {
         Form {
@@ -181,11 +192,7 @@ struct EmbedImageView: View {
         .onChange(of: document.view.revision) { _, revision in
             if let libraryRevision, revision != libraryRevision, editingLibraryAsset == nil { dismiss() }
         }
-        .onAppear {
-            alt = card.embed.alt ?? ""
-            src = card.embed.src ?? ""
-        }
-        .task {
+        .taskOnce {
             guard let src = card.embed.src, !src.isEmpty else { return }
             libraryAsset = try? await document.engine.call("body.imageAsset", ["src": .string(src)])
         }

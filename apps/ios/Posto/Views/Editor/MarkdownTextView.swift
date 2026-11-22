@@ -299,6 +299,13 @@ final class BodyTextView: UITextView {
         return super.canPerformAction(action, withSender: sender)
     }
 
+    /// VoiceOver can't tap a card or pill where it's drawn; it opens the
+    /// one at the caret from the text view's actions instead.
+    override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
+        get { (super.accessibilityCustomActions ?? []) + (formatting?.embedActions(in: self) ?? []) }
+        set { super.accessibilityCustomActions = newValue }
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         if abs(bounds.width - lastWidth) > 0.5 {
@@ -348,12 +355,19 @@ struct MarkdownTextView: UIViewRepresentable {
     var monospaced = false
     var styled = true
     var embeds = false
+    /// Whether this is the editor on screen. The form's body stays in the
+    /// navigation stack under the full-screen editor, which shares its
+    /// controller: while covered it neither follows the text (a scan,
+    /// re-projection and restyle on every keystroke, for nothing) nor takes
+    /// the controller's commands (an insert, the keyboard coming back).
+    var active = true
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
     func makeUIView(context: Context) -> UITextView {
         let textView = BodyTextView()
         textView.delegate = context.coordinator
+        textView.textStorage.delegate = context.coordinator.edits
         textView.isScrollEnabled = scrolls
         // Inside the form a nearby bar's edge effect would draw over the
         // text; the full-screen editor keeps its soft edge under the nav bar.
@@ -377,9 +391,11 @@ struct MarkdownTextView: UIViewRepresentable {
         textView.inputAccessoryView = styled ? context.coordinator.makeToolbar() : nil
         if styled { textView.formatting = context.coordinator }
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        controller.textView = textView
-        controller.coordinator = context.coordinator
-        if styled { MarkdownStyler.style(textView) }
+        if active {
+            controller.textView = textView
+            controller.coordinator = context.coordinator
+        }
+        context.coordinator.restyle(textView, all: true)
         if embeds {
             // Dragging would carry cards out as bare attachments.
             textView.textDragInteraction?.isEnabled = false
@@ -407,10 +423,15 @@ struct MarkdownTextView: UIViewRepresentable {
 
     func updateUIView(_ textView: UITextView, context: Context) {
         context.coordinator.parent = self
-        controller.textView = textView
-        controller.coordinator = context.coordinator
-        // Only external changes (pull, raw edits) replace the text; typing is
-        // already in the view.
+        // Covered (see `active`): it catches up when it's back on screen.
+        guard active else { return }
+        if controller.textView !== textView {
+            controller.textView = textView
+            controller.coordinator = context.coordinator
+            context.coordinator.refreshBar()
+        }
+        // Only external changes (pull, raw edits, the full-screen editor's
+        // typing) replace the text; typing is already in the view.
         guard !textView.isFirstResponder else { return }
         if embeds {
             if EmbedProjection.source(of: textView.textStorage) != text {
@@ -418,7 +439,7 @@ struct MarkdownTextView: UIViewRepresentable {
             }
         } else if textView.text != text {
             textView.text = text
-            if styled { MarkdownStyler.style(textView) }
+            context.coordinator.restyle(textView, all: true)
         }
     }
 
@@ -440,6 +461,14 @@ struct MarkdownTextView: UIViewRepresentable {
         var layoutWidth: CGFloat?
         private var scanTask: Task<Void, Never>?
         private var pendingSource: String?
+        /// What was edited since the last styling (the text storage's delegate).
+        let edits = EditedRange()
+        /// The code fences at the last styling (see MarkdownRestyle).
+        private var fences: Int?
+        /// The next styling covers all of the text.
+        private var restylesAll = true
+        /// A styling waits for the text being composed to be committed.
+        private var restyleAfterComposition = false
 
         init(parent: MarkdownTextView) {
             self.parent = parent
@@ -450,7 +479,7 @@ struct MarkdownTextView: UIViewRepresentable {
         }
 
         func textChanged(_ textView: UITextView) {
-            if parent.styled { MarkdownStyler.style(textView) }
+            restyle(textView)
             parent.controller.onChange?(parent.embeds ? EmbedProjection.source(of: textView.textStorage) : textView.text)
             if parent.embeds { scheduleEmbedScan(after: 0.5) }
             scrollCaretIntoView(textView)
@@ -458,9 +487,33 @@ struct MarkdownTextView: UIViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
+            // A composition can end without changing the text.
+            if restyleAfterComposition, textView.markedTextRange == nil { restyle(textView) }
             if parent.embeds { markSelectedAttachments(in: textView) }
             scrollCaretIntoView(textView)
             updateBar()
+        }
+
+        /// Styles what changed since the last styling: all of it after a
+        /// load, an undo or new cards, else the blocks around the edits. Not
+        /// while text is being composed (Japanese, Korean, Chinese):
+        /// changing the attributes under the marked text breaks the
+        /// candidate being chosen, so it waits for the composition to end.
+        func restyle(_ textView: UITextView, all: Bool = false) {
+            if all { restylesAll = true }
+            guard parent.styled else {
+                edits.reset()
+                return
+            }
+            guard textView.markedTextRange == nil else {
+                restyleAfterComposition = true
+                return
+            }
+            restyleAfterComposition = false
+            guard restylesAll || edits.range != nil else { return }
+            MarkdownStyler.style(textView, edited: restylesAll ? nil : edits.range, fences: &fences)
+            restylesAll = false
+            edits.reset()
         }
 
         /// The bar and shortcuts edit the body being typed in (the form's
@@ -550,16 +603,17 @@ struct MarkdownTextView: UIViewRepresentable {
         // then. What they did isn't lost: the body keeps its own steps (a
         // sheet's edit, an insert, the typing up to a new card), registers
         // them again after each clear, and restores whole snapshots, which
-        // stay valid.
+        // stay valid. Typing becomes a step per pause, as UIKit's own steps
+        // are about that size: each idle scan keeps a snapshot of the text.
 
         enum UndoRecord {
             /// A load or a change from outside: no history before it.
             case clear
             /// Only the cards changed (typed text became one): the typing
-            /// since the last clear becomes one step.
+            /// since the last clear becomes steps, one per pause.
             case fold
             /// An edit of the source (a sheet, an insert): a step of its
-            /// own, after one for the typing before it.
+            /// own, after the steps for the typing before it.
             case edit
         }
 
@@ -569,17 +623,32 @@ struct MarkdownTextView: UIViewRepresentable {
             let after: NSAttributedString
         }
 
+        /// The text at a moment of the history, with its markdown.
+        private struct Snapshot {
+            let text: NSAttributedString
+            let source: String
+
+            @MainActor
+            init(_ text: NSAttributedString) {
+                self.text = text
+                source = EmbedProjection.source(of: text)
+            }
+        }
+
+        /// How many snapshots the history keeps: a hundred, fewer for a long
+        /// body (each is a copy of all of it), and never under ten.
+        private static func historyLimit(_ length: Int) -> Int {
+            max(10, min(100, 2_000_000 / max(length, 1)))
+        }
+
         /// The body's steps on the undo stack, oldest first.
         private var undoSteps: [UndoStep] = []
         /// The text when UIKit's steps were last cleared.
-        private var undoBaseline: NSAttributedString?
+        private var undoBaseline: Snapshot?
+        /// The text at each pause in typing since the baseline, oldest first.
+        private var pauses: [Snapshot] = []
 
         private func record(_ kind: UndoRecord, before: NSAttributedString, after: NSAttributedString, in textView: UITextView) {
-            func foldTyping(upTo text: NSAttributedString) {
-                guard let baseline = undoBaseline,
-                      EmbedProjection.source(of: baseline) != EmbedProjection.source(of: text) else { return }
-                undoSteps.append(UndoStep(before: baseline, after: text))
-            }
             switch kind {
             case .clear:
                 undoSteps.removeAll()
@@ -589,8 +658,10 @@ struct MarkdownTextView: UIViewRepresentable {
                 foldTyping(upTo: before)
                 undoSteps.append(UndoStep(before: before, after: after))
             }
-            if undoSteps.count > 100 { undoSteps.removeFirst(undoSteps.count - 100) }
-            undoBaseline = after
+            let limit = Self.historyLimit(after.length)
+            if undoSteps.count > limit { undoSteps.removeFirst(undoSteps.count - limit) }
+            undoBaseline = Snapshot(after)
+            pauses.removeAll()
             guard let manager = textView.undoManager else { return }
             manager.removeAllActions()
             // One undo group per step, rather than one for everything
@@ -603,6 +674,41 @@ struct MarkdownTextView: UIViewRepresentable {
                 manager.endUndoGrouping()
             }
             manager.groupsByEvent = byEvent
+        }
+
+        /// The typing since the baseline as steps: one from each pause to
+        /// the next, the last ending at `end`.
+        private func foldTyping(upTo end: NSAttributedString) {
+            guard let baseline = undoBaseline else { return }
+            let last = Snapshot(end)
+            var states = [baseline] + pauses
+            // A pause at `end`'s own text: its step ends at `end` itself,
+            // with the cards it shows, so redo comes back to them.
+            while states.count > 1, states.last?.source == last.source { states.removeLast() }
+            states.append(last)
+            for (from, to) in zip(states, states.dropFirst()) where from.source != to.source {
+                undoSteps.append(UndoStep(before: from.text, after: to.text))
+            }
+        }
+
+        /// A pause in typing (an idle scan): a fold or an edit later undoes
+        /// the typing back to here, then to the pause before.
+        private func notePause(in textView: UITextView) {
+            guard let baseline = undoBaseline else { return }
+            let storage = textView.textStorage
+            let source = EmbedProjection.source(of: storage)
+            // Back at an earlier point (UIKit's undo, or retyped): the
+            // pauses after it are no longer in the history.
+            if source == baseline.source {
+                pauses.removeAll()
+            } else if let index = pauses.lastIndex(where: { $0.source == source }) {
+                pauses.removeSubrange((index + 1)...)
+            } else {
+                pauses.append(Snapshot(NSAttributedString(attributedString: storage)))
+                // The oldest pause goes first: its typing joins the next step.
+                let limit = Self.historyLimit(storage.length)
+                if pauses.count > limit { pauses.removeFirst(pauses.count - limit) }
+            }
         }
 
         private func register(_ step: UndoStep, undoing: Bool, in textView: UITextView) {
@@ -628,9 +734,10 @@ struct MarkdownTextView: UIViewRepresentable {
             storage.setAttributedString(snapshot)
             storage.endEditing()
             textView.inputDelegate?.textDidChange(textView)
-            undoBaseline = snapshot
+            undoBaseline = Snapshot(snapshot)
+            pauses.removeAll()
             renderAttachments(in: textView)
-            if parent.styled { MarkdownStyler.style(textView) }
+            restyle(textView, all: true)
             // The caret goes to the end of what changed back.
             let next = storage.string as NSString
             var prefix = 0
@@ -660,6 +767,7 @@ struct MarkdownTextView: UIViewRepresentable {
                     self.scheduleEmbedScan(after: 0.5)
                     return
                 }
+                self.notePause(in: textView)
                 let storage = textView.textStorage
                 let source = EmbedProjection.source(of: storage)
                 // A failed scan leaves the cards as they are.
@@ -688,7 +796,7 @@ struct MarkdownTextView: UIViewRepresentable {
             storage.endEditing()
             textView.inputDelegate?.textDidChange(textView)
             renderAttachments(in: textView)
-            if parent.styled { MarkdownStyler.style(textView) }
+            restyle(textView, all: true)
             let target = min(caret ?? previousCaret, (source as NSString).length)
             textView.selectedRange = NSRange(location: EmbedProjection.displayOffset(in: storage, source: target), length: 0)
             record(undo, before: before, after: NSAttributedString(attributedString: storage), in: textView)
@@ -759,8 +867,43 @@ struct MarkdownTextView: UIViewRepresentable {
             guard let textView = gesture.view as? UITextView,
                   let (attachment, range) = attachment(at: gesture.location(in: textView), in: textView)
             else { return }
+            open(attachment, at: range, in: textView)
+        }
+
+        private func open(_ attachment: EmbedAttachment, at range: NSRange, in textView: UITextView) {
             parent.controller.textView = textView
+            parent.controller.coordinator = self
             parent.controller.open(attachment, at: range)
+        }
+
+        /// The card or pill the caret is on (just before or after it), or
+        /// the one selected: what VoiceOver's action and the Format menu's
+        /// Edit item open.
+        private func attachmentAtCaret(in textView: UITextView) -> (EmbedAttachment, NSRange)? {
+            guard parent.embeds else { return nil }
+            let storage = textView.textStorage
+            let selection = textView.selectedRange
+            let candidates = switch selection.length {
+            case 0: [selection.location, selection.location - 1]
+            case 1: [selection.location]
+            default: [Int]()
+            }
+            for candidate in candidates where candidate >= 0 && candidate < storage.length {
+                if let attachment = storage.attribute(.attachment, at: candidate, effectiveRange: nil) as? EmbedAttachment {
+                    return (attachment, NSRange(location: candidate, length: 1))
+                }
+            }
+            return nil
+        }
+
+        /// "Edit Component Hero", while the caret is on that card.
+        func embedActions(in textView: UITextView) -> [UIAccessibilityCustomAction] {
+            guard let (attachment, _) = attachmentAtCaret(in: textView) else { return [] }
+            return [UIAccessibilityCustomAction(name: "Edit \(attachment.embed.accessibilityName)") { [weak self, weak textView] _ in
+                guard let self, let textView, let (attachment, range) = self.attachmentAtCaret(in: textView) else { return false }
+                self.open(attachment, at: range, in: textView)
+                return true
+            }]
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
@@ -894,7 +1037,17 @@ struct MarkdownTextView: UIViewRepresentable {
                 action("Divider", "minus") { $0.insert("---", asBlock: true) },
             ]
             let insert = [action("Insert HTML", "chevron.left.forwardslash.chevron.right") { $0.insertHtml() }]
-            return [styles, headings, blocks, insert].map { UIMenu(options: .displayInline, children: $0) }
+            var sections = [styles, headings, blocks, insert]
+            // The card at the caret opens as tapping it does (for VoiceOver
+            // and keyboards, which can't tap it). Last, so it sits nearest
+            // the bar in the menu that opens upward.
+            if let (attachment, range) = attachmentAtCaret(in: textView) {
+                sections.append([UIAction(title: "Edit \(attachment.embed.kindName)", image: UIImage(systemName: attachment.embed.symbol)) { [weak self, weak textView] _ in
+                    guard let self, let textView else { return }
+                    self.open(attachment, at: range, in: textView)
+                }])
+            }
+            return sections.map { UIMenu(options: .displayInline, children: $0) }
         }
 
         /// Bold, Italic and Link show whether the caret is in one (tapping
@@ -974,21 +1127,31 @@ enum MarkdownStyler {
             }),
             (regex(#"^```[\s\S]*?^```"#, [.anchorsMatchLines]), { font in
                 [.font: UIFont.monospacedSystemFont(ofSize: font.pointSize * 0.88, weight: .regular),
-                 .foregroundColor: UIColor.secondaryLabel]
+                 .foregroundColor: UIColor.secondaryLabel, MarkdownRestyle.spansLines: true]
             }),
             (regex(#"!?\[[^\]\n]*\]\([^)\n]*\)"#), { _ in [.foregroundColor: UIColor.tintColor] }),
             (regex(#"^> .*$"#), { _ in secondary }),
-            (regex(#"^\s*([-*+]|\d+\.) "#), { _ in [.foregroundColor: UIColor.tintColor] }),
+            (regex(#"^[ \t]*([-*+]|\d+\.) "#), { _ in [.foregroundColor: UIColor.tintColor] }),
             (regex(#"</?[A-Za-z][\w.:-]*(?:\s[^<>]*)?/?>"#), { font in
                 [.foregroundColor: UIColor.systemPurple,
-                 .font: UIFont.monospacedSystemFont(ofSize: font.pointSize * 0.9, weight: .regular)]
+                 .font: UIFont.monospacedSystemFont(ofSize: font.pointSize * 0.9, weight: .regular),
+                 MarkdownRestyle.spansLines: true]
             }),
         ]
     }()
 
+    /// Styles the whole text.
     static func style(_ textView: UITextView) {
+        var fences: Int?
+        style(textView, edited: nil, fences: &fences)
+    }
+
+    /// Styles the text around an edit (see MarkdownRestyle), or all of it
+    /// when `edited` is nil. `fences` carries the fence count between calls.
+    static func style(_ textView: UITextView, edited: NSRange?, fences: inout Int?) {
         let storage = textView.textStorage
-        let full = NSRange(location: 0, length: storage.length)
+        let text = storage.string
+        let scope = MarkdownRestyle.scope(of: edited, in: text as NSString, styled: storage, fences: &fences)
         // Not textView.font: with mixed attributes it reports the font near
         // the caret, so a restyle inside bold text would make everything bold
         // (and inside a heading, grow with every keystroke).
@@ -997,15 +1160,14 @@ enum MarkdownStyler {
         paragraph.lineSpacing = 3
         // Cards and pills are attachments; resetting attributes keeps them.
         var attachments: [(Any, NSRange)] = []
-        storage.enumerateAttribute(.attachment, in: full) { value, range, _ in
+        storage.enumerateAttribute(.attachment, in: scope) { value, range, _ in
             if let value { attachments.append((value, range)) }
         }
         storage.beginEditing()
-        storage.setAttributes([.font: base, .foregroundColor: UIColor.label, .paragraphStyle: paragraph], range: full)
+        storage.setAttributes([.font: base, .foregroundColor: UIColor.label, .paragraphStyle: paragraph], range: scope)
         for (attachment, range) in attachments { storage.addAttribute(.attachment, value: attachment, range: range) }
-        let text = storage.string
         for (expression, attributes) in rules {
-            for match in expression.matches(in: text, range: full) {
+            for match in expression.matches(in: text, range: scope) {
                 storage.addAttributes(attributes(base), range: match.range)
             }
         }
