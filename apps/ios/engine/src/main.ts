@@ -48,7 +48,7 @@ import {
   referenceDraftScope,
   startReferenceDraft,
 } from "./references";
-import { fieldAt, selectValues } from "../../../../packages/editor/src/formModel";
+import { fieldAt, newItemValue, selectValues } from "../../../../packages/editor/src/formModel";
 import type { Field } from "@posto/core/pagescms/config";
 import type { DocumentSession, FieldScope } from "./document";
 import { MediaSession } from "./media";
@@ -131,16 +131,28 @@ function formResult(target: string, store: FormStore | null) {
   };
 }
 
+/** An edit on any form. The document's own fields are checked against the
+ * session they were typed into, as body edits are: an edit that arrives
+ * after a file switch must not land in the next file. */
 function formEdit(
   args: Args,
   apply: (store: FormStore) => void,
-  document: (doc: ReturnType<RepoSession["requireDocument"]>) => void,
+  document: (doc: DocumentSession) => void,
 ) {
   const target = (args.form as string | undefined) ?? "document";
   const { store } = formFor(target);
   if (store) apply(store);
-  else document(requireRepo().requireDocument());
+  else document(requireOpen(args.session));
   return formResult(target, store);
+}
+
+/** The item a list append adds: the one given, else the list field's new
+ * item built here, so an object's keys keep the schema's order (Swift's
+ * dictionaries don't keep any). */
+function newListItem(args: Args, fields: Field[]): unknown {
+  if (args.value !== undefined) return args.value;
+  const field = fieldAt(fields, path(args));
+  return field ? newItemValue(field) : "";
 }
 
 const methods: Record<string, Method> = {
@@ -155,16 +167,21 @@ const methods: Record<string, Method> = {
 
   // Repository.
   "repo.open": async (args) => {
-    await repo?.close();
-    media = null;
-    repo = new RepoSession(
+    const previous = repo;
+    const opening = new RepoSession(
       args.repoRoot as string,
       (args.repo as RepoIdentity | null) ?? null,
       args.local === true,
     );
-    repo.developerMode = args.developerMode === true;
-    await repo.open();
-    return repo.view();
+    opening.developerMode = args.developerMode === true;
+    // The current session from the start, so a close that arrives while it
+    // opens (the user backed out) stops this one, not the one it replaces.
+    repo = opening;
+    media = null;
+    await previous?.close();
+    await opening.open();
+    if (opening.closed) throw new Error("The repository was closed while it opened.");
+    return opening.view();
   },
   "repo.close": async () => {
     await repo?.close();
@@ -328,8 +345,8 @@ const methods: Record<string, Method> = {
   "form.listAppend": (args) =>
     formEdit(
       args,
-      (store) => store.listAppend(path(args), args.value),
-      (document) => document.listAppend(path(args), args.value),
+      (store) => store.listAppend(path(args), newListItem(args, store.fields)),
+      (document) => document.listAppend(path(args), newListItem(args, document.formFields)),
     ),
   "form.listRemove": (args) =>
     formEdit(
@@ -363,7 +380,7 @@ const methods: Record<string, Method> = {
 
   /** Manual field templates: writes the template's current expansion. */
   "form.regenerate": (args) => {
-    const document = requireRepo().requireDocument();
+    const document = requireOpen(args.session);
     const schemaPath = (args.path as ValuePath).filter((key) => typeof key === "string").join(".");
     const template = document.entry?.fieldSchemas?.[schemaPath]?.template;
     const values = document.view().form?.values ?? {};

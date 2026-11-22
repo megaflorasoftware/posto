@@ -407,6 +407,13 @@ fn write_temp_image_uses_the_cache_dir() {
 }
 
 #[test]
+fn cancel_sign_in_runs_against_the_managed_auth_state() {
+    // Nothing to cancel: it still finds the auth state and succeeds.
+    assert_eq!(ok("cancel_sign_in", json!({})), Value::Null);
+    assert_eq!(ok("cancel_sign_in", json!({})), Value::Null);
+}
+
+#[test]
 fn unknown_commands_fail() {
     assert_eq!(
         invoke(

@@ -5,8 +5,10 @@
 
 mod storage;
 
+use futures_util::future::{AbortHandle, AbortRegistration, Abortable};
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 use tauri::Emitter;
 
@@ -72,16 +74,64 @@ pub struct WorkflowRun {
     html_url: String,
 }
 
+/// The sign-in in progress, if any. One runs at a time; cancelling it aborts
+/// its device-code poll at once, so another can start right away instead of
+/// waiting for the code to expire.
 #[derive(Default)]
 pub struct AuthState {
-    signing_in: AtomicBool,
+    signing_in: Mutex<Option<SignInAttempt>>,
+    attempts: AtomicU64,
 }
 
-struct SignInGuard<'a>(&'a AtomicBool);
+struct SignInAttempt {
+    id: u64,
+    abort: AbortHandle,
+}
+
+impl AuthState {
+    fn current(&self) -> MutexGuard<'_, Option<SignInAttempt>> {
+        self.signing_in
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Claims the slot, or refuses while another sign-in holds it.
+    fn begin(&self) -> Result<(SignInGuard<'_>, AbortRegistration), String> {
+        let mut current = self.current();
+        if current.is_some() {
+            return Err("A GitHub sign-in is already in progress".to_string());
+        }
+        let id = self.attempts.fetch_add(1, Ordering::Relaxed);
+        let (abort, registration) = AbortHandle::new_pair();
+        *current = Some(SignInAttempt { id, abort });
+        Ok((SignInGuard { state: self, id }, registration))
+    }
+
+    /// Aborts the sign-in in progress and frees the slot.
+    fn cancel(&self) {
+        if let Some(attempt) = self.current().take() {
+            attempt.abort.abort();
+        }
+    }
+}
+
+/// Holds the slot for one attempt until it ends. A cancelled attempt has
+/// already given the slot up, so when it ends late it leaves a newer
+/// attempt's claim alone.
+struct SignInGuard<'a> {
+    state: &'a AuthState,
+    id: u64,
+}
 
 impl Drop for SignInGuard<'_> {
     fn drop(&mut self) {
-        self.0.store(false, Ordering::Release);
+        let mut current = self.state.current();
+        if current
+            .as_ref()
+            .is_some_and(|attempt| attempt.id == self.id)
+        {
+            *current = None;
+        }
     }
 }
 
@@ -441,28 +491,28 @@ pub async fn sign_in(
     app: tauri::AppHandle,
     state: tauri::State<'_, AuthState>,
 ) -> Result<GitHubUser, String> {
-    if state
-        .signing_in
-        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-        .is_err()
-    {
-        return Err("A GitHub sign-in is already in progress".to_string());
-    }
-    let _guard = SignInGuard(&state.signing_in);
+    let (_guard, registration) = state.begin()?;
     let client_id = client_id()?;
     let github = GitHubClient::new()?;
-    let device = github.request_device_code(client_id).await?;
-    app.emit(
-        DEVICE_CODE_EVENT,
-        DeviceAuthorization {
-            user_code: device.user_code.clone(),
-            verification_uri: device.verification_uri.clone(),
-            expires_in: device.expires_in,
-        },
-    )
-    .map_err(err_str)?;
-    let token = github.poll_access_token(client_id, &device).await?;
-    let user = github.user(&token).await?;
+    // Everything up to the session being stored can be cancelled.
+    let authorize = async {
+        let device = github.request_device_code(client_id).await?;
+        app.emit(
+            DEVICE_CODE_EVENT,
+            DeviceAuthorization {
+                user_code: device.user_code.clone(),
+                verification_uri: device.verification_uri.clone(),
+                expires_in: device.expires_in,
+            },
+        )
+        .map_err(err_str)?;
+        let token = github.poll_access_token(client_id, &device).await?;
+        let user = github.user(&token).await?;
+        Ok::<_, String>((token, user))
+    };
+    let (token, user) = Abortable::new(authorize, registration)
+        .await
+        .map_err(|_| "The GitHub sign-in was cancelled".to_string())??;
     let session = StoredSession {
         token,
         user: user.clone(),
@@ -471,6 +521,13 @@ pub async fn sign_in(
         .await
         .map_err(err_str)??;
     Ok(user)
+}
+
+/// Stops the sign-in waiting on its device code, if there is one: its
+/// `sign_in` call fails, and a new one can start at once.
+#[tauri::command]
+pub fn cancel_sign_in(state: tauri::State<'_, AuthState>) {
+    state.cancel();
 }
 
 #[tauri::command]
@@ -555,6 +612,36 @@ mod tests {
             poll_action(token_response(Some("slow_down"), None), 5),
             PollAction::Wait(10)
         ));
+    }
+
+    #[test]
+    fn cancelling_a_sign_in_aborts_it_and_frees_the_slot() {
+        use futures_util::FutureExt;
+
+        let state = AuthState::default();
+        let (first, registration) = state.begin().unwrap();
+        assert!(state.begin().is_err(), "one sign-in at a time");
+
+        state.cancel();
+        let poll = Abortable::new(std::future::pending::<()>(), registration);
+        assert!(
+            matches!(poll.now_or_never(), Some(Err(_))),
+            "the poll stops"
+        );
+
+        // A retry right away; the cancelled attempt ending later leaves it be.
+        let (second, _registration) = state.begin().unwrap();
+        drop(first);
+        assert!(state.begin().is_err());
+        drop(second);
+        assert!(state.begin().is_ok());
+    }
+
+    #[test]
+    fn cancelling_without_a_sign_in_does_nothing() {
+        let state = AuthState::default();
+        state.cancel();
+        assert!(state.begin().is_ok());
     }
 
     #[test]

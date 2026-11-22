@@ -239,8 +239,16 @@ export class RepoSession {
     return scan;
   }
 
+  /** Whether the open (or workspace switch) numbered `generation` is still
+   * the latest, and the session hasn't closed: closing bumps the number, so
+   * the steps of an open still in flight stop. */
+  private isCurrent(generation: number): boolean {
+    return !this.closed && generation === this.generation;
+  }
+
   /** Checks the clone, then picks (or asks for) the project directory. */
   async open(): Promise<void> {
+    if (this.closed) return;
     const generation = ++this.generation;
     this.loading = true;
     this.changed();
@@ -252,39 +260,46 @@ export class RepoSession {
             expectedUrl: this.repo.cloneUrl,
           });
         } catch (error) {
-          this.repairError = errorMessage(error);
+          if (this.isCurrent(generation)) this.repairError = errorMessage(error);
           return;
         }
+        if (!this.isCurrent(generation)) return;
       }
       const scan = await this.scanRepository();
-      if (generation !== this.generation) return;
+      if (!this.isCurrent(generation)) return;
       const decision = decideWorkspace(this.repoRoot, scan);
       if (decision.kind === "choose") {
         this.workspaceCandidates = decision.candidates;
         return;
       }
       const remembered = await invoke<string | null>("get_work_dir", { root: this.repoRoot });
+      if (!this.isCurrent(generation)) return;
       await this.activate(remembered ?? decision.workDir, generation);
     } catch (error) {
-      this.error = `Could not inspect project: ${errorMessage(error)}`;
+      if (this.isCurrent(generation)) {
+        this.error = `Could not inspect project: ${errorMessage(error)}`;
+      }
     } finally {
       if (generation === this.generation) this.loading = false;
       this.changed();
     }
   }
 
-  private async activate(dir: string, generation: number): Promise<void> {
+  /** Resolves true when `dir` became the open project, false when a later
+   * open, switch or close overtook it first. */
+  private async activate(dir: string, generation: number): Promise<boolean> {
     const info = await detectProject(dir, ipcProjectIO);
-    if (generation !== this.generation) return;
+    if (!this.isCurrent(generation)) return false;
     this.projectInfo = info;
     this.adapter = projectAdapter(info.type);
     this.root = dir;
     await this.refreshContent(dir);
-    if (generation !== this.generation) return;
+    if (!this.isCurrent(generation)) return false;
     void this.git.refreshLocalChanges(dir);
     void this.branches.loadCurrent();
     this.git.start();
     if (this.local) this.watch(dir);
+    return true;
   }
 
   /** Local folders: watches the project as the desktop app does (its
@@ -334,15 +349,18 @@ export class RepoSession {
   }
 
   async chooseWorkspace(dir: string | null): Promise<void> {
+    if (this.closed) return;
     const generation = ++this.generation;
     const selected = dir ?? this.repoRoot;
     await this.closeDocument();
     try {
-      await this.activate(selected, generation);
+      if (!(await this.activate(selected, generation))) return;
       this.workspaceCandidates = null;
       void invoke("set_last_root", { root: this.repoRoot, workDir: selected });
     } catch (error) {
-      this.error = `Could not inspect project: ${errorMessage(error)}`;
+      if (this.isCurrent(generation)) {
+        this.error = `Could not inspect project: ${errorMessage(error)}`;
+      }
     }
     this.changed();
   }
@@ -737,13 +755,19 @@ export class RepoSession {
     return matchCollectionForDir(this.config, this.root, path);
   }
 
+  /** Stops everything at once, including an open still in flight (it
+   * would otherwise start fetching every 30 seconds after the close), then
+   * writes the open document's pending save. */
   async close(): Promise<void> {
+    this.closed = true;
+    this.generation += 1;
     this.git.stop();
     clearTimeout(this.statusTimer);
     clearTimeout(this.externalTimer);
     this.stopWatching?.();
-    await this.document?.close();
+    this.stopWatching = undefined;
+    const document = this.document;
     this.document = null;
-    this.closed = true;
+    await document?.close();
   }
 }

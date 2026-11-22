@@ -112,6 +112,7 @@ commands! {
     async auth::auth_status();
     async auth::retry_auth_status();
     async auth::sign_in(app, state);
+    inline auth::cancel_sign_in(state);
     async auth::sign_out();
     async auth::github_pages_url(owner, name);
     async auth::list_user_repos();
@@ -198,6 +199,7 @@ commands! {
     async auth::auth_status();
     async auth::retry_auth_status();
     async auth::sign_in(app, state);
+    inline auth::cancel_sign_in(state);
     async auth::sign_out();
     async auth::github_pages_url(owner, name);
     async auth::list_workflow_runs(owner, name, branch);

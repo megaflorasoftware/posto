@@ -120,7 +120,15 @@ export class GitSync {
     let outcome: MediaPublishRecovery;
     try {
       outcome = await invoke<MediaPublishRecovery>("media_publish_recover", { root: dir });
-    } catch {
+    } catch (error) {
+      // Pull, publish and branch switches refuse until it's recovered, with
+      // only "A previous publish didn't finish": say what stands in the way.
+      if (this.host.root() === dir) {
+        this.host.status(
+          `Posto couldn't recover your last publish: ${errorMessage(error)}`,
+          "error",
+        );
+      }
       return;
     }
     if (this.host.root() !== dir || !outcome || typeof outcome !== "object") return;

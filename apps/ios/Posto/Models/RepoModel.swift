@@ -73,7 +73,12 @@ final class RepoModel {
         }
     }
 
+    /// The open file's debounced typing goes first: once the session
+    /// closes it has nowhere to go. An open still in flight loses.
     func close() async {
+        openingFile += 1
+        openingKey = nil
+        await document?.flush()
         try? await engine.run("repo.close")
     }
 
@@ -92,7 +97,11 @@ final class RepoModel {
             if let next = try? JSONDecoder().decode(RepoView.self, from: data) { view = next }
             publish?.engineChanged()
         case "document":
-            if let next = try? JSONDecoder().decode(DocumentView.self, from: data) { document?.apply(next) }
+            // A file opened since belongs to the model that replaces this one:
+            // taking on its session would let this one's edits land in it.
+            if let next = try? JSONDecoder().decode(DocumentView.self, from: data), next.session == document?.view.session {
+                document?.apply(next)
+            }
         case "component-schemas-changed":
             componentSchemaVersion += 1
         case "site-url-changed":
@@ -235,12 +244,17 @@ final class RepoModel {
     /// Flushes the open file and refreshes the publish state, as backing out
     /// of the editor does on the Tauri app.
     func closeFile() async {
-        guard let closing = document else { return }
+        // Backing out beats an open still in flight, a file's first open
+        // included, which would otherwise bring the editor back.
+        let wasOpening = openingKey != nil
         openingFile += 1
         openingKey = nil
-        await closing.flush()
+        let closing = document
+        guard closing != nil || wasOpening else { return }
+        await closing?.flush()
         document = nil
         selectedKey = nil
+        // Queued behind that open in the engine, so it closes what it opened.
         if let next: RepoView = try? await engine.call("doc.close") { view = next }
     }
 
@@ -360,7 +374,11 @@ final class RepoModel {
 @MainActor
 @Observable
 final class DocumentModel {
-    unowned let repo: RepoModel
+    /// Weak: a flush or save can still be running once the repository has
+    /// closed (leaving it, signing out). The model reaches the engine
+    /// through its own reference.
+    @ObservationIgnored private weak var owner: RepoModel?
+    let engine: Engine
     private(set) var view: DocumentView
     /// Body and raw text as the editor shows them. The engine bumps
     /// `revision` when content changes underneath (pull, branch switch, raw
@@ -374,14 +392,21 @@ final class DocumentModel {
     private var rawTask: Task<Void, Never>?
 
     init(repo: RepoModel, view: DocumentView) {
-        self.repo = repo
+        owner = repo
+        engine = repo.engine
         self.view = view
         bodyText = view.body?.text ?? ""
         rawText = view.raw ?? ""
     }
 
+    /// The repository, for views: they show a document only while its
+    /// repository is open, which keeps it alive.
+    var repo: RepoModel {
+        guard let owner else { preconditionFailure("The document's repository was closed") }
+        return owner
+    }
+
     var key: String { view.key }
-    var engine: Engine { repo.engine }
 
     func apply(_ next: DocumentView) {
         // A rename (a filename template) keeps the session: the text typed
@@ -463,7 +488,7 @@ final class DocumentModel {
             renameError = result["error"]?.stringValue
             if let next = try? result["view"]?.decode(as: DocumentView.self) {
                 apply(next)
-                repo.selectedKey = next.key
+                owner?.selectedKey = next.key
             }
         } catch {
             renameError = error.localizedDescription
@@ -476,7 +501,7 @@ final class DocumentModel {
             renameError = result["error"]?.stringValue
             if let next = try? result["view"]?.decode(as: DocumentView.self) {
                 apply(next)
-                repo.selectedKey = next.key
+                owner?.selectedKey = next.key
             }
         } catch {
             renameError = error.localizedDescription
@@ -494,6 +519,10 @@ final class DocumentModel {
 protocol FormSink: AnyObject {
     var engine: Engine { get }
     var formTarget: String { get }
+    /// The open document's session, for its own fields: the engine drops an
+    /// edit that arrives after a file switch rather than apply it to the
+    /// next file.
+    var formSession: Int? { get }
     func formState() -> FormState?
     func applyFormResult(_ result: JSONValue)
 }
@@ -505,9 +534,12 @@ extension FormSink {
     /// no document behind them keep a text field.
     var picksImages: Bool { formTarget == "document" || formTarget == "component" || formTarget == "reference" }
 
+    var formSession: Int? { nil }
+
     func perform(_ method: String, _ args: [String: JSONValue]) async {
         var payload = args
         payload["form"] = .string(formTarget)
+        if let formSession { payload["session"] = .number(Double(formSession)) }
         if let result: JSONValue = try? await engine.call(method, payload) { applyFormResult(result) }
     }
 
@@ -519,8 +551,12 @@ extension FormSink {
         await perform("form.editDate", ["path": path.json, "control": JSONValue(control), "time": .bool(time)])
     }
 
-    func listAppend(_ path: [PathKey], _ value: JSONValue) async {
-        await perform("form.listAppend", ["path": path.json, "value": value])
+    /// Without a value, the engine builds the list's new item from the
+    /// schema, keeping its key order (a Swift dictionary has none).
+    func listAppend(_ path: [PathKey], _ value: JSONValue? = nil) async {
+        var args: [String: JSONValue] = ["path": path.json]
+        if let value { args["value"] = value }
+        await perform("form.listAppend", args)
     }
 
     func regenerate(_ path: [PathKey]) async {
@@ -538,6 +574,7 @@ extension FormSink {
 
 extension DocumentModel: FormSink {
     var formTarget: String { "document" }
+    var formSession: Int? { view.session }
     func formState() -> FormState? { view.form }
     func applyFormResult(_ result: JSONValue) {
         if let next = try? result.decode(as: DocumentView.self) { apply(next) }

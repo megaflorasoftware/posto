@@ -241,28 +241,46 @@ final class AppModel {
 
     // MARK: Sign-in
 
+    /// Bumped by each sign-in and cancel, so a cancelled attempt's outcome
+    /// (its "cancelled" error, or a late success) is ignored.
+    private var signInAttempt = 0
+    /// A cancel on its way to the backend; a new sign-in waits for it.
+    private var cancellingSignIn: Task<Void, Never>?
+
     /// Signs in with a GitHub device code. The macOS app has no repository
     /// list to load afterwards.
     func signIn(loadsRepositories: Bool = true) async {
+        signInAttempt += 1
+        let attempt = signInAttempt
         error = nil
         device = nil
         stage = .authorizing
+        await cancellingSignIn?.value
+        guard attempt == signInAttempt else { return }
         do {
-            user = try await backend.call("sign_in", as: GitHubUser.self)
+            let signedIn = try await backend.call("sign_in", as: GitHubUser.self)
+            guard attempt == signInAttempt else { return }
+            user = signedIn
             browserURL = nil
             stage = .repositories
             if loadsRepositories { await loadRepos() }
         } catch {
+            guard attempt == signInAttempt else { return }
             browserURL = nil
             self.error = error.localizedDescription
             stage = .signedOut
         }
     }
 
+    /// Stops the backend polling GitHub for the device code's approval too:
+    /// until it stops, it refuses another sign-in.
     func cancelSignIn() {
+        signInAttempt += 1
         device = nil
         browserURL = nil
         stage = .signedOut
+        let backend = backend
+        cancellingSignIn = Task { try? await backend.run("cancel_sign_in") }
     }
 
     func signOut() async {
@@ -387,10 +405,11 @@ final class AppModel {
         await model.open()
     }
 
+    /// Closes the open repository, after its debounced typing is saved.
     func closeRepo() async {
         guard let repo else { return }
         await repo.close()
-        self.repo = nil
+        if self.repo === repo { self.repo = nil }
     }
 
     /// Back to the repository list: the next launch starts there too.
@@ -428,10 +447,20 @@ final class AppModel {
         return (repo, match.root)
     }
 
+    /// Deletes a downloaded copy. `root` can be a cached one from before an
+    /// update moved the app's container, which the backend would refuse as
+    /// outside its repositories: the copy is found again by owner and name
+    /// in a listing of the disk as it is now.
     func removeRepo(root: String) async throws {
+        let identity = managed.first { $0.root == root }.map { (owner: $0.owner, name: $0.name) }
+            ?? repo.flatMap { $0.repoRoot == root ? (owner: $0.github.owner, name: $0.github.name) : nil }
         await leaveRepo()
-        try await backend.run("remove_repo", ["root": .string(root)])
-        managed.removeAll { $0.root == root }
+        await listManaged()
+        let current = identity.flatMap { identity in
+            managed.first { $0.owner == identity.owner && $0.name == identity.name }?.root
+        } ?? root
+        try await backend.run("remove_repo", ["root": .string(current)])
+        managed.removeAll { $0.root == current }
         saveCache()
     }
 

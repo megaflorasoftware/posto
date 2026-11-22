@@ -264,6 +264,40 @@ describe("repository session", () => {
     });
   });
 
+  it("drops field edits meant for a file that's no longer open", async () => {
+    const view = await call<{ tree: TreeNode[] }>("repo.view");
+    const [first, second] = view.tree.find((node) => node.label === "Writing")!.files;
+    type Opened = { session: number; form: { values: Record<string, unknown> } };
+    const firstView = await call<Opened>("doc.open", { key: first.key });
+    const secondView = await call<Opened>("doc.open", { key: second.key });
+    for (const [method, args] of [
+      ["form.edit", { path: ["title"], value: "Typed into the other file" }],
+      ["form.listAppend", { path: ["tags"], value: "typed" }],
+      ["form.listRemove", { path: ["tags"], index: 0 }],
+      ["form.editDate", { path: ["publish_date"], control: "2024-01-02", time: false }],
+    ] as const) {
+      await expect(call(method, { ...args, session: firstView.session })).rejects.toThrow(
+        /no longer open/,
+      );
+    }
+    const current = await call<Opened>("doc.view");
+    expect(current.form.values).toEqual(secondView.form.values);
+    // The open file's own session is accepted.
+    const edited = await call<Opened>("form.edit", {
+      session: secondView.session,
+      path: ["title"],
+      value: "Typed into this file",
+    });
+    expect(edited.form.values.title).toBe("Typed into this file");
+    // Later tests find the file by its title.
+    await call("form.edit", {
+      session: secondView.session,
+      path: ["title"],
+      value: secondView.form.values.title,
+    });
+    await settledPath();
+  });
+
   it("picks images for a component's props from the document's media", async () => {
     const view = await call<{ tree: TreeNode[] }>("repo.view");
     const file = allFiles(view.tree).find((candidate) =>
@@ -1180,6 +1214,30 @@ describe("form fields", () => {
     await call("doc.open", { key: blog.files[0].key });
   }
 
+  it("builds a new list item in its schema's key order", async () => {
+    await openBlogPost();
+    type Values = { form: { values: { images?: Array<Record<string, unknown>> } } };
+    const before = (await call<Values>("doc.view")).form.values.images?.length ?? 0;
+    // Swift sends no item: its dictionaries would reorder the keys.
+    const appended = await call<Values>("form.listAppend", { path: ["images"] });
+    const images = appended.form.values.images!;
+    expect(images).toHaveLength(before + 1);
+    expect(Object.keys(images[before])).toEqual(["src", "alt"]);
+    const raw = await read(await settledPath());
+    expect(raw.indexOf("src:", raw.lastIndexOf("images:"))).toBeLessThan(
+      raw.indexOf("alt:", raw.lastIndexOf("images:")),
+    );
+    // A given item is used as it is.
+    const given = await call<Values>("form.listAppend", {
+      path: ["images"],
+      value: { alt: "Given", src: "/images/given.jpg" },
+    });
+    expect(given.form.values.images![before + 1]).toEqual({
+      alt: "Given",
+      src: "/images/given.jpg",
+    });
+  });
+
   it("resolves a new referenced entry's fields against its own collection", async () => {
     await openBlogPost();
     const draft = await call<{
@@ -1301,5 +1359,88 @@ describe("form fields", () => {
       path: "/mock/site/src/components/Plain.astro",
     });
     expect(untyped.typed).toBe(false);
+  });
+});
+
+describe("closing a repository", () => {
+  /** Counts the demo backend's upstream fetches: the poll a running
+   * session keeps up every 30 seconds. */
+  function countFetches() {
+    let count = 0;
+    Object.defineProperty(globalThis, "__mockBehindUpstream", {
+      configurable: true,
+      get: () => {
+        count += 1;
+        return false;
+      },
+      set: () => {},
+    });
+    return {
+      get count() {
+        return count;
+      },
+      restore: () => delete (globalThis as { __mockBehindUpstream?: unknown }).__mockBehindUpstream,
+    };
+  }
+
+  /** Lets every pending backend reply and timer of the open play out, then
+   * a few fetch intervals pass. */
+  async function settle() {
+    for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    vi.advanceTimersByTime(120_000);
+    for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  const site = {
+    repoRoot: "/mock/site",
+    repo: {
+      owner: "example-org",
+      name: "posto",
+      cloneUrl: "https://github.com/example-org/posto.git",
+      defaultBranch: "main",
+    },
+  };
+
+  it("stops a repository closed partway through opening", async () => {
+    const host = await import("../src/host");
+    const fetches = countFetches();
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    let closing: Promise<Envelope> | undefined;
+    // The user backs out once the open is underway (its first view).
+    host.setNotifier((name, payload) => {
+      if (name === "repo" && (payload as { loading: boolean }).loading && !closing) {
+        closing = run("repo.close", {});
+      }
+    });
+    try {
+      const opened = await run("repo.open", site);
+      expect(closing).toBeDefined();
+      expect((await closing)?.error).toBeUndefined();
+      expect(opened.error).toMatch(/closed while it opened/);
+      await settle();
+      expect(fetches.count).toBe(0);
+      await expect(call("repo.view")).rejects.toThrow(/No repository is open/);
+    } finally {
+      host.setNotifier(() => {});
+      vi.useRealTimers();
+      fetches.restore();
+    }
+  });
+
+  it("stops the repository being opened, not the one it replaces, when closed at once", async () => {
+    await call("repo.open", site);
+    const fetches = countFetches();
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const opening = run("repo.open", { ...site, repo: null });
+      await call("repo.close");
+      expect((await opening).error).toMatch(/closed while it opened/);
+      await settle();
+      expect(fetches.count).toBe(0);
+      await expect(call("repo.view")).rejects.toThrow(/No repository is open/);
+    } finally {
+      vi.useRealTimers();
+      fetches.restore();
+    }
   });
 });

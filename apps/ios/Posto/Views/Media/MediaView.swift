@@ -134,7 +134,7 @@ struct MediaBrowser: View {
                 description: Text(media.readOnly ? "Images under src appear here." : "Import images or files to add them.")
             )
         }
-        if let progress = media.repo.mediaProgress, progress.total > 0 {
+        if let progress = media.repo?.mediaProgress, progress.total > 0 {
             VStack(spacing: 8) {
                 ProgressView(value: Double(progress.done), total: Double(progress.total))
                 Text("Checking \(progress.done) of \(progress.total) items…").font(.footnote)
@@ -204,7 +204,7 @@ struct MediaBrowser: View {
                     NavigationStack {
                         Form {
                             CredentialFormSection(request: request, purpose: .upload) { credential in
-                                Task { await media.repo.submitMediaCredential(credential) }
+                                Task { await media.repo?.submitMediaCredential(credential) }
                             }
                         }
                         .navigationTitle("Storage Password")
@@ -233,7 +233,7 @@ struct MediaBrowser: View {
     }
 
     private var credentialBinding: Binding<CredentialRequest?> {
-        Binding(get: { media.repo.mediaCredential }, set: { media.repo.mediaCredential = $0 })
+        Binding(get: { media.repo?.mediaCredential }, set: { media.repo?.mediaCredential = $0 })
     }
 
     private var validationShown: Binding<Bool> {
@@ -512,7 +512,10 @@ struct MediaBrowser: View {
     private func importFiles(_ urls: [URL]) async {
         preparing = true
         defer { preparing = false }
-        let paths = urls.compactMap(PhotoImport.copyToTemporary)
+        // A large file takes a while to copy: not on the main actor.
+        let paths = await Task.detached(priority: .userInitiated) {
+            urls.compactMap(PhotoImport.copyToTemporary)
+        }.value
         await importPublic(paths)
     }
 
@@ -799,11 +802,13 @@ enum PhotoImport {
         return converted.path
     }
 
+    /// A file picked in Files, copied out while its security scope is open,
+    /// into a folder of its own as dropped files are: two picks with the
+    /// same name keep their names without overwriting each other.
     static func copyToTemporary(_ url: URL) -> String? {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        let destination = directory.appendingPathComponent(url.lastPathComponent)
-        try? FileManager.default.removeItem(at: destination)
+        let destination = uniqueDestination(url.lastPathComponent)
         do {
             try FileManager.default.copyItem(at: url, to: destination)
             return destination.path
