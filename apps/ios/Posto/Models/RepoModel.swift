@@ -92,7 +92,11 @@ final class RepoModel {
             if let next = try? JSONDecoder().decode(RepoView.self, from: data) { view = next }
             publish?.engineChanged()
         case "document":
-            if let next = try? JSONDecoder().decode(DocumentView.self, from: data) { document?.apply(next) }
+            // A file opened since belongs to the model that replaces this one:
+            // taking on its session would let this one's edits land in it.
+            if let next = try? JSONDecoder().decode(DocumentView.self, from: data), next.session == document?.view.session {
+                document?.apply(next)
+            }
         case "component-schemas-changed":
             componentSchemaVersion += 1
         case "site-url-changed":
@@ -494,6 +498,10 @@ final class DocumentModel {
 protocol FormSink: AnyObject {
     var engine: Engine { get }
     var formTarget: String { get }
+    /// The open document's session, for its own fields: the engine drops an
+    /// edit that arrives after a file switch rather than apply it to the
+    /// next file.
+    var formSession: Int? { get }
     func formState() -> FormState?
     func applyFormResult(_ result: JSONValue)
 }
@@ -505,9 +513,12 @@ extension FormSink {
     /// no document behind them keep a text field.
     var picksImages: Bool { formTarget == "document" || formTarget == "component" || formTarget == "reference" }
 
+    var formSession: Int? { nil }
+
     func perform(_ method: String, _ args: [String: JSONValue]) async {
         var payload = args
         payload["form"] = .string(formTarget)
+        if let formSession { payload["session"] = .number(Double(formSession)) }
         if let result: JSONValue = try? await engine.call(method, payload) { applyFormResult(result) }
     }
 
@@ -538,6 +549,7 @@ extension FormSink {
 
 extension DocumentModel: FormSink {
     var formTarget: String { "document" }
+    var formSession: Int? { view.session }
     func formState() -> FormState? { view.form }
     func applyFormResult(_ result: JSONValue) {
         if let next = try? result.decode(as: DocumentView.self) { apply(next) }

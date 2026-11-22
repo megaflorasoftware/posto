@@ -263,6 +263,40 @@ describe("repository session", () => {
     });
   });
 
+  it("drops field edits meant for a file that's no longer open", async () => {
+    const view = await call<{ tree: TreeNode[] }>("repo.view");
+    const [first, second] = view.tree.find((node) => node.label === "Writing")!.files;
+    type Opened = { session: number; form: { values: Record<string, unknown> } };
+    const firstView = await call<Opened>("doc.open", { key: first.key });
+    const secondView = await call<Opened>("doc.open", { key: second.key });
+    for (const [method, args] of [
+      ["form.edit", { path: ["title"], value: "Typed into the other file" }],
+      ["form.listAppend", { path: ["tags"], value: "typed" }],
+      ["form.listRemove", { path: ["tags"], index: 0 }],
+      ["form.editDate", { path: ["publish_date"], control: "2024-01-02", time: false }],
+    ] as const) {
+      await expect(call(method, { ...args, session: firstView.session })).rejects.toThrow(
+        /no longer open/,
+      );
+    }
+    const current = await call<Opened>("doc.view");
+    expect(current.form.values).toEqual(secondView.form.values);
+    // The open file's own session is accepted.
+    const edited = await call<Opened>("form.edit", {
+      session: secondView.session,
+      path: ["title"],
+      value: "Typed into this file",
+    });
+    expect(edited.form.values.title).toBe("Typed into this file");
+    // Later tests find the file by its title.
+    await call("form.edit", {
+      session: secondView.session,
+      path: ["title"],
+      value: secondView.form.values.title,
+    });
+    await settledPath();
+  });
+
   it("picks images for a component's props from the document's media", async () => {
     const view = await call<{ tree: TreeNode[] }>("repo.view");
     const file = allFiles(view.tree).find((candidate) =>

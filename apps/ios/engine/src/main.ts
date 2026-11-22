@@ -131,15 +131,18 @@ function formResult(target: string, store: FormStore | null) {
   };
 }
 
+/** An edit on any form. The document's own fields are checked against the
+ * session they were typed into, as body edits are: an edit that arrives
+ * after a file switch must not land in the next file. */
 function formEdit(
   args: Args,
   apply: (store: FormStore) => void,
-  document: (doc: ReturnType<RepoSession["requireDocument"]>) => void,
+  document: (doc: DocumentSession) => void,
 ) {
   const target = (args.form as string | undefined) ?? "document";
   const { store } = formFor(target);
   if (store) apply(store);
-  else document(requireRepo().requireDocument());
+  else document(requireOpen(args.session));
   return formResult(target, store);
 }
 
@@ -368,7 +371,7 @@ const methods: Record<string, Method> = {
 
   /** Manual field templates: writes the template's current expansion. */
   "form.regenerate": (args) => {
-    const document = requireRepo().requireDocument();
+    const document = requireOpen(args.session);
     const schemaPath = (args.path as ValuePath).filter((key) => typeof key === "string").join(".");
     const template = document.entry?.fieldSchemas?.[schemaPath]?.template;
     const values = document.view().form?.values ?? {};
