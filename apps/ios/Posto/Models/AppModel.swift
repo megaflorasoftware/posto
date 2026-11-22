@@ -405,10 +405,11 @@ final class AppModel {
         await model.open()
     }
 
+    /// Closes the open repository, after its debounced typing is saved.
     func closeRepo() async {
         guard let repo else { return }
         await repo.close()
-        self.repo = nil
+        if self.repo === repo { self.repo = nil }
     }
 
     /// Back to the repository list: the next launch starts there too.

@@ -9,7 +9,9 @@ extension PublishModel: Identifiable {
 @MainActor
 @Observable
 final class PublishModel {
-    unowned let repo: RepoModel
+    /// Weak, as for the open document: a task can outlive the repository.
+    @ObservationIgnored private weak var repo: RepoModel?
+    let engine: Engine
     private(set) var view: PublishView?
     /// Must match the backend's fallback commit message in publish().
     var message = "Site updates"
@@ -18,13 +20,12 @@ final class PublishModel {
 
     init(repo: RepoModel) {
         self.repo = repo
+        engine = repo.engine
     }
-
-    var engine: Engine { repo.engine }
 
     func load() async {
         loading = true
-        await repo.document?.flush()
+        await repo?.document?.flush()
         view = try? await engine.call("git.loadChanges")
         loading = false
     }
@@ -55,14 +56,14 @@ final class PublishModel {
 
     func revert(_ file: ChangedFile) async {
         view = try? await engine.call("git.revert", ["file": try JSONValue(encoding: file)])
-        await repo.document?.reload()
+        await repo?.document?.reload()
     }
 
     /// Publishes; true when the sheet can close. A publish starts a deploy,
     /// so the repository's deployment status then watches for its run.
     func publish() async -> Bool {
-        let deployments = repo.deployments
-        let sinceRunId = deployments.status?.latestRun?.id
+        let deployments = repo?.deployments
+        let sinceRunId = deployments?.status?.latestRun?.id
         let publishedAt = Date()
         startPolling()
         defer { stopPolling() }
@@ -70,8 +71,8 @@ final class PublishModel {
             let result: JSONValue = try await engine.call("git.publish", ["message": .string(message)])
             view = try? result["view"]?.decode(as: PublishView.self)
             let published = result["published"]?.boolValue == true
-            if published && repo.view?.repo != nil {
-                deployments.expectNewRun(since: sinceRunId, publishedAt: publishedAt)
+            if published && repo?.view?.repo != nil {
+                deployments?.expectNewRun(since: sinceRunId, publishedAt: publishedAt)
             }
             return published
         } catch {
@@ -289,7 +290,10 @@ func deploymentStateText(_ state: String?) -> String {
 @MainActor
 @Observable
 final class MediaModel {
-    unowned let repo: RepoModel
+    /// Weak, as for the open document: a load or validation can outlive the
+    /// repository.
+    @ObservationIgnored private(set) weak var repo: RepoModel?
+    let engine: Engine
     private(set) var tabs: [MediaTab] = []
     var tab: String = "" {
         didSet {
@@ -311,9 +315,9 @@ final class MediaModel {
 
     init(repo: RepoModel) {
         self.repo = repo
+        engine = repo.engine
     }
 
-    var engine: Engine { repo.engine }
     var currentTab: MediaTab? { tabs.first { $0.id == tab } }
     var isLibrary: Bool { currentTab?.kind == "library" }
     var isPublic: Bool { currentTab?.kind == "public" }
@@ -459,11 +463,11 @@ final class MediaModel {
                 "ids": .array(selectedItems.map(JSONValue.string)),
                 "folders": .array(selectedFolders.map(JSONValue.string)),
             ])
-            repo.mediaProgress = nil
+            repo?.mediaProgress = nil
             await load(reload: true)
             return result
         } catch {
-            repo.mediaProgress = nil
+            repo?.mediaProgress = nil
             self.error = error.localizedDescription
             return nil
         }

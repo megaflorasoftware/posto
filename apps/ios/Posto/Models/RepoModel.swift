@@ -73,7 +73,12 @@ final class RepoModel {
         }
     }
 
+    /// The open file's debounced typing goes first: once the session
+    /// closes it has nowhere to go. An open still in flight loses.
     func close() async {
+        openingFile += 1
+        openingKey = nil
+        await document?.flush()
         try? await engine.run("repo.close")
     }
 
@@ -364,7 +369,11 @@ final class RepoModel {
 @MainActor
 @Observable
 final class DocumentModel {
-    unowned let repo: RepoModel
+    /// Weak: a flush or save can still be running once the repository has
+    /// closed (leaving it, signing out). The model reaches the engine
+    /// through its own reference.
+    @ObservationIgnored private weak var owner: RepoModel?
+    let engine: Engine
     private(set) var view: DocumentView
     /// Body and raw text as the editor shows them. The engine bumps
     /// `revision` when content changes underneath (pull, branch switch, raw
@@ -378,14 +387,21 @@ final class DocumentModel {
     private var rawTask: Task<Void, Never>?
 
     init(repo: RepoModel, view: DocumentView) {
-        self.repo = repo
+        owner = repo
+        engine = repo.engine
         self.view = view
         bodyText = view.body?.text ?? ""
         rawText = view.raw ?? ""
     }
 
+    /// The repository, for views: they show a document only while its
+    /// repository is open, which keeps it alive.
+    var repo: RepoModel {
+        guard let owner else { preconditionFailure("The document's repository was closed") }
+        return owner
+    }
+
     var key: String { view.key }
-    var engine: Engine { repo.engine }
 
     func apply(_ next: DocumentView) {
         // A rename (a filename template) keeps the session: the text typed
@@ -467,7 +483,7 @@ final class DocumentModel {
             renameError = result["error"]?.stringValue
             if let next = try? result["view"]?.decode(as: DocumentView.self) {
                 apply(next)
-                repo.selectedKey = next.key
+                owner?.selectedKey = next.key
             }
         } catch {
             renameError = error.localizedDescription
@@ -480,7 +496,7 @@ final class DocumentModel {
             renameError = result["error"]?.stringValue
             if let next = try? result["view"]?.decode(as: DocumentView.self) {
                 apply(next)
-                repo.selectedKey = next.key
+                owner?.selectedKey = next.key
             }
         } catch {
             renameError = error.localizedDescription

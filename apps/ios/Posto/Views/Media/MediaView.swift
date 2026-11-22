@@ -134,7 +134,7 @@ struct MediaBrowser: View {
                 description: Text(media.readOnly ? "Images under src appear here." : "Import images or files to add them.")
             )
         }
-        if let progress = media.repo.mediaProgress, progress.total > 0 {
+        if let progress = media.repo?.mediaProgress, progress.total > 0 {
             VStack(spacing: 8) {
                 ProgressView(value: Double(progress.done), total: Double(progress.total))
                 Text("Checking \(progress.done) of \(progress.total) items…").font(.footnote)
@@ -204,7 +204,7 @@ struct MediaBrowser: View {
                     NavigationStack {
                         Form {
                             CredentialFormSection(request: request, purpose: .upload) { credential in
-                                Task { await media.repo.submitMediaCredential(credential) }
+                                Task { await media.repo?.submitMediaCredential(credential) }
                             }
                         }
                         .navigationTitle("Storage Password")
@@ -233,7 +233,7 @@ struct MediaBrowser: View {
     }
 
     private var credentialBinding: Binding<CredentialRequest?> {
-        Binding(get: { media.repo.mediaCredential }, set: { media.repo.mediaCredential = $0 })
+        Binding(get: { media.repo?.mediaCredential }, set: { media.repo?.mediaCredential = $0 })
     }
 
     private var validationShown: Binding<Bool> {
