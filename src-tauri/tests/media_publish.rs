@@ -736,6 +736,69 @@ async fn an_unreachable_server_keeps_the_interrupted_publish_blocked() {
     assert_eq!(state(&f.local), before);
 }
 
+/// Moves the local clone, as an iOS app update moves the app's data
+/// container with the repositories in it.
+fn move_local(f: &Fixture) -> PathBuf {
+    let moved = f.local.with_file_name("moved");
+    std::fs::rename(&f.local, &moved).unwrap();
+    moved
+}
+
+#[tokio::test]
+async fn an_interrupted_publish_recovers_after_the_repository_moves() {
+    for point in POINTS_BEFORE_PUSH {
+        let f = fixture().await;
+        let before = state(&f.local);
+        let hooks = Hooks {
+            fail_at: None,
+            crash_at: Some(point),
+        };
+        f.run(f.request(), hooks).await.unwrap_err();
+
+        let moved = move_local(&f);
+        let root = moved.to_str().unwrap();
+        assert_eq!(
+            recover(root).unwrap(),
+            RecoveryOutcome::RolledBack,
+            "{point}"
+        );
+        assert_eq!(state(&moved), before, "{point}");
+        assert_eq!(recover(root).unwrap(), RecoveryOutcome::Clean, "{point}");
+    }
+}
+
+#[tokio::test]
+async fn a_journal_with_absolute_paths_recovers_after_the_repository_moves() {
+    let f = fixture().await;
+    let before = state(&f.local);
+    let hooks = Hooks {
+        fail_at: None,
+        crash_at: Some("after-commit"),
+    };
+    f.run(f.request(), hooks).await.unwrap_err();
+    // Rewritten as journals were before their paths became relative.
+    let path = f.local.join(".git/posto/media-publish/journal.json");
+    let mut journal: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let git_dir = git2::Repository::open(&f.local)
+        .unwrap()
+        .path()
+        .to_path_buf();
+    let index = git_dir.join(journal["indexPath"].as_str().unwrap());
+    journal["indexPath"] = index.to_string_lossy().into();
+    for file in journal["files"].as_array_mut().unwrap() {
+        let absolute = f.local.join(file["path"].as_str().unwrap());
+        file["path"] = absolute.to_string_lossy().into();
+    }
+    std::fs::write(&path, serde_json::to_vec(&journal).unwrap()).unwrap();
+
+    let moved = move_local(&f);
+    let root = moved.to_str().unwrap();
+    assert_eq!(recover(root).unwrap(), RecoveryOutcome::RolledBack);
+    assert_eq!(state(&moved), before);
+    assert!(!f.local.exists(), "nothing is written at the old location");
+}
+
 const LIVE_KEY: &str = "images/live-9a8b7c6d.jpg";
 const LIVE_URL: &str = "https://media.example.com/images/live-9a8b7c6d.jpg";
 

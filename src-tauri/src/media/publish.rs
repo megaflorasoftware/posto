@@ -13,7 +13,7 @@ use std::sync::Arc;
 use super::blocking;
 use super::deletes;
 use super::derive::{self, DerivedSet, DerivedSize};
-use super::journal::{self, BackedUpFile, Journal, Phase};
+use super::journal::{self, BackedUpFile, Journal, Phase, Roots};
 use super::probe::{bytes_digest, file_digest};
 use super::provider::{validate_object_key, MediaSource, ObjectInfo, Provider, Upload, UploadBody};
 use crate::git::{Client, IndexSnapshot, PushFailure, RemoteCommit, ScopedCommit};
@@ -402,9 +402,18 @@ fn verify(client: &Client, request: &PublishRequest) -> Result<VerifiedChanges, 
     })
 }
 
+/// Where the repository is now, for reading and writing its journal.
+fn roots(client: &Client) -> Result<Roots, String> {
+    Ok(Roots {
+        workdir: client.workdir_path()?,
+        git_dir: client.git_dir().to_path_buf(),
+    })
+}
+
 /// Records how to undo the transaction before anything changes.
 fn begin(client: &Client, changes: &VerifiedChanges) -> Result<Journal, String> {
     let git_dir = client.git_dir();
+    let roots = roots(client)?;
     let directory = journal::prepare_directory(git_dir)?;
     let index = client.capture_index()?;
     if let Some(bytes) = &index.bytes {
@@ -420,7 +429,7 @@ fn begin(client: &Client, changes: &VerifiedChanges) -> Result<Journal, String> 
         let backup = format!("file-{position}");
         journal::back_up(&directory, path, &backup)?;
         files.push(BackedUpFile {
-            path: path.clone(),
+            path: roots.relative_file(path),
             backup,
         });
     }
@@ -429,7 +438,7 @@ fn begin(client: &Client, changes: &VerifiedChanges) -> Result<Journal, String> 
         head_before: client.head_oid().map(|oid| oid.to_string()),
         commit: None,
         parent: None,
-        index_path: index.path,
+        index_path: roots.relative_git_path(&index.path),
         index_backup: index.bytes.map(|_| "index".to_string()),
         files,
     };
@@ -506,6 +515,7 @@ fn roll_back(
             client.rollback_commit(commit, parent)?;
         }
     }
+    let roots = roots(client)?;
     let directory = journal::directory(client.git_dir());
     let bytes = journal
         .index_backup
@@ -514,10 +524,10 @@ fn roll_back(
         .transpose()
         .map_err(|error| format!("Could not read the git index backup: {error}"))?;
     client.restore_index(&IndexSnapshot {
-        path: journal.index_path.clone(),
+        path: journal.index_location(&roots),
         bytes,
     })?;
-    journal.restore_files(client.git_dir())?;
+    journal.restore_files(&roots)?;
     journal::clear(client.git_dir())
 }
 
