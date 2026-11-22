@@ -512,7 +512,10 @@ struct MediaBrowser: View {
     private func importFiles(_ urls: [URL]) async {
         preparing = true
         defer { preparing = false }
-        let paths = urls.compactMap(PhotoImport.copyToTemporary)
+        // A large file takes a while to copy: not on the main actor.
+        let paths = await Task.detached(priority: .userInitiated) {
+            urls.compactMap(PhotoImport.copyToTemporary)
+        }.value
         await importPublic(paths)
     }
 
@@ -799,11 +802,13 @@ enum PhotoImport {
         return converted.path
     }
 
+    /// A file picked in Files, copied out while its security scope is open,
+    /// into a folder of its own as dropped files are: two picks with the
+    /// same name keep their names without overwriting each other.
     static func copyToTemporary(_ url: URL) -> String? {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        let destination = directory.appendingPathComponent(url.lastPathComponent)
-        try? FileManager.default.removeItem(at: destination)
+        let destination = uniqueDestination(url.lastPathComponent)
         do {
             try FileManager.default.copyItem(at: url, to: destination)
             return destination.path
