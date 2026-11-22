@@ -57,8 +57,8 @@ case "$mode" in
       [ -f "$data/Documents/tour/done" ] && break
       sleep 1
     done
-    rm -rf "$out"
-    mkdir -p "$out"
+    source "$here/scripts/tour-output.sh"
+    prepare_tour_output "$out"
     cp "$data"/Documents/tour/*.png "$out"/
     ls "$out"
     ;;

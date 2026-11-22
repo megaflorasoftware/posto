@@ -8,6 +8,8 @@ cd "$here"
 sdk="$(xcrun --show-sdk-path)"
 out="${POSTO_CATALYST_OUT:-$here/build/catalyst}"
 app="$out/Posto.app"
+# The app's version, from the XcodeGen spec (scripts/release.sh bumps it).
+version="$(sed -n 's/^    MARKETING_VERSION: "\(.*\)"$/\1/p' project.yml)"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
@@ -33,11 +35,11 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key><string>Posto</string>
-  <key>CFBundleIdentifier</key><string>net.megaflora.posto.native.catalyst</string>
+  <key>CFBundleIdentifier</key><string>net.megaflora.posto.catalyst</string>
   <key>CFBundleName</key><string>Posto</string>
-  <key>CFBundleDisplayName</key><string>Posto Native (Demo)</string>
+  <key>CFBundleDisplayName</key><string>Posto (Demo)</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.10.1</string>
+  <key>CFBundleShortVersionString</key><string>$version</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>CFBundleSupportedPlatforms</key><array><string>MacOSX</string></array>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
@@ -61,7 +63,8 @@ case "${1:-}" in
     compact=()
     [ "$1" = --tour-compact ] && compact=(-PostoTourCompact)
     [ -n "${POSTO_TOUR_DARK:-}" ] && compact+=(-PostoTourDark)
-    rm -rf "$shots"
+    source "$here/scripts/tour-output.sh"
+    prepare_tour_output "$shots"
     "$app/Contents/MacOS/Posto" -PostoDemo -PostoTour "$shots" ${compact[@]+"${compact[@]}"} >/dev/null 2>&1 || true
     ls "$shots"
     ;;

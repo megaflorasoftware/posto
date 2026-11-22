@@ -53,7 +53,8 @@ case "$mode" in
   --tour | --tour-compact)
     shots="${4:-$here/build/tour-live}"
     case "$shots" in /*) ;; *) shots="$here/$shots" ;; esac
-    rm -rf "$shots"
+    source "$here/scripts/tour-output.sh"
+    prepare_tour_output "$shots"
     [ "$mode" = --tour-compact ] && args+=(-PostoTourCompact)
     [ -n "${POSTO_TOUR_DARK:-}" ] && args+=(-PostoTourDark)
     "$app/Contents/MacOS/Posto" "${args[@]}" -PostoTour "$shots" >/dev/null 2>&1 || true
