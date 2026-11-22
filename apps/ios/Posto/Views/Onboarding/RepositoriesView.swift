@@ -95,6 +95,7 @@ struct RepositoriesView: View {
 private struct RepositoryRow: View {
     let app: AppModel
     let repo: GitHubRepo
+    @State private var confirmingDelete = false
 
     var body: some View {
         let managed = app.managedRepo(for: repo)
@@ -122,20 +123,35 @@ private struct RepositoryRow: View {
         }
         .buttonStyle(.plain)
         .disabled(app.cloneState != .idle)
-        .swipeActions(edge: .trailing) {
-            if let managed {
-                Button(role: .destructive) {
-                    Task {
-                        do {
-                            try await app.removeRepo(root: managed.root)
-                        } catch {
-                            app.error = "Could not delete \(repo.name) from this device: \(error.localizedDescription)"
-                        }
-                    }
+        // Deleting discards unpublished changes, so it always asks first (as
+        // Settings does), and a full swipe can't delete on its own.
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if managed != nil {
+                Button {
+                    confirmingDelete = true
                 } label: {
-                    Label("Delete from device", systemImage: "trash")
+                    Label("Delete from Device", systemImage: "trash")
+                }
+                .tint(.red)
+            }
+        }
+        .confirmationDialog(
+            "Delete \(repo.name) from this device?",
+            isPresented: $confirmingDelete,
+            titleVisibility: .visible
+        ) {
+            Button("Delete from Device", role: .destructive) {
+                guard let managed = app.managedRepo(for: repo) else { return }
+                Task {
+                    do {
+                        try await app.removeRepo(root: managed.root)
+                    } catch {
+                        app.error = "Could not delete \(repo.name) from this device: \(error.localizedDescription)"
+                    }
                 }
             }
+        } message: {
+            Text("Unpublished changes will be lost. You can download it again anytime.")
         }
     }
 }
