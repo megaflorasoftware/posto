@@ -401,9 +401,16 @@ final class AppModel {
     ///   previews of a site outside the managed repositories).
     private func open(repo: GitHubRepo, root: String, remember: Bool = true) async {
         guard let engine else { return }
-        // The engine has one repository open at a time: one that's still
-        // closing finishes first.
+        openRequest += 1
+        let request = openRequest
+        // The engine has one repository open at a time: one still open (a
+        // second row tapped before the first one's page came up) or still
+        // closing finishes first. Only the latest open goes ahead after
+        // that wait, and none once the list was left again (Sign Out,
+        // Delete from Device).
+        detachRepo()
         await closing?.value
+        guard request == openRequest else { return }
         let model = RepoModel(app: self, engine: engine, github: repo, repoRoot: root)
         self.repo = model
         if remember && !demo { UserDefaults.standard.set(repo.fullName, forKey: Self.lastRepositoryKey) }
@@ -413,6 +420,9 @@ final class AppModel {
 
     /// The repository closing behind the list, which the next open waits for.
     private var closing: Task<Void, Never>?
+    /// Bumped by each open and by leaving, so an open still waiting on a
+    /// close goes ahead only if nothing has happened since.
+    private var openRequest = 0
 
     /// Closes the open repository, after its debounced typing is saved.
     func closeRepo() async {
@@ -426,7 +436,14 @@ final class AppModel {
     /// list too.
     func leaveRepo() {
         UserDefaults.standard.removeObject(forKey: Self.lastRepositoryKey)
+        openRequest += 1
         detachRepo()
+    }
+
+    /// Waits for a repository that's closing (saving its typing) to finish,
+    /// before the app is suspended or quits.
+    func finishClosing() async {
+        await closing?.value
     }
 
     private func detachRepo() {

@@ -121,6 +121,9 @@ struct RepoDetailView: View {
             // A row was just chosen (a page is pushed before the open
             // starts) or a file is opening.
             LoadingView("Opening…", delay: .milliseconds(200))
+        } else if !ownsStack {
+            // iPhone: the page is going away (a first open failed).
+            Color.clear
         } else if repo.view?.loading ?? true {
             LoadingView("Loading files…")
         } else {
@@ -263,7 +266,8 @@ struct StatusBanner: View {
 /// The workspace's commands that act on its own layout, for the menu bar
 /// (PostoCommands).
 struct WorkspaceCommands {
-    let toggleSidebar: () -> Void
+    /// Nil where there's no sidebar (iPhone's stack).
+    let toggleSidebar: (() -> Void)?
     let findFile: () -> Void
 }
 

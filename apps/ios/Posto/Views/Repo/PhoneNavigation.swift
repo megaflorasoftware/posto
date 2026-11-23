@@ -25,7 +25,7 @@ struct PhoneNavigation: View {
                     // one: a page sliding away after Back keeps showing the
                     // repository that closed as it went.
                     switch route.page {
-                    case .repository: RepoHomeView(repo: route.repo)
+                    case .chooser, .repository: RepoHomeView(repo: route.repo)
                     case .editor: RepoDetailView(repo: route.repo, ownsStack: false)
                     }
                 }
@@ -33,7 +33,7 @@ struct PhoneNavigation: View {
         .modifier(OpensSelectedFile(repo: app.repo))
         .focusedSceneValue(\.workspaceCommands, app.repo.map { repo in
             WorkspaceCommands(
-                toggleSidebar: {},
+                toggleSidebar: nil,
                 findFile: {
                     // Back to the files, where the search field is.
                     repo.selectedKey = nil
@@ -50,7 +50,7 @@ struct PhoneNavigation: View {
     private var path: Binding<[PhoneRoute]> {
         Binding {
             guard let repo = app.repo else { return [] }
-            let home = PhoneRoute(page: .repository, repo: repo)
+            let home = PhoneRoute(page: repo.choosingWorkspace ? .chooser : .repository, repo: repo)
             guard let key = repo.selectedKey else { return [home] }
             return [home, PhoneRoute(page: .editor, repo: repo, key: key)]
         } set: { path in
@@ -68,7 +68,11 @@ struct PhoneNavigation: View {
 /// A page on the iPhone stack past the repository list.
 struct PhoneRoute: Hashable {
     enum Page: Hashable {
-        /// The repository's files (or its project chooser).
+        /// A folder of projects waiting for one to be picked. A page of its
+        /// own, so picking one (from folders browsed into, pushed over it)
+        /// replaces the whole lot with the files.
+        case chooser
+        /// The repository's files.
         case repository
         /// The open file.
         case editor
