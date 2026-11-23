@@ -77,12 +77,13 @@ struct WorkspaceChooserView: View {
                 }
             }
             #if os(iOS)
-            // Back to the repository list; the macOS app has none (it opens
-            // folders), so there it would just close the folder.
-            if candidates != nil && !dismissible {
+            // Back to the repository list (iPhone's stack has a back button
+            // of its own); the macOS app has none (it opens folders), so
+            // there it would just close the folder.
+            if candidates != nil && !dismissible && !PhoneNavigation.isActive {
                 ToolbarItem(placement: .barLeading) {
                     Button {
-                        Task { await repo.app.leaveRepo() }
+                        repo.app.leaveRepo()
                     } label: {
                         Label("Repositories", systemImage: "chevron.backward")
                     }

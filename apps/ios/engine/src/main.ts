@@ -184,9 +184,13 @@ const methods: Record<string, Method> = {
     return opening.view();
   },
   "repo.close": async () => {
-    await repo?.close();
-    repo = null;
-    media = null;
+    // A repository opened while this one closed is left in place.
+    const closing = repo;
+    await closing?.close();
+    if (repo === closing) {
+      repo = null;
+      media = null;
+    }
     return null;
   },
   "repo.view": () => requireRepo().view(),

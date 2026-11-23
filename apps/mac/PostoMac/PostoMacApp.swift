@@ -55,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             let window = MacWindowState.shared
             await window.app.repo?.document?.flush()
+            await window.app.finishClosing()
             await window.preview.stop()
             quit()
         }

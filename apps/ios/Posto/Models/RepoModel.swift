@@ -224,7 +224,11 @@ final class RepoModel {
             let opened: DocumentView = try await engine.call("doc.open", ["key": .string(key)])
             guard opening == openingFile else { return }
             document = DocumentModel(repo: self, view: opened)
-            selectedKey = opened.key
+            // Backing out (or choosing another file) while this opened
+            // leaves the selection where the user put it: the close or open
+            // that follows takes this one out again. Otherwise a late
+            // answer would bring the editor back after Back.
+            if selectedKey == key { selectedKey = opened.key }
         } catch {
             guard opening == openingFile else { return }
             // The engine closes the open file before reading the next, so a
@@ -236,7 +240,7 @@ final class RepoModel {
                 if current.documentKey != document?.key { document = nil }
             }
             openingKey = nil
-            selectedKey = document?.key
+            if selectedKey == key { selectedKey = document?.key }
             openError = error.localizedDescription
         }
     }
@@ -483,12 +487,13 @@ final class DocumentModel {
 
     func rename(to filename: String) async {
         renameError = nil
+        let previous = view.key
         do {
             let result: JSONValue = try await engine.call("doc.rename", ["filename": .string(filename)])
             renameError = result["error"]?.stringValue
             if let next = try? result["view"]?.decode(as: DocumentView.self) {
                 apply(next)
-                owner?.selectedKey = next.key
+                followRename(from: previous, to: next.key)
             }
         } catch {
             renameError = error.localizedDescription
@@ -496,16 +501,25 @@ final class DocumentModel {
     }
 
     func refreshFilename() async {
+        let previous = view.key
         do {
             let result: JSONValue = try await engine.call("doc.refreshFilename")
             renameError = result["error"]?.stringValue
             if let next = try? result["view"]?.decode(as: DocumentView.self) {
                 apply(next)
-                owner?.selectedKey = next.key
+                followRename(from: previous, to: next.key)
             }
         } catch {
             renameError = error.localizedDescription
         }
+    }
+
+    /// The selection follows the file to its new name, unless it has moved
+    /// on while the rename ran: a filename committed as the editor loses
+    /// focus to Back would otherwise bring the editor back.
+    private func followRename(from previous: String, to key: String) {
+        guard let owner, owner.selectedKey == previous else { return }
+        owner.selectedKey = key
     }
 
     func bodyMediaValue(for absolutePath: String) async -> String? {

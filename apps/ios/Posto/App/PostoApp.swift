@@ -59,9 +59,9 @@ struct PostoCommands: Commands {
                 .disabled(workspace == nil || presenting)
         }
         CommandGroup(replacing: .sidebar) {
-            Button("Toggle Sidebar") { workspace?.toggleSidebar() }
+            Button("Toggle Sidebar") { workspace?.toggleSidebar?() }
                 .keyboardShortcut("s", modifiers: [.command, .control])
-                .disabled(workspace == nil)
+                .disabled(workspace?.toggleSidebar == nil)
         }
         CommandGroup(replacing: .appSettings) {
             if let repo {

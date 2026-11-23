@@ -16,7 +16,9 @@ struct RootView: View {
             case .authorizing:
                 DeviceCodeView(app: app)
             case .repositories:
-                if let repo = app.repo {
+                if PhoneNavigation.isActive {
+                    PhoneNavigation(app: app, switchDemo: switchDemo)
+                } else if let repo = app.repo {
                     RepoWorkspaceView(repo: repo)
                 } else {
                     RepositoriesView(app: app, switchDemo: switchDemo)
@@ -44,13 +46,15 @@ struct RootView: View {
 
     /// Writes the open file's pending edits: the debounced typing, then the
     /// engine's own autosave (`doc.flush` saves at once rather than waiting
-    /// out its delay). A background task lets the write finish after the
-    /// app leaves the screen.
+    /// out its delay), and those of a repository still closing after Back.
+    /// A background task lets the writes finish after the app leaves the
+    /// screen.
     private func saveEdits() {
-        guard let document = app.repo?.document else { return }
+        let document = app.repo?.document
         let assertion = BackgroundAssertion(name: "Save edits")
         Task {
-            await document.flush()
+            await document?.flush()
+            await app.finishClosing()
             assertion.end()
         }
     }
