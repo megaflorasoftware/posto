@@ -1,72 +1,96 @@
 import SwiftUI
 
-/// The repository picker: downloaded sites first, then the rest of the
-/// user's GitHub repositories, each downloading on first open.
+/// The repository picker in a stack of its own (iPad; iPhone's stack goes
+/// on into the repository, PhoneNavigation).
 struct RepositoriesView: View {
     let app: AppModel
     let switchDemo: (Bool) -> Void
-    @State private var query = ""
 
     var body: some View {
         NavigationStack {
-            List {
-                if let error = app.error, !app.repos.isEmpty {
-                    Section {
-                        HStack(alignment: .firstTextBaseline) {
-                            NoticeRow(message: error, systemImage: "exclamationmark.triangle.fill", tint: .red)
-                            Spacer(minLength: 0)
-                            Button {
-                                app.error = nil
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.footnote.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                            }
-                            .buttonStyle(.borderless)
-                            .accessibilityLabel("Dismiss")
+            RepositoryList(app: app)
+        }
+        .modifier(RepositorySheets(app: app, switchDemo: switchDemo))
+    }
+}
+
+/// The repository picker: downloaded sites first, then the rest of the
+/// user's GitHub repositories, each downloading on first open.
+struct RepositoryList: View {
+    let app: AppModel
+    @State private var query = ""
+
+    var body: some View {
+        List {
+            if let error = app.error, !app.repos.isEmpty {
+                Section {
+                    HStack(alignment: .firstTextBaseline) {
+                        NoticeRow(message: error, systemImage: "exclamationmark.triangle.fill", tint: .red)
+                        Spacer(minLength: 0)
+                        Button {
+                            app.error = nil
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.secondary)
                         }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Dismiss")
                     }
                 }
-                let repos = app.sortedRepos(matching: query)
-                ForEach(repos) { repo in
-                    RepositoryRow(app: app, repo: repo)
-                }
             }
-            .groupedListStyle()
-            .navigationTitle("Repositories")
-            .inlineNavigationTitle()
-            .searchable(text: $query, prompt: "Search repositories")
-            .refreshable { await app.loadRepos() }
-            .overlay {
-                if app.repos.isEmpty {
-                    if app.reposLoading || !app.reposLoaded {
-                        ProgressView()
-                    } else if app.error != nil {
-                        ContentUnavailableView {
-                            Label("Couldn't load repositories", systemImage: "wifi.exclamationmark")
-                        } description: {
-                            Text(app.error ?? "")
-                        } actions: {
-                            Button("Try Again") { Task { await app.loadRepos() } }
-                                .glassActionStyle()
-                        }
-                    } else {
-                        ContentUnavailableView("No repositories", systemImage: "folder", description: Text("Repositories you can access on GitHub appear here."))
+            let repos = app.sortedRepos(matching: query)
+            ForEach(repos) { repo in
+                RepositoryRow(app: app, repo: repo)
+            }
+        }
+        .groupedListStyle()
+        .navigationTitle("Repositories")
+        .inlineNavigationTitle()
+        .searchable(text: $query, prompt: "Search repositories")
+        .refreshable { await app.loadRepos() }
+        .overlay {
+            if app.repos.isEmpty {
+                if app.reposLoading || !app.reposLoaded {
+                    ProgressView()
+                } else if app.error != nil {
+                    ContentUnavailableView {
+                        Label("Couldn't load repositories", systemImage: "wifi.exclamationmark")
+                    } description: {
+                        Text(app.error ?? "")
+                    } actions: {
+                        Button("Try Again") { Task { await app.loadRepos() } }
+                            .glassActionStyle()
                     }
-                } else if !query.isEmpty && app.sortedRepos(matching: query).isEmpty {
-                    ContentUnavailableView.search(text: query)
+                } else {
+                    ContentUnavailableView("No repositories", systemImage: "folder", description: Text("Repositories you can access on GitHub appear here."))
                 }
+            } else if !query.isEmpty && app.sortedRepos(matching: query).isEmpty {
+                ContentUnavailableView.search(text: query)
             }
-            .toolbar {
-                ToolbarItem(placement: .barTrailing) {
-                    Button {
-                        app.settingsOpen = true
-                    } label: {
-                        AvatarView(user: app.user)
-                    }
-                    .accessibilityLabel("Settings")
+        }
+        .toolbar {
+            ToolbarItem(placement: .barTrailing) {
+                Button {
+                    app.settingsOpen = true
+                } label: {
+                    AvatarView(user: app.user)
                 }
+                .accessibilityLabel("Settings")
             }
+        }
+    }
+}
+
+/// The app's settings and a download's progress, over the repository list
+/// (and, on iPhone, over a repository pushed onto it: Remove and Redownload
+/// starts a download from there).
+struct RepositorySheets: ViewModifier {
+    let app: AppModel
+    let switchDemo: (Bool) -> Void
+
+    func body(content: Content) -> some View {
+        content
             .sheet(isPresented: Binding(get: { app.settingsOpen }, set: { app.settingsOpen = $0 })) {
                 Group {
                     AppSettingsView(app: app, switchDemo: switchDemo)
@@ -83,7 +107,6 @@ struct RepositoriesView: View {
                 }
                 .macSheetSizing()
             }
-        }
     }
 
     private var isCloning: Bool {

@@ -291,7 +291,10 @@ final class AppModel {
         // (only deployments do); it stays open.
         let keepsFolder = repo?.local == true
         do {
-            if !keepsFolder { await leaveRepo() }
+            if !keepsFolder {
+                leaveRepo()
+                await closing?.value
+            }
             try await backend.run("sign_out")
             settingsOpen = false
             user = nil
@@ -398,6 +401,9 @@ final class AppModel {
     ///   previews of a site outside the managed repositories).
     private func open(repo: GitHubRepo, root: String, remember: Bool = true) async {
         guard let engine else { return }
+        // The engine has one repository open at a time: one that's still
+        // closing finishes first.
+        await closing?.value
         let model = RepoModel(app: self, engine: engine, github: repo, repoRoot: root)
         self.repo = model
         if remember && !demo { UserDefaults.standard.set(repo.fullName, forKey: Self.lastRepositoryKey) }
@@ -405,17 +411,32 @@ final class AppModel {
         await model.open()
     }
 
+    /// The repository closing behind the list, which the next open waits for.
+    private var closing: Task<Void, Never>?
+
     /// Closes the open repository, after its debounced typing is saved.
     func closeRepo() async {
-        guard let repo else { return }
-        await repo.close()
-        if self.repo === repo { self.repo = nil }
+        detachRepo()
+        await closing?.value
     }
 
-    /// Back to the repository list: the next launch starts there too.
-    func leaveRepo() async {
+    /// Back to the repository list, at once: Back on iPhone takes the
+    /// repository's page away as it's tapped, so the repository closes
+    /// (saving its typing) behind the list. The next launch starts at the
+    /// list too.
+    func leaveRepo() {
         UserDefaults.standard.removeObject(forKey: Self.lastRepositoryKey)
-        await closeRepo()
+        detachRepo()
+    }
+
+    private func detachRepo() {
+        guard let repo else { return }
+        self.repo = nil
+        let previous = closing
+        closing = Task {
+            await previous?.value
+            await repo.close()
+        }
     }
 
     // MARK: Reopening
@@ -454,7 +475,8 @@ final class AppModel {
     func removeRepo(root: String) async throws {
         let identity = managed.first { $0.root == root }.map { (owner: $0.owner, name: $0.name) }
             ?? repo.flatMap { $0.repoRoot == root ? (owner: $0.github.owner, name: $0.github.name) : nil }
-        await leaveRepo()
+        leaveRepo()
+        await closing?.value
         await listManaged()
         let current = identity.flatMap { identity in
             managed.first { $0.owner == identity.owner && $0.name == identity.name }?.root

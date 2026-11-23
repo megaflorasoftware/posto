@@ -9,7 +9,7 @@ struct RepoSidebarView: View {
     @State private var searchPresented = false
 
     var body: some View {
-        List(selection: $repo.selectedKey) {
+        List(selection: selection) {
             // Nothing but the loading state until the files are listed: a
             // half-opened repository's notices would read as broken.
             if let view = repo.view, !view.loading {
@@ -47,7 +47,7 @@ struct RepoSidebarView: View {
         .searchable(text: $query, isPresented: $searchPresented, placement: .alwaysVisible, prompt: "Find a file")
         .onChange(of: repo.findFileRequests) { searchPresented = true }
         // The engine's notices float over whichever column is in use; the
-        // editor shows them while a file is open (RepoWorkspaceView).
+        // editor shows them while a file is open (RepoDetailView).
         .safeAreaInset(edge: .top, spacing: 0) {
             if repo.document == nil { StatusBanner(repo: repo) }
         }
@@ -62,11 +62,14 @@ struct RepoSidebarView: View {
                 .floatingBarBackground()
         }
         .toolbar {
-            ToolbarItem(placement: .barLeading) {
-                Button {
-                    Task { await repo.app.leaveRepo() }
-                } label: {
-                    Label("Repositories", systemImage: "chevron.backward")
+            // iPhone's stack has a back button to the list of its own.
+            if !PhoneNavigation.isActive {
+                ToolbarItem(placement: .barLeading) {
+                    Button {
+                        repo.app.leaveRepo()
+                    } label: {
+                        Label("Repositories", systemImage: "chevron.backward")
+                    }
                 }
             }
             ToolbarItem(placement: .barTrailing) {
@@ -77,6 +80,16 @@ struct RepoSidebarView: View {
                 }
             }
         }
+        #endif
+    }
+
+    /// The open file as the list's selection, which opens it in the split
+    /// view's detail. iPhone's rows push the editor instead (PhoneRoute).
+    private var selection: Binding<String?>? {
+        #if os(iOS)
+        PhoneNavigation.isActive ? nil : $repo.selectedKey
+        #else
+        $repo.selectedKey
         #endif
     }
 
@@ -390,21 +403,7 @@ private struct FileRow: View {
     @State private var confirmingDelete = false
 
     var body: some View {
-        NavigationLink(value: file.key) {
-            Label {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(file.label).lineLimit(1)
-                    if let subtitle {
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-            } icon: {
-                Image(systemName: file.pinned ? "pin" : "doc.text")
-            }
-        }
+        link
         // Not a destructive role: that would take the row out before the
         // deletion is confirmed.
         .swipeActions(edge: .trailing) {
@@ -432,6 +431,37 @@ private struct FileRow: View {
                  : "\(file.name) will be permanently deleted.")
         }
         .tag(file.key)
+    }
+
+    /// iPhone pushes the file's editor; the split view selects the row,
+    /// which shows it in the detail.
+    @ViewBuilder
+    private var link: some View {
+        #if os(iOS)
+        if PhoneNavigation.isActive {
+            NavigationLink(value: PhoneRoute(page: .editor, repo: repo, key: file.key)) { label }
+        } else {
+            NavigationLink(value: file.key) { label }
+        }
+        #else
+        NavigationLink(value: file.key) { label }
+        #endif
+    }
+
+    private var label: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(file.label).lineLimit(1)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+        } icon: {
+            Image(systemName: file.pinned ? "pin" : "doc.text")
+        }
     }
 
     /// An entry of a data file (its key adds the entry to the file's path).

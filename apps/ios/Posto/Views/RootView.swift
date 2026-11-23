@@ -16,7 +16,9 @@ struct RootView: View {
             case .authorizing:
                 DeviceCodeView(app: app)
             case .repositories:
-                if let repo = app.repo {
+                if PhoneNavigation.isActive {
+                    PhoneNavigation(app: app, switchDemo: switchDemo)
+                } else if let repo = app.repo {
                     RepoWorkspaceView(repo: repo)
                 } else {
                     RepositoriesView(app: app, switchDemo: switchDemo)
